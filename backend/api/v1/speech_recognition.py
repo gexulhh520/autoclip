@@ -218,6 +218,14 @@ async def update_speech_config(
         
         # 更新Whisper配置
         if request.whisper_config:
+            if "model_name" in request.whisper_config:
+                model_name = request.whisper_config["model_name"]
+                model_info = get_model_manager().get_model_info(model_name)
+                if not model_info or model_info.status != ModelStatus.DOWNLOADED:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"模型 {model_name} 尚未下载，请先下载后再设为当前模型",
+                    )
             for key, value in request.whisper_config.items():
                 if hasattr(speech_config.whisper_config, key):
                     setattr(speech_config.whisper_config, key, value)
@@ -390,9 +398,19 @@ async def download_whisper_model(request: DownloadModelRequest):
         raise HTTPException(status_code=500, detail=f"下载Whisper模型失败: {str(e)}")
 
 @router.delete("/whisper-models/{model_name}")
-async def delete_whisper_model(model_name: str):
+async def delete_whisper_model(
+    model_name: str,
+    config: DesktopConfig = Depends(get_desktop_config),
+):
     """删除Whisper模型"""
     try:
+        active_model = config.speech_recognition.whisper_config.model_name
+        if model_name == active_model:
+            raise HTTPException(
+                status_code=400,
+                detail=f"模型 {model_name} 正在使用中，请先在设置里切换到其他模型再删除",
+            )
+
         model_manager = get_model_manager()
         
         # 检查模型是否存在

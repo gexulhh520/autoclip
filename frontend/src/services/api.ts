@@ -950,6 +950,30 @@ export interface WhisperModel {
   errorMessage?: string | null
 }
 
+export interface SpeechRecognitionConfigResponse {
+  method: string
+  whisper_config: {
+    model_name: string
+    language: string
+    custom_models_dir: string
+    enable_timestamps: boolean
+    enable_punctuation: boolean
+    enable_speaker_diarization: boolean
+    timeout: number
+  }
+  enable_fallback: boolean
+  fallback_method: string
+  output_format: string
+}
+
+export interface SpeechRecognitionConfigUpdate {
+  method: string
+  whisper_config?: Partial<SpeechRecognitionConfigResponse['whisper_config']>
+  enable_fallback?: boolean
+  fallback_method?: string
+  output_format?: string
+}
+
 // 基因模板 API
 export const templatesApi = {
   list: (): Promise<GeneTemplateListResponse> => api.get('/templates'),
@@ -963,6 +987,10 @@ export const speechApi = {
   installRuntime: (): Promise<{ started: boolean; message: string }> => api.post('/whisper/install'),
   uninstallRuntime: (): Promise<{ success: boolean; message: string }> => api.post('/whisper/uninstall'),
   getModels: (): Promise<WhisperModel[]> => api.get('/whisper-models'),
+  getConfig: (): Promise<SpeechRecognitionConfigResponse> => api.get('/speech-recognition/config'),
+  updateConfig: (
+    payload: SpeechRecognitionConfigUpdate,
+  ): Promise<{ message: string; success: boolean }> => api.put('/speech-recognition/config', payload),
   downloadModel: (model: string): Promise<unknown> => api.post('/whisper-models/download', { model }),
   deleteModel: (model: string): Promise<unknown> => api.delete(`/whisper-models/${model}`),
 }

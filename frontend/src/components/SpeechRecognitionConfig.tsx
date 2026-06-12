@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  Alert, Button, Card, Progress, Tag, Space, Typography, message, List, Popconfirm, Spin, Tooltip,
+  Alert, Button, Card, Progress, Tag, Space, Typography, message, List, Popconfirm, Spin, Tooltip, Radio,
 } from 'antd'
 import {
   DownloadOutlined, DeleteOutlined, CheckCircleFilled, ReloadOutlined, ThunderboltOutlined,
@@ -18,17 +18,24 @@ const accuracyColor: Record<string, string> = {
   最高: 'green', 高: 'green', 较好: 'blue', 中等: 'gold', 较低: 'default',
 }
 
-const SpeechRecognitionConfig: React.FC<SpeechRecognitionConfigProps> = () => {
+const SpeechRecognitionConfig: React.FC<SpeechRecognitionConfigProps> = ({ onConfigChange }) => {
   const [runtime, setRuntime] = useState<WhisperRuntimeStatus | null>(null)
   const [models, setModels] = useState<WhisperModel[]>([])
+  const [activeModel, setActiveModel] = useState<string>('base')
+  const [savingModel, setSavingModel] = useState(false)
   const [loading, setLoading] = useState(true)
   const timer = useRef<number | null>(null)
 
   const refresh = useCallback(async () => {
     try {
-      const [rt, ms] = await Promise.all([speechApi.getRuntimeStatus(), speechApi.getModels()])
+      const [rt, ms, cfg] = await Promise.all([
+        speechApi.getRuntimeStatus(),
+        speechApi.getModels(),
+        speechApi.getConfig(),
+      ])
       setRuntime(rt)
       setModels(Array.isArray(ms) ? ms : [])
+      setActiveModel(cfg.whisper_config?.model_name || 'base')
     } catch (e) {
       // 后端可能尚未就绪，静默重试
     } finally {
@@ -51,6 +58,9 @@ const SpeechRecognitionConfig: React.FC<SpeechRecognitionConfigProps> = () => {
     timer.current = window.setInterval(refresh, interval)
     return () => { if (timer.current) window.clearInterval(timer.current) }
   }, [runtime, models, refresh])
+
+  const downloadedModels = models.filter((m) => m.status === 'downloaded')
+  const activeModelDownloaded = downloadedModels.some((m) => m.name === activeModel)
 
   const handleInstall = async () => {
     try {
@@ -89,8 +99,26 @@ const SpeechRecognitionConfig: React.FC<SpeechRecognitionConfigProps> = () => {
       await speechApi.deleteModel(model)
       message.success(`已删除模型 ${model}`)
       refresh()
-    } catch (e) {
-      message.error('删除失败')
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '删除失败')
+    }
+  }
+
+  const handleSelectModel = async (model: string) => {
+    if (model === activeModel || savingModel) return
+    setSavingModel(true)
+    try {
+      await speechApi.updateConfig({
+        method: 'whisper_local',
+        whisper_config: { model_name: model },
+      })
+      setActiveModel(model)
+      message.success(`已切换转写模型为 ${model}`)
+      onConfigChange?.({ model_name: model })
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '切换失败')
+    } finally {
+      setSavingModel(false)
     }
   }
 
@@ -170,6 +198,43 @@ const SpeechRecognitionConfig: React.FC<SpeechRecognitionConfigProps> = () => {
             请先完成上方「Whisper 运行时」安装，再下载模型。下方为可选模型列表。
           </Paragraph>
         )}
+
+        {installed && downloadedModels.length > 0 && (
+          <Space direction="vertical" style={{ width: '100%', marginBottom: 16 }}>
+            <Text type="secondary">当前转写模型（仅已下载可选）</Text>
+            <Radio.Group
+              value={activeModelDownloaded ? activeModel : undefined}
+              onChange={(e) => handleSelectModel(e.target.value)}
+              disabled={savingModel}
+            >
+              <Space wrap>
+                {downloadedModels.map((m) => (
+                  <Radio.Button key={m.name} value={m.name}>
+                    {m.name}
+                  </Radio.Button>
+                ))}
+              </Space>
+            </Radio.Group>
+            {!activeModelDownloaded && (
+              <Alert
+                type="warning"
+                showIcon
+                message={`当前配置为 ${activeModel}，但该模型尚未下载，请下载后选用`}
+              />
+            )}
+          </Space>
+        )}
+
+        {installed && downloadedModels.length === 0 && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message="尚未下载任何模型"
+            description="下载至少一个模型后，可在此选择用于自动转写的模型。"
+          />
+        )}
+
         {models.length === 0 ? (
           <Text type="secondary">暂无模型信息，请确认后端已启动。</Text>
         ) : (
@@ -178,9 +243,19 @@ const SpeechRecognitionConfig: React.FC<SpeechRecognitionConfigProps> = () => {
             renderItem={(m) => {
               const downloaded = m.status === 'downloaded'
               const downloading = m.status === 'downloading'
+              const isActive = downloaded && m.name === activeModel
               return (
                 <List.Item
                   actions={[
+                    downloaded ? (
+                      isActive ? (
+                        <Button size="small" disabled>使用中</Button>
+                      ) : (
+                        <Button size="small" onClick={() => handleSelectModel(m.name)} disabled={savingModel}>
+                          设为当前
+                        </Button>
+                      )
+                    ) : null,
                     downloaded ? (
                       <Popconfirm title={`删除模型 ${m.name}？`} onConfirm={() => handleDelete(m.name)} okText="删除" cancelText="取消">
                         <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
@@ -198,7 +273,7 @@ const SpeechRecognitionConfig: React.FC<SpeechRecognitionConfigProps> = () => {
                         下载
                       </Button>
                     ),
-                  ]}
+                  ].filter(Boolean)}
                 >
                   <List.Item.Meta
                     title={
@@ -206,6 +281,7 @@ const SpeechRecognitionConfig: React.FC<SpeechRecognitionConfigProps> = () => {
                         <Text strong>{m.name}</Text>
                         <Text type="secondary">{m.size}</Text>
                         {downloaded && <Tag color="green">已下载</Tag>}
+                        {isActive && <Tag color="blue">当前使用</Tag>}
                         <Tag color={accuracyColor[m.accuracy] || 'default'}>准确度 {m.accuracy}</Tag>
                         <Tooltip title="速度"><Tag>{m.speed}</Tag></Tooltip>
                       </Space>

@@ -81,17 +81,20 @@ def process_import_task(self, project_id: str, video_path: str, srt_file_path: O
         if not srt_path:
             logger.info(f"开始为项目 {project_id} 生成字幕...")
             self.update_state(state='PROGRESS', meta={'progress': 40, 'message': '生成字幕...'})
-            
+
+            from backend.services.simple_progress import emit_progress
+            emit_progress(project_id, "SUBTITLE", "正在语音转写，可能需要数分钟...", subpercent=15)
+
             try:
                 from backend.utils.speech_recognizer import generate_subtitle_for_video
                 from backend.core.desktop_config import get_desktop_config
-                
+
                 # 获取用户配置的语音转写设置
                 config = get_desktop_config()
                 speech_config = config.speech_recognition
-                
+
                 logger.info(f"使用语音转写配置 - 方法: {speech_config.method}")
-                
+
                 # 根据配置选择参数
                 if speech_config.method == "whisper_local":
                     # 使用用户配置的Whisper参数
@@ -101,9 +104,9 @@ def process_import_task(self, project_id: str, video_path: str, srt_file_path: O
                     enable_punctuation = speech_config.whisper_config.enable_punctuation
                     enable_speaker_diarization = speech_config.whisper_config.enable_speaker_diarization
                     timeout = speech_config.whisper_config.timeout
-                    
+
                     logger.info(f"Whisper配置 - 模型: {model}, 语言: {language}, 时间戳: {enable_timestamps}")
-                    
+
                     generated_subtitle = generate_subtitle_for_video(
                         Path(video_path),
                         language=language,
@@ -117,7 +120,7 @@ def process_import_task(self, project_id: str, video_path: str, srt_file_path: O
                 else:
                     # 使用API服务
                     logger.info(f"使用API服务 - {speech_config.method}")
-                    
+
                     # 根据服务类型获取API配置
                     if speech_config.method == "openai_api":
                         api_config = speech_config.openai_config
@@ -131,7 +134,7 @@ def process_import_task(self, project_id: str, video_path: str, srt_file_path: O
                         api_config = speech_config.custom_api_config
                     else:
                         raise ValueError(f"不支持的语音识别方法: {speech_config.method}")
-                    
+
                     generated_subtitle = generate_subtitle_for_video(
                         Path(video_path),
                         method=speech_config.method,
@@ -140,18 +143,18 @@ def process_import_task(self, project_id: str, video_path: str, srt_file_path: O
                         enable_timestamps=api_config.enable_timestamps,
                         enable_punctuation=api_config.enable_punctuation
                     )
-                
+
                 srt_path = str(generated_subtitle)
                 logger.info(f"语音转写成功: {srt_path}")
-                
+
             except Exception as e:
                 logger.error(f"语音转写失败: {str(e)}")
-                
+
                 # 如果启用了回退机制，尝试使用回退方法
                 if speech_config.enable_fallback and speech_config.fallback_method != speech_config.method:
                     try:
                         logger.info(f"尝试回退方法: {speech_config.fallback_method}")
-                        
+
                         if speech_config.fallback_method == "whisper_local":
                             fallback_config = speech_config.whisper_config
                             generated_subtitle = generate_subtitle_for_video(
@@ -166,10 +169,10 @@ def process_import_task(self, project_id: str, video_path: str, srt_file_path: O
                                 Path(video_path),
                                 method=speech_config.fallback_method
                             )
-                        
+
                         srt_path = str(generated_subtitle)
                         logger.info(f"回退方法成功: {srt_path}")
-                        
+
                     except Exception as fallback_error:
                         logger.error(f"回退方法也失败: {str(fallback_error)}")
                         srt_path = None

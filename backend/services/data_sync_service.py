@@ -31,6 +31,88 @@ def _step6_output_counts(step6_output: Dict[str, Any]) -> tuple[int, int]:
     return clips, collections
 
 
+def _clip_metadata_candidate_paths(project_dir: Path) -> List[Path]:
+    """按优先级列出可能存放切片元数据的文件路径（含多源项目）。"""
+    paths: List[Path] = []
+    metadata_dir = project_dir / "metadata"
+
+    for name in ("clips_metadata.json", "step4_titles.json"):
+        paths.append(metadata_dir / name)
+
+    sources_dir = metadata_dir / "sources"
+    if sources_dir.is_dir():
+        for source_dir in sorted(sources_dir.iterdir()):
+            if not source_dir.is_dir():
+                continue
+            for name in ("clips_metadata.json", "step4_titles.json"):
+                paths.append(source_dir / name)
+
+    paths.extend([
+        project_dir / "step6_video" / "clips_metadata.json",
+        project_dir / "step3_all_scored.json",
+        project_dir / "step4_title" / "step4_title.json",
+        project_dir / "step4_titles.json",
+        project_dir / "clips_metadata.json",
+    ])
+    return paths
+
+
+def _load_clips_data_from_project_dir(project_dir: Path) -> Optional[List[Dict[str, Any]]]:
+    """从项目目录读取并合并切片元数据。"""
+    all_clips: List[Dict[str, Any]] = []
+    seen_keys: set = set()
+
+    for clips_file in _clip_metadata_candidate_paths(project_dir):
+        logger.info(f"检查切片文件: {clips_file}")
+        if not clips_file.exists():
+            logger.info(f"切片文件不存在: {clips_file}")
+            continue
+        try:
+            with open(clips_file, "r", encoding="utf-8") as f:
+                clips_data = json.load(f)
+        except Exception as e:
+            logger.warning(f"读取切片文件失败 {clips_file}: {e}")
+            continue
+
+        if isinstance(clips_data, dict) and "clips" in clips_data:
+            clips_data = clips_data["clips"]
+        if not isinstance(clips_data, list):
+            logger.warning(f"切片数据格式不正确: {clips_file}")
+            continue
+
+        logger.info(
+            "成功读取切片文件: %s, 数据长度: %d",
+            clips_file,
+            len(clips_data),
+        )
+
+        source_id = None
+        parts = clips_file.parts
+        if "sources" in parts:
+            idx = parts.index("sources")
+            if idx + 1 < len(parts):
+                source_id = parts[idx + 1]
+
+        for clip in clips_data:
+            if not isinstance(clip, dict):
+                continue
+            clip_copy = dict(clip)
+            if source_id and not clip_copy.get("source_id"):
+                clip_copy["source_id"] = source_id
+            key = (
+                clip_copy.get("id"),
+                clip_copy.get("source_id"),
+                clip_copy.get("generated_title", clip_copy.get("title", "")),
+                clip_copy.get("start_time"),
+            )
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            all_clips.append(clip_copy)
+
+    return all_clips or None
+
+
 class DataSyncService:
     """数据同步服务"""
     
@@ -163,39 +245,10 @@ class DataSyncService:
     def _sync_clips_from_filesystem(self, project_id: str, project_dir: Path) -> int:
         """从文件系统同步切片数据"""
         try:
-            # 查找切片数据文件
-            clips_files = [
-                project_dir / "step6_video" / "clips_metadata.json",  # 最完整的数据源
-                project_dir / "step3_all_scored.json",  # 优先使用正确的数据源
-                project_dir / "step4_title" / "step4_title.json",
-                project_dir / "step4_titles.json",
-                project_dir / "clips_metadata.json",
-                project_dir / "metadata" / "clips_metadata.json"
-            ]
-            
-            clips_data = None
-            for clips_file in clips_files:
-                logger.info(f"检查切片文件: {clips_file}")
-                if clips_file.exists():
-                    try:
-                        with open(clips_file, 'r', encoding='utf-8') as f:
-                            clips_data = json.load(f)
-                        logger.info(f"成功读取切片文件: {clips_file}, 数据长度: {len(clips_data) if isinstance(clips_data, list) else 'not list'}")
-                        break
-                    except Exception as e:
-                        logger.warning(f"读取切片文件失败 {clips_file}: {e}")
-                else:
-                    logger.info(f"切片文件不存在: {clips_file}")
-            
+            clips_data = _load_clips_data_from_project_dir(project_dir)
+
             if not clips_data:
                 logger.info(f"项目 {project_id} 没有找到切片数据")
-                return 0
-            
-            # 确保clips_data是列表
-            if isinstance(clips_data, dict) and "clips" in clips_data:
-                clips_data = clips_data["clips"]
-            elif not isinstance(clips_data, list):
-                logger.warning(f"项目 {project_id} 切片数据格式不正确")
                 return 0
             
             synced_count = 0
@@ -568,15 +621,12 @@ class DataSyncService:
     
     def _sync_clips(self, project_id: str, project_dir: Path) -> int:
         """同步clips数据"""
-        clips_file = project_dir / "step4_titles.json"
-        if not clips_file.exists():
-            logger.warning(f"Clips文件不存在: {clips_file}")
+        clips_data = _load_clips_data_from_project_dir(project_dir)
+        if not clips_data:
+            logger.warning(f"Clips文件不存在于项目目录: {project_dir}")
             return 0
-        
+
         try:
-            with open(clips_file, 'r', encoding='utf-8') as f:
-                clips_data = json.load(f)
-            
             clips_count = 0
             for clip_data in clips_data:
                 # 检查是否已存在

@@ -75,11 +75,15 @@ class SimplePipelineAdapter:
                 raw_dir = get_project_directory(self.project_id) / "raw"
             raw_dir.mkdir(parents=True, exist_ok=True)
             output_path = raw_dir / "input.srt"
+
+            from backend.core.desktop_config import get_desktop_config
+
+            whisper_model = get_desktop_config().speech_recognition.whisper_config.model_name
             srt_path = generate_subtitle_for_video(
                 video_file_path,
                 output_path=output_path,
                 method="whisper_local",
-                model="base",
+                model=whisper_model,
                 language="auto",
             )
 

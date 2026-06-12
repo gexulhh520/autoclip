@@ -114,6 +114,35 @@ STEP_BY_ID = {s.id: s for s in STEP_DEFINITIONS}
 
 # 超过此时间无进度更新且进程内无 worker，视为卡住
 STALE_PIPELINE_SECONDS = 120
+# Whisper 转写可能较慢，单独放宽
+WHISPER_STALE_SECONDS = 1800
+
+
+def _is_whisper_in_progress(project_dir: Path) -> bool:
+    """已提取音频但尚无 SRT，视为 Whisper 转写进行中。"""
+    raw_dir = project_dir / "raw"
+    audio = raw_dir / "input_audio.wav"
+    srt = raw_dir / "input.srt"
+    if not audio.exists() or srt.exists():
+        return False
+    try:
+        age = time.time() - audio.stat().st_mtime
+        return age < WHISPER_STALE_SECONDS
+    except OSError:
+        return False
+
+
+def _should_skip_stale_recovery(project_id: str, project_dir: Path) -> bool:
+    if _is_whisper_in_progress(project_dir):
+        logger.info("项目 %s Whisper 转写进行中，跳过僵死任务清理", project_id)
+        return True
+    progress = get_progress_snapshot(project_id)
+    stage = (progress or {}).get("stage") or ""
+    if stage == "SUBTITLE":
+        progress_ts = int((progress or {}).get("ts") or 0)
+        if progress_ts and (time.time() - progress_ts) < WHISPER_STALE_SECONDS:
+            return True
+    return False
 
 
 def _effective_pipeline_step_ids(processing_config: Dict[str, Any]) -> set:
@@ -357,6 +386,10 @@ def _cleanup_orphaned_pipeline_locks(db: Session, project_id: str, project: Any)
     """
     _heal_stale_download_status(db, project, project_id)
 
+    project_dir = get_project_directory(project_id)
+    if _should_skip_stale_recovery(project_id, project_dir):
+        return 0
+
     if _is_downloading(project, project_id):
         return 0
 
@@ -511,10 +544,13 @@ def reconcile_stale_pipeline_state(db: Session, project_id: str, project: Any) -
     if project_status != "processing":
         return False
 
+    project_dir = get_project_directory(project_id)
+    if _should_skip_stale_recovery(project_id, project_dir):
+        return False
+
     if _has_active_pipeline_worker(project_id):
         return False
 
-    project_dir = get_project_directory(project_id)
     progress = get_progress_snapshot(project_id)
 
     from backend.models.task import Task, TaskStatus

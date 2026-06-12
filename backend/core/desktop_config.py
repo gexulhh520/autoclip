@@ -6,10 +6,11 @@ resolved through the shared path helpers so packaged builds use the app support
 directory while development builds can keep using the project workspace.
 """
 
+import json
 import os
 import shutil
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from . import path_utils
@@ -70,11 +71,78 @@ class SpeechRecognitionSettings:
         return deepcopy(self)
 
 
+def _speech_config_file() -> Path:
+    return path_utils.get_data_directory() / "speech_recognition.json"
+
+
+def _load_speech_recognition_settings() -> SpeechRecognitionSettings:
+    config_file = _speech_config_file()
+    if not config_file.exists():
+        return SpeechRecognitionSettings()
+
+    try:
+        data = json.loads(config_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return SpeechRecognitionSettings()
+
+    whisper_data = data.get("whisper_config") or {}
+    whisper_fields = WhisperConfig.__dataclass_fields__
+    whisper_config = WhisperConfig(
+        **{k: v for k, v in whisper_data.items() if k in whisper_fields}
+    )
+
+    settings = SpeechRecognitionSettings(
+        method=data.get("method", "whisper_local"),
+        whisper_config=whisper_config,
+        enable_fallback=data.get("enable_fallback", True),
+        fallback_method=data.get("fallback_method", "whisper_local"),
+        output_format=data.get("output_format", "srt"),
+    )
+
+    for api_key in (
+        "openai_config",
+        "azure_config",
+        "google_config",
+        "aliyun_config",
+        "custom_api_config",
+    ):
+        api_data = data.get(api_key) or {}
+        api_fields = ApiConfig.__dataclass_fields__
+        setattr(
+            settings,
+            api_key,
+            ApiConfig(**{k: v for k, v in api_data.items() if k in api_fields}),
+        )
+
+    return settings
+
+
+def _save_speech_recognition_settings(settings: SpeechRecognitionSettings) -> None:
+    config_file = _speech_config_file()
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "method": settings.method,
+        "whisper_config": asdict(settings.whisper_config),
+        "openai_config": asdict(settings.openai_config),
+        "azure_config": asdict(settings.azure_config),
+        "google_config": asdict(settings.google_config),
+        "aliyun_config": asdict(settings.aliyun_config),
+        "custom_api_config": asdict(settings.custom_api_config),
+        "enable_fallback": settings.enable_fallback,
+        "fallback_method": settings.fallback_method,
+        "output_format": settings.output_format,
+    }
+    config_file.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
 class DesktopConfig:
     def __init__(self):
         self.settings = settings
         self.paths = self._build_paths()
-        self.speech_recognition = SpeechRecognitionSettings()
+        self.speech_recognition = _load_speech_recognition_settings()
         self._openai_api_key = os.getenv("API_OPENAI_API_KEY", "")
         self._gemini_api_key = os.getenv("API_GEMINI_API_KEY", "")
         self._siliconflow_api_key = os.getenv("API_SILICONFLOW_API_KEY", "")
@@ -349,4 +417,8 @@ def ensure_desktop_directories() -> bool:
 
 
 def save_desktop_config(config: DesktopConfig) -> bool:
-    return True
+    try:
+        _save_speech_recognition_settings(config.speech_recognition)
+        return True
+    except Exception:
+        return False
