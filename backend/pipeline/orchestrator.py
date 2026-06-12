@@ -10,14 +10,20 @@ from backend.core.clip_duration_config import (
     resolve_clip_duration_config,
     save_duration_config_to_metadata,
 )
-from backend.core.path_utils import get_project_directory
+from backend.core.path_utils import (
+    get_project_clips_directory,
+    get_project_collections_directory,
+    get_project_directory,
+    resolve_project_metadata_directory,
+)
 from backend.pipeline.context import PipelineContext
 from backend.pipeline.goals.registry import resolve_clip_goal
-from backend.pipeline.pipelines.definitions import resolve_step_order, should_run_step
+from backend.pipeline.pipelines.definitions import resolve_effective_step_order, should_run_step
 from backend.pipeline.prompt_loader import (
     load_goal_prompt_contents,
     materialize_prompt_files,
     save_goal_config_to_metadata,
+    save_template_config_to_metadata,
 )
 from backend.pipeline.steps.runners import (
     STEP_LOADERS,
@@ -60,11 +66,17 @@ class PipelineOrchestrator:
         task_id: str,
         settings: Optional[Dict[str, Any]] = None,
         generate_subtitle: Optional[Callable] = None,
+        source_id: Optional[str] = None,
+        source_index: Optional[int] = None,
+        source_filename: Optional[str] = None,
     ):
         self.project_id = project_id
         self.task_id = task_id
         self.settings = settings or {}
         self._generate_subtitle = generate_subtitle
+        self.source_id = source_id
+        self.source_index = source_index
+        self.source_filename = source_filename
 
     def build_context(
         self,
@@ -81,28 +93,36 @@ class PipelineOrchestrator:
         duration_config = resolve_clip_duration_config(duration_settings)
 
         project_dir = get_project_directory(self.project_id)
-        metadata_dir = project_dir / "metadata"
+        metadata_dir = resolve_project_metadata_directory(self.project_id, self.source_id)
         output_dir = project_dir / "output"
-        clips_dir = output_dir / "clips"
-        collections_dir = output_dir / "collections"
+        clips_dir = get_project_clips_directory(self.project_id)
+        collections_dir = get_project_collections_directory(self.project_id)
         for d in (metadata_dir, output_dir, clips_dir, collections_dir):
             d.mkdir(parents=True, exist_ok=True)
 
         save_duration_config_to_metadata(metadata_dir, duration_config)
         save_goal_config_to_metadata(metadata_dir, goal)
+        save_template_config_to_metadata(metadata_dir, self.settings)
 
-        prompts = load_goal_prompt_contents(goal, video_category, duration_config)
+        prompts = load_goal_prompt_contents(
+            goal,
+            video_category,
+            duration_config,
+            self.settings,
+        )
         prompt_files = materialize_prompt_files(metadata_dir, prompts)
 
-        step_order = resolve_step_order(goal)
+        step_order = resolve_effective_step_order(goal, self.settings)
         logger.info(
-            "Pipeline 配置: goal=%s pipeline=%s steps=%s duration=%s-%ss category=%s",
+            "Pipeline 配置: goal=%s pipeline=%s steps=%s duration=%s-%ss category=%s template=%s source=%s",
             goal.id,
             goal.pipeline_id,
             step_order,
             duration_config.min_seconds,
             duration_config.max_seconds,
             video_category,
+            self.settings.get("template_id"),
+            self.source_id,
         )
 
         return PipelineContext(
@@ -122,6 +142,9 @@ class PipelineOrchestrator:
             prompt_files=prompt_files,
             start_from_step=start_from_step,
             emit_progress=emit_progress,
+            source_id=self.source_id,
+            source_index=self.source_index,
+            source_filename=self.source_filename,
         )
 
     async def run(
@@ -131,7 +154,7 @@ class PipelineOrchestrator:
         start_from_step: Optional[str] = None,
     ) -> PipelineRunResult:
         ctx = self.build_context(input_video_path, input_srt_path, start_from_step)
-        step_order = resolve_step_order(ctx.goal)
+        step_order = resolve_effective_step_order(ctx.goal, ctx.settings)
         state = PipelineStepState()
 
         emit_progress(self.project_id, "INGEST", "素材准备完成")

@@ -122,6 +122,48 @@ def submit_video_pipeline_task(
             'message': '任务提交失败'
         }
 
+
+def submit_multi_source_project_task(project_id: str) -> Dict[str, Any]:
+    """提交多源视频串行处理任务。"""
+    if _is_desktop_mode():
+        import threading
+        import uuid
+
+        task_id = str(uuid.uuid4())
+
+        def run():
+            try:
+                from ..tasks.multi_source_processing import process_multi_source_project
+                process_multi_source_project.apply(args=[project_id], task_id=task_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("桌面模式多源队列失败 %s: %s", project_id, exc, exc_info=True)
+
+        threading.Thread(
+            target=run, name=f"multi-source-{project_id[:8]}", daemon=True
+        ).start()
+        return {
+            "success": True,
+            "task_id": task_id,
+            "status": "PENDING",
+            "message": "多源处理任务已在本地启动",
+        }
+
+    try:
+        celery_task = celery_app.send_task(
+            "backend.tasks.multi_source_processing.process_multi_source_project",
+            args=[project_id],
+        )
+        return {
+            "success": True,
+            "task_id": celery_task.id,
+            "status": "PENDING",
+            "message": "多源处理任务已提交",
+        }
+    except Exception as e:
+        logger.error("提交多源任务失败 %s: %s", project_id, e)
+        return {"success": False, "error": str(e), "message": "任务提交失败"}
+
+
 def submit_single_step_task(project_id: str, step: str, config: Dict[str, Any]) -> Dict[str, Any]:
     """
     提交单个步骤任务

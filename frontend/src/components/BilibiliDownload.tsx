@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Button, message, Progress, Input, Card, Typography, Space, Spin, Select } from 'antd'
 import { DownloadOutlined } from '@ant-design/icons'
-import { projectApi, bilibiliApi, VideoCategory, BilibiliDownloadTask, ClipDurationSelection, ClipGoalSelection } from '../services/api'
+import { projectApi, bilibiliApi, VideoCategory, BilibiliDownloadTask, ClipDurationSelection, ClipGoalSelection, GeneTemplateSummary } from '../services/api'
 import { useProjectStore } from '../store/useProjectStore'
 import { validateApiConfigBeforeProjectCreation } from '../utils/apiConfigCheck'
 import ClipDurationSelector from './ClipDurationSelector'
@@ -11,11 +11,12 @@ const { Text } = Typography
 
 interface BilibiliDownloadProps {
   onDownloadSuccess?: (projectId: string) => void
+  selectedTemplate?: GeneTemplateSummary | null
 }
 
 // 使用从API导入的BilibiliDownloadTask类型
 
-const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }) => {
+const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess, selectedTemplate }) => {
   const [url, setUrl] = useState('')
   const [projectName, setProjectName] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string>('')
@@ -36,6 +37,15 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
   const [error, setError] = useState('')
   
   const { addProject } = useProjectStore()
+
+  useEffect(() => {
+    if (!selectedTemplate) return
+    setSelectedCategory(selectedTemplate.pipeline.video_category)
+    setClipGoal({ clip_goal: selectedTemplate.pipeline.clip_goal })
+    if (selectedTemplate.pipeline.clip_duration_preset) {
+      setClipDuration({ clip_duration_preset: selectedTemplate.pipeline.clip_duration_preset })
+    }
+  }, [selectedTemplate])
 
   // 加载视频分类配置
   useEffect(() => {
@@ -219,6 +229,7 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
         video_category: selectedCategory,
         ...clipDuration,
         ...clipGoal,
+        ...(selectedTemplate ? { template_id: selectedTemplate.id } : {}),
       }
       
       if (projectName.trim()) {
@@ -428,6 +439,7 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
                 </Text>
               </div>
               
+              {!selectedTemplate && (
               <div>
                 <Text style={{ color: '#ffffff', marginBottom: '12px', display: 'block', fontSize: '16px', fontWeight: 500 }}>视频分类</Text>
                 {loadingCategories ? (
@@ -487,10 +499,15 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
                   </div>
                 )}
               </div>
+              )}
 
-              <ClipGoalSelector value={clipGoal} onChange={setClipGoal} />
+              {!selectedTemplate && (
+                <ClipGoalSelector value={clipGoal} onChange={setClipGoal} />
+              )}
 
-              <ClipDurationSelector value={clipDuration} onChange={setClipDuration} />
+              {!selectedTemplate && (
+                <ClipDurationSelector value={clipDuration} onChange={setClipDuration} />
+              )}
             </>
           )}
         </Space>

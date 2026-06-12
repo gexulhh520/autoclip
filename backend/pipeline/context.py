@@ -30,6 +30,9 @@ class PipelineContext:
     prompt_files: Dict[str, Path]  # 物化到 metadata 的路径，供旧 step 使用
     start_from_step: Optional[str] = None
     emit_progress: Optional[ProgressEmitter] = None
+    source_id: Optional[str] = None
+    source_index: Optional[int] = None
+    source_filename: Optional[str] = None
 
     def artifact(self, name: str) -> Path:
         mapping = {

@@ -1,0 +1,107 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://autoclip.local/schemas/gene-template.json",
+  "title": "GeneTemplate",
+  "description": "基因模板配置：面向用户的风格包，映射到底层 Pipeline 参数与 Prompt",
+  "type": "object",
+  "required": ["id", "name", "description", "pipeline"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "description": "模板唯一标识，用于 template_id"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "展示名称"
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "模板说明"
+    },
+    "version": {
+      "type": "string",
+      "default": "1.0.0"
+    },
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "是否在模板广场展示"
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "可选标签，用于筛选"
+    },
+    "preview": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "video_url": {
+          "type": "string",
+          "description": "参考视频 URL（外链或 /api/v1/files/... 静态路径）"
+        },
+        "thumbnail_url": {
+          "type": "string",
+          "description": "封面图 URL"
+        }
+      }
+    },
+    "pipeline": {
+      "type": "object",
+      "required": ["clip_goal"],
+      "additionalProperties": false,
+      "properties": {
+        "clip_goal": {
+          "type": "string",
+          "description": "映射到 GoalProfile.id（如 golden_quote、knowledge）"
+        },
+        "video_category": {
+          "type": "string",
+          "default": "default",
+          "description": "视频分类，影响 category 级 Prompt 覆盖"
+        },
+        "clip_duration_preset": {
+          "type": "string",
+          "description": "切片时长预设（short / medium / standard 等）"
+        }
+      }
+    },
+    "prompts": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Prompt 配置；MVP 阶段通过 pack 复用现有 goals 目录",
+      "properties": {
+        "pack": {
+          "type": "string",
+          "description": "覆盖 prompt pack 目录名，默认与 clip_goal 的 prompt_pack 一致"
+        },
+        "overrides": {
+          "type": "object",
+          "description": "未来：按 key 内联覆盖 prompt 文本",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "rules": {
+      "type": "object",
+      "description": "扩展规则（字幕样式、是否聚类等），Pipeline 动态化阶段消费",
+      "additionalProperties": true,
+      "properties": {
+        "enable_clustering": {
+          "type": "boolean",
+          "description": "是否执行 step5 主题聚类"
+        },
+        "subtitle_style": {
+          "type": "string",
+          "description": "字幕样式：default | quote_highlight",
+          "enum": ["default", "quote_highlight"]
+        }
+      }
+    }
+  }
+}

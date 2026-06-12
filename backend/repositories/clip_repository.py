@@ -105,6 +105,34 @@ class ClipRepository(BaseRepository[Clip]):
             self.model.start_time >= start_time,
             self.model.end_time <= end_time
         ).order_by(asc(self.model.start_time)).all()
+
+    def get_by_project_and_source(
+        self,
+        project_id: str,
+        source_id: str,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> List[Clip]:
+        """按项目与源视频 ID 过滤（clip_metadata.source_id 或文件名前缀）。"""
+        query = self.db.query(self.model).filter(self.model.project_id == project_id)
+        items = query.order_by(desc(self.model.score)).all()
+        filtered: List[Clip] = []
+        for clip in items:
+            meta = clip.clip_metadata or {}
+            if meta.get("source_id") == source_id:
+                filtered.append(clip)
+                continue
+            video_path = getattr(clip, "video_path", "") or ""
+            if f"/{source_id}_" in video_path or video_path.startswith(f"{source_id}_"):
+                filtered.append(clip)
+                continue
+            clip_id = meta.get("id") or meta.get("original_id") or ""
+            if str(clip_id).startswith(f"{source_id}_"):
+                filtered.append(clip)
+        return filtered[skip : skip + limit]
+
+    def count_by_project_and_source(self, project_id: str, source_id: str) -> int:
+        return len(self.get_by_project_and_source(project_id, source_id, skip=0, limit=10_000))
     
     def create_clip(self, clip_data: Dict[str, Any]) -> Clip:
         """创建切片记录（分离存储模式）"""

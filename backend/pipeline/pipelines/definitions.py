@@ -1,7 +1,7 @@
 """Pipeline 家族定义 — 步骤组合，不含业务逻辑。"""
 from __future__ import annotations
 
-from typing import Dict, List, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from backend.pipeline.goals.base import GoalProfile
@@ -47,6 +47,36 @@ def resolve_step_order(goal: "GoalProfile") -> List[str]:
     if goal.step_ids:
         return list(goal.step_ids)
     return get_pipeline_steps(goal.pipeline_id)
+
+
+def apply_template_step_rules(
+    step_order: List[str],
+    settings: Optional[Dict[str, Any]] = None,
+) -> List[str]:
+    """根据 template_rules.enable_clustering 调整步骤组合。"""
+    settings = settings or {}
+    rules = settings.get("template_rules") or {}
+    enable_clustering = rules.get("enable_clustering")
+    order = list(step_order)
+
+    if enable_clustering is False:
+        return [step_id for step_id in order if step_id != "step5_clustering"]
+
+    if enable_clustering is True and "step5_clustering" not in order:
+        if "step6_video" in order:
+            idx = order.index("step6_video")
+            order.insert(idx, "step5_clustering")
+        else:
+            order.append("step5_clustering")
+    return order
+
+
+def resolve_effective_step_order(
+    goal: "GoalProfile",
+    settings: Optional[Dict[str, Any]] = None,
+) -> List[str]:
+    """Goal 步骤组合 + 模板规则后的最终顺序。"""
+    return apply_template_step_rules(resolve_step_order(goal), settings)
 
 
 def should_run_step(step_id: str, start_from_step: str | None, step_order: List[str]) -> bool:

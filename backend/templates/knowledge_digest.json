@@ -1,0 +1,24 @@
+{
+  "id": "knowledge_digest",
+  "name": "知识干货精选",
+  "description": "从课程、访谈、知识区长视频中提取完整论述话题，生成 3–8 分钟拆条，并自动组织系列合集。",
+  "version": "1.0.2",
+  "enabled": true,
+  "tags": ["知识", "拆条", "合集", "B站"],
+  "preview": {
+    "video_url": "/api/v1/templates/assets/knowledge_digest_preview.mp4",
+    "thumbnail_url": "/api/v1/templates/assets/knowledge_digest.svg"
+  },
+  "pipeline": {
+    "clip_goal": "knowledge",
+    "video_category": "knowledge",
+    "clip_duration_preset": "standard"
+  },
+  "prompts": {
+    "pack": "knowledge"
+  },
+  "rules": {
+    "enable_clustering": true,
+    "subtitle_style": "default"
+  }
+}

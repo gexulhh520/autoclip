@@ -40,6 +40,8 @@ interface PipelineStepsPanelProps {
 
   projectId: string
 
+  sourceId?: string | null
+
   onPipelineFinished?: () => void
 
 }
@@ -78,6 +80,8 @@ const PipelineStepsPanel: React.FC<PipelineStepsPanelProps> = ({
 
   projectId,
 
+  sourceId,
+
   onPipelineFinished,
 
 }) => {
@@ -97,7 +101,7 @@ const PipelineStepsPanel: React.FC<PipelineStepsPanelProps> = ({
 
   const load = useCallback(async () => {
     try {
-      const res = await projectApi.getPipelineSteps(projectId)
+      const res = await projectApi.getPipelineSteps(projectId, sourceId ?? undefined)
       setData(res)
       if (res.stale_recovered) {
         message.info('检测到流水线任务已中断，状态已自动恢复，可从此步继续')
@@ -116,7 +120,7 @@ const PipelineStepsPanel: React.FC<PipelineStepsPanelProps> = ({
 
     }
 
-  }, [projectId])
+  }, [projectId, sourceId])
 
 
 
@@ -404,6 +408,7 @@ const PipelineStepsPanel: React.FC<PipelineStepsPanelProps> = ({
 
 
   const steps = data?.steps ?? []
+  const activeSteps = steps.filter((s) => s.status !== 'skipped')
   const overallPercent = data?.progress?.percent
   const isStuck =
     data?.project_status === 'processing' && !data?.is_pipeline_running
@@ -455,7 +460,11 @@ const PipelineStepsPanel: React.FC<PipelineStepsPanelProps> = ({
           </div>
 
           <div style={{ fontSize: 13, color: 'var(--ac-sub)', marginTop: 4 }}>
-            从下载/上传到切片导出，共 {steps.length} 个步骤。任意步骤均可重新执行（会清除该步及之后输出）。
+            {data?.template_name ? `${data.template_name} · ` : ''}
+            {data?.source_filename ? `${data.source_filename} · ` : ''}
+            从下载/上传到切片导出，共 {activeSteps.length} 个步骤
+            {steps.length > activeSteps.length ? `（${steps.length - activeSteps.length} 步已跳过）` : ''}
+            。任意步骤均可重新执行（会清除该步及之后输出）。
           </div>
 
           {data?.progress?.message && (

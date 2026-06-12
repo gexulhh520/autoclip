@@ -22,9 +22,19 @@ __all__ = ["SimplePipelineAdapter", "create_simple_pipeline_adapter", "PIPELINE_
 class SimplePipelineAdapter:
     """桌面端流水线入口：薄适配层，不含 clip_goal 分支。"""
 
-    def __init__(self, project_id: str, task_id: str):
+    def __init__(
+        self,
+        project_id: str,
+        task_id: str,
+        source_id: Optional[str] = None,
+        source_index: Optional[int] = None,
+        source_filename: Optional[str] = None,
+    ):
         self.project_id = project_id
         self.task_id = task_id
+        self.source_id = source_id
+        self.source_index = source_index
+        self.source_filename = source_filename
 
     def _load_project_settings(self) -> dict:
         try:
@@ -35,7 +45,8 @@ class SimplePipelineAdapter:
             try:
                 project = db.query(Project).filter(Project.id == self.project_id).first()
                 if project and project.processing_config:
-                    return dict(project.processing_config)
+                    from backend.pipeline.template_engine import merge_template_settings
+                    return merge_template_settings(dict(project.processing_config))
             finally:
                 db.close()
         except Exception as exc:
@@ -48,14 +59,20 @@ class SimplePipelineAdapter:
             emit_progress(self.project_id, "SUBTITLE", "正在使用AI生成字幕...", subpercent=25)
 
             from backend.utils.speech_recognizer import generate_subtitle_for_video
-            from backend.core.path_utils import get_project_directory
+            from backend.core.path_utils import (
+                get_project_directory,
+                get_project_source_raw_directory,
+            )
 
             video_file_path = Path(video_path)
             if not video_file_path.exists():
                 logger.error("视频文件不存在: %s", video_path)
                 return None
 
-            raw_dir = get_project_directory(self.project_id) / "raw"
+            if self.source_id:
+                raw_dir = get_project_source_raw_directory(self.project_id, self.source_id)
+            else:
+                raw_dir = get_project_directory(self.project_id) / "raw"
             raw_dir.mkdir(parents=True, exist_ok=True)
             output_path = raw_dir / "input.srt"
             srt_path = generate_subtitle_for_video(
@@ -99,6 +116,9 @@ class SimplePipelineAdapter:
                 task_id=self.task_id,
                 settings=settings,
                 generate_subtitle=self._generate_subtitle_automatically,
+                source_id=self.source_id,
+                source_index=self.source_index,
+                source_filename=self.source_filename,
             )
 
             result = await orchestrator.run(
@@ -168,5 +188,17 @@ class SimplePipelineAdapter:
             }
 
 
-def create_simple_pipeline_adapter(project_id: str, task_id: str) -> SimplePipelineAdapter:
-    return SimplePipelineAdapter(project_id, task_id)
+def create_simple_pipeline_adapter(
+    project_id: str,
+    task_id: str,
+    source_id: Optional[str] = None,
+    source_index: Optional[int] = None,
+    source_filename: Optional[str] = None,
+) -> SimplePipelineAdapter:
+    return SimplePipelineAdapter(
+        project_id,
+        task_id,
+        source_id=source_id,
+        source_index=source_index,
+        source_filename=source_filename,
+    )

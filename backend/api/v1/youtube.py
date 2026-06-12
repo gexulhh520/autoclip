@@ -133,6 +133,7 @@ class YouTubeDownloadRequest(BaseModel):
     clip_target_seconds: Optional[int] = None
     clip_max_seconds: Optional[int] = None
     clip_goal: Optional[str] = "knowledge"
+    template_id: Optional[str] = None
     browser: Optional[str] = None
 
 class YouTubeVideoInfo(BaseModel):
@@ -209,6 +210,14 @@ async def parse_youtube_video(
 async def create_youtube_download_task(request: YouTubeDownloadRequest):
     """创建YouTube视频下载任务 - 立即创建项目"""
     try:
+        from backend.pipeline.template_engine import TemplateNotFoundError, validate_template_id
+
+        if request.template_id:
+            try:
+                validate_template_id(request.template_id)
+            except TemplateNotFoundError:
+                raise HTTPException(status_code=400, detail=f"Invalid template_id: {request.template_id}")
+
         logger.info(f"创建YouTube下载任务: {request.url}")
         
         # 先获取视频信息以获取缩略图
@@ -278,6 +287,11 @@ async def create_youtube_download_task(request: YouTubeDownloadRequest):
                 youtube_settings["clip_target_seconds"] = request.clip_target_seconds
             if request.clip_max_seconds is not None:
                 youtube_settings["clip_max_seconds"] = request.clip_max_seconds
+            if request.template_id:
+                youtube_settings["template_id"] = request.template_id
+
+            from backend.pipeline.template_engine import merge_template_settings
+            youtube_settings = merge_template_settings(youtube_settings)
 
             project_data = ProjectCreate(
                 name=request.project_name,

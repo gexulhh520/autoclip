@@ -5,14 +5,20 @@ import {
   Select, 
   Spin, 
   Empty,
-  message 
+  message,
+  Button,
 } from 'antd'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import ProjectCard from '../components/ProjectCard'
 import FileUpload from '../components/FileUpload'
 import BilibiliDownload from '../components/BilibiliDownload'
 
-import { projectApi } from '../services/api'
+import { projectApi, GeneTemplateSummary, templatesApi } from '../services/api'
+import {
+  clearPersistedSelectedTemplate,
+  loadPersistedSelectedTemplate,
+  persistSelectedTemplate,
+} from '../utils/geneTemplate'
 import { useSimpleProgressStore } from '../stores/useSimpleProgressStore'
 import { Project, useProjectStore } from '../store/useProjectStore'
 import { useProjectPolling } from '../hooks/useProjectPolling'
@@ -23,9 +29,52 @@ const { Option } = Select
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate()
+  const location = useLocation()
+  const locationTemplate = (location.state as { selectedTemplate?: GeneTemplateSummary } | null)
+    ?.selectedTemplate ?? null
   const { projects, setProjects, deleteProject, loading, setLoading } = useProjectStore()
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [activeTab, setActiveTab] = useState<'upload' | 'bilibili'>('bilibili')
+  const [activeTemplate, setActiveTemplate] = useState<GeneTemplateSummary | null>(() => {
+    return locationTemplate || loadPersistedSelectedTemplate<GeneTemplateSummary>()
+  })
+
+  useEffect(() => {
+    if (locationTemplate) {
+      setActiveTemplate(locationTemplate)
+      persistSelectedTemplate(locationTemplate)
+    }
+  }, [locationTemplate])
+
+  useEffect(() => {
+    const templateId = activeTemplate?.id
+    if (!templateId) return
+    let cancelled = false
+    templatesApi.getDetail(templateId)
+      .then((response) => {
+        if (!cancelled) {
+          const next = response.template as GeneTemplateSummary
+          setActiveTemplate(next)
+          persistSelectedTemplate(next)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          message.warning('所选模板不可用，请重新选择')
+          clearPersistedSelectedTemplate()
+          setActiveTemplate(null)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeTemplate?.id])
+
+  const handleClearTemplate = () => {
+    clearPersistedSelectedTemplate()
+    setActiveTemplate(null)
+    navigate('/', { replace: true, state: {} })
+  }
 
   // 使用项目轮询Hook
   useProjectPolling({
@@ -138,8 +187,35 @@ const HomePage: React.FC = () => {
             justifyContent: 'center'
           }}>
             <div style={{ width: '100%', maxWidth: '820px' }}>
-              <div style={{ fontSize: '13px', color: 'var(--ac-muted)', margin: '0 4px 14px', letterSpacing: '0.2px' }}>
-                粘贴链接，AI 自动切片
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                margin: '0 4px 14px',
+              }}>
+                <div style={{ fontSize: '13px', color: 'var(--ac-muted)', letterSpacing: '0.2px' }}>
+                  {activeTemplate ? `已选模板：${activeTemplate.name}` : '粘贴链接，AI 自动切片'}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <Button
+                    type="link"
+                    size="small"
+                    onClick={() => navigate('/templates')}
+                    style={{ color: 'var(--ac-accent)', padding: 0, height: 'auto', fontSize: '13px' }}
+                  >
+                    {activeTemplate ? '更换模板' : '选择基因模板'}
+                  </Button>
+                  {activeTemplate && (
+                    <Button
+                      type="link"
+                      size="small"
+                      onClick={handleClearTemplate}
+                      style={{ color: 'var(--ac-sub)', padding: 0, height: 'auto', fontSize: '13px' }}
+                    >
+                      不使用模板
+                    </Button>
+                  )}
+                </div>
               </div>
               <div style={{
                 background: 'var(--ac-card)',
@@ -196,14 +272,18 @@ const HomePage: React.FC = () => {
               {/* 内容区域 */}
               <div>
                 {activeTab === 'bilibili' && (
-                  <BilibiliDownload onDownloadSuccess={async () => {
+                  <BilibiliDownload
+                    selectedTemplate={activeTemplate}
+                    onDownloadSuccess={async () => {
                     // 处理完成后刷新项目列表
                     await loadProjects()
                     // 不再显示重复的toast提示，BilibiliDownload组件已经显示了统一的提示
                   }} />
                 )}
                 {activeTab === 'upload' && (
-                  <FileUpload onUploadSuccess={async () => {
+                  <FileUpload
+                    selectedTemplate={activeTemplate}
+                    onUploadSuccess={async () => {
                     // 处理完成后刷新项目列表
                     await loadProjects()
                     message.success('项目创建成功，正在处理中...')

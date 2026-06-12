@@ -36,6 +36,7 @@ class BilibiliDownloadRequest(BaseModel):
     clip_target_seconds: Optional[int] = None
     clip_max_seconds: Optional[int] = None
     clip_goal: Optional[str] = "knowledge"
+    template_id: Optional[str] = None
     browser: Optional[str] = None
 
 class BilibiliVideoInfo(BaseModel):
@@ -101,6 +102,14 @@ async def parse_bilibili_video(
 async def create_bilibili_download_task(request: BilibiliDownloadRequest):
     """创建B站视频下载任务 - 立即创建项目"""
     try:
+        from backend.pipeline.template_engine import TemplateNotFoundError, validate_template_id
+
+        if request.template_id:
+            try:
+                validate_template_id(request.template_id)
+            except TemplateNotFoundError:
+                raise HTTPException(status_code=400, detail=f"Invalid template_id: {request.template_id}")
+
         logger.info(f"创建B站下载任务: {request.url}")
         
         # 先获取视频信息以获取缩略图
@@ -137,7 +146,6 @@ async def create_bilibili_download_task(request: BilibiliDownloadRequest):
                     logger.error(f"处理B站缩略图失败: {e}")
                     # 缩略图处理失败不影响主流程
             
-            # 创建项目数据
             bilibili_settings = {
                 "download_status": "downloading",
                 "download_progress": 0.0,
@@ -160,6 +168,11 @@ async def create_bilibili_download_task(request: BilibiliDownloadRequest):
                 bilibili_settings["clip_target_seconds"] = request.clip_target_seconds
             if request.clip_max_seconds is not None:
                 bilibili_settings["clip_max_seconds"] = request.clip_max_seconds
+            if request.template_id:
+                bilibili_settings["template_id"] = request.template_id
+
+            from backend.pipeline.template_engine import merge_template_settings
+            bilibili_settings = merge_template_settings(bilibili_settings)
 
             project_data = ProjectCreate(
                 name=request.project_name,

@@ -134,7 +134,8 @@ celery_app.autodiscover_tasks([
     'backend.tasks.video', 
     'backend.tasks.notification',
     'backend.tasks.maintenance',
-    'backend.tasks.import_processing'  # 添加导入处理任务
+    'backend.tasks.import_processing',  # 添加导入处理任务
+    'backend.tasks.multi_source_processing',
 ])
 
 if __name__ == '__main__':

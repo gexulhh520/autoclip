@@ -106,6 +106,52 @@ def get_project_output_directory(project_id: str) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir
 
+def get_project_metadata_directory(project_id: str) -> Path:
+    """获取项目 metadata 目录（单源默认）"""
+    metadata_dir = get_project_directory(project_id) / "metadata"
+    metadata_dir.mkdir(parents=True, exist_ok=True)
+    return metadata_dir
+
+def get_project_sources_root_directory(project_id: str) -> Path:
+    """多源：raw/sources 根目录"""
+    sources_dir = get_project_raw_directory(project_id) / "sources"
+    sources_dir.mkdir(parents=True, exist_ok=True)
+    return sources_dir
+
+def get_project_source_raw_directory(project_id: str, source_id: str) -> Path:
+    """多源：单个源的 raw 目录"""
+    source_dir = get_project_sources_root_directory(project_id) / source_id
+    source_dir.mkdir(parents=True, exist_ok=True)
+    return source_dir
+
+def get_project_source_metadata_directory(project_id: str, source_id: str) -> Path:
+    """多源：单个源的 metadata 目录"""
+    metadata_dir = get_project_directory(project_id) / "metadata" / "sources" / source_id
+    metadata_dir.mkdir(parents=True, exist_ok=True)
+    return metadata_dir
+
+def resolve_project_metadata_directory(project_id: str, source_id: Optional[str] = None) -> Path:
+    if source_id:
+        return get_project_source_metadata_directory(project_id, source_id)
+    return get_project_metadata_directory(project_id)
+
+def resolve_source_video_path(project_id: str, source_id: str) -> Path:
+    return get_project_source_raw_directory(project_id, source_id) / "input.mp4"
+
+def resolve_source_srt_path(project_id: str, source_id: str) -> Path:
+    return get_project_source_raw_directory(project_id, source_id) / "input.srt"
+
+def get_project_clips_directory(project_id: str) -> Path:
+    """项目级切片输出目录（多源共享）"""
+    clips_dir = get_project_output_directory(project_id) / "clips"
+    clips_dir.mkdir(parents=True, exist_ok=True)
+    return clips_dir
+
+def get_project_collections_directory(project_id: str) -> Path:
+    collections_dir = get_project_output_directory(project_id) / "collections"
+    collections_dir.mkdir(parents=True, exist_ok=True)
+    return collections_dir
+
 def get_clips_directory() -> Path:
     """获取切片目录"""
     clips_dir = get_output_directory() / "clips"

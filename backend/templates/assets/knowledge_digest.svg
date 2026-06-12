@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" fill="none">
+  <rect width="640" height="360" fill="#EEECE8"/>
+  <rect x="48" y="48" width="544" height="264" rx="16" fill="#FFFFFF" stroke="#EBE9E4"/>
+  <rect x="88" y="96" width="72" height="8" rx="4" fill="#2D6BFF" opacity="0.85"/>
+  <rect x="88" y="120" width="464" height="8" rx="4" fill="#EBE9E4"/>
+  <rect x="88" y="144" width="420" height="8" rx="4" fill="#EBE9E4"/>
+  <rect x="88" y="168" width="380" height="8" rx="4" fill="#EBE9E4"/>
+  <text x="320" y="220" text-anchor="middle" fill="#1A1A19" font-family="system-ui, sans-serif" font-size="22" font-weight="600">Knowledge Digest</text>
+  <text x="320" y="252" text-anchor="middle" fill="#6E6B66" font-family="system-ui, sans-serif" font-size="14">Full topics ? Collections</text>
+  <rect x="260" y="268" width="120" height="32" rx="16" fill="#1A1A19"/>
+  <text x="320" y="289" text-anchor="middle" fill="#FFFFFF" font-family="system-ui, sans-serif" font-size="12">Gene Template</text>
+</svg>

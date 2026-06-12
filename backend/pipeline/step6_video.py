@@ -34,7 +34,13 @@ class VideoGenerator:
         # 创建VideoProcessor实例，强制使用项目内路径
         self.video_processor = VideoProcessor(clips_dir=str(self.clips_dir), collections_dir=str(self.collections_dir))
     
-    def generate_clips(self, clips_with_titles: List[Dict], input_video: Path) -> List[Path]:
+    def generate_clips(
+        self,
+        clips_with_titles: List[Dict],
+        input_video: Path,
+        *,
+        subtitle_style: str = "default",
+    ) -> List[Path]:
         """
         生成切片视频
         
@@ -58,7 +64,11 @@ class VideoGenerator:
             })
         
         # 批量生成切片
-        successful_clips = self.video_processor.batch_extract_clips(input_video, clips_data)
+        successful_clips = self.video_processor.batch_extract_clips(
+            input_video,
+            clips_data,
+            subtitle_style=subtitle_style,
+        )
         
         logger.info(f"切片视频生成完成，共{len(successful_clips)}个切片")
         return successful_clips
@@ -136,7 +146,8 @@ class VideoGenerator:
 def run_step6_video(clips_with_titles_path: Path, collections_path: Path, 
                    input_video: Path, output_dir: Optional[Path] = None, 
                    clips_dir: Optional[str] = None, collections_dir: Optional[str] = None, 
-                   metadata_dir: Optional[str] = None) -> Dict:
+                   metadata_dir: Optional[str] = None,
+                   settings: Optional[Dict[str, Any]] = None) -> Dict:
     """
     运行Step 6: 视频切割
     
@@ -158,9 +169,16 @@ def run_step6_video(clips_with_titles_path: Path, collections_path: Path,
     
     # 创建视频生成器
     generator = VideoGenerator(clips_dir=clips_dir, collections_dir=collections_dir, metadata_dir=metadata_dir)
+
+    from backend.pipeline.subtitle_styles import resolve_subtitle_style
+    subtitle_style = resolve_subtitle_style(settings)
     
     # 生成切片视频
-    successful_clips = generator.generate_clips(clips_with_titles, input_video)
+    successful_clips = generator.generate_clips(
+        clips_with_titles,
+        input_video,
+        subtitle_style=subtitle_style,
+    )
     
     # 生成合集视频
     successful_collections = generator.generate_collections(collections_data)
@@ -183,7 +201,8 @@ def run_step6_video(clips_with_titles_path: Path, collections_path: Path,
         'clip_paths': [str(path) for path in successful_clips],
         'collection_paths': [collection['video_path'] for collection in successful_collections],
         'collection_thumbnails': [collection['thumbnail_path'] for collection in successful_collections if collection['thumbnail_path']],
-        'collections_info': successful_collections  # 包含完整的合集信息
+        'collections_info': successful_collections,
+        'subtitle_style': subtitle_style,
     }
     
     logger.info(f"视频生成完成: {result['clips_generated']}个切片, {result['collections_generated']}个合集")

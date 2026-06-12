@@ -20,7 +20,9 @@ from backend.schemas.project import (
     ProjectType, ProjectStatus
 )
 from backend.schemas.base import PaginationParams
+from backend.schemas.project_source import ProjectSourcesResponse
 from pathlib import Path
+import shutil
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -52,6 +54,7 @@ async def upload_files(
     clip_target_seconds: Optional[int] = Form(None),
     clip_max_seconds: Optional[int] = Form(None),
     clip_goal: Optional[str] = Form("knowledge"),
+    template_id: Optional[str] = Form(None),
     project_service: ProjectService = Depends(get_project_service)
 ):
     """Upload video file and optional subtitle file to create a new project. If no subtitle is provided, Whisper will automatically generate one."""
@@ -64,6 +67,13 @@ async def upload_files(
         if srt_file and not srt_file.filename.lower().endswith('.srt'):
             raise HTTPException(status_code=400, detail="Invalid subtitle file format")
         
+        if template_id:
+            from backend.pipeline.template_engine import TemplateNotFoundError, validate_template_id
+            try:
+                validate_template_id(template_id)
+            except TemplateNotFoundError:
+                raise HTTPException(status_code=400, detail=f"Invalid template_id: {template_id}")
+
         # 创建项目数据
         subtitle_info = srt_file.filename if srt_file else "Whisper自动生成"
         project_settings = {
@@ -73,12 +83,17 @@ async def upload_files(
             "clip_duration_preset": clip_duration_preset or "standard",
             "clip_goal": clip_goal or "knowledge",
         }
+        if template_id:
+            project_settings["template_id"] = template_id
         if clip_min_seconds is not None:
             project_settings["clip_min_seconds"] = clip_min_seconds
         if clip_target_seconds is not None:
             project_settings["clip_target_seconds"] = clip_target_seconds
         if clip_max_seconds is not None:
             project_settings["clip_max_seconds"] = clip_max_seconds
+
+        from backend.pipeline.template_engine import merge_template_settings
+        project_settings = merge_template_settings(project_settings)
 
         project_data = ProjectCreate(
             name=project_name,
@@ -195,6 +210,203 @@ async def upload_files(
     except Exception as e:
         logger.exception("上传文件创建项目失败")
         raise HTTPException(status_code=500, detail="创建项目失败，请稍后重试")
+
+
+@router.post("/upload-batch", response_model=ProjectResponse)
+async def upload_files_batch(
+    video_files: List[UploadFile] = File(...),
+    project_name: str = Form(...),
+    video_category: Optional[str] = Form(None),
+    clip_duration_preset: Optional[str] = Form("standard"),
+    clip_min_seconds: Optional[int] = Form(None),
+    clip_target_seconds: Optional[int] = Form(None),
+    clip_max_seconds: Optional[int] = Form(None),
+    clip_goal: Optional[str] = Form("knowledge"),
+    template_id: Optional[str] = Form(None),
+    project_service: ProjectService = Depends(get_project_service),
+):
+    """批量上传多个视频，创建单个多源项目并按顺序处理。"""
+    if not video_files:
+        raise HTTPException(status_code=400, detail="请至少上传一个视频文件")
+    if len(video_files) > 20:
+        raise HTTPException(status_code=400, detail="单次最多上传 20 个视频")
+
+    try:
+        for video_file in video_files:
+            if not video_file.filename or not video_file.filename.lower().endswith(
+                (".mp4", ".avi", ".mov", ".mkv", ".webm")
+            ):
+                raise HTTPException(status_code=400, detail=f"无效的视频格式: {video_file.filename}")
+
+        if template_id:
+            from backend.pipeline.template_engine import TemplateNotFoundError, validate_template_id
+            try:
+                validate_template_id(template_id)
+            except TemplateNotFoundError:
+                raise HTTPException(status_code=400, detail=f"Invalid template_id: {template_id}")
+
+        from backend.services.project_source_service import (
+            assign_source_paths,
+            attach_multi_source_to_config,
+            build_source_records,
+            ensure_source_raw_dir,
+        )
+
+        filenames = [vf.filename for vf in video_files]
+        source_records = build_source_records(filenames)
+
+        project_settings = {
+            "video_category": video_category or "knowledge",
+            "video_file": filenames[0],
+            "video_files": filenames,
+            "srt_file": "Whisper自动生成",
+            "clip_duration_preset": clip_duration_preset or "standard",
+            "clip_goal": clip_goal or "knowledge",
+        }
+        if template_id:
+            project_settings["template_id"] = template_id
+        if clip_min_seconds is not None:
+            project_settings["clip_min_seconds"] = clip_min_seconds
+        if clip_target_seconds is not None:
+            project_settings["clip_target_seconds"] = clip_target_seconds
+        if clip_max_seconds is not None:
+            project_settings["clip_max_seconds"] = clip_max_seconds
+
+        from backend.pipeline.template_engine import merge_template_settings
+
+        project_settings = merge_template_settings(project_settings)
+
+        project_data = ProjectCreate(
+            name=project_name,
+            description=f"多源项目: {len(filenames)} 个视频",
+            project_type=ProjectType.KNOWLEDGE,
+            status=ProjectStatus.PENDING,
+            source_url=None,
+            source_file=filenames[0],
+            settings=project_settings,
+        )
+        project = project_service.create_project(project_data)
+        project_id = str(project.id)
+
+        resolved_sources = []
+        for record, upload in zip(source_records, video_files):
+            record = assign_source_paths(project_id, record)
+            ensure_source_raw_dir(project_id, record.id)
+            dest = Path(record.video_path)
+            with open(dest, "wb") as f:
+                f.write(await upload.read())
+            resolved_sources.append(record)
+
+        from ...core.path_utils import get_project_raw_directory
+
+        raw_dir = get_project_raw_directory(project_id)
+        first_dest = Path(resolved_sources[0].video_path)
+        shutil.copy2(first_dest, raw_dir / "input.mp4")
+        project.video_path = str(raw_dir / "input.mp4")
+
+        processing_config = attach_multi_source_to_config(
+            dict(project.processing_config or project_settings),
+            resolved_sources,
+        )
+        project.processing_config = processing_config
+        project_service.db.commit()
+
+        try:
+            from ...utils.thumbnail_generator import generate_project_thumbnail
+
+            thumbnail_data = generate_project_thumbnail(project_id, first_dest)
+            if thumbnail_data:
+                project.thumbnail = thumbnail_data
+                project_service.db.commit()
+        except Exception as exc:
+            logger.warning("多源项目缩略图生成失败 %s: %s", project_id, exc)
+
+        from ...utils.task_submission_utils import submit_multi_source_project_task
+
+        submit_multi_source_project_task(project_id)
+
+        return ProjectResponse(
+            id=project_id,
+            name=str(project.name),
+            description=str(project.description) if project.description else None,
+            project_type=ProjectType(project.project_type.value),
+            status=ProjectStatus(project.status.value),
+            source_url=None,
+            source_file=filenames[0],
+            video_path=str(raw_dir / "input.mp4"),
+            settings=processing_config,
+            created_at=project.created_at,
+            updated_at=project.updated_at,
+            completed_at=project.completed_at,
+            total_clips=0,
+            total_collections=0,
+            total_tasks=0,
+            thumbnail=project.thumbnail,
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("批量上传创建多源项目失败")
+        raise HTTPException(status_code=500, detail="创建多源项目失败，请稍后重试")
+
+
+@router.get("/{project_id}/sources", response_model=ProjectSourcesResponse)
+async def get_project_sources(
+    project_id: str,
+    db: Session = Depends(get_db),
+):
+    from backend.models.project import Project
+    from backend.services.project_source_service import summarize_multi_source
+
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return ProjectSourcesResponse(
+        project_id=project_id,
+        multi_source=summarize_multi_source(project.processing_config),
+    )
+
+
+@router.post("/{project_id}/sources/{source_id}/retry")
+async def retry_project_source(
+    project_id: str,
+    source_id: str,
+    db: Session = Depends(get_db),
+):
+    """重试失败的源视频（多源项目）。"""
+    from backend.models.project import Project, ProjectStatus
+    from backend.services.project_source_service import (
+        find_source,
+        is_multi_source_project,
+        update_source_in_config,
+    )
+    from backend.schemas.project_source import ProjectSourceStatus
+
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if not is_multi_source_project(project.processing_config):
+        raise HTTPException(status_code=400, detail="不是多源项目")
+
+    source = find_source(project.processing_config, source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="源视频不存在")
+
+    config = update_source_in_config(
+        dict(project.processing_config or {}),
+        source_id,
+        status=ProjectSourceStatus.PENDING,
+        error_message=None,
+        current_step=None,
+    )
+    project.processing_config = config
+    project.status = ProjectStatus.PROCESSING
+    db.commit()
+
+    from ...utils.task_submission_utils import submit_multi_source_project_task
+
+    result = submit_multi_source_project_task(project_id)
+    return {"success": result.get("success", False), "task_id": result.get("task_id"), "source_id": source_id}
 
 
 @router.post("/", response_model=ProjectResponse)
@@ -788,6 +1000,7 @@ class RestartStepRequest(BaseModel):
 @router.get("/{project_id}/pipeline-steps")
 async def get_project_pipeline_steps(
     project_id: str,
+    source_id: Optional[str] = Query(None, description="多源项目：指定源视频 ID"),
     db: Session = Depends(get_db),
     project_service: ProjectService = Depends(get_project_service),
 ):
@@ -797,7 +1010,7 @@ async def get_project_pipeline_steps(
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
         from backend.services.pipeline_steps_service import get_pipeline_steps
-        return get_pipeline_steps(project_id, project, db=db)
+        return get_pipeline_steps(project_id, project, db=db, source_id=source_id)
     except HTTPException:
         raise
     except Exception as e:

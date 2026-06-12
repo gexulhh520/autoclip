@@ -130,6 +130,40 @@ export interface UploadFilesRequest {
   clip_target_seconds?: number
   clip_max_seconds?: number
   clip_goal?: string
+  template_id?: string
+}
+
+export interface UploadBatchRequest {
+  video_files: File[]
+  project_name: string
+  video_category?: string
+  clip_duration_preset?: string
+  clip_min_seconds?: number
+  clip_target_seconds?: number
+  clip_max_seconds?: number
+  clip_goal?: string
+  template_id?: string
+}
+
+export interface ProjectSourceSummary {
+  id: string
+  index: number
+  original_filename: string
+  status: 'pending' | 'processing' | 'completed' | 'failed'
+  clips_count: number
+  current_step?: string | null
+  error_message?: string | null
+}
+
+export interface ProjectSourcesResponse {
+  project_id: string
+  multi_source: {
+    enabled: boolean
+    total_sources: number
+    completed_sources: number
+    active_source_id?: string | null
+    sources: ProjectSourceSummary[]
+  }
 }
 
 export interface ClipDurationPreset {
@@ -172,6 +206,41 @@ export interface ClipGoalSelection {
   clip_goal?: string
 }
 
+export interface GeneTemplatePreview {
+  video_url: string
+  thumbnail_url: string
+}
+
+export interface GeneTemplatePipeline {
+  clip_goal: string
+  video_category: string
+  clip_duration_preset?: string | null
+}
+
+export interface GeneTemplateSummary {
+  id: string
+  name: string
+  description: string
+  version: string
+  tags: string[]
+  preview: GeneTemplatePreview
+  pipeline: GeneTemplatePipeline
+}
+
+export interface GeneTemplateListResponse {
+  templates: GeneTemplateSummary[]
+  default_template: string | null
+}
+
+export interface GeneTemplateDetailResponse {
+  template: GeneTemplateSummary & {
+    enabled?: boolean
+    prompts?: { pack?: string }
+    rules?: Record<string, unknown>
+  }
+  resolved_settings: Record<string, unknown>
+}
+
 export interface VideoCategory {
   value: string
   name: string
@@ -210,6 +279,8 @@ export interface PipelineStepsResponse {
   project_status: string
   is_pipeline_running: boolean
   stale_recovered?: boolean
+  template_id?: string | null
+  template_name?: string | null
   progress?: {
     stage: string
     percent: number
@@ -217,6 +288,15 @@ export interface PipelineStepsResponse {
     ts?: number
   } | null
   steps: PipelineStepInfo[]
+  multi_source?: {
+    enabled: boolean
+    total_sources: number
+    completed_sources: number
+    active_source_id?: string | null
+    sources: ProjectSourceSummary[]
+  }
+  source_id?: string | null
+  source_filename?: string | null
 }
 
 export type PipelineStepResultType =
@@ -262,6 +342,7 @@ export interface BilibiliDownloadRequest {
   clip_target_seconds?: number
   clip_max_seconds?: number
   clip_goal?: string
+  template_id?: string
   browser?: string
 }
 
@@ -389,6 +470,9 @@ export const projectApi = {
     if (data.clip_goal) {
       formData.append('clip_goal', data.clip_goal)
     }
+    if (data.template_id) {
+      formData.append('template_id', data.template_id)
+    }
     
     try {
       const project = await api.post<unknown, Project>('/projects/upload', formData, {
@@ -412,6 +496,47 @@ export const projectApi = {
     }
   },
 
+  uploadBatch: async (data: UploadBatchRequest): Promise<Project> => {
+    const formData = new FormData()
+    data.video_files.forEach((file) => formData.append('video_files', file))
+    formData.append('project_name', data.project_name)
+    if (data.video_category) formData.append('video_category', data.video_category)
+    if (data.clip_duration_preset) {
+      formData.append('clip_duration_preset', data.clip_duration_preset)
+    }
+    if (data.clip_min_seconds != null) {
+      formData.append('clip_min_seconds', String(data.clip_min_seconds))
+    }
+    if (data.clip_target_seconds != null) {
+      formData.append('clip_target_seconds', String(data.clip_target_seconds))
+    }
+    if (data.clip_max_seconds != null) {
+      formData.append('clip_max_seconds', String(data.clip_max_seconds))
+    }
+    if (data.clip_goal) formData.append('clip_goal', data.clip_goal)
+    if (data.template_id) formData.append('template_id', data.template_id)
+
+    const project = await api.post<unknown, Project>('/projects/upload-batch', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    trackVideoImported({
+      source: 'upload_batch',
+      sizeBytes: data.video_files.reduce((sum, f) => sum + f.size, 0),
+    })
+    return project
+  },
+
+  getProjectSources: async (projectId: string): Promise<ProjectSourcesResponse> => {
+    return api.get(`/projects/${projectId}/sources`)
+  },
+
+  retryProjectSource: async (
+    projectId: string,
+    sourceId: string
+  ): Promise<{ success: boolean; task_id?: string; source_id: string }> => {
+    return api.post(`/projects/${projectId}/sources/${sourceId}/retry`)
+  },
+
   // 删除项目
   deleteProject: async (id: string): Promise<void> => {
     await api.delete(`/projects/${id}`)
@@ -433,8 +558,9 @@ export const projectApi = {
   },
 
   // 流水线各步骤状态
-  getPipelineSteps: async (id: string): Promise<PipelineStepsResponse> => {
-    return api.get(`/projects/${id}/pipeline-steps`)
+  getPipelineSteps: async (id: string, sourceId?: string | null): Promise<PipelineStepsResponse> => {
+    const params = sourceId ? { source_id: sourceId } : undefined
+    return api.get(`/projects/${id}/pipeline-steps`, { params })
   },
 
   resetStuckPipeline: async (
@@ -468,7 +594,7 @@ export const projectApi = {
   },
 
   // 获取项目切片（自动分页拉取全部）
-  getClips: async (projectId: string): Promise<any[]> => {
+  getClips: async (projectId: string, sourceId?: string | null): Promise<any[]> => {
     try {
       const formatSecondsToTime = (seconds: number) => {
         const hours = Math.floor(seconds / 3600)
@@ -491,6 +617,9 @@ export const projectApi = {
           outline: metadata.outline || '',
           content: metadata.content || [],
           chunk_index: metadata.chunk_index || 0,
+          source_id: metadata.source_id || null,
+          source_filename: metadata.source_filename || null,
+          source_index: metadata.source_index ?? null,
         }
       }
 
@@ -499,7 +628,8 @@ export const projectApi = {
       const size = 100
 
       while (true) {
-        const response = await api.get(`/clips/?project_id=${projectId}&page=${page}&size=${size}`)
+        const sourceQuery = sourceId ? `&source_id=${encodeURIComponent(sourceId)}` : ''
+        const response = await api.get(`/clips/?project_id=${projectId}&page=${page}&size=${size}${sourceQuery}`)
         const items = (response as any).items || []
         allRawClips.push(...items)
 
@@ -820,6 +950,13 @@ export interface WhisperModel {
   errorMessage?: string | null
 }
 
+// 基因模板 API
+export const templatesApi = {
+  list: (): Promise<GeneTemplateListResponse> => api.get('/templates'),
+  getDetail: (templateId: string): Promise<GeneTemplateDetailResponse> =>
+    api.get(`/templates/${templateId}`),
+}
+
 // 语音识别 / Whisper 运行时与模型管理
 export const speechApi = {
   getRuntimeStatus: (): Promise<WhisperRuntimeStatus> => api.get('/whisper/runtime-status'),
@@ -828,6 +965,19 @@ export const speechApi = {
   getModels: (): Promise<WhisperModel[]> => api.get('/whisper-models'),
   downloadModel: (model: string): Promise<unknown> => api.post('/whisper-models/download', { model }),
   deleteModel: (model: string): Promise<unknown> => api.delete(`/whisper-models/${model}`),
+}
+
+/** 解析模板预览等资源 URL（兼容 Vite 代理与 Tauri 绝对地址） */
+export function resolveApiMediaUrl(path: string): string {
+  if (!path) return ''
+  if (/^https?:\/\//.test(path) || path.startsWith('data:')) return path
+
+  const base = apiConfigManager.getBaseUrl()
+  if (base.startsWith('http')) {
+    const origin = base.replace(/\/api\/v1\/?$/, '')
+    return path.startsWith('/') ? `${origin}${path}` : `${base}/${path}`
+  }
+  return path.startsWith('/') ? path : `${base}/${path}`
 }
 
 export default api

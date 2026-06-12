@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Button, message, Space, Typography, Input, Progress } from 'antd'
 import { InboxOutlined, VideoCameraOutlined, FileTextOutlined, SubnodeOutlined } from '@ant-design/icons'
 import { useDropzone } from 'react-dropzone'
-import { projectApi, VideoCategory, ClipDurationSelection, ClipGoalSelection } from '../services/api'
+import { projectApi, VideoCategory, ClipDurationSelection, ClipGoalSelection, GeneTemplateSummary } from '../services/api'
 import { useProjectStore } from '../store/useProjectStore'
 import { validateApiConfigBeforeProjectCreation } from '../utils/apiConfigCheck'
 import ClipDurationSelector from './ClipDurationSelector'
@@ -12,9 +12,10 @@ const { Text } = Typography
 
 interface FileUploadProps {
   onUploadSuccess?: (projectId: string) => void
+  selectedTemplate?: GeneTemplateSummary | null
 }
 
-const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
+const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess, selectedTemplate }) => {
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [projectName, setProjectName] = useState('')
@@ -28,11 +29,21 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
   const [categories, setCategories] = useState<VideoCategory[]>([])
   const [, setLoadingCategories] = useState(false)
   const [files, setFiles] = useState<{
-    video?: File
+    videos: File[]
     srt?: File
-  }>({})
+  }>({ videos: [] })
   
   const { addProject } = useProjectStore()
+
+  // 模板模式下同步 Pipeline 参数
+  useEffect(() => {
+    if (!selectedTemplate) return
+    setSelectedCategory(selectedTemplate.pipeline.video_category)
+    setClipGoal({ clip_goal: selectedTemplate.pipeline.clip_goal })
+    if (selectedTemplate.pipeline.clip_duration_preset) {
+      setClipDuration({ clip_duration_preset: selectedTemplate.pipeline.clip_duration_preset })
+    }
+  }, [selectedTemplate])
 
   // 加载视频分类配置
   useEffect(() => {
@@ -59,21 +70,23 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
   }, [])
 
   const onDrop = (acceptedFiles: File[]) => {
-    const newFiles = { ...files }
-    
+    const newFiles = { ...files, videos: [...files.videos] }
+
     acceptedFiles.forEach(file => {
       const extension = file.name.split('.').pop()?.toLowerCase()
-      
+
       if (['mp4', 'avi', 'mov', 'mkv', 'webm'].includes(extension || '')) {
-        newFiles.video = file
-        // 自动设置项目名称为视频文件名（去掉扩展名）
-        // 每次选择新视频文件时都更新项目名称
-        setProjectName(file.name.replace(/\.[^/.]+$/, ''))
+        if (!newFiles.videos.some(v => v.name === file.name && v.size === file.size)) {
+          newFiles.videos.push(file)
+        }
+        if (newFiles.videos.length === 1) {
+          setProjectName(file.name.replace(/\.[^/.]+$/, ''))
+        }
       } else if (extension === 'srt') {
         newFiles.srt = file
       }
     })
-    
+
     setFiles(newFiles)
   }
 
@@ -87,9 +100,13 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
   })
 
   const handleUpload = async () => {
-    if (!files.video) {
+    if (files.videos.length === 0) {
       message.error('请选择视频文件')
       return
+    }
+
+    if (files.videos.length > 1 && files.srt) {
+      message.warning('多视频上传暂不支持附带字幕文件，将使用 AI 自动生成字幕')
     }
 
     if (!projectName.trim()) {
@@ -121,20 +138,27 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
       }, 300)
 
       console.log('开始上传文件:', {
-        video_file: files.video.name,
+        video_count: files.videos.length,
         srt_file: files.srt?.name || '(将使用语音识别生成)',
         project_name: projectName.trim(),
         video_category: selectedCategory
       })
 
-      const newProject = await projectApi.uploadFiles({
-        video_file: files.video,
-        srt_file: files.srt,
+      const uploadPayload = {
         project_name: projectName.trim(),
         video_category: selectedCategory,
         ...clipDuration,
         ...clipGoal,
-      })
+        ...(selectedTemplate ? { template_id: selectedTemplate.id } : {}),
+      }
+
+      const newProject = files.videos.length > 1
+        ? await projectApi.uploadBatch({ ...uploadPayload, video_files: files.videos })
+        : await projectApi.uploadFiles({
+            ...uploadPayload,
+            video_file: files.videos[0],
+            srt_file: files.srt,
+          })
       
       console.log('上传成功，项目信息:', newProject)
       
@@ -145,7 +169,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
       message.success('项目创建成功！正在后台处理中，请稍候...')
       
       // 重置状态
-      setFiles({})
+      setFiles({ videos: [] })
       setProjectName('')
       setClipDuration({ clip_duration_preset: 'standard' })
       setClipGoal({ clip_goal: 'knowledge' })
@@ -207,13 +231,20 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
     }
   }
 
-  const removeFile = (type: 'video' | 'srt') => {
+  const removeFile = (type: 'video' | 'srt', videoIndex?: number) => {
     setFiles(prev => {
-      const newFiles = { ...prev }
-      delete newFiles[type]
-      return newFiles
+      if (type === 'srt') {
+        const next = { ...prev }
+        delete next.srt
+        return next
+      }
+      if (videoIndex == null) return prev
+      const videos = prev.videos.filter((_, i) => i !== videoIndex)
+      return { ...prev, videos }
     })
   }
+
+  const hasVideos = files.videos.length > 0
 
   return (
     <div style={{
@@ -289,7 +320,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
       </div>
 
       {/* 项目名称输入 - 只有在选择文件后才显示 */}
-      {files.video && (
+      {hasVideos && (
         <div style={{ marginBottom: '16px' }}>
           <Text strong style={{ color: '#ffffff', fontSize: '14px', marginBottom: '8px', display: 'block' }}>
             项目名称
@@ -310,8 +341,8 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
         </div>
       )}
 
-      {/* 视频分类选择 - 只有在选择文件后才显示 */}
-      {files.video && (
+      {/* 视频分类选择 - 只有在选择文件后才显示（模板模式隐藏） */}
+      {!selectedTemplate && hasVideos && (
         <div style={{ marginBottom: '16px' }}>
           <Text strong style={{ color: '#ffffff', fontSize: '14px', marginBottom: '8px', display: 'block' }}>
             视频分类
@@ -371,32 +402,35 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
         </div>
       )}
 
-      {files.video && (
+      {!selectedTemplate && hasVideos && (
         <ClipGoalSelector value={clipGoal} onChange={setClipGoal} />
       )}
 
-      {files.video && (
+      {!selectedTemplate && hasVideos && (
         <ClipDurationSelector value={clipDuration} onChange={setClipDuration} />
       )}
 
       {/* 文件列表 */}
-      {Object.keys(files).length > 0 && (
+      {(hasVideos || files.srt) && (
         <div style={{ marginBottom: '16px' }}>
           <Text strong style={{ color: '#ffffff', fontSize: '14px', marginBottom: '12px', display: 'block' }}>
-            已选择文件
+            已选择文件{files.videos.length > 1 ? `（${files.videos.length} 个视频，将创建同一项目）` : ''}
           </Text>
           <Space direction="vertical" style={{ width: '100%' }} size="small">
-            {files.video && (
-              <div style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'space-between',
-                padding: '16px',
-                background: 'var(--ac-line-2)',
-                borderRadius: '12px',
-                border: '1px solid rgba(79, 172, 254, 0.2)',
-                backdropFilter: 'blur(10px)'
-              }}>
+            {files.videos.map((video, index) => (
+              <div
+                key={`${video.name}-${video.size}-${index}`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '16px',
+                  background: 'var(--ac-line-2)',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(79, 172, 254, 0.2)',
+                  backdropFilter: 'blur(10px)',
+                }}
+              >
                 <Space size="middle">
                   <div style={{
                     width: '36px',
@@ -406,34 +440,34 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    boxShadow: '0 4px 12px rgba(79, 172, 254, 0.3)'
+                    boxShadow: '0 4px 12px rgba(79, 172, 254, 0.3)',
                   }}>
                     <VideoCameraOutlined style={{ color: '#ffffff', fontSize: '16px' }} />
                   </div>
                   <div>
                     <Text style={{ color: '#ffffff', fontWeight: 600, display: 'block', fontSize: '14px' }}>
-                      {files.video.name}
+                      {index + 1}. {video.name}
                     </Text>
                     <Text style={{ color: 'var(--ac-sub)', fontSize: '13px' }}>
-                      {(files.video.size / 1024 / 1024).toFixed(2)} MB
+                      {(video.size / 1024 / 1024).toFixed(2)} MB
                     </Text>
                   </div>
                 </Space>
-                <Button 
-                  size="small" 
-                  type="text" 
-                  onClick={() => removeFile('video')}
-                  style={{ 
+                <Button
+                  size="small"
+                  type="text"
+                  onClick={() => removeFile('video', index)}
+                  style={{
                     color: '#ff6b6b',
                     borderRadius: '8px',
                     padding: '4px 12px',
-                    fontSize: '12px'
+                    fontSize: '12px',
                   }}
                 >
                   移除
                 </Button>
               </div>
-            )}
+            ))}
             {files.srt && (
               <div style={{ 
                 display: 'flex', 
@@ -485,7 +519,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
           </Space>
           
           {/* AI字幕生成提示 */}
-          {files.video && !files.srt && (
+          {hasVideos && !files.srt && files.videos.length === 1 && (
             <div style={{
               marginTop: '12px',
               padding: '12px 16px',
@@ -540,13 +574,13 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
       )}
 
       {/* 上传按钮 - 只有在选择文件后才显示 */}
-      {files.video && (
+      {hasVideos && (
         <div style={{ textAlign: 'center', marginTop: '8px' }}>
           <Button 
             type="primary" 
             size="large"
             loading={uploading}
-            disabled={!files.video || !projectName.trim()}
+            disabled={!hasVideos || !projectName.trim()}
             onClick={handleUpload}
             style={{
               height: '48px',
@@ -560,7 +594,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
               transition: 'all 0.3s ease'
             }}
           >
-            {uploading ? '导入中...' : '开始导入并处理'}
+            {uploading ? '导入中...' : files.videos.length > 1 ? `开始导入 ${files.videos.length} 个视频` : '开始导入并处理'}
           </Button>
         </div>
       )}

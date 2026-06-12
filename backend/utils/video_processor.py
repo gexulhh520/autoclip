@@ -126,8 +126,19 @@ class VideoProcessor:
             return 0.0
     
     @staticmethod
+    def _escape_drawtext(text: str) -> str:
+        escaped = text.replace("\\", "\\\\")
+        escaped = escaped.replace(":", "\\:")
+        escaped = escaped.replace("'", "\\'")
+        escaped = escaped.replace("%", "\\%")
+        return escaped[:80]
+
+    @staticmethod
     def extract_clip(input_video: Path, output_path: Path, 
-                    start_time: str, end_time: str) -> bool:
+                    start_time: str, end_time: str,
+                    *,
+                    subtitle_style: str = "default",
+                    overlay_text: Optional[str] = None) -> bool:
         """
         从视频中提取指定时间段的片段
         
@@ -153,20 +164,47 @@ class VideoProcessor:
             end_seconds = VideoProcessor.convert_ffmpeg_time_to_seconds(ffmpeg_end_time)
             duration = end_seconds - start_seconds
             
-            # 构建优化的FFmpeg命令
-            # 使用 -ss 在输入前进行精确定位，使用 -t 指定持续时间
             ffmpeg_bin = get_ffmpeg_path()
-            cmd = [
-                ffmpeg_bin,
-                '-ss', ffmpeg_start_time,  # 在输入前定位，更精确
-                '-i', str(input_video),
-                '-t', str(duration),  # 使用持续时间而不是绝对结束时间
-                '-c:v', 'copy',  # 复制视频流
-                '-c:a', 'copy',  # 复制音频流
-                '-avoid_negative_ts', 'make_zero',
-                '-y',  # 覆盖输出文件
-                str(output_path)
-            ]
+            use_quote_overlay = (
+                subtitle_style == "quote_highlight"
+                and overlay_text
+                and overlay_text.strip()
+            )
+
+            if use_quote_overlay:
+                safe_text = VideoProcessor._escape_drawtext(overlay_text.strip())
+                vf = (
+                    f"drawtext=text='{safe_text}'"
+                    ":fontsize=28:fontcolor=white:borderw=2:bordercolor=black"
+                    ":x=(w-text_w)/2:y=h-th-48"
+                )
+                cmd = [
+                    ffmpeg_bin,
+                    '-ss', ffmpeg_start_time,
+                    '-i', str(input_video),
+                    '-t', str(duration),
+                    '-vf', vf,
+                    '-c:v', 'libx264',
+                    '-preset', 'veryfast',
+                    '-crf', '23',
+                    '-c:a', 'aac',
+                    '-b:a', '128k',
+                    '-avoid_negative_ts', 'make_zero',
+                    '-y',
+                    str(output_path),
+                ]
+            else:
+                cmd = [
+                    ffmpeg_bin,
+                    '-ss', ffmpeg_start_time,  # 在输入前定位，更精确
+                    '-i', str(input_video),
+                    '-t', str(duration),  # 使用持续时间而不是绝对结束时间
+                    '-c:v', 'copy',  # 复制视频流
+                    '-c:a', 'copy',  # 复制音频流
+                    '-avoid_negative_ts', 'make_zero',
+                    '-y',  # 覆盖输出文件
+                    str(output_path),
+                ]
             
             # 执行命令
             result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='ignore')
@@ -174,9 +212,19 @@ class VideoProcessor:
             if result.returncode == 0:
                 logger.info(f"成功提取视频片段: {output_path} ({ffmpeg_start_time} -> {ffmpeg_end_time}, 时长: {duration:.2f}秒)")
                 return True
-            else:
-                logger.error(f"提取视频片段失败: {result.stderr}")
-                return False
+
+            if use_quote_overlay:
+                logger.warning("quote_highlight 叠加失败，回退为 stream copy: %s", result.stderr[:200])
+                return VideoProcessor.extract_clip(
+                    input_video,
+                    output_path,
+                    start_time,
+                    end_time,
+                    subtitle_style="default",
+                )
+
+            logger.error(f"提取视频片段失败: {result.stderr}")
+            return False
                 
         except Exception as e:
             logger.error(f"视频处理异常: {str(e)}")
@@ -350,7 +398,13 @@ class VideoProcessor:
             logger.error(f"获取视频信息异常: {str(e)}")
             return {}
     
-    def batch_extract_clips(self, input_video: Path, clips_data: List[Dict]) -> List[Path]:
+    def batch_extract_clips(
+        self,
+        input_video: Path,
+        clips_data: List[Dict],
+        *,
+        subtitle_style: str = "default",
+    ) -> List[Path]:
         """
         批量提取视频片段
         
@@ -382,7 +436,14 @@ class VideoProcessor:
             
             logger.info(f"提取切片 {clip_id}: {start_time} -> {end_time}, 输出: {output_path}")
             
-            if VideoProcessor.extract_clip(input_video, output_path, start_time, end_time):
+            if VideoProcessor.extract_clip(
+                input_video,
+                output_path,
+                start_time,
+                end_time,
+                subtitle_style=subtitle_style,
+                overlay_text=title if subtitle_style == "quote_highlight" else None,
+            ):
                 successful_clips.append(output_path)
                 logger.info(f"切片 {clip_id} 提取成功")
             else:

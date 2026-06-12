@@ -18,13 +18,15 @@ import {
   PlusOutlined
 } from '@ant-design/icons'
 import { useProjectStore, Clip, Collection } from '../store/useProjectStore'
-import { projectApi } from '../services/api'
+import { projectApi, ProjectSourcesResponse } from '../services/api'
 import ClipCard from '../components/ClipCard'
 import CollectionCard from '../components/CollectionCard'
 import CollectionPreviewModal from '../components/CollectionPreviewModal'
 import CreateCollectionModal from '../components/CreateCollectionModal'
 import { useCollectionVideoDownload } from '../hooks/useCollectionVideoDownload'
 import PipelineStepsPanel from '../components/PipelineStepsPanel'
+import ProjectSourcesPanel from '../components/ProjectSourcesPanel'
+import TemplateBadge from '../components/TemplateBadge'
 
 const { Content } = Layout
 const { Title, Text } = Typography
@@ -51,6 +53,9 @@ const ProjectDetailPage: React.FC = () => {
   const [sortBy, setSortBy] = useState<'time' | 'score'>('score')
   const [showCollectionDetail, setShowCollectionDetail] = useState(false)
   const [selectedCollection, setSelectedCollection] = useState<Collection | null>(null)
+  const [multiSource, setMultiSource] = useState<ProjectSourcesResponse['multi_source'] | null>(null)
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null)
+  const [retryingSourceId, setRetryingSourceId] = useState<string | null>(null)
   const { generateAndDownloadCollectionVideo } = useCollectionVideoDownload()
 
   useEffect(() => {
@@ -59,16 +64,16 @@ const ProjectDetailPage: React.FC = () => {
     loadProcessingStatus()
   }, [id])
 
-  const loadProjectMedia = async (projectId: string) => {
+  const loadProjectMedia = async (projectId: string, sourceId?: string | null) => {
     let [clips, collections] = await Promise.all([
-      projectApi.getClips(projectId),
+      projectApi.getClips(projectId, sourceId ?? undefined),
       projectApi.getCollections(projectId),
     ])
 
     if (!clips || clips.length === 0) {
       try {
         await projectApi.syncProjectFromFilesystem(projectId)
-        clips = await projectApi.getClips(projectId)
+        clips = await projectApi.getClips(projectId, sourceId ?? undefined)
       } catch (syncErr) {
         console.warn('Auto sync clips failed:', syncErr)
       }
@@ -80,12 +85,28 @@ const ProjectDetailPage: React.FC = () => {
     }
   }
 
+  const loadMultiSourceInfo = async (projectId: string) => {
+    try {
+      const res = await projectApi.getProjectSources(projectId)
+      if (res.multi_source?.enabled) {
+        setMultiSource(res.multi_source)
+        return res.multi_source
+      }
+      setMultiSource(null)
+      return null
+    } catch {
+      setMultiSource(null)
+      return null
+    }
+  }
+
   const loadProject = async () => {
     if (!id) return
     try {
-      const [project, pipeline] = await Promise.all([
+      const [project, pipeline, sourceInfo] = await Promise.all([
         projectApi.getProject(id),
-        projectApi.getPipelineSteps(id).catch(() => null),
+        projectApi.getPipelineSteps(id, selectedSourceId ?? undefined).catch(() => null),
+        loadMultiSourceInfo(id),
       ])
 
       const step6 = pipeline?.steps?.find((s) => s.id === 'step6_video')
@@ -94,11 +115,12 @@ const ProjectDetailPage: React.FC = () => {
       const shouldLoadMedia =
         project.status === 'completed' ||
         step6Ready ||
-        project.status === 'failed'
+        project.status === 'failed' ||
+        (sourceInfo?.completed_sources ?? 0) > 0
 
       if (shouldLoadMedia && project.status !== 'processing') {
         try {
-          const { clips, collections } = await loadProjectMedia(id)
+          const { clips, collections } = await loadProjectMedia(id, selectedSourceId)
 
           const projectWithData = {
             ...project,
@@ -119,6 +141,37 @@ const ProjectDetailPage: React.FC = () => {
     } catch (error) {
       console.error('Failed to load project:', error)
       message.error('加载项目失败')
+    }
+  }
+
+  const handleSelectSource = async (sourceId: string | null) => {
+    if (!id) return
+    setSelectedSourceId(sourceId)
+    try {
+      const { clips, collections } = await loadProjectMedia(id, sourceId)
+      if (currentProject) {
+        const updated = { ...currentProject, clips, collections }
+        setCurrentProject(updated)
+      }
+    } catch (error) {
+      console.error('Failed to load source clips:', error)
+      message.error('加载源视频片段失败')
+    }
+  }
+
+  const handleRetrySource = async (sourceId: string) => {
+    if (!id) return
+    setRetryingSourceId(sourceId)
+    try {
+      await projectApi.retryProjectSource(id, sourceId)
+      message.success('已开始重试该源视频')
+      await loadMultiSourceInfo(id)
+      loadProject()
+    } catch (error) {
+      console.error('Retry source failed:', error)
+      message.error('重试失败')
+    } finally {
+      setRetryingSourceId(null)
     }
   }
 
@@ -284,6 +337,14 @@ const ProjectDetailPage: React.FC = () => {
           <Title level={2} style={{ margin: 0 }}>
             {currentProject.name}
           </Title>
+          <div style={{ marginTop: '8px', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <TemplateBadge project={currentProject} />
+            {multiSource?.enabled ? (
+              <Text style={{ fontSize: 13, color: 'var(--ac-sub)' }}>
+                {multiSource.total_sources} 个源视频 · {multiSource.completed_sources}/{multiSource.total_sources} 已完成
+              </Text>
+            ) : null}
+          </div>
         </div>
         
         <Space>
@@ -299,8 +360,20 @@ const ProjectDetailPage: React.FC = () => {
         </Space>
       </div>
 
+      {multiSource?.enabled && multiSource.sources.length > 0 ? (
+        <ProjectSourcesPanel
+          sources={multiSource.sources}
+          selectedSourceId={selectedSourceId}
+          activeSourceId={multiSource.active_source_id}
+          onSelect={handleSelectSource}
+          onRetry={handleRetrySource}
+          retryingSourceId={retryingSourceId}
+        />
+      ) : null}
+
       <PipelineStepsPanel
         projectId={currentProject.id}
+        sourceId={selectedSourceId}
         onPipelineFinished={() => loadProject()}
       />
 

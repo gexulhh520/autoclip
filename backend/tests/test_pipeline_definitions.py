@@ -4,6 +4,7 @@ from backend.pipeline.goals.registry import GOAL_PROFILES
 from backend.pipeline.pipelines.definitions import (
     MOMENT_PIPELINE_STEPS,
     TOPIC_PIPELINE_STEPS,
+    apply_template_step_rules,
     get_pipeline_steps,
     resolve_step_order,
 )
@@ -31,3 +32,7 @@ def test_resolve_step_order_goal_step_ids_override():
         step_ids=["step1_outline", "step6_video"],
     )
     assert resolve_step_order(custom) == ["step1_outline", "step6_video"]
+
+
+def test_apply_template_step_rules_no_rules_keeps_order():
+    assert apply_template_step_rules(TOPIC_PIPELINE_STEPS, {}) == TOPIC_PIPELINE_STEPS

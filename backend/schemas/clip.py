@@ -78,3 +78,4 @@ class ClipFilter(BaseSchema):
     max_score: Optional[float] = Field(default=None, le=10, description="Maximum score")
     tags: Optional[List[str]] = Field(default=None, description="Filter by tags")
     search: Optional[str] = Field(default=None, description="Search in title and content")
+    source_id: Optional[str] = Field(default=None, description="Filter by source video ID (clip_metadata)")

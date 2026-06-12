@@ -115,6 +115,31 @@ STEP_BY_ID = {s.id: s for s in STEP_DEFINITIONS}
 # 超过此时间无进度更新且进程内无 worker，视为卡住
 STALE_PIPELINE_SECONDS = 120
 
+
+def _effective_pipeline_step_ids(processing_config: Dict[str, Any]) -> set:
+    """与 PipelineOrchestrator 一致的步骤组合（含 download）。"""
+    from backend.pipeline.goals.registry import resolve_clip_goal
+    from backend.pipeline.pipelines.definitions import resolve_effective_step_order
+    from backend.pipeline.template_engine import merge_template_settings
+
+    config = merge_template_settings(dict(processing_config or {}))
+    goal = resolve_clip_goal(config)
+    step_ids = set(resolve_effective_step_order(goal, config))
+    step_ids.add("download")
+    return step_ids
+
+
+def _resolve_template_name(template_id: Optional[str]) -> Optional[str]:
+    if not template_id:
+        return None
+    try:
+        from backend.pipeline.template_engine import TemplateNotFoundError, get_template_engine
+
+        return get_template_engine().get_template(str(template_id)).name
+    except TemplateNotFoundError:
+        return str(template_id)
+
+
 # 从某步续跑时需要清除的输出（含该步及之后）
 STEP_OUTPUTS_TO_CLEAR: Dict[str, List[str]] = {
     "step1_outline": [
@@ -623,17 +648,62 @@ def reset_stuck_pipeline(db: Session, project_id: str, project: Any) -> Dict[str
     }
 
 
-def _step_completed(defn: StepDefinition, project_dir: Path) -> Tuple[bool, int, str]:
+def _resolve_step_artifact_path(
+    project_dir: Path, defn: StepDefinition, source_id: Optional[str] = None
+) -> Path:
+    if not defn.output_rel:
+        return project_dir / "__missing__"
+    if source_id:
+        if defn.id == "download":
+            return project_dir / "raw" / "sources" / source_id / "input.mp4"
+        if defn.id == "step6_video":
+            return project_dir / "metadata" / "sources" / source_id / "clips_metadata.json"
+        if defn.output_rel.startswith("metadata/"):
+            rel = defn.output_rel[len("metadata/") :]
+            return project_dir / "metadata" / "sources" / source_id / rel
+    return project_dir / defn.output_rel
+
+
+def _video_ready_for_source(
+    project_dir: Path, source_id: Optional[str] = None
+) -> Tuple[bool, str]:
+    if source_id:
+        video = project_dir / "raw" / "sources" / source_id / "input.mp4"
+        if video.exists() and video.stat().st_size > 0:
+            return True, "视频文件已就绪"
+        return False, "视频文件不存在"
+    return _video_ready(project_dir)
+
+
+def _step_completed(
+    defn: StepDefinition,
+    project_dir: Path,
+    source_id: Optional[str] = None,
+) -> Tuple[bool, int, str]:
     if defn.id == "download":
-        ok, msg = _video_ready(project_dir)
+        ok, msg = _video_ready_for_source(project_dir, source_id)
         return ok, 1 if ok else 0, msg
     if not defn.output_rel:
         return False, 0, "未知步骤"
-    path = project_dir / defn.output_rel
+    path = _resolve_step_artifact_path(project_dir, defn, source_id)
+    if defn.id == "step6_video" and source_id:
+        ok, count, detail = _read_json_output(path, True)
+        if ok and count > 0:
+            return ok, count, detail
+        clips_dir = project_dir / "output" / "clips"
+        clip_files = list(clips_dir.glob(f"{source_id}_*.mp4")) if clips_dir.exists() else []
+        if clip_files:
+            return True, len(clip_files), f"已导出 {len(clip_files)} 个切片"
+        return False, 0, detail or "尚未导出切片"
     return _read_json_output(path, defn.output_is_array)
 
 
-def get_pipeline_steps(project_id: str, project: Any, db: Optional[Session] = None) -> Dict[str, Any]:
+def get_pipeline_steps(
+    project_id: str,
+    project: Any,
+    db: Optional[Session] = None,
+    source_id: Optional[str] = None,
+) -> Dict[str, Any]:
     stale_recovered = False
     if db is not None:
         try:
@@ -654,6 +724,29 @@ def get_pipeline_steps(project_id: str, project: Any, db: Optional[Session] = No
     running_step = _infer_running_step(progress, project_status) if is_pipeline_running else None
 
     processing_config = project.processing_config or {}
+    from backend.services.project_source_service import (
+        find_source,
+        is_multi_source_project,
+        summarize_multi_source,
+    )
+
+    multi_summary = summarize_multi_source(processing_config)
+    effective_source_id = source_id
+    if is_multi_source_project(processing_config):
+        if not effective_source_id:
+            effective_source_id = multi_summary.active_source_id
+        if not effective_source_id and multi_summary.sources:
+            for src in multi_summary.sources:
+                if src.status in ("pending", "processing", "failed"):
+                    effective_source_id = src.id
+                    break
+    source_record = (
+        find_source(processing_config, effective_source_id) if effective_source_id else None
+    )
+
+    effective_step_ids = _effective_pipeline_step_ids(processing_config)
+    template_id = processing_config.get("template_id")
+    template_name = _resolve_template_name(template_id)
     download_status = processing_config.get("download_status")
     download_progress = processing_config.get("download_progress")
     download_message = processing_config.get("download_message") or processing_config.get("error_message")
@@ -662,7 +755,22 @@ def get_pipeline_steps(project_id: str, project: Any, db: Optional[Session] = No
     found_running = False
 
     for defn in STEP_DEFINITIONS:
-        completed, count, detail = _step_completed(defn, project_dir)
+        if defn.id not in effective_step_ids:
+            steps_out.append(
+                {
+                    "id": defn.id,
+                    "name": defn.name,
+                    "description": defn.description,
+                    "status": "skipped",
+                    "item_count": None,
+                    "message": "当前基因模板未启用此步骤",
+                    "can_run": False,
+                    "run_blocked_reason": "当前基因模板未启用此步骤",
+                }
+            )
+            continue
+
+        completed, count, detail = _step_completed(defn, project_dir, effective_source_id)
         status = "pending"
         message = detail
 
@@ -683,7 +791,7 @@ def get_pipeline_steps(project_id: str, project: Any, db: Optional[Session] = No
             found_running = True
         elif completed:
             status = "completed"
-        elif defn.id != "download" and not _video_ready(project_dir)[0]:
+        elif defn.id != "download" and not _video_ready_for_source(project_dir, effective_source_id)[0]:
             status = "skipped"
             message = "需先完成视频获取"
         else:
@@ -691,8 +799,10 @@ def get_pipeline_steps(project_id: str, project: Any, db: Optional[Session] = No
             idx = STEP_ORDER.index(defn.id)
             prereq_ok = True
             for prev_id in STEP_ORDER[:idx]:
+                if prev_id not in effective_step_ids:
+                    continue
                 prev_def = STEP_BY_ID[prev_id]
-                prev_ok, _, _ = _step_completed(prev_def, project_dir)
+                prev_ok, _, _ = _step_completed(prev_def, project_dir, effective_source_id)
                 if not prev_ok:
                     prereq_ok = False
                     break
@@ -721,6 +831,11 @@ def get_pipeline_steps(project_id: str, project: Any, db: Optional[Session] = No
         "is_pipeline_running": is_pipeline_running,
         "stale_recovered": stale_recovered,
         "progress": progress,
+        "template_id": template_id,
+        "template_name": template_name,
+        "multi_source": multi_summary.model_dump(mode="json"),
+        "source_id": effective_source_id,
+        "source_filename": source_record.original_filename if source_record else None,
         "steps": steps_out,
     }
 

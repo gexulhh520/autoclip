@@ -83,18 +83,47 @@ def run_clustering(ctx: PipelineContext) -> List[Dict]:
     )
 
 
+def _apply_source_context_to_clips(ctx: PipelineContext, clips: List[Dict]) -> List[Dict]:
+    if not ctx.source_id:
+        return clips
+    updated: List[Dict] = []
+    for clip in clips:
+        item = dict(clip)
+        raw_id = str(item.get("id", ""))
+        if raw_id and not raw_id.startswith(f"{ctx.source_id}_"):
+            item["id"] = f"{ctx.source_id}_{raw_id}"
+        item["source_id"] = ctx.source_id
+        if ctx.source_index is not None:
+            item["source_index"] = ctx.source_index
+        if ctx.source_filename:
+            item["source_filename"] = ctx.source_filename
+        updated.append(item)
+    return updated
+
+
 def run_video(ctx: PipelineContext) -> Dict[str, Any]:
     collections_path = ctx.artifact("collections")
     if not collections_path.exists():
         collections_path.write_text("[]", encoding="utf-8")
+
+    titles_path = ctx.artifact("titles")
+    clips_with_titles = _load_json_list(titles_path)
+    clips_with_titles = _apply_source_context_to_clips(ctx, clips_with_titles)
+    if clips_with_titles:
+        titles_path.write_text(
+            json.dumps(clips_with_titles, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
     return run_step6_video(
-        ctx.artifact("titles"),
+        titles_path,
         collections_path,
-        ctx.input_video_path,
+        Path(ctx.input_video_path),
         output_dir=ctx.output_dir,
         clips_dir=str(ctx.clips_dir),
         collections_dir=str(ctx.collections_dir),
         metadata_dir=str(ctx.metadata_dir),
+        settings=ctx.settings,
     )
 
 

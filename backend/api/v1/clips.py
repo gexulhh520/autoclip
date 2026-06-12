@@ -169,6 +169,7 @@ async def get_clips(
     page: int = Query(1, ge=1, description="Page number"),
     size: int = Query(20, ge=1, le=100, description="Page size"),
     project_id: Optional[str] = Query(None, description="Filter by project ID"),
+    source_id: Optional[str] = Query(None, description="Filter by source video ID (multi-source projects)"),
     status: Optional[ClipStatus] = Query(None, description="Filter by status"),
     clip_service: ClipService = Depends(get_clip_service)
 ):
@@ -177,10 +178,11 @@ async def get_clips(
         pagination = PaginationParams(page=page, size=size)
         
         filters = None
-        if project_id or status:
+        if project_id or status or source_id:
             filters = ClipFilter(
                 project_id=project_id,
-                status=status
+                status=status,
+                source_id=source_id,
             )
         
         return clip_service.get_clips_paginated(pagination, filters)

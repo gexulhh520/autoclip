@@ -55,10 +55,56 @@ class ClipService(BaseService[Clip, ClipCreate, ClipUpdate, ClipResponse]):
         filters: Optional[ClipFilter] = None
     ) -> ClipListResponse:
         """Get paginated clips with filtering."""
+        if filters and filters.source_id and filters.project_id:
+            skip = (pagination.page - 1) * pagination.size
+            items = self.repository.get_by_project_and_source(
+                filters.project_id,
+                filters.source_id,
+                skip=skip,
+                limit=pagination.size,
+            )
+            total = self.repository.count_by_project_and_source(
+                filters.project_id, filters.source_id
+            )
+            pages = (total + pagination.size - 1) // pagination.size if pagination.size else 0
+            pagination_response = PaginationResponse(
+                page=pagination.page,
+                size=pagination.size,
+                total=total,
+                pages=pages,
+                has_next=pagination.page < pages,
+                has_prev=pagination.page > 1,
+            )
+            clip_responses = []
+            for clip in items:
+                status_obj = getattr(clip, 'status', None)
+                status_value = status_obj.value if hasattr(status_obj, 'value') else 'pending'
+                clip_responses.append(ClipResponse(
+                    id=str(clip.id),
+                    project_id=str(clip.project_id),
+                    title=str(clip.title),
+                    description=str(clip.description) if clip.description else None,
+                    start_time=getattr(clip, 'start_time', 0),
+                    end_time=getattr(clip, 'end_time', 0),
+                    duration=int(getattr(clip, 'duration', 0)),
+                    score=getattr(clip, 'score', None),
+                    status=status_value,
+                    video_path=getattr(clip, 'video_path', None),
+                    tags=getattr(clip, 'tags', []) or [],
+                    clip_metadata=getattr(clip, 'clip_metadata', {}) or {},
+                    created_at=getattr(clip, 'created_at', None) if isinstance(getattr(clip, 'created_at', None), (type(None), __import__('datetime').datetime)) else None,
+                    updated_at=getattr(clip, 'updated_at', None) if isinstance(getattr(clip, 'updated_at', None), (type(None), __import__('datetime').datetime)) else None,
+                    collection_ids=[]
+                ))
+            return ClipListResponse(items=clip_responses, pagination=pagination_response)
+
         filter_dict = {}
         if filters:
             filter_data = filters.model_dump()
-            filter_dict = {k: v for k, v in filter_data.items() if v is not None}
+            filter_dict = {
+                k: v for k, v in filter_data.items()
+                if v is not None and k != "source_id"
+            }
         
         items, pagination_response = self.get_paginated(pagination, filter_dict)
         

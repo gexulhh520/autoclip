@@ -1,10 +1,10 @@
-"""统一 Prompt 加载：goal pack + video_category + duration 注入。"""
+"""统一 Prompt 加载：template pack + goal pack + video_category + duration 注入。"""
 from __future__ import annotations
 
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from backend.core.clip_duration_config import (
     ClipDurationConfig,
@@ -17,6 +17,7 @@ from backend.pipeline.goals.base import GoalProfile
 logger = logging.getLogger(__name__)
 
 GOALS_PROMPT_DIR = PROMPT_DIR / "goals"
+TEMPLATES_PROMPT_DIR = PROMPT_DIR / "templates"
 
 # prompt 内容 key → 文件名
 PROMPT_FILE_NAMES: Dict[str, str] = {
@@ -42,17 +43,43 @@ def _read_prompt_file(path: Path) -> Optional[str]:
         return None
 
 
-def _resolve_template(
+def _effective_prompt_pack(goal: GoalProfile, settings: Optional[Dict[str, Any]] = None) -> str:
+    settings = settings or {}
+    return str(settings.get("prompt_pack") or goal.prompt_pack)
+
+
+def _resolve_prompt_text(
     key: str,
     goal: GoalProfile,
     video_category: str,
+    settings: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """goal pack 优先，其次 category，最后 default。"""
+    """
+    解析优先级：
+    1. settings.prompt_overrides 内联覆盖
+    2. prompt/templates/{template_id}/
+    3. prompt/goals/{prompt_pack}/
+    4. video_category 覆盖
+    5. 默认 prompt/
+    """
+    settings = settings or {}
     filename = PROMPT_FILE_NAMES.get(key)
     if not filename:
         return ""
 
-    goal_path = GOALS_PROMPT_DIR / goal.prompt_pack / filename
+    overrides = settings.get("prompt_overrides") or {}
+    if key in overrides and overrides[key]:
+        return str(overrides[key])
+
+    template_id = settings.get("template_id")
+    if template_id:
+        template_path = TEMPLATES_PROMPT_DIR / str(template_id) / filename
+        text = _read_prompt_file(template_path)
+        if text is not None:
+            return text
+
+    prompt_pack = _effective_prompt_pack(goal, settings)
+    goal_path = GOALS_PROMPT_DIR / prompt_pack / filename
     text = _read_prompt_file(goal_path)
     if text is not None:
         return text
@@ -73,29 +100,42 @@ def _resolve_template(
     return ""
 
 
-def _load_moment_aliases(goal: GoalProfile, contents: Dict[str, str]) -> None:
+def _load_moment_aliases(
+    goal: GoalProfile,
+    contents: Dict[str, str],
+    settings: Optional[Dict[str, Any]] = None,
+) -> None:
     """moment pipeline 专用文件名覆盖 outline/timeline。"""
-    goal_dir = GOALS_PROMPT_DIR / goal.prompt_pack
-    if not goal_dir.exists():
-        return
-    for filename, content_key in MOMENT_PROMPT_ALIASES.items():
-        text = _read_prompt_file(goal_dir / filename)
-        if text:
-            contents[content_key] = text
+    settings = settings or {}
+    template_id = settings.get("template_id")
+    prompt_pack = _effective_prompt_pack(goal, settings)
+
+    dirs: list[Path] = [GOALS_PROMPT_DIR / prompt_pack]
+    if template_id:
+        dirs.append(TEMPLATES_PROMPT_DIR / str(template_id))
+
+    for goal_dir in dirs:
+        if not goal_dir.exists():
+            continue
+        for filename, content_key in MOMENT_PROMPT_ALIASES.items():
+            text = _read_prompt_file(goal_dir / filename)
+            if text:
+                contents[content_key] = text
 
 
 def load_goal_prompt_contents(
     goal: GoalProfile,
     video_category: str = "default",
     duration_config: Optional[ClipDurationConfig] = None,
+    settings: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, str]:
     """加载并注入时长参数的 prompt 文本。"""
     if duration_config is None:
-        duration_config = resolve_clip_duration_config()
+        duration_config = resolve_clip_duration_config(settings or {})
 
     contents: Dict[str, str] = {}
     for key in PROMPT_FILE_NAMES:
-        template = _resolve_template(key, goal, video_category)
+        template = _resolve_prompt_text(key, goal, video_category, settings)
         if not template:
             continue
         if key in ("outline", "timeline"):
@@ -104,7 +144,7 @@ def load_goal_prompt_contents(
             contents[key] = template
 
     if goal.pipeline_id == "moment":
-        _load_moment_aliases(goal, contents)
+        _load_moment_aliases(goal, contents, settings)
         if "outline" in contents:
             contents["outline"] = apply_duration_to_prompt(contents["outline"], duration_config)
         if "timeline" in contents:
@@ -140,3 +180,19 @@ def save_goal_config_to_metadata(metadata_dir: Path, goal: GoalProfile) -> None:
     metadata_dir.mkdir(parents=True, exist_ok=True)
     path = metadata_dir / "clip_goal_config.json"
     path.write_text(json.dumps(goal.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def save_template_config_to_metadata(metadata_dir: Path, settings: Dict[str, Any]) -> None:
+    """审计：写入本次运行使用的模板配置。"""
+    template_id = settings.get("template_id")
+    if not template_id:
+        return
+    metadata_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "template_id": template_id,
+        "prompt_pack": settings.get("prompt_pack"),
+        "template_rules": settings.get("template_rules") or {},
+        "subtitle_style": (settings.get("template_rules") or {}).get("subtitle_style"),
+    }
+    path = metadata_dir / "template_config.json"
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

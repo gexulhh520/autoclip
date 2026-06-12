@@ -4,6 +4,7 @@ import { PlayCircleOutlined, DeleteOutlined, DownloadOutlined, ReloadOutlined, L
 import { useNavigate } from 'react-router-dom'
 import { Project } from '../store/useProjectStore'
 import { projectApi } from '../services/api'
+import TemplateBadge from './TemplateBadge'
 import { UnifiedStatusBar } from './UnifiedStatusBar'
 // import { 
 //   getProjectStatusConfig, 
@@ -608,6 +609,9 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onDelete, onRetry, o
                 {project.name}
               </Text>
             </Tooltip>
+            <div style={{ marginTop: '8px' }}>
+              <TemplateBadge project={project} />
+            </div>
           </div>
           
           {/* 状态和统计信息 — Calm Premium，见 DESIGN.md */}
