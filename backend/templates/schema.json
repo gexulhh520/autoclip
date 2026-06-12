@@ -4,7 +4,12 @@
   "title": "GeneTemplate",
   "description": "基因模板配置：面向用户的风格包，映射到底层 Pipeline 参数与 Prompt",
   "type": "object",
-  "required": ["id", "name", "description", "pipeline"],
+  "required": [
+    "id",
+    "name",
+    "description",
+    "pipeline"
+  ],
   "additionalProperties": false,
   "properties": {
     "id": {
@@ -34,7 +39,9 @@
     },
     "tags": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "description": "可选标签，用于筛选"
     },
     "preview": {
@@ -53,7 +60,9 @@
     },
     "pipeline": {
       "type": "object",
-      "required": ["clip_goal"],
+      "required": [
+        "clip_goal"
+      ],
       "additionalProperties": false,
       "properties": {
         "clip_goal": {
@@ -83,7 +92,9 @@
         "overrides": {
           "type": "object",
           "description": "未来：按 key 内联覆盖 prompt 文本",
-          "additionalProperties": { "type": "string" }
+          "additionalProperties": {
+            "type": "string"
+          }
         }
       }
     },
@@ -99,7 +110,94 @@
         "subtitle_style": {
           "type": "string",
           "description": "字幕样式：default | quote_highlight",
-          "enum": ["default", "quote_highlight"]
+          "enum": [
+            "default",
+            "quote_highlight"
+          ]
+        },
+        "quote_overlay": {
+          "type": "object",
+          "description": "quote_highlight 标题/金句叠加排版配置；字体默认由系统或内置字体解析，可通过 font_file 覆盖",
+          "additionalProperties": false,
+          "properties": {
+            "font_file": {
+              "type": "string",
+              "description": "可选字体文件路径；不填时自动使用内置/系统中文字体"
+            },
+            "font_size": {
+              "type": "integer",
+              "minimum": 12,
+              "maximum": 120,
+              "description": "字号"
+            },
+            "font_color": {
+              "type": "string",
+              "description": "文字颜色，支持 white、#RRGGBB、#RRGGBBAA 等"
+            },
+            "border_color": {
+              "type": "string",
+              "description": "描边颜色"
+            },
+            "border_width": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20,
+              "description": "描边宽度"
+            },
+            "box": {
+              "type": "boolean",
+              "description": "是否启用半透明底框"
+            },
+            "box_color": {
+              "type": "string",
+              "description": "底框颜色"
+            },
+            "box_border_width": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 80,
+              "description": "底框内边距"
+            },
+            "margin_bottom": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 500,
+              "description": "距离底部像素"
+            },
+            "line_spacing": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 80,
+              "description": "多行文字行距"
+            },
+            "max_chars_per_line": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 80,
+              "description": "自动换行每行最多字符数"
+            },
+            "x": {
+              "type": "string",
+              "description": "FFmpeg drawtext x 表达式"
+            },
+            "y": {
+              "type": "string",
+              "description": "FFmpeg drawtext y 表达式"
+            },
+            "shadow_x": {
+              "type": "integer",
+              "minimum": -20,
+              "maximum": 20
+            },
+            "shadow_y": {
+              "type": "integer",
+              "minimum": -20,
+              "maximum": 20
+            },
+            "shadow_color": {
+              "type": "string"
+            }
+          }
         }
       }
     }

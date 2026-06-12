@@ -24,6 +24,7 @@ class TemplatePromptsConfig(BaseModel):
 class TemplateRulesConfig(BaseModel):
     enable_clustering: Optional[bool] = None
     subtitle_style: Optional[str] = None
+    quote_overlay: Optional[Dict[str, Any]] = None
 
     model_config = {"extra": "allow"}
 

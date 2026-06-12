@@ -13,6 +13,8 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
     ffmpeg \
+    fontconfig \
+    fonts-noto-cjk \
     git \
     && rm -rf /var/lib/apt/lists/*
 

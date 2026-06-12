@@ -2,9 +2,13 @@
   "id": "golden_quote_cinema",
   "name": "经典影视金句",
   "description": "从影视解说、混剪素材中提取可独立传播的金句 moment，适合竖屏短视频与口播切片。切片自动叠加金句标题。",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "enabled": true,
-  "tags": ["金句", "影视", "口播"],
+  "tags": [
+    "金句",
+    "影视",
+    "口播"
+  ],
   "preview": {
     "video_url": "/api/v1/templates/assets/golden_quote_cinema_preview.mp4",
     "thumbnail_url": "/api/v1/templates/assets/golden_quote_cinema.svg"
@@ -19,6 +23,18 @@
   },
   "rules": {
     "enable_clustering": false,
-    "subtitle_style": "quote_highlight"
+    "subtitle_style": "quote_highlight",
+    "quote_overlay": {
+      "font_size": 46,
+      "font_color": "#FFFFFF",
+      "border_color": "#000000",
+      "border_width": 3,
+      "box": true,
+      "box_color": "#00000099",
+      "box_border_width": 20,
+      "margin_bottom": 88,
+      "line_spacing": 8,
+      "max_chars_per_line": 16
+    }
   }
 }
