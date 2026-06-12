@@ -6,12 +6,52 @@ from typing import Any, Dict, Optional
 DEFAULT_SUBTITLE_STYLE = "default"
 QUOTE_HIGHLIGHT_STYLE = "quote_highlight"
 
+DEFAULT_QUOTE_OVERLAY_CONFIG: Dict[str, Any] = {
+    "font_size": 42,
+    "font_color": "white",
+    "border_color": "black",
+    "border_width": 3,
+    "box": True,
+    "box_color": "black@0.50",
+    "box_border_width": 18,
+    "margin_bottom": 80,
+    "line_spacing": 8,
+    "max_chars_per_line": 18,
+}
+
 
 def resolve_subtitle_style(settings: Optional[Dict[str, Any]] = None) -> str:
     settings = settings or {}
     rules = settings.get("template_rules") or {}
     style = rules.get("subtitle_style") or DEFAULT_SUBTITLE_STYLE
     return str(style)
+
+
+def resolve_quote_overlay_config(settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """返回 quote_highlight 标题叠加的排版配置。"""
+    settings = settings or {}
+    rules = settings.get("template_rules") or {}
+    config = dict(DEFAULT_QUOTE_OVERLAY_CONFIG)
+
+    # 新配置入口：rules.quote_overlay = {font_size, font_color, ...}
+    overlay_rules = rules.get("quote_overlay") or rules.get("subtitle_overlay") or {}
+    if isinstance(overlay_rules, dict):
+        config.update({k: v for k, v in overlay_rules.items() if v is not None})
+
+    # 兼容扁平写法，方便以后从表单直接传值。
+    flat_key_map = {
+        "subtitle_font_size": "font_size",
+        "subtitle_font_color": "font_color",
+        "subtitle_border_color": "border_color",
+        "subtitle_border_width": "border_width",
+        "subtitle_margin_bottom": "margin_bottom",
+        "subtitle_max_chars_per_line": "max_chars_per_line",
+        "subtitle_font_file": "font_file",
+    }
+    for source_key, target_key in flat_key_map.items():
+        if rules.get(source_key) is not None:
+            config[target_key] = rules[source_key]
+    return config
 
 
 def should_apply_quote_overlay(style: str) -> bool:

@@ -64,6 +64,8 @@ RUN groupadd -r autoclip && useradd -r -g autoclip autoclip
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     curl \
+    fontconfig \
+    fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 

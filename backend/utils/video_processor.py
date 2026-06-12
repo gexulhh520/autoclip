@@ -4,8 +4,11 @@
 import subprocess
 import json
 import logging
+import os
+import platform
 import re
-from typing import List, Dict, Optional
+import textwrap
+from typing import Any, List, Dict, Optional
 from pathlib import Path
 from .ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path
 
@@ -125,6 +128,151 @@ class VideoProcessor:
             logger.error(f"时间格式转换失败: {time_str}, 错误: {e}")
             return 0.0
     
+
+    @staticmethod
+    def _default_cjk_font_candidates() -> List[Path]:
+        """Return CJK-capable font candidates for bundled, Docker, macOS, Windows, Linux."""
+        backend_dir = Path(__file__).resolve().parent.parent
+        candidates = [
+            backend_dir / "assets" / "fonts" / "NotoSansCJKsc-Regular.otf",
+            backend_dir / "assets" / "fonts" / "SourceHanSansSC-Regular.otf",
+            backend_dir / "assets" / "fonts" / "NotoSansSC-Regular.otf",
+        ]
+
+        system = platform.system().lower()
+        if system == "darwin":
+            candidates.extend([
+                Path("/System/Library/Fonts/PingFang.ttc"),
+                Path("/System/Library/Fonts/STHeiti Light.ttc"),
+                Path("/Library/Fonts/Arial Unicode.ttf"),
+            ])
+        elif system == "windows":
+            windir = Path(os.environ.get("WINDIR", r"C:\Windows"))
+            candidates.extend([
+                windir / "Fonts" / "msyh.ttc",
+                windir / "Fonts" / "simhei.ttf",
+                windir / "Fonts" / "simsun.ttc",
+            ])
+        else:
+            candidates.extend([
+                Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+                Path("/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf"),
+                Path("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"),
+                Path("/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"),
+                Path("/usr/share/fonts/truetype/arphic/ukai.ttc"),
+            ])
+        return candidates
+
+    @staticmethod
+    def _resolve_subtitle_font(style_config: Optional[Dict[str, Any]] = None) -> Optional[Path]:
+        """Resolve a font that can render Chinese text across deployment modes."""
+        style_config = style_config or {}
+        explicit = (
+            style_config.get("font_file")
+            or style_config.get("font_path")
+            or os.getenv("AUTOCLIP_SUBTITLE_FONT_PATH")
+        )
+        candidates: List[Path] = []
+        if explicit:
+            candidates.append(Path(str(explicit)).expanduser())
+        candidates.extend(VideoProcessor._default_cjk_font_candidates())
+        for candidate in candidates:
+            if candidate.exists() and candidate.is_file():
+                return candidate
+        return None
+
+    @staticmethod
+    def _escape_filter_value(value: str) -> str:
+        """Escape a value embedded in a single-quoted FFmpeg filter argument."""
+        escaped = value.replace("\\", "\\\\")
+        escaped = escaped.replace(":", "\\:")
+        escaped = escaped.replace("'", r"\\'")
+        escaped = escaped.replace(",", r"\,")
+        return escaped
+
+    @staticmethod
+    def _normalize_ffmpeg_color(value: Any, default: str) -> str:
+        """Normalize CSS-like colors to FFmpeg color syntax."""
+        text = str(value or default).strip()
+        raw = text[1:] if text.startswith("#") else text
+        if re.fullmatch(r"[0-9A-Fa-f]{6}", raw):
+            return f"0x{raw}"
+        if re.fullmatch(r"[0-9A-Fa-f]{8}", raw):
+            alpha = int(raw[6:8], 16) / 255
+            return f"0x{raw[:6]}@{alpha:.3f}"
+        return text or default
+
+    @staticmethod
+    def _wrap_overlay_text(text: str, max_chars_per_line: int) -> str:
+        text = " ".join((text or "").split())
+        if not text or max_chars_per_line <= 0:
+            return text
+        if len(text) <= max_chars_per_line:
+            return text
+        lines = textwrap.wrap(
+            text,
+            width=max_chars_per_line,
+            break_long_words=True,
+            break_on_hyphens=False,
+        )
+        return "\n".join(lines[:2])
+
+    @staticmethod
+    def _build_drawtext_filter(
+        overlay_text: str,
+        output_path: Path,
+        style_config: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        """Build a UTF-8 safe drawtext filter for quote/title overlay."""
+        style_config = style_config or {}
+        font_path = VideoProcessor._resolve_subtitle_font(style_config)
+        if not font_path:
+            logger.warning(
+                "未找到可用中文字体，跳过文字叠加以避免视频底部出现方块乱码。"
+                "可设置 AUTOCLIP_SUBTITLE_FONT_PATH 或在 backend/assets/fonts 放置 NotoSansCJKsc-Regular.otf。"
+            )
+            return None
+
+        max_chars = int(style_config.get("max_chars_per_line", 18) or 18)
+        display_text = VideoProcessor._wrap_overlay_text(overlay_text.strip(), max_chars)
+        text_file = output_path.with_suffix(output_path.suffix + ".overlay.txt")
+        text_file.write_text(display_text, encoding="utf-8")
+
+        font_size = int(style_config.get("font_size", 42) or 42)
+        font_color = VideoProcessor._normalize_ffmpeg_color(style_config.get("font_color"), "white")
+        border_color = VideoProcessor._normalize_ffmpeg_color(style_config.get("border_color"), "black")
+        border_width = int(style_config.get("border_width", 3) or 3)
+        margin_bottom = int(style_config.get("margin_bottom", 80) or 80)
+        line_spacing = int(style_config.get("line_spacing", 8) or 8)
+        x_expr = str(style_config.get("x", "(w-text_w)/2"))
+        y_expr = str(style_config.get("y", f"h-text_h-{margin_bottom}"))
+
+        parts = [
+            "drawtext="
+            f"fontfile='{VideoProcessor._escape_filter_value(font_path.as_posix())}'"
+            f":textfile='{VideoProcessor._escape_filter_value(text_file.as_posix())}'",
+            f"fontsize={font_size}",
+            f"fontcolor={font_color}",
+            f"borderw={border_width}",
+            f"bordercolor={border_color}",
+            f"line_spacing={line_spacing}",
+            f"x={x_expr}",
+            f"y={y_expr}",
+        ]
+
+        if style_config.get("box", True):
+            box_color = VideoProcessor._normalize_ffmpeg_color(style_config.get("box_color"), "black@0.50")
+            box_border_width = int(style_config.get("box_border_width", 18) or 18)
+            parts.extend(["box=1", f"boxcolor={box_color}", f"boxborderw={box_border_width}"])
+
+        shadow_x = int(style_config.get("shadow_x", 0) or 0)
+        shadow_y = int(style_config.get("shadow_y", 0) or 0)
+        if shadow_x or shadow_y:
+            shadow_color = VideoProcessor._normalize_ffmpeg_color(style_config.get("shadow_color"), "black")
+            parts.extend([f"shadowx={shadow_x}", f"shadowy={shadow_y}", f"shadowcolor={shadow_color}"])
+
+        return ":".join(parts)
+
     @staticmethod
     def _escape_drawtext(text: str) -> str:
         escaped = text.replace("\\", "\\\\")
@@ -138,7 +286,8 @@ class VideoProcessor:
                     start_time: str, end_time: str,
                     *,
                     subtitle_style: str = "default",
-                    overlay_text: Optional[str] = None) -> bool:
+                    overlay_text: Optional[str] = None,
+                    subtitle_config: Optional[Dict[str, Any]] = None) -> bool:
         """
         从视频中提取指定时间段的片段
         
@@ -172,12 +321,20 @@ class VideoProcessor:
             )
 
             if use_quote_overlay:
-                safe_text = VideoProcessor._escape_drawtext(overlay_text.strip())
-                vf = (
-                    f"drawtext=text='{safe_text}'"
-                    ":fontsize=28:fontcolor=white:borderw=2:bordercolor=black"
-                    ":x=(w-text_w)/2:y=h-th-48"
+                vf = VideoProcessor._build_drawtext_filter(
+                    overlay_text.strip(),
+                    output_path,
+                    subtitle_config,
                 )
+                if not vf:
+                    logger.warning("quote_highlight 字体不可用，回退为无叠加导出: %s", output_path)
+                    return VideoProcessor.extract_clip(
+                        input_video,
+                        output_path,
+                        start_time,
+                        end_time,
+                        subtitle_style="default",
+                    )
                 cmd = [
                     ffmpeg_bin,
                     '-ss', ffmpeg_start_time,
@@ -208,6 +365,9 @@ class VideoProcessor:
             
             # 执行命令
             result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='ignore')
+            if use_quote_overlay:
+                overlay_sidecar = output_path.with_suffix(output_path.suffix + ".overlay.txt")
+                overlay_sidecar.unlink(missing_ok=True)
             
             if result.returncode == 0:
                 logger.info(f"成功提取视频片段: {output_path} ({ffmpeg_start_time} -> {ffmpeg_end_time}, 时长: {duration:.2f}秒)")
@@ -404,6 +564,7 @@ class VideoProcessor:
         clips_data: List[Dict],
         *,
         subtitle_style: str = "default",
+        subtitle_config: Optional[Dict[str, Any]] = None,
     ) -> List[Path]:
         """
         批量提取视频片段
@@ -443,6 +604,7 @@ class VideoProcessor:
                 end_time,
                 subtitle_style=subtitle_style,
                 overlay_text=title if subtitle_style == "quote_highlight" else None,
+                subtitle_config=subtitle_config,
             ):
                 successful_clips.append(output_path)
                 logger.info(f"切片 {clip_id} 提取成功")
