@@ -480,20 +480,17 @@ redis-cli ping                             # Redis连接测试
 # 激活虚拟环境
 source venv/bin/activate
 
-# 设置Python路径
-export PYTHONPATH="${PWD}:${PYTHONPATH}"
-
-# 启动后端开发服务器
-python -m uvicorn backend.main:app --reload --port 8000
+# 启动后端开发服务器（详见 STARTUP_GUIDE.md）
+export AUTOCLIP_DESKTOP_MODE=true   # 本地无 Redis 时建议开启
+python -m backend.main --reload
 ```
+
+Windows 与完整启动说明见 [STARTUP_GUIDE.md](./STARTUP_GUIDE.md)。
 
 ### 前端开发
 
 ```bash
-# 进入前端目录
 cd frontend
-
-# 启动开发服务器
 npm run dev
 ```
 

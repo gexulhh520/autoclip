@@ -8,9 +8,10 @@ from typing import Dict, Any, Optional, List
 from pathlib import Path
 
 from .llm_providers import (
-    LLMProvider, LLMProviderFactory, ProviderType, 
-    ModelInfo, LLMResponse
+    LLMProvider, LLMProviderFactory, ProviderType,
+    ModelInfo, LLMResponse, OllamaProvider
 )
+from .path_utils import get_settings_file_path
 from ..services.config_sync_service import config_sync_service
 
 logger = logging.getLogger(__name__)
@@ -28,26 +29,8 @@ class LLMManager:
         self._initialize_provider()
     
     def _get_default_settings_file(self) -> Path:
-        """获取默认设置文件路径"""
-        # 优先使用桌面模式应用目录（与前端保存一致）
-        app_dir = os.getenv("AUTOCLIP_APP_DIR")
-        if app_dir:
-            return Path(app_dir) / "settings.json"
-        
-        # 优先使用默认的用户目录（macOS）- 客户端配置位置
-        default_app_dir = Path.home() / "Library" / "Application Support" / "AutoClip"
-        default_settings = default_app_dir / "settings.json"
-        if default_settings.exists():
-            return default_settings
-            
-        # 最后检查项目data目录下的settings.json（开发环境）
-        project_data_dir = Path(__file__).parent.parent.parent / "data"
-        project_settings = project_data_dir / "settings.json"
-        if project_settings.exists():
-            return project_settings
-            
-        # 如果都不存在，返回默认路径
-        return default_settings
+        """获取默认设置文件路径（与 settings API 一致）"""
+        return get_settings_file_path()
     
     def _sync_config_if_needed(self):
         """检查并同步配置"""
@@ -69,6 +52,8 @@ class LLMManager:
             "openai_api_key": "",
             "gemini_api_key": "",
             "siliconflow_api_key": "",
+            "ollama_api_key": "",
+            "ollama_base_url": OllamaProvider.DEFAULT_BASE_URL,
             "model_name": "qwen-plus",
             "chunk_size": 5000,
             "min_score_threshold": 0.7,
@@ -83,12 +68,21 @@ class LLMManager:
                     # 处理新的配置格式（客户端配置）
                     if "api" in saved_settings and "api_keys" in saved_settings["api"]:
                         api_keys = saved_settings["api"]["api_keys"]
+                        api_section = saved_settings["api"]
                         default_settings.update({
                             "dashscope_api_key": api_keys.get("dashscope", ""),
                             "openai_api_key": api_keys.get("openai", ""),
                             "gemini_api_key": api_keys.get("gemini", ""),
                             "siliconflow_api_key": api_keys.get("siliconflow", ""),
-                            "model_name": saved_settings["api"].get("api_model", "qwen-plus")
+                            "ollama_api_key": api_keys.get("ollama", ""),
+                            "model_name": api_section.get("api_model", "qwen-plus"),
+                            "llm_provider": api_section.get("llm_provider")
+                                or api_section.get("api_provider")
+                                or default_settings["llm_provider"],
+                            "ollama_base_url": api_section.get(
+                                "ollama_base_url",
+                                OllamaProvider.DEFAULT_BASE_URL,
+                            ),
                         })
                     else:
                         # 处理旧的配置格式（直接平铺）
@@ -114,11 +108,19 @@ class LLMManager:
         try:
             provider_type = ProviderType(self.settings.get("llm_provider", "dashscope"))
             model_name = self.settings.get("model_name", "qwen-plus")
-            
+
+            if provider_type == ProviderType.OLLAMA:
+                api_key = self.settings.get("ollama_api_key", "ollama") or "ollama"
+                base_url = self.settings.get("ollama_base_url", OllamaProvider.DEFAULT_BASE_URL)
+                self.current_provider = LLMProviderFactory.create_provider(
+                    provider_type, api_key, model_name, base_url=base_url
+                )
+                logger.info(f"已初始化 Ollama 提供商，模型: {model_name}，地址: {base_url}")
+                return
+
             # 获取对应提供商的API密钥
             api_key = self._get_api_key_for_provider(provider_type)
-            
-            
+
             if api_key:
                 self.current_provider = LLMProviderFactory.create_provider(
                     provider_type, api_key, model_name
@@ -138,6 +140,7 @@ class LLMManager:
             ProviderType.OPENAI: "openai_api_key",
             ProviderType.GEMINI: "gemini_api_key",
             ProviderType.SILICONFLOW: "siliconflow_api_key",
+            ProviderType.OLLAMA: "ollama_api_key",
         }
         
         key_name = key_mapping.get(provider_type)
@@ -151,7 +154,7 @@ class LLMManager:
         self._save_settings()
         self._initialize_provider()
     
-    def set_provider(self, provider_type: ProviderType, api_key: str, model_name: str):
+    def set_provider(self, provider_type: ProviderType, api_key: str, model_name: str, **kwargs):
         """设置提供商"""
         try:
             # 更新设置
@@ -159,6 +162,11 @@ class LLMManager:
                 "llm_provider": provider_type.value,
                 "model_name": model_name
             }
+            if provider_type == ProviderType.OLLAMA:
+                provider_settings["ollama_base_url"] = kwargs.get(
+                    "base_url",
+                    self.settings.get("ollama_base_url", OllamaProvider.DEFAULT_BASE_URL),
+                )
             
             # 更新对应提供商的API密钥
             key_mapping = {
@@ -166,6 +174,7 @@ class LLMManager:
                 ProviderType.OPENAI: "openai_api_key",
                 ProviderType.GEMINI: "gemini_api_key",
                 ProviderType.SILICONFLOW: "siliconflow_api_key",
+                ProviderType.OLLAMA: "ollama_api_key",
             }
             
             key_name = key_mapping.get(provider_type)
@@ -175,9 +184,17 @@ class LLMManager:
             self.update_settings(provider_settings)
             
             # 创建新的提供商实例
-            self.current_provider = LLMProviderFactory.create_provider(
-                provider_type, api_key, model_name
-            )
+            if provider_type == ProviderType.OLLAMA:
+                self.current_provider = LLMProviderFactory.create_provider(
+                    provider_type,
+                    api_key or "ollama",
+                    model_name,
+                    base_url=provider_settings.get("ollama_base_url"),
+                )
+            else:
+                self.current_provider = LLMProviderFactory.create_provider(
+                    provider_type, api_key, model_name
+                )
             
             logger.info(f"已切换到{provider_type.value}提供商，模型: {model_name}")
             
@@ -213,10 +230,18 @@ class LLMManager:
                 time.sleep(2 ** attempt)  # 指数退避
         return ""
     
-    def test_provider_connection(self, provider_type: ProviderType, api_key: str, model_name: str) -> bool:
+    def test_provider_connection(self, provider_type: ProviderType, api_key: str, model_name: str, **kwargs) -> bool:
         """测试提供商连接"""
         try:
-            provider = LLMProviderFactory.create_provider(provider_type, api_key, model_name)
+            if provider_type == ProviderType.OLLAMA:
+                provider = LLMProviderFactory.create_provider(
+                    provider_type,
+                    api_key or "ollama",
+                    model_name,
+                    base_url=kwargs.get("base_url", OllamaProvider.DEFAULT_BASE_URL),
+                )
+            else:
+                provider = LLMProviderFactory.create_provider(provider_type, api_key, model_name)
             return provider.test_connection()
         except Exception as e:
             logger.error(f"测试{provider_type.value}连接失败: {e}")
@@ -243,7 +268,8 @@ class LLMManager:
             ProviderType.DASHSCOPE: "阿里通义千问",
             ProviderType.OPENAI: "OpenAI",
             ProviderType.GEMINI: "Google Gemini",
-            ProviderType.SILICONFLOW: "硅基流动"
+            ProviderType.SILICONFLOW: "硅基流动",
+            ProviderType.OLLAMA: "Ollama 本地",
         }
         return display_names.get(provider_type, provider_type.value)
     

@@ -226,11 +226,18 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onDelete, onRetry, o
 
   // 检查是否是下载状态 - 根据下载进度判断
   const downloadProgress = project.processing_config?.download_progress || 0
-  const isDownloading = project.status === 'pending' && downloadProgress > 0 && downloadProgress < 100
-  const isImporting = project.status === 'pending' && !isDownloading
+  const downloadStatus = project.processing_config?.download_status
+  const isDownloadFailed = downloadStatus === 'failed' || project.status === 'failed'
+  const isUrlImportWithoutVideo = !!(project.source_url && !project.video_path)
+  const isDownloading = !isDownloadFailed &&
+    project.status === 'pending' &&
+    downloadProgress > 0 &&
+    downloadProgress < 100
+  const isImporting = project.status === 'pending' && !isDownloading && !isDownloadFailed
   
   // 状态标准化处理
-  const normalizedStatus = project.status === 'error' ? 'failed' : 
+  const normalizedStatus = project.status === 'error' ? 'failed' :
+                          isDownloadFailed ? 'failed' :
                           isDownloading ? 'downloading' :
                           isImporting ? 'importing' : project.status
   
@@ -281,8 +288,9 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onDelete, onRetry, o
 
     setIsRetrying(true)
     try {
-      // 对于PENDING状态的项目，使用startProcessing；对于其他状态，使用retryProcessing
-      if (project.status === 'pending') {
+      // 本地上传（已有视频文件）的 pending 项目走 /process；
+      // URL 导入（无视频文件）或下载/处理失败的项目走 /retry（会触发重新下载）。
+      if (project.status === 'pending' && !isUrlImportWithoutVideo) {
         await projectApi.startProcessing(project.id)
       } else {
         await projectApi.retryProcessing(project.id)
@@ -347,18 +355,6 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onDelete, onRetry, o
             overflow: 'hidden'
           }}
           onClick={() => {
-            // 导入中状态的项目不能点击进入详情页
-            if (project.status === 'pending') {
-              message.warning('项目正在导入中，请稍后再查看详情')
-              return
-            }
-            
-            // 处理中状态的项目不能点击进入详情页
-            if (project.status === 'processing') {
-              message.warning('项目处理中，请完成后再查看')
-              return
-            }
-            
             if (onClick) {
               onClick()
             } else {

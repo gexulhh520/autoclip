@@ -19,6 +19,7 @@ class ProviderType(Enum):
     OPENAI = "openai"        # OpenAI
     GEMINI = "gemini"        # Google Gemini
     SILICONFLOW = "siliconflow"  # 硅基流动
+    OLLAMA = "ollama"        # 本地 Ollama
 
 @dataclass
 class ModelInfo:
@@ -85,7 +86,11 @@ class LLMProvider(ABC):
         """构建完整的输入"""
         if input_data:
             if isinstance(input_data, dict):
-                return f"{prompt}\n\n输入内容：\n{json.dumps(input_data, ensure_ascii=False, indent=2)}"
+                # 紧凑 JSON，避免 indent 放大长字幕块的 token 占用
+                return (
+                    f"{prompt}\n\n输入内容：\n"
+                    f"{json.dumps(input_data, ensure_ascii=False, separators=(',', ':'))}"
+                )
             else:
                 return f"{prompt}\n\n输入内容：\n{input_data}"
         return prompt
@@ -405,6 +410,252 @@ class GeminiProvider(LLMProvider):
             )
         ]
 
+class OllamaProvider(LLMProvider):
+    """本地 Ollama 提供商（OpenAI 兼容 API）"""
+
+    DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1"
+    DEFAULT_MODEL = "qwen2.5vl:7b"
+    CURATED_MODELS = (
+        ("qwen2.5vl:7b", "Qwen 2.5 VL 7B", "推荐中文视频字幕分析"),
+        ("gemma4:12b", "Gemma 4 12B", "更大参数，适合复杂内容理解"),
+    )
+
+    # Ollama 支持的常见上下文档位
+    _CTX_STEPS = (8192, 16384, 32768, 65536, 131072)
+
+    def __init__(self, api_key: str = "ollama", model_name: str = None, **kwargs):
+        super().__init__(api_key or "ollama", model_name or self.DEFAULT_MODEL, **kwargs)
+        self.base_url = (kwargs.get("base_url") or os.getenv("OLLAMA_BASE_URL") or self.DEFAULT_BASE_URL).rstrip("/")
+        self.num_ctx = int(kwargs.get("num_ctx") or os.getenv("OLLAMA_NUM_CTX") or 32768)
+        self.num_predict = int(kwargs.get("num_predict") or os.getenv("OLLAMA_NUM_PREDICT") or 4096)
+
+    def _chat_completions_url(self) -> str:
+        return f"{self.base_url}/chat/completions"
+
+    def _chat_api_url(self) -> str:
+        """Ollama 原生 chat API（支持 think / num_ctx）。"""
+        return f"{self._root_url()}/api/chat"
+
+    def _root_url(self) -> str:
+        if self.base_url.endswith("/v1"):
+            return self.base_url[:-3]
+        return self.base_url
+
+    def _resolve_num_ctx(self, prompt_chars: int, num_predict: int, requested: int) -> int:
+        """按 prompt 体量自动选择 num_ctx，避免 prompt 占满上下文导致只输出 1 个 token。"""
+        # 中文/混排字幕实测约 1.1 字符/token
+        est_prompt_tokens = int(prompt_chars / 1.1) + 512
+        needed = est_prompt_tokens + num_predict + 2048
+        floor = max(requested, self.num_ctx)
+        for size in self._CTX_STEPS:
+            if size >= needed and size >= floor:
+                if size > floor:
+                    logger.info(
+                        "Ollama prompt 约 %d 字符（≈%d tokens），num_ctx 从 %d 提升到 %d",
+                        prompt_chars,
+                        est_prompt_tokens,
+                        floor,
+                        size,
+                    )
+                return size
+        return self._CTX_STEPS[-1]
+
+    @staticmethod
+    def _is_context_overflow(data: Dict[str, Any], content: str, num_ctx: int) -> bool:
+        prompt_eval = data.get("prompt_eval_count") or 0
+        eval_count = data.get("eval_count") or 0
+        if data.get("done_reason") != "length":
+            return False
+        if len(content.strip()) >= 50 and eval_count >= 50:
+            return False
+        return prompt_eval >= max(num_ctx - 256, int(num_ctx * 0.95))
+
+    @staticmethod
+    def _extract_message_text(message: Dict[str, Any]) -> str:
+        """从 Ollama 响应中提取可用文本（兼容 thinking 模型）。"""
+        content = (message.get("content") or "").strip()
+        if content:
+            return content
+        for field in ("reasoning", "thinking"):
+            fallback = (message.get(field) or "").strip()
+            if fallback:
+                logger.warning(
+                    "Ollama 返回空 content，已回退使用 %s 字段（建议对结构化任务设置 think=false）",
+                    field,
+                )
+                return fallback
+        return ""
+
+    def _post_chat(
+        self,
+        full_input: str,
+        *,
+        think: bool,
+        num_ctx: int,
+        num_predict: int,
+        timeout: int,
+        extra_options: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        import requests
+
+        payload = {
+            "model": self.model_name,
+            "messages": [{"role": "user", "content": full_input}],
+            "stream": False,
+            "think": think,
+            "options": {
+                "num_ctx": num_ctx,
+                "num_predict": num_predict,
+                **extra_options,
+            },
+        }
+        headers = {
+            "Authorization": f"Bearer {self.api_key or 'ollama'}",
+            "Content-Type": "application/json",
+        }
+        resp = requests.post(
+            self._chat_api_url(),
+            headers=headers,
+            json=payload,
+            timeout=timeout,
+        )
+        if resp.status_code != 200:
+            try:
+                err = resp.json()
+            except Exception:
+                err = {"message": resp.text}
+            raise Exception(f"Ollama API调用失败 - Status: {resp.status_code}, Message: {err}")
+        return resp.json()
+
+    def call(self, prompt: str, input_data: Any = None, **kwargs) -> LLMResponse:
+        """调用 Ollama 原生 chat API（支持 think / num_ctx 自动扩容）。"""
+        try:
+            full_input = self._build_full_input(prompt, input_data)
+            timeout = kwargs.pop("timeout", 300)
+            # thinking 模型（如 gemma4）默认会把全部 token 用在 reasoning 里，
+            # content 为空，导致流水线后续步骤拿到空 JSON。结构化任务默认关闭 thinking。
+            think = kwargs.pop("think", False)
+            requested_ctx = int(kwargs.pop("num_ctx", self.num_ctx))
+            num_predict = int(kwargs.pop("num_predict", kwargs.pop("max_tokens", self.num_predict)))
+            extra_options = {
+                key: kwargs[key]
+                for key in ("temperature", "top_p", "top_k", "seed")
+                if key in kwargs and kwargs[key] is not None
+            }
+
+            num_ctx = self._resolve_num_ctx(len(full_input), num_predict, requested_ctx)
+            data = self._post_chat(
+                full_input,
+                think=think,
+                num_ctx=num_ctx,
+                num_predict=num_predict,
+                timeout=timeout,
+                extra_options=extra_options,
+            )
+            message = data.get("message") or {}
+            content = self._extract_message_text(message)
+
+            if self._is_context_overflow(data, content, num_ctx):
+                larger_steps = [s for s in self._CTX_STEPS if s > num_ctx]
+                if larger_steps:
+                    retry_ctx = larger_steps[0]
+                    logger.warning(
+                        "Ollama 上下文不足（prompt=%s tokens, num_ctx=%s, 输出仅 %s 字符），"
+                        "自动以 num_ctx=%s 重试",
+                        data.get("prompt_eval_count"),
+                        num_ctx,
+                        len(content),
+                        retry_ctx,
+                    )
+                    num_ctx = retry_ctx
+                    data = self._post_chat(
+                        full_input,
+                        think=think,
+                        num_ctx=num_ctx,
+                        num_predict=num_predict,
+                        timeout=timeout,
+                        extra_options=extra_options,
+                    )
+                    message = data.get("message") or {}
+                    content = self._extract_message_text(message)
+
+            usage = {
+                "prompt_tokens": data.get("prompt_eval_count"),
+                "completion_tokens": data.get("eval_count"),
+                "total_tokens": (data.get("prompt_eval_count") or 0) + (data.get("eval_count") or 0),
+            }
+            finish_reason = data.get("done_reason") or ("stop" if data.get("done") else None)
+            if self._is_context_overflow(data, content, num_ctx):
+                raise ValueError(
+                    f"Ollama 上下文窗口不足：prompt 占用约 {usage.get('prompt_tokens')} tokens，"
+                    f"num_ctx={num_ctx} 已无空间生成完整 JSON。"
+                    f"请设置环境变量 OLLAMA_NUM_CTX=65536 或换用 qwen2.5vl:7b。"
+                )
+            if not content.strip() and finish_reason == "length":
+                logger.error(
+                    "Ollama 响应为空且 finish_reason=length（prompt≈%s tokens, num_ctx=%s）",
+                    usage.get("prompt_tokens", "?"),
+                    num_ctx,
+                )
+            return LLMResponse(
+                content=content,
+                usage=usage,
+                model=self.model_name,
+                finish_reason=finish_reason,
+            )
+        except Exception as e:
+            logger.error(f"Ollama调用失败: {str(e)}")
+            raise
+
+    def test_connection(self) -> bool:
+        """测试 Ollama 服务是否可用"""
+        try:
+            import requests
+
+            resp = requests.get(f"{self._root_url()}/api/tags", timeout=5)
+            if resp.status_code == 200:
+                return True
+            response = self.call("测试", max_tokens=8, timeout=60)
+            return bool(response and response.content)
+        except Exception as e:
+            logger.error(f"Ollama连接测试失败: {e}")
+            return False
+
+    def get_available_models(self) -> List[ModelInfo]:
+        """获取 Ollama 预设模型，并合并本地已 pull 的模型"""
+        models = [
+            ModelInfo(
+                name=name,
+                display_name=display_name,
+                provider=ProviderType.OLLAMA,
+                max_tokens=32768,
+                description=description,
+            )
+            for name, display_name, description in self.CURATED_MODELS
+        ]
+        try:
+            import requests
+
+            resp = requests.get(f"{self._root_url()}/api/tags", timeout=5)
+            if resp.status_code == 200:
+                for item in resp.json().get("models", []):
+                    name = item.get("name")
+                    if not name or any(m.name == name for m in models):
+                        continue
+                    models.append(
+                        ModelInfo(
+                            name=name,
+                            display_name=name,
+                            provider=ProviderType.OLLAMA,
+                            max_tokens=32768,
+                            description="本地已安装模型",
+                        )
+                    )
+        except Exception as e:
+            logger.debug(f"无法从 Ollama 拉取模型列表: {e}")
+        return models
+
+
 class SiliconFlowProvider(LLMProvider):
     """硅基流动提供商"""
     
@@ -509,6 +760,7 @@ class LLMProviderFactory:
         ProviderType.OPENAI: OpenAIProvider,
         ProviderType.GEMINI: GeminiProvider,
         ProviderType.SILICONFLOW: SiliconFlowProvider,
+        ProviderType.OLLAMA: OllamaProvider,
     }
     
     @classmethod

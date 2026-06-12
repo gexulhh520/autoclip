@@ -24,7 +24,7 @@ import CollectionCard from '../components/CollectionCard'
 import CollectionPreviewModal from '../components/CollectionPreviewModal'
 import CreateCollectionModal from '../components/CreateCollectionModal'
 import { useCollectionVideoDownload } from '../hooks/useCollectionVideoDownload'
-import { ProjectTaskManager } from '../components/ProjectTaskManager'
+import PipelineStepsPanel from '../components/PipelineStepsPanel'
 
 const { Content } = Layout
 const { Title, Text } = Typography
@@ -59,36 +59,58 @@ const ProjectDetailPage: React.FC = () => {
     loadProcessingStatus()
   }, [id])
 
+  const loadProjectMedia = async (projectId: string) => {
+    let [clips, collections] = await Promise.all([
+      projectApi.getClips(projectId),
+      projectApi.getCollections(projectId),
+    ])
+
+    if (!clips || clips.length === 0) {
+      try {
+        await projectApi.syncProjectFromFilesystem(projectId)
+        clips = await projectApi.getClips(projectId)
+      } catch (syncErr) {
+        console.warn('Auto sync clips failed:', syncErr)
+      }
+    }
+
+    return {
+      clips: clips || [],
+      collections: collections || [],
+    }
+  }
+
   const loadProject = async () => {
     if (!id) return
     try {
-      const project = await projectApi.getProject(id)
-      
-      // 如果项目已完成，加载clips和collections
-      if (project.status === 'completed') {
+      const [project, pipeline] = await Promise.all([
+        projectApi.getProject(id),
+        projectApi.getPipelineSteps(id).catch(() => null),
+      ])
+
+      const step6 = pipeline?.steps?.find((s) => s.id === 'step6_video')
+      const step6Ready =
+        step6?.status === 'completed' && (step6?.item_count ?? 0) > 0
+      const shouldLoadMedia =
+        project.status === 'completed' ||
+        step6Ready ||
+        project.status === 'failed'
+
+      if (shouldLoadMedia && project.status !== 'processing') {
         try {
-          const [clips, collections] = await Promise.all([
-            projectApi.getClips(id),
-            projectApi.getCollections(id)
-          ])
-          
-          console.log('🎬 Loaded clips in ProjectDetailPage:', clips)
-          console.log('📚 Loaded collections in ProjectDetailPage:', collections)
-          
+          const { clips, collections } = await loadProjectMedia(id)
+
           const projectWithData = {
             ...project,
-            clips: clips || [],
-            collections: collections || []
+            status: step6Ready ? 'completed' : project.status,
+            clips,
+            collections,
           }
-          
-          console.log('🎯 Final project with data:', projectWithData)
+
           setCurrentProject(projectWithData)
-          
-          // 同步更新项目列表，避免页面与列表状态漂移
           upsertProject(projectWithData)
         } catch (error) {
           console.error('Failed to load clips/collections:', error)
-          // 即使clips/collections加载失败，也设置项目基本信息
           setCurrentProject(project)
         }
       } else {
@@ -243,6 +265,9 @@ const ProjectDetailPage: React.FC = () => {
     )
   }
 
+  const clipCount = currentProject.clips?.length ?? 0
+  const showClipWorkspace = currentProject.status === 'completed' || clipCount > 0
+
   return (
     <Content style={{ padding: '24px' }}>
       {/* 简化的项目头部 */}
@@ -274,8 +299,13 @@ const ProjectDetailPage: React.FC = () => {
         </Space>
       </div>
 
-      {/* 主要内容 */}
-      {currentProject.status === 'completed' ? (
+      <PipelineStepsPanel
+        projectId={currentProject.id}
+        onPipelineFinished={() => loadProject()}
+      />
+
+      {/* 主要内容：已完成或已有切片产物时展示片段区 */}
+      {showClipWorkspace ? (
         <div>
           {/* AI合集横向滚动区域 */}
           {currentProject.collections && currentProject.collections.length > 0 && (
@@ -492,27 +522,26 @@ const ProjectDetailPage: React.FC = () => {
           </Card>
         </div>
       ) : (
-        <div>
-          {/* 任务管理组件 */}
-          <ProjectTaskManager 
-            projectId={currentProject.id} 
-            projectName={currentProject.name}
+        <Card
+          style={{
+            borderRadius: 16,
+            border: '1px solid var(--ac-line)',
+            background: 'var(--ac-card)',
+          }}
+        >
+          <Empty
+            image={<PlayCircleOutlined style={{ fontSize: 48, color: 'var(--ac-muted)' }} />}
+            description={
+              <div>
+                <Text style={{ color: 'var(--ac-ink)' }}>片段尚未生成</Text>
+                <br />
+                <Text type="secondary" style={{ color: 'var(--ac-sub)' }}>
+                  可在上方流水线面板查看各步骤状态，并从失败步骤「从此步继续」
+                </Text>
+              </div>
+            }
           />
-          
-          {/* 项目状态提示 */}
-          <Card style={{ marginTop: '16px' }}>
-            <Empty 
-              image={<PlayCircleOutlined style={{ fontSize: '64px', color: '#d9d9d9' }} />}
-              description={
-                <div>
-                  <Text>项目还未完成处理</Text>
-                  <br />
-                  <Text type="secondary">处理完成后可查看视频片段和AI合集</Text>
-                </div>
-              }
-            />
-          </Card>
-        </div>
+        </Card>
       )}
 
       {/* 创建合集模态框 */}

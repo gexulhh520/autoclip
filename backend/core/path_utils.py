@@ -4,6 +4,7 @@
 """
 
 import os
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -16,6 +17,26 @@ def is_desktop_mode() -> bool:
         os.getenv("AUTOCLIP_DESKTOP_MODE", "").lower() in DESKTOP_TRUE_VALUES
         or os.getenv("AUTOCLIP_MODE", "").lower() == "desktop"
     )
+
+def get_default_desktop_app_dir() -> Path:
+    """桌面模式默认数据目录（按平台）"""
+    if sys.platform == "win32":
+        local_app_data = os.getenv("LOCALAPPDATA")
+        if local_app_data:
+            return Path(local_app_data) / "AutoClip"
+        return Path.home() / "AppData" / "Local" / "AutoClip"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "AutoClip"
+    xdg_data = os.getenv("XDG_DATA_HOME")
+    base = Path(xdg_data) if xdg_data else Path.home() / ".local" / "share"
+    return base / "AutoClip"
+
+
+def _is_source_dev_tree() -> bool:
+    """是否在源码仓库内运行（backend 与 frontend 同级）"""
+    root = get_project_root()
+    return (root / "backend").is_dir() and (root / "frontend").is_dir()
+
 
 def get_project_root() -> Path:
     """
@@ -39,8 +60,16 @@ def get_data_directory() -> Path:
     if configured_data_dir:
         data_dir = Path(configured_data_dir).expanduser()
     elif is_desktop_mode():
-        app_dir = os.getenv("AUTOCLIP_APP_DIR", "~/Library/Application Support/AutoClip")
-        data_dir = Path(app_dir).expanduser()
+        # 源码开发：未显式指定应用目录时，使用项目内 data/
+        if not os.getenv("AUTOCLIP_APP_DIR") and _is_source_dev_tree():
+            data_dir = get_project_root() / "data"
+        else:
+            app_dir = os.getenv("AUTOCLIP_APP_DIR")
+            data_dir = (
+                Path(app_dir).expanduser()
+                if app_dir
+                else get_default_desktop_app_dir()
+            )
     else:
         # 统一使用项目根目录下的data目录，与config.py保持一致
         data_dir = get_project_root() / "data"

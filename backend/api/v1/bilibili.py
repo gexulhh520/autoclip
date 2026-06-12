@@ -31,6 +31,11 @@ class BilibiliDownloadRequest(BaseModel):
     url: str
     project_name: str
     video_category: Optional[str] = "default"
+    clip_duration_preset: Optional[str] = "standard"
+    clip_min_seconds: Optional[int] = None
+    clip_target_seconds: Optional[int] = None
+    clip_max_seconds: Optional[int] = None
+    clip_goal: Optional[str] = "knowledge"
     browser: Optional[str] = None
 
 class BilibiliVideoInfo(BaseModel):
@@ -133,6 +138,29 @@ async def create_bilibili_download_task(request: BilibiliDownloadRequest):
                     # 缩略图处理失败不影响主流程
             
             # 创建项目数据
+            bilibili_settings = {
+                "download_status": "downloading",
+                "download_progress": 0.0,
+                "video_category": request.video_category or "default",
+                "clip_duration_preset": request.clip_duration_preset or "standard",
+                "clip_goal": request.clip_goal or "knowledge",
+                "bilibili_info": {
+                    "url": request.url,
+                    "browser": request.browser,
+                    "title": video_info.title,
+                    "uploader": video_info.uploader,
+                    "duration": video_info.duration,
+                    "view_count": video_info.view_count,
+                    "thumbnail_url": video_info.thumbnail_url
+                }
+            }
+            if request.clip_min_seconds is not None:
+                bilibili_settings["clip_min_seconds"] = request.clip_min_seconds
+            if request.clip_target_seconds is not None:
+                bilibili_settings["clip_target_seconds"] = request.clip_target_seconds
+            if request.clip_max_seconds is not None:
+                bilibili_settings["clip_max_seconds"] = request.clip_max_seconds
+
             project_data = ProjectCreate(
                 name=request.project_name,
                 description=f"从B站下载: {video_info.title}",
@@ -140,19 +168,7 @@ async def create_bilibili_download_task(request: BilibiliDownloadRequest):
                 status=ProjectStatus.PENDING,  # 初始状态为等待中
                 source_url=request.url,
                 source_file=None,  # 暂时为空，下载完成后更新
-                settings={
-                    "download_status": "downloading",
-                    "download_progress": 0.0,
-                    "bilibili_info": {
-                        "url": request.url,
-                        "browser": request.browser,
-                        "title": video_info.title,
-                        "uploader": video_info.uploader,
-                        "duration": video_info.duration,
-                        "view_count": video_info.view_count,
-                        "thumbnail_url": video_info.thumbnail_url
-                    }
-                }
+                settings=bilibili_settings,
             )
             
             project = project_service.create_project(project_data)
@@ -245,10 +261,13 @@ async def update_project_download_progress(project_id: str, progress: float, mes
                 if not project.processing_config:
                     project.processing_config = {}
                 
-                project.processing_config.update({
+                updates = {
                     "download_progress": progress,
-                    "download_message": message
-                })
+                    "download_message": message,
+                }
+                if progress >= 100.0:
+                    updates["download_status"] = "completed"
+                project.processing_config.update(updates)
                 
                 # 如果进度达到100%，更新状态为等待处理
                 if progress >= 100.0:

@@ -15,7 +15,12 @@ def _is_desktop_mode() -> bool:
     return os.getenv("AUTOCLIP_DESKTOP_MODE", "").lower() in {"1", "true", "yes"}
 
 
-def _run_pipeline_locally(project_id: str, input_video_path: str, input_srt_path: str) -> Dict[str, Any]:
+def _run_pipeline_locally(
+    project_id: str,
+    input_video_path: str,
+    input_srt_path: str,
+    start_from_step: Optional[str] = None,
+) -> Dict[str, Any]:
     """桌面模式：不经过 Redis/Celery broker，直接在后台线程内同步执行流水线任务。
 
     桌面安装包里没有 Redis，而生产用的 core.celery_app 走 redis://localhost。
@@ -34,6 +39,7 @@ def _run_pipeline_locally(project_id: str, input_video_path: str, input_srt_path
             from ..tasks.processing import process_video_pipeline
             process_video_pipeline.apply(
                 args=[project_id, input_video_path, input_srt_path],
+                kwargs={"start_from_step": start_from_step},
                 task_id=task_id,
             )
             logger.info(f"桌面模式本地流水线执行结束: {project_id}, task_id={task_id}")
@@ -50,7 +56,12 @@ def _run_pipeline_locally(project_id: str, input_video_path: str, input_srt_path
     }
 
 
-def submit_video_pipeline_task(project_id: str, input_video_path: str, input_srt_path: str) -> Dict[str, Any]:
+def submit_video_pipeline_task(
+    project_id: str,
+    input_video_path: str,
+    input_srt_path: str,
+    start_from_step: Optional[str] = None,
+) -> Dict[str, Any]:
     """
     提交视频流水线任务
 
@@ -64,7 +75,9 @@ def submit_video_pipeline_task(project_id: str, input_video_path: str, input_srt
     """
     # 桌面模式没有 Redis，走本地线程执行
     if _is_desktop_mode():
-        return _run_pipeline_locally(project_id, input_video_path, input_srt_path)
+        return _run_pipeline_locally(
+            project_id, input_video_path, input_srt_path, start_from_step=start_from_step,
+        )
 
     try:
         logger.info(f"提交视频流水线任务: {project_id}")
@@ -77,7 +90,8 @@ def submit_video_pipeline_task(project_id: str, input_video_path: str, input_srt
         try:
             celery_task = celery_app.send_task(
                 'backend.tasks.processing.process_video_pipeline',
-                args=[project_id, input_video_path, input_srt_path]
+                args=[project_id, input_video_path, input_srt_path],
+                kwargs={"start_from_step": start_from_step},
             )
             
             logger.info(f"视频流水线任务已提交: {celery_task.id}")

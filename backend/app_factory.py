@@ -81,7 +81,9 @@ def create_app(mode: str = "web") -> FastAPI:
             logger.warning("未找到 API 密钥配置")
         
         # 根据模式进行不同的初始化
-        if mode == "desktop":
+        from backend.core.path_utils import is_desktop_mode
+
+        if is_desktop_mode() or mode == "desktop":
             logger.info("桌面模式：使用本地队列和 SQLite")
         else:
             logger.info("Web 模式：使用 Redis/Celery")
@@ -155,6 +157,30 @@ def create_app(mode: str = "web") -> FastAPI:
                 }
             ],
             "default_category": "default"
+        }
+
+    @app.get("/api/v1/clip-duration-presets")
+    async def get_clip_duration_presets():
+        """获取切片时长预设配置."""
+        from backend.core.clip_duration_config import (
+            CLIP_DURATION_PRESET_META,
+            DEFAULT_CLIP_DURATION_PRESET,
+        )
+        return {
+            "presets": CLIP_DURATION_PRESET_META,
+            "default_preset": DEFAULT_CLIP_DURATION_PRESET,
+        }
+
+    @app.get("/api/v1/clip-goals")
+    async def get_clip_goals():
+        """获取剪辑目标（Goal Profile）列表."""
+        from backend.pipeline.goals.registry import (
+            DEFAULT_CLIP_GOAL,
+            list_goal_profiles,
+        )
+        return {
+            "goals": list_goal_profiles(),
+            "default_goal": DEFAULT_CLIP_GOAL,
         }
     
     # 根健康检查

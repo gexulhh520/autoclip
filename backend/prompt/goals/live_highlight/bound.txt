@@ -1,0 +1,7 @@
+为直播高能 moment 定位 SRT 时间。以**峰值句**为中心，前后各留 5–20 秒上下文。
+
+- 时长：**{target_duration_range}**，上限 **{max_duration_seconds} 秒**
+- 允许语义不完整，优先保留「够炸」的核心几秒
+- 一条 moment 一个高能点
+
+输出 JSON：`outline`、`content`、`start_time`、`end_time`。

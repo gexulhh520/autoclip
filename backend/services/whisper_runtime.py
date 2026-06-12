@@ -6,11 +6,13 @@ Whisper 运行时管理（桌面模式，按需安装）
 PyTorch，运行时 ~200-400MB，比官方 whisper 快数倍，跨平台）。
 
 设计要点：
-- 安装到「用户可写目录」`<data_dir>/whisper-runtime`，而不是 .app 包内
-  （/Applications 通常只读，且写入会破坏代码签名）。
+- 安装到应用数据目录 `<data_dir>/whisper-runtime`（开发时即项目 `data/`，如 F:\\software\\autoclip\\data），
+  而不是 .app 包内（/Applications 通常只读，且写入会破坏代码签名）。
+- 开发模式请用 `python -m backend.main --reload` 启动后端（仅监视 backend/，避免 pip 写入 data/ 触发热重载）。
+- 可用环境变量 `AUTOCLIP_WHISPER_DIR` 覆盖 Whisper 根目录。
 - 用「当前正在跑后端的便携 Python」(sys.executable) 的 pip 安装，保证解释器一致。
 - 模型缓存放 `<data_dir>/whisper-models`（通过 HF_HOME 收口）。
-- 所有对 mlx_whisper / huggingface_hub 的 import 都延迟到函数内部，避免构建期
+- 所有对 faster_whisper / huggingface_hub 的 import 都延迟到函数内部，避免构建期
   依赖扫描把它们当成缺失依赖而让打包失败。
 """
 
@@ -32,22 +34,74 @@ WHISPER_PACKAGES = ["faster-whisper"]
 WHISPER_IMPORT_NAME = "faster_whisper"
 
 
-def _data_dir() -> Path:
+def _whisper_base_dir() -> Path:
+    """Whisper 运行时/模型根目录，默认与应用 data/ 同级（开发时在项目盘符下）。"""
+    override = os.getenv("AUTOCLIP_WHISPER_DIR")
+    if override:
+        return Path(override).expanduser()
+    from backend.core.path_utils import get_data_directory
+    return get_data_directory()
+
+
+def _migration_sources(name: str) -> list[Path]:
+    """曾误写入其他位置的 Whisper 目录，一次性迁回 data/。"""
+    from backend.core.path_utils import get_default_desktop_app_dir
+    return [get_default_desktop_app_dir() / name]
+
+
+def _runtime_dir_ready(dir_path: Path) -> bool:
+    """指定目录内 faster_whisper 是否可用（不污染全局 sys.path）。"""
+    if not dir_path.is_dir():
+        return False
+    inserted = str(dir_path.resolve())
+    sys.path.insert(0, inserted)
     try:
-        from backend.core.desktop_config import get_desktop_data_dir
-        return Path(get_desktop_data_dir())
+        import importlib.util
+        return importlib.util.find_spec(WHISPER_IMPORT_NAME) is not None
     except Exception:
-        return Path(os.getenv("AUTOCLIP_DATA_DIR", str(Path.home() / "Library/Application Support/AutoClip")))
+        return False
+    finally:
+        try:
+            sys.path.remove(inserted)
+        except ValueError:
+            pass
+
+
+def _maybe_migrate_legacy_subdir(name: str) -> None:
+    """若 data/ 下尚无可用运行时，从旧位置（如 %LOCALAPPDATA%\\AutoClip）迁回。"""
+    new_dir = _whisper_base_dir() / name
+    if name == "whisper-runtime" and _runtime_dir_ready(new_dir):
+        return
+    if name != "whisper-runtime" and new_dir.exists() and any(new_dir.iterdir()):
+        return
+    for old_dir in _migration_sources(name):
+        if old_dir.resolve() == new_dir.resolve():
+            continue
+        if not old_dir.exists() or not any(old_dir.iterdir()):
+            continue
+        if name == "whisper-runtime" and not _runtime_dir_ready(old_dir):
+            continue
+        try:
+            if new_dir.exists():
+                shutil.rmtree(new_dir, ignore_errors=True)
+            new_dir.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(old_dir, new_dir, dirs_exist_ok=True)
+            logger.info("已迁移 Whisper %s: %s -> %s", name, old_dir, new_dir)
+            return
+        except Exception as e:  # noqa: BLE001
+            logger.warning("迁移 Whisper %s 失败: %s", name, e)
 
 
 def get_install_dir() -> Path:
-    d = _data_dir() / "whisper-runtime"
+    _maybe_migrate_legacy_subdir("whisper-runtime")
+    d = _whisper_base_dir() / "whisper-runtime"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def get_models_dir() -> Path:
-    d = _data_dir() / "whisper-models"
+    _maybe_migrate_legacy_subdir("whisper-models")
+    d = _whisper_base_dir() / "whisper-models"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -68,13 +122,25 @@ def ensure_on_path() -> None:
 
 
 def is_installed() -> bool:
-    """运行时是否已就绪（mlx_whisper 可被导入）。"""
+    """运行时是否已就绪（faster_whisper 可被导入）。"""
     ensure_on_path()
     try:
         import importlib.util
         return importlib.util.find_spec(WHISPER_IMPORT_NAME) is not None
     except Exception:
         return False
+
+
+def is_partially_installed() -> bool:
+    """目录里已有 pip 写入的文件，但 faster_whisper 尚不可用（常见于安装被热重载打断）。"""
+    install_dir = get_install_dir()
+    if not install_dir.exists():
+        return False
+    try:
+        has_content = any(install_dir.iterdir())
+    except OSError:
+        return False
+    return has_content and not is_installed()
 
 
 # ---- 安装状态（供前端轮询）----
@@ -97,11 +163,18 @@ def get_status() -> Dict[str, Any]:
         st = dict(_state)
     # 没在安装时，用实际探测结果覆盖
     if st["status"] not in ("installing",):
-        st["status"] = "installed" if is_installed() else "not_installed"
-        if st["status"] == "installed":
+        if is_installed():
+            st["status"] = "installed"
             st["progress"] = 100
+        elif is_partially_installed():
+            st["status"] = "error"
+            st["message"] = "运行时安装未完成，请点击「重试安装」完成安装。"
+        else:
+            st["status"] = "not_installed"
     st["platform_supported"] = True  # faster-whisper 跨平台
     st["packages"] = WHISPER_PACKAGES
+    st["install_dir"] = str(get_install_dir())
+    st["models_dir"] = str(get_models_dir())
     return st
 
 

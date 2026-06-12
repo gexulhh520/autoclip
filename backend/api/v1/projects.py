@@ -5,7 +5,8 @@
 import logging
 from typing import List, Optional
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form, Body
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from backend.core.database import get_db
 from backend.services.project_service import ProjectService
@@ -46,6 +47,11 @@ async def upload_files(
     srt_file: Optional[UploadFile] = File(None),
     project_name: str = Form(...),
     video_category: Optional[str] = Form(None),
+    clip_duration_preset: Optional[str] = Form("standard"),
+    clip_min_seconds: Optional[int] = Form(None),
+    clip_target_seconds: Optional[int] = Form(None),
+    clip_max_seconds: Optional[int] = Form(None),
+    clip_goal: Optional[str] = Form("knowledge"),
     project_service: ProjectService = Depends(get_project_service)
 ):
     """Upload video file and optional subtitle file to create a new project. If no subtitle is provided, Whisper will automatically generate one."""
@@ -60,6 +66,20 @@ async def upload_files(
         
         # 创建项目数据
         subtitle_info = srt_file.filename if srt_file else "Whisper自动生成"
+        project_settings = {
+            "video_category": video_category or "knowledge",
+            "video_file": video_file.filename,
+            "srt_file": subtitle_info,
+            "clip_duration_preset": clip_duration_preset or "standard",
+            "clip_goal": clip_goal or "knowledge",
+        }
+        if clip_min_seconds is not None:
+            project_settings["clip_min_seconds"] = clip_min_seconds
+        if clip_target_seconds is not None:
+            project_settings["clip_target_seconds"] = clip_target_seconds
+        if clip_max_seconds is not None:
+            project_settings["clip_max_seconds"] = clip_max_seconds
+
         project_data = ProjectCreate(
             name=project_name,
             description=f"Video: {video_file.filename}, Subtitle: {subtitle_info}",
@@ -67,11 +87,7 @@ async def upload_files(
             status=ProjectStatus.PENDING,
             source_url=None,
             source_file=video_file.filename,
-            settings={
-                "video_category": video_category or "knowledge",
-                "video_file": video_file.filename,
-                "srt_file": subtitle_info
-            }
+            settings=project_settings,
         )
         
         # 创建项目
@@ -258,10 +274,18 @@ async def get_project(
     project_id: str,
     include_clips: bool = Query(False, description="是否包含切片数据"),
     include_collections: bool = Query(False, description="是否包含合集数据"),
-    project_service: ProjectService = Depends(get_project_service)
+    project_service: ProjectService = Depends(get_project_service),
+    db: Session = Depends(get_db),
 ):
     """Get a project by ID."""
     try:
+        from ...models.project import Project
+        from ...services.pipeline_steps_service import reconcile_project_status_from_artifacts
+
+        db_project = db.query(Project).filter(Project.id == project_id).first()
+        if db_project:
+            reconcile_project_status_from_artifacts(db, project_id, db_project)
+
         project = project_service.get_project_with_stats(project_id)
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
@@ -602,7 +626,12 @@ async def retry_processing(
                         }
                     elif 'youtube.com' in source_url or 'youtu.be' in source_url:
                         # YouTube视频重新下载
-                        from .youtube import process_youtube_download_task, YouTubeDownloadRequest
+                        from .youtube import (
+                            process_youtube_download_task,
+                            YouTubeDownloadRequest,
+                            YouTubeDownloadTask,
+                            download_tasks as youtube_download_tasks,
+                        )
                         import uuid
                         
                         # 创建下载请求
@@ -614,6 +643,18 @@ async def retry_processing(
                         
                         # 生成新的任务ID
                         download_task_id = str(uuid.uuid4())
+                        
+                        youtube_download_tasks[download_task_id] = YouTubeDownloadTask(
+                            id=download_task_id,
+                            url=source_url,
+                            project_name=project.name,
+                            video_category=project.project_metadata.get('category', 'general'),
+                            status="pending",
+                            progress=0.0,
+                            project_id=project_id,
+                            created_at=str(uuid.uuid1().time),
+                            updated_at=str(uuid.uuid1().time),
+                        )
                         
                         # 异步启动下载任务
                         from .async_task_manager import task_manager
@@ -727,6 +768,135 @@ async def resume_processing(
     except Exception as e:
         logger.exception("恢复项目处理失败: %s", project_id)
         raise HTTPException(status_code=500, detail="恢复处理失败，请稍后重试")
+
+
+STEP_INDEX_TO_ID = [
+    "step1_outline",
+    "step2_timeline",
+    "step3_scoring",
+    "step4_title",
+    "step5_clustering",
+    "step6_video",
+]
+
+
+class RestartStepRequest(BaseModel):
+    step: int = Field(..., ge=0, le=5, description="步骤序号 0–5")
+    force: bool = True
+
+
+@router.get("/{project_id}/pipeline-steps")
+async def get_project_pipeline_steps(
+    project_id: str,
+    db: Session = Depends(get_db),
+    project_service: ProjectService = Depends(get_project_service),
+):
+    """获取流水线各步骤状态（下载 + Step1–6）。"""
+    try:
+        project = project_service.get(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        from backend.services.pipeline_steps_service import get_pipeline_steps
+        return get_pipeline_steps(project_id, project, db=db)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("获取流水线步骤状态失败: %s", project_id)
+        raise HTTPException(status_code=500, detail="获取流水线步骤失败")
+
+
+@router.post("/{project_id}/pipeline-steps/reset-stuck")
+async def reset_project_pipeline_stuck(
+    project_id: str,
+    db: Session = Depends(get_db),
+    project_service: ProjectService = Depends(get_project_service),
+):
+    """手动解除流水线卡住（如服务重启后一直显示执行中）。"""
+    try:
+        project = project_service.get(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        from backend.services.pipeline_steps_service import reset_stuck_pipeline
+        return reset_stuck_pipeline(db, project_id, project)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("解除流水线卡住失败: %s", project_id)
+        raise HTTPException(status_code=500, detail="解除卡住状态失败")
+
+
+@router.get("/{project_id}/pipeline-steps/{step_id}/result")
+async def get_project_pipeline_step_result(
+    project_id: str,
+    step_id: str,
+    project_service: ProjectService = Depends(get_project_service),
+):
+    """获取流水线某步骤的解析结果，供前端审查。"""
+    try:
+        project = project_service.get(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        from backend.services.pipeline_steps_service import get_pipeline_step_result
+        return get_pipeline_step_result(project_id, step_id, project)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("获取流水线步骤结果失败: %s step=%s", project_id, step_id)
+        raise HTTPException(status_code=500, detail="获取步骤结果失败")
+
+
+@router.post("/{project_id}/pipeline-steps/{step_id}/run")
+async def run_project_pipeline_step(
+    project_id: str,
+    step_id: str,
+    force: bool = Query(True, description="重新执行时清除该步及之后输出"),
+    db: Session = Depends(get_db),
+    project_service: ProjectService = Depends(get_project_service),
+):
+    """从指定步骤继续执行流水线。"""
+    try:
+        project = project_service.get(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        from backend.services.pipeline_steps_service import run_pipeline_from_step
+        return run_pipeline_from_step(db, project_id, step_id, force=force)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("执行流水线步骤失败: %s step=%s", project_id, step_id)
+        raise HTTPException(status_code=500, detail="执行流水线步骤失败")
+
+
+@router.post("/{project_id}/restart-step")
+async def restart_project_step(
+    project_id: str,
+    body: RestartStepRequest = Body(...),
+    db: Session = Depends(get_db),
+    project_service: ProjectService = Depends(get_project_service),
+):
+    """从指定步骤序号续跑（兼容旧前端 JSON: { step, force? }）。"""
+    step_id = STEP_INDEX_TO_ID[body.step]
+    try:
+        project = project_service.get(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        from backend.services.pipeline_steps_service import run_pipeline_from_step
+        return run_pipeline_from_step(db, project_id, step_id, force=body.force)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except Exception as e:
+        logger.exception("重试步骤失败: %s step=%s", project_id, body.step)
+        raise HTTPException(status_code=500, detail="重试步骤失败")
 
 
 @router.get("/{project_id}/status")
@@ -949,47 +1119,34 @@ async def get_project_clip(
 ):
     """Get a specific clip video file for a project."""
     try:
-        from pathlib import Path
-        import os
-        
-        # 构建视频文件路径 - 使用正确的项目目录路径
         from ...core.path_utils import get_project_directory
-        project_dir = get_project_directory(project_id)
-        clips_dir = project_dir / "output" / "clips"
-        
-        # 确保路径存在
-        if not clips_dir.exists():
-            raise HTTPException(status_code=404, detail=f"Clips directory not found: {clips_dir}")
-        
-        # 查找对应的视频文件
-        # 首先尝试通过clip_id查找
-        video_files = list(clips_dir.glob(f"{clip_id}_*.mp4"))
-        
-        # 如果没找到，尝试查找所有mp4文件，然后通过数据库匹配
-        if not video_files:
-            from ...models.clip import Clip
-            clip = project_service.db.query(Clip).filter(Clip.id == clip_id).first()
-            if clip and clip.video_path:
-                video_file_path = Path(clip.video_path)
-                if video_file_path.exists():
-                    video_file = video_file_path
-                else:
-                    raise HTTPException(status_code=404, detail=f"Clip video file not found for clip_id: {clip_id}")
-            else:
-                raise HTTPException(status_code=404, detail=f"Clip not found in database: {clip_id}")
-        else:
-            video_file = video_files[0]
-        
-        # 检查文件是否存在
-        if not video_file.exists():
-            raise HTTPException(status_code=404, detail="Clip video file not found")
-        
-        # 返回文件流
+        from ...models.clip import Clip
+        from ...utils.clip_path_resolver import resolve_clip_video_path
         from fastapi.responses import FileResponse
+
+        clip = (
+            project_service.db.query(Clip)
+            .filter(Clip.id == clip_id, Clip.project_id == project_id)
+            .first()
+        )
+        if not clip:
+            raise HTTPException(status_code=404, detail=f"Clip not found: {clip_id}")
+
+        project_dir = get_project_directory(project_id)
+        video_file = resolve_clip_video_path(project_id, clip, project_dir)
+        if not video_file or not video_file.exists():
+            raise HTTPException(status_code=404, detail=f"Clip video file not found for clip_id: {clip_id}")
+
+        resolved = str(video_file.resolve())
+        if clip.video_path != resolved:
+            clip.video_path = resolved
+            project_service.db.commit()
+
         return FileResponse(
-            path=str(video_file),
+            path=resolved,
             media_type="video/mp4",
-            filename=video_file.name
+            filename=video_file.name,
+            headers={"Accept-Ranges": "bytes"},
         )
     except HTTPException:
         raise

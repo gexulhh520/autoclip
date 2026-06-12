@@ -236,7 +236,14 @@ class SpeechRecognizer:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             
             if result.returncode != 0:
-                raise SpeechRecognitionError(f"音频提取失败: {result.stderr}")
+                stderr = result.stderr or ""
+                if any(x in stderr.lower() for x in (
+                    "does not contain any stream",
+                    "no audio streams",
+                    "invalid argument",
+                )):
+                    raise SpeechRecognitionError("视频没有音轨或音轨无法解码，无法转写字幕")
+                raise SpeechRecognitionError(f"音频提取失败: {stderr}")
             
             if not audio_path.exists():
                 raise SpeechRecognitionError("音频提取失败，输出文件不存在")
@@ -351,6 +358,67 @@ class SpeechRecognizer:
             lines.append(f"{i}\n{start} --> {end}\n{text}\n")
         return "\n".join(lines) + "\n"
 
+    def _whisper_device_plans(self) -> list[tuple[str, str]]:
+        """Whisper 推理设备顺序。Windows 上 CUDA 残缺时常报 cublas 缺失，需回退 CPU。"""
+        override = (os.getenv("AUTOCLIP_WHISPER_DEVICE") or "").strip().lower()
+        if override in ("cpu", "cuda"):
+            plans: list[tuple[str, str]] = [(override, "int8")]
+            if override != "cpu":
+                plans.append(("cpu", "int8"))
+            return plans
+        return [("auto", "int8"), ("cpu", "int8")]
+
+    def _is_whisper_gpu_load_error(self, exc: BaseException) -> bool:
+        msg = str(exc).lower()
+        return any(
+            token in msg
+            for token in ("cublas", "cuda", "cudnn", "cudart", "gpu", "nvidia")
+        )
+
+    def _transcribe_with_whisper_fallback(
+        self,
+        model_name: str,
+        models_dir: str,
+        audio_path: Path,
+        language: Optional[str],
+    ) -> list[dict]:
+        from faster_whisper import WhisperModel
+
+        last_error: Optional[Exception] = None
+        for device, compute_type in self._whisper_device_plans():
+            try:
+                logger.info(
+                    "Whisper 转写: device=%s compute_type=%s model=%s",
+                    device,
+                    compute_type,
+                    model_name,
+                )
+                model = WhisperModel(
+                    model_name,
+                    device=device,
+                    compute_type=compute_type,
+                    download_root=models_dir,
+                )
+                seg_iter, _info = model.transcribe(
+                    str(audio_path), language=language, vad_filter=True,
+                )
+                return [
+                    {"start": s.start, "end": s.end, "text": s.text} for s in seg_iter
+                ]
+            except RuntimeError as e:
+                last_error = e
+                if self._is_whisper_gpu_load_error(e) and device != "cpu":
+                    logger.warning(
+                        "Whisper 在 device=%s 失败（%s），将尝试 CPU",
+                        device,
+                        e,
+                    )
+                    continue
+                raise
+        if last_error:
+            raise last_error
+        return []
+
     def _generate_subtitle_whisper_local(self, video_path: Path, output_path: Path,
                                        config: SpeechRecognitionConfig) -> Path:
         """使用本地 faster-whisper 生成字幕（桌面按需安装的运行时）。"""
@@ -371,19 +439,21 @@ class SpeechRecognizer:
             return output_path
 
         try:
-            whisper_runtime.ensure_on_path()  # 让 faster_whisper 可导入
-            from faster_whisper import WhisperModel  # 延迟导入：运行时安装目录里的包
+            whisper_runtime.ensure_on_path()  # faster_whisper + ffmpeg PATH
 
             language = None if config.language == LanguageCode.AUTO else str(config.language).split("-")[0]
             models_dir = str(whisper_runtime.get_models_dir() / "hub")
             logger.info(f"使用 faster-whisper 生成字幕: model={config.model} lang={language or 'auto'}")
 
-            # device=auto：Mac 上走 CPU（CTranslate2），int8 量化兼顾速度与体积
-            model = WhisperModel(
-                config.model, device="auto", compute_type="int8", download_root=models_dir,
+            # 先用 ffmpeg 提取 16kHz 单声道 WAV，避免 PyAV 直接解部分视频格式在 Windows 上崩溃
+            audio_path = self._extract_audio_from_video(video_path, output_path.parent)
+
+            segments = self._transcribe_with_whisper_fallback(
+                config.model,
+                models_dir,
+                audio_path,
+                language,
             )
-            seg_iter, _info = model.transcribe(str(video_path), language=language, vad_filter=True)
-            segments = [{"start": s.start, "end": s.end, "text": s.text} for s in seg_iter]
             if not segments:
                 raise SpeechRecognitionError("Whisper 未识别出任何语音内容")
 
@@ -397,6 +467,11 @@ class SpeechRecognizer:
         except ModuleNotFoundError as e:
             raise SpeechRecognitionError(
                 f"Whisper 运行时缺少依赖（{e}）。请到「设置 → 语音识别」重新安装 Whisper。"
+            )
+        except IndexError as e:
+            logger.error(f"本地 faster-whisper 解码音频失败: {e}", exc_info=True)
+            raise SpeechRecognitionError(
+                "Whisper 无法读取该视频的音轨。请确认视频含可播放的音频，或安装 ffmpeg 后重试。"
             )
         except Exception as e:  # noqa: BLE001
             logger.error(f"本地 faster-whisper 生成字幕失败: {e}", exc_info=True)

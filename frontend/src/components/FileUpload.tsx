@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react'
 import { Button, message, Space, Typography, Input, Progress } from 'antd'
 import { InboxOutlined, VideoCameraOutlined, FileTextOutlined, SubnodeOutlined } from '@ant-design/icons'
 import { useDropzone } from 'react-dropzone'
-import { projectApi, VideoCategory } from '../services/api'
+import { projectApi, VideoCategory, ClipDurationSelection, ClipGoalSelection } from '../services/api'
 import { useProjectStore } from '../store/useProjectStore'
 import { validateApiConfigBeforeProjectCreation } from '../utils/apiConfigCheck'
+import ClipDurationSelector from './ClipDurationSelector'
+import ClipGoalSelector from './ClipGoalSelector'
 
 const { Text } = Typography
 
@@ -17,6 +19,12 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
   const [uploadProgress, setUploadProgress] = useState(0)
   const [projectName, setProjectName] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string>('')
+  const [clipDuration, setClipDuration] = useState<ClipDurationSelection>({
+    clip_duration_preset: 'standard',
+  })
+  const [clipGoal, setClipGoal] = useState<ClipGoalSelection>({
+    clip_goal: 'knowledge',
+  })
   const [categories, setCategories] = useState<VideoCategory[]>([])
   const [, setLoadingCategories] = useState(false)
   const [files, setFiles] = useState<{
@@ -123,7 +131,9 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
         video_file: files.video,
         srt_file: files.srt,
         project_name: projectName.trim(),
-        video_category: selectedCategory
+        video_category: selectedCategory,
+        ...clipDuration,
+        ...clipGoal,
       })
       
       console.log('上传成功，项目信息:', newProject)
@@ -137,6 +147,8 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
       // 重置状态
       setFiles({})
       setProjectName('')
+      setClipDuration({ clip_duration_preset: 'standard' })
+      setClipGoal({ clip_goal: 'knowledge' })
       setUploadProgress(0)
       setUploading(false)
       // 重置为默认分类
@@ -357,6 +369,14 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
             })}
           </div>
         </div>
+      )}
+
+      {files.video && (
+        <ClipGoalSelector value={clipGoal} onChange={setClipGoal} />
+      )}
+
+      {files.video && (
+        <ClipDurationSelector value={clipDuration} onChange={setClipDuration} />
       )}
 
       {/* 文件列表 */}

@@ -4,9 +4,9 @@
 """
 
 import os
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import NullPool
 from typing import Generator
 from backend.models.base import Base
 
@@ -27,17 +27,26 @@ if DATABASE_URL == "sqlite:///autoclip.db":
 
 # 创建数据库引擎
 if "sqlite" in DATABASE_URL:
-    # SQLite配置
+    # SQLite 配置：NullPool 让每个 Session 独占连接，避免桌面模式下 API 线程与
+    # 后台流水线线程共享 StaticPool 单连接时，请求结束 session.close() 回滚掉
+    # 另一线程事务 → "cannot commit - no transaction is active"。
     engine = create_engine(
         DATABASE_URL,
         connect_args={
             "check_same_thread": False,
             "timeout": 30
         },
-        poolclass=StaticPool,
+        poolclass=NullPool,
         pool_pre_ping=True,
         echo=False  # 设置为True可以看到SQL语句
     )
+
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragma(dbapi_connection, _connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.close()
 else:
     # PostgreSQL配置
     engine = create_engine(

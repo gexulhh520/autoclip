@@ -6,7 +6,7 @@ AutoClip 是一个基于AI的视频切片处理系统，采用前后端分离架
 
 ## 🚀 快速开始
 
-### 1. 一键启动（推荐）
+### 1. 一键启动（macOS / Linux）
 
 ```bash
 # 完整启动（包含详细检查和健康监控）
@@ -16,7 +16,80 @@ AutoClip 是一个基于AI的视频切片处理系统，采用前后端分离架
 ./quick_start.sh
 ```
 
-### 2. 系统管理
+### 2. Windows 手动启动（推荐）
+
+在 **两个终端** 中分别启动后端与前端（项目根目录示例：`F:\software\autoclip`）。
+
+**终端 1 — 后端（端口 8000）**
+
+```powershell
+cd F:\software\autoclip
+.\venv\Scripts\Activate.ps1
+$env:AUTOCLIP_DESKTOP_MODE = "true"
+python -m backend.main --reload
+```
+
+> **PowerShell 不要用 `activate.bat`**：`.bat` 会在子进程里执行，**不会**改变当前终端的 PATH，  
+> 之后敲 `python` 仍可能指向 `D:\Programs\python14\python.exe`。  
+> 请用 `Activate.ps1`（如上），或直接用 venv 解释器（最稳）：
+>
+> ```powershell
+> F:\software\autoclip\venv\Scripts\python.exe -m backend.main --reload
+> ```
+>
+> 若用 **CMD**，才用 `venv\Scripts\activate.bat`。
+
+启动后可在日志里确认：`py=F:\software\autoclip\venv\Scripts\python.exe`。
+
+**终端 2 — 前端（端口 3000）**
+
+```powershell
+cd F:\software\autoclip\frontend
+npm.cmd run dev
+```
+
+> 若 PowerShell 报「禁止运行脚本 / npm.ps1」，是因为执行策略拦截了 `npm.ps1`。  
+> **最快**：改用 `npm.cmd run dev`（走 `D:\Program Files\nodejs\npm.cmd`，无需改系统策略）。  
+> **或** 在当前用户放宽策略（一次性）：`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`  
+> **或** 用 **CMD** 终端执行 `npm run dev`。
+
+启动后访问：
+
+| 服务 | 地址 |
+|------|------|
+| 前端 | http://localhost:3000 |
+| 后端 API | http://localhost:8000 |
+| API 文档 | http://localhost:8000/docs |
+| 健康检查 | http://localhost:8000/api/v1/health/ |
+
+> **Whisper 安装注意**：开发时请用 `python -m backend.main --reload` 启动后端。该方式只监视 `backend/`，不会因 pip 写入 `data/whisper-runtime` 触发热重载而中断安装。  
+> 不要使用裸命令 `uvicorn backend.main:app --reload`（会监视整个项目目录）。
+
+等价的后端启动命令（**PowerShell 必须用 `=` 连接参数**，否则 `data/*` 会被展开成多个路径报错）：
+
+```powershell
+python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir backend --reload-exclude='data/*' --reload-exclude='logs/*'
+```
+
+**首次运行（依赖未安装时）**
+
+```powershell
+# 后端
+cd F:\software\autoclip
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+copy env.example .env
+
+# 前端
+cd F:\software\autoclip\frontend
+npm.cmd install
+npm.cmd run dev
+```
+
+`.env` 中建议设置 `AUTOCLIP_DESKTOP_MODE=true`（本地无 Redis 时使用本地队列与桌面设置 API）。
+
+### 3. 系统管理（macOS / Linux）
 
 ```bash
 # 检查系统状态
@@ -42,12 +115,14 @@ AutoClip 是一个基于AI的视频切片处理系统，采用前后端分离架
 ## 🔧 环境要求
 
 ### 系统要求
-- macOS 或 Linux
+- macOS、Linux 或 Windows
 - Python 3.8+
 - Node.js 16+
-- Redis 服务器
+- Redis 服务器（可选；Windows 本地开发可设 `AUTOCLIP_DESKTOP_MODE=true` 跳过）
 
 ### 依赖安装
+
+**macOS / Linux**
 
 ```bash
 # 1. 创建虚拟环境
@@ -69,6 +144,18 @@ brew services start redis
 # 5. 配置环境变量
 cp env.example .env
 # 编辑 .env 文件，填入必要的配置
+```
+
+**Windows**
+
+```powershell
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+cd frontend
+npm install
+cd ..
+copy env.example .env
 ```
 
 ## 📝 配置文件
@@ -126,7 +213,57 @@ autoclip/
 
 ### 常见问题
 
-1. **端口被占用**
+1. **PowerShell 启动 uvicorn 报 `unexpected extra arguments (data\cache ...)`**
+
+   PowerShell 会把 `--reload-exclude "data/*"` 里的 `*` 展开成 `data/` 下所有文件。请改用：
+
+   ```powershell
+   python -m backend.main --reload
+   ```
+
+   或 uvicorn 等价命令（参数用 `=` 连接）：
+
+   ```powershell
+   python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir backend --reload-exclude='data/*'
+   ```
+
+2. **PowerShell 运行 `npm` 报「禁止运行脚本 / npm.ps1」**
+
+   改用 CMD 版 npm（推荐，无需改策略）：
+
+   ```powershell
+   npm.cmd run dev
+   npm.cmd install
+   ```
+
+   或一次性放宽当前用户执行策略：
+
+   ```powershell
+   Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+   ```
+
+3. **已 activate 但日志仍显示 `py=D:\Programs\python14\python.exe`**
+
+   在 **PowerShell** 里执行 `activate.bat` **无效**（只作用于子进程）。请改用：
+
+   ```powershell
+   .\venv\Scripts\Activate.ps1
+   ```
+
+   或直接：
+
+   ```powershell
+   .\venv\Scripts\python.exe -m backend.main --reload
+   ```
+
+   验证当前终端：
+
+   ```powershell
+   Get-Command python | Select-Object Source
+   python -c "import sys; print(sys.executable)"
+   ```
+
+4. **端口被占用**
    ```bash
    # 检查端口占用
    lsof -i :8000
@@ -136,7 +273,7 @@ autoclip/
    kill -9 <PID>
    ```
 
-2. **Redis连接失败**
+5. **Redis连接失败**
    ```bash
    # 检查Redis状态
    redis-cli ping
@@ -146,13 +283,13 @@ autoclip/
    systemctl start redis      # Linux
    ```
 
-3. **Python依赖问题**
+6. **Python依赖问题**
    ```bash
    # 重新安装依赖
    pip install -r requirements.txt --force-reinstall
    ```
 
-4. **前端依赖问题**
+7. **前端依赖问题**
    ```bash
    # 清理并重新安装
    cd frontend
@@ -188,24 +325,26 @@ redis-cli ping
 
 ### 后端开发
 
+**macOS / Linux**
+
 ```bash
-# 激活虚拟环境
 source venv/bin/activate
+export AUTOCLIP_DESKTOP_MODE=true   # 本地无 Redis 时建议开启
+python -m backend.main --reload
+```
 
-# 设置Python路径
-export PYTHONPATH="${PWD}:${PYTHONPATH}"
+**Windows（PowerShell）**
 
-# 启动后端（开发模式）
-python -m uvicorn backend.main:app --reload --port 8000
+```powershell
+.\venv\Scripts\Activate.ps1
+$env:AUTOCLIP_DESKTOP_MODE = "true"
+python -m backend.main --reload
 ```
 
 ### 前端开发
 
 ```bash
-# 进入前端目录
 cd frontend
-
-# 启动开发服务器
 npm run dev
 ```
 

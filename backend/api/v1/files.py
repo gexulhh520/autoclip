@@ -246,17 +246,23 @@ async def get_project_clip_video(
         # 验证切片是否属于该项目
         if clip.project_id != project_id:
             raise HTTPException(status_code=403, detail="切片不属于该项目")
-        
-        if not clip.video_path:
+
+        from ...core.path_utils import get_project_directory
+        from ...utils.clip_path_resolver import resolve_clip_video_path
+
+        project_dir = get_project_directory(project_id)
+        file_path = resolve_clip_video_path(project_id, clip, project_dir)
+        if not file_path or not file_path.exists():
             raise HTTPException(status_code=404, detail="切片文件不存在")
-        
-        file_path = Path(clip.video_path)
-        if not file_path.exists():
-            raise HTTPException(status_code=404, detail="切片文件不存在")
-        
+
+        resolved = str(file_path.resolve())
+        if clip.video_path != resolved:
+            clip.video_path = resolved
+            db.commit()
+
         # 返回视频文件，支持在线播放
         return FileResponse(
-            path=str(file_path),
+            path=resolved,
             filename=f"clip_{clip_id}.mp4",
             media_type="video/mp4",
             headers={

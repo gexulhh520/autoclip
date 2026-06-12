@@ -113,10 +113,17 @@ class PipelineAdapter:
         """
         errors = []
         
-        # 检查API密钥
+        # 检查 LLM 是否已配置（支持云端 API、环境变量与本地 Ollama）
+        from ..core.llm_manager import get_llm_manager
+        llm_manager = get_llm_manager()
         api_config = config_manager.get_api_config()
-        if not api_config.api_key and not os.getenv("DASHSCOPE_API_KEY"):
-            errors.append("缺少API密钥配置")
+        has_llm = bool(
+            llm_manager.current_provider
+            or api_config.api_key
+            or os.getenv("DASHSCOPE_API_KEY")
+        )
+        if not has_llm:
+            errors.append("缺少LLM配置，请在设置页面配置API密钥或Ollama服务")
         
         # 检查项目目录
         if not self.project_paths["project_base"].exists():

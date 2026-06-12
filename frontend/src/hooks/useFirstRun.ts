@@ -36,8 +36,10 @@ export const useFirstRun = () => {
           const settings = await response.json()
           console.log('📋 获取到设置:', settings)
           
-          // 检查是否有API Key配置
-          const hasApiKey = settings.api?.api_keys?.dashscope || 
+          // 检查是否有API Key配置，或已选择本地 Ollama
+          const provider = settings.api?.llm_provider || settings.api?.api_provider
+          const hasApiKey = provider === 'ollama' ||
+                           settings.api?.api_keys?.dashscope || 
                            settings.api?.api_keys?.openai ||
                            settings.api?.api_keys?.gemini ||
                            settings.api?.api_keys?.siliconflow

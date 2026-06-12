@@ -4,7 +4,7 @@ import { KeyOutlined, SaveOutlined, ApiOutlined, SettingOutlined, InfoCircleOutl
 import { settingsApi } from '../services/api'
 import BilibiliManager from '../components/BilibiliManager'
 import SpeechRecognitionConfig from '../components/SpeechRecognitionConfig'
-import { isDesktopMode } from '../utils/desktopMode'
+import { isDesktopMode, isTauriApp } from '../utils/desktopMode'
 import { trackApiKeyConfigured } from '../analytics/events'
 import { isAnalyticsEnabled, setAnalyticsEnabled } from '../analytics/posthog'
 import './SettingsPage.css'
@@ -12,6 +12,18 @@ import './SettingsPage.css'
 const { Content } = Layout
 const { Title, Text, Paragraph } = Typography
 const { TabPane } = Tabs
+
+/** Ant Design tags 模式下 model_name 可能是 string[]，后端需要 string */
+const normalizeModelName = (value: unknown, fallback = 'qwen-plus'): string => {
+  if (Array.isArray(value)) {
+    const picked = value.find((item) => typeof item === 'string' && item.trim())
+    return typeof picked === 'string' ? picked.trim() : fallback
+  }
+  if (typeof value === 'string' && value.trim()) {
+    return value.trim()
+  }
+  return fallback
+}
 
 const SettingsPage: React.FC = () => {
   const [form] = Form.useForm()
@@ -54,6 +66,14 @@ const SettingsPage: React.FC = () => {
       description: '硅基流动模型服务',
       apiKeyField: 'siliconflow_api_key',
       placeholder: '请输入硅基流动API密钥'
+    },
+    ollama: {
+      name: 'Ollama 本地',
+      icon: <RobotOutlined />,
+      color: '#595959',
+      description: '本地 Ollama 服务',
+      apiKeyField: 'ollama_api_key',
+      placeholder: '可选，本地默认无需填写'
     }
   }
 
@@ -101,6 +121,8 @@ const SettingsPage: React.FC = () => {
           openai_api_key: settingsData.api?.api_keys?.openai || '',
           gemini_api_key: settingsData.api?.api_keys?.gemini || '',
           siliconflow_api_key: settingsData.api?.api_keys?.siliconflow || '',
+          ollama_api_key: settingsData.api?.api_keys?.ollama || '',
+          ollama_base_url: settingsData.api?.ollama_base_url || 'http://127.0.0.1:11434/v1',
           jimeng_access_key: settingsData.api?.api_keys?.jimeng_access || '',
           jimeng_secret_key: settingsData.api?.api_keys?.jimeng_secret || '',
           model_name: settingsData.api?.api_model || 'qwen-plus',
@@ -126,6 +148,8 @@ const SettingsPage: React.FC = () => {
           openai_api_key: '',
           gemini_api_key: '',
           siliconflow_api_key: '',
+          ollama_api_key: '',
+          ollama_base_url: 'http://127.0.0.1:11434/v1',
           jimeng_access_key: '',
           jimeng_secret_key: '',
           model_name: 'qwen-plus',
@@ -159,8 +183,7 @@ const SettingsPage: React.FC = () => {
       const isDesktop = await isDesktopMode()
       
       if (!isDesktop) {
-        // Web模式：只显示提示，不实际保存
-        message.info('Web模式下配置无法保存，请在桌面应用中使用完整功能')
+        message.info('当前环境无法保存配置：请使用桌面客户端，或启动后端时设置 AUTOCLIP_DESKTOP_MODE=true')
         setLoading(false)
         return
       }
@@ -176,8 +199,17 @@ const SettingsPage: React.FC = () => {
       // 获取现有的API keys，只更新有值的字段
       const existingApiKeys = existingSettings?.api?.api_keys || {}
       
+      // 路径沿用后端返回的真实路径，避免写入 macOS 硬编码路径
+      if (!existingSettings?.paths) {
+        try {
+          existingSettings = await settingsApi.getSettings()
+        } catch (error) {
+          console.warn('保存前获取路径配置失败:', error)
+        }
+      }
+
       // 转换扁平数据为后端期望的嵌套结构
-      const backendSettings = {
+      const backendSettings: Record<string, unknown> = {
         basic: {
           app_name: "AutoClip Desktop",
           app_version: "1.0.0",
@@ -190,16 +222,20 @@ const SettingsPage: React.FC = () => {
           max_memory_usage: 2048
         },
         api: {
+          api_provider: values.llm_provider || "dashscope",
+          llm_provider: values.llm_provider || "dashscope",
           api_keys: {
             // 只更新有值的API key，保持现有的值
             dashscope: values.dashscope_api_key || existingApiKeys.dashscope || "",
             openai: values.openai_api_key || existingApiKeys.openai || "",
             gemini: values.gemini_api_key || existingApiKeys.gemini || "",
             siliconflow: values.siliconflow_api_key || existingApiKeys.siliconflow || "",
+            ollama: values.ollama_api_key || existingApiKeys.ollama || "",
             jimeng_access: values.jimeng_access_key || existingApiKeys.jimeng_access || "",
             jimeng_secret: values.jimeng_secret_key || existingApiKeys.jimeng_secret || ""
           },
-          api_model: values.model_name || "qwen-plus",
+          api_model: normalizeModelName(values.model_name, "qwen-plus"),
+          ollama_base_url: values.ollama_base_url || "http://127.0.0.1:11434/v1",
           api_max_tokens: 4096,
           api_timeout: 30
         },
@@ -213,11 +249,9 @@ const SettingsPage: React.FC = () => {
           log_level: "INFO",
           log_retention_days: 7
         },
-        paths: {
-          data_directory: "/Users/zhoukk/Library/Application Support/AutoClip",
-          cache_directory: "/Users/zhoukk/Library/Application Support/AutoClip/cache",
-          temp_directory: "/Users/zhoukk/Library/Application Support/AutoClip/temp"
-        }
+      }
+      if (existingSettings?.paths) {
+        backendSettings.paths = existingSettings.paths
       }
       
       await settingsApi.updateSettings(backendSettings)
@@ -242,16 +276,27 @@ const SettingsPage: React.FC = () => {
 
   // 测试API密钥
   const handleTestApiKey = async () => {
-    const apiKey = form.getFieldValue(providerConfig[selectedProvider as keyof typeof providerConfig].apiKeyField)
-    
-    if (!apiKey || apiKey.trim() === '') {
+    const providerConfigItem = providerConfig[selectedProvider as keyof typeof providerConfig]
+    const apiKey = form.getFieldValue(providerConfigItem.apiKeyField) || ''
+    const modelName = normalizeModelName(form.getFieldValue('model_name'), 'qwen2.5vl:7b')
+
+    if (selectedProvider !== 'ollama' && (!apiKey || apiKey.trim() === '')) {
       message.error('请先输入API密钥')
       return
     }
 
     try {
       setLoading(true)
-      const result = await settingsApi.testApiKey(selectedProvider, apiKey)
+      const result = await settingsApi.testApiKey(
+        selectedProvider,
+        apiKey || 'ollama',
+        selectedProvider === 'ollama'
+          ? {
+              model_name: modelName,
+              base_url: form.getFieldValue('ollama_base_url') || 'http://127.0.0.1:11434/v1',
+            }
+          : undefined
+      )
       if (result.success) {
         message.success('API密钥测试成功！')
       } else {
@@ -267,7 +312,14 @@ const SettingsPage: React.FC = () => {
   // 提供商切换
   const handleProviderChange = (provider: string) => {
     setSelectedProvider(provider)
-    form.setFieldsValue({ llm_provider: provider })
+    const updates: Record<string, string> = { llm_provider: provider }
+    if (provider === 'ollama') {
+      const currentModel = form.getFieldValue('model_name')
+      if (!currentModel || ['qwen-plus', 'qwen2.5:7b'].includes(currentModel)) {
+        updates.model_name = 'qwen2.5vl:7b'
+      }
+    }
+    form.setFieldsValue(updates)
   }
 
   return (
@@ -336,22 +388,49 @@ const SettingsPage: React.FC = () => {
                   </Select>
                 </Form.Item>
 
-                {/* 动态API密钥输入 */}
-                <Form.Item
-                  label={`${providerConfig[selectedProvider as keyof typeof providerConfig].name} API Key`}
-                  name={providerConfig[selectedProvider as keyof typeof providerConfig].apiKeyField}
-                  className="form-item"
-                  rules={[
-                    { required: true, message: '请输入API密钥' },
-                    { min: 10, message: 'API密钥长度不能少于10位' }
-                  ]}
-                >
-                  <Input.Password
-                    placeholder={providerConfig[selectedProvider as keyof typeof providerConfig].placeholder}
-                    prefix={<KeyOutlined />}
-                    className="settings-input"
-                  />
-                </Form.Item>
+                {selectedProvider === 'ollama' ? (
+                  <>
+                    <Form.Item
+                      label="Ollama 服务地址"
+                      name="ollama_base_url"
+                      className="form-item"
+                      rules={[{ required: true, message: '请输入 Ollama 服务地址' }]}
+                      extra="默认 http://127.0.0.1:11434/v1，需先在本机安装并启动 Ollama"
+                    >
+                      <Input
+                        placeholder="http://127.0.0.1:11434/v1"
+                        className="settings-input"
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      label="Ollama API Key（可选）"
+                      name="ollama_api_key"
+                      className="form-item"
+                    >
+                      <Input.Password
+                        placeholder="本地默认可留空"
+                        prefix={<KeyOutlined />}
+                        className="settings-input"
+                      />
+                    </Form.Item>
+                  </>
+                ) : (
+                  <Form.Item
+                    label={`${providerConfig[selectedProvider as keyof typeof providerConfig].name} API Key`}
+                    name={providerConfig[selectedProvider as keyof typeof providerConfig].apiKeyField}
+                    className="form-item"
+                    rules={[
+                      { required: true, message: '请输入API密钥' },
+                      { min: 10, message: 'API密钥长度不能少于10位' }
+                    ]}
+                  >
+                    <Input.Password
+                      placeholder={providerConfig[selectedProvider as keyof typeof providerConfig].placeholder}
+                      prefix={<KeyOutlined />}
+                      className="settings-input"
+                    />
+                  </Form.Item>
+                )}
 
                 {/* 模型选择 - 改进版本 */}
                 <Form.Item
@@ -366,7 +445,7 @@ const SettingsPage: React.FC = () => {
                     placeholder="请输入或选择模型名称"
                     showSearch
                     allowClear
-                    mode="tags"
+                    mode={selectedProvider === 'ollama' ? undefined : 'tags'}
                     dropdownRender={(menu) => (
                       <div>
                         {menu}
@@ -409,6 +488,12 @@ const SettingsPage: React.FC = () => {
                       <Select.Option value="deepseek-coder">deepseek-coder (DeepSeek Coder)</Select.Option>
                       <Select.Option value="qwen-plus">qwen-plus (通义千问增强版)</Select.Option>
                       <Select.Option value="qwen-turbo">qwen-turbo (通义千问标准版)</Select.Option>
+                    </Select.OptGroup>
+
+                    {/* Ollama 本地模型 */}
+                    <Select.OptGroup label="Ollama 本地">
+                      <Select.Option value="qwen2.5vl:7b">qwen2.5vl:7b (推荐中文)</Select.Option>
+                      <Select.Option value="gemma4:12b">gemma4:12b (更大模型)</Select.Option>
                     </Select.OptGroup>
                     
                   </Select>
@@ -509,6 +594,7 @@ const SettingsPage: React.FC = () => {
                     <br />• <Text strong>OpenAI</Text>：访问 platform.openai.com 获取API密钥
                     <br />• <Text strong>Google Gemini</Text>：访问 ai.google.dev 获取API密钥
                     <br />• <Text strong>硅基流动</Text>：访问 docs.siliconflow.cn 获取API密钥
+                    <br />• <Text strong>Ollama 本地</Text>：支持 `qwen2.5vl:7b`、`gemma4:12b`，无需云端 API Key
                   </Paragraph>
                 </div>
                 
@@ -727,21 +813,20 @@ const AppSettings: React.FC = () => {
 
   const checkAutostartStatus = async () => {
     try {
-      const isDesktop = await isDesktopMode()
-      if (isDesktop) {
-        const { invoke } = await import('@tauri-apps/api/core')
-        const enabled = await invoke('is_autostart_enabled')
-        setAutostartEnabled(Boolean(enabled))
+      if (!isTauriApp()) {
+        return
       }
+      const { invoke } = await import('@tauri-apps/api/core')
+      const enabled = await invoke('is_autostart_enabled')
+      setAutostartEnabled(Boolean(enabled))
     } catch (error) {
       console.error('检查自动启动状态失败:', error)
     }
   }
 
   const handleAutostartToggle = async (enabled: boolean) => {
-    const isDesktop = await isDesktopMode()
-    if (!isDesktop) {
-      message.error('此功能仅在桌面应用中可用')
+    if (!isTauriApp()) {
+      message.error('此功能仅在 Tauri 桌面应用中可用')
       return
     }
 

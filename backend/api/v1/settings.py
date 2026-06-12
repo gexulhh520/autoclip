@@ -54,6 +54,7 @@ class ApiKeys(BaseModel):
     openai: str = Field(default="", description="OpenAI API密钥")
     gemini: str = Field(default="", description="Gemini API密钥")
     siliconflow: str = Field(default="", description="SiliconFlow API密钥")
+    ollama: str = Field(default="", description="Ollama API密钥（可选）")
     jimeng_access: str = Field(default="", description="即梦AI访问密钥")
     jimeng_secret: str = Field(default="", description="即梦AI秘密密钥")
 
@@ -61,7 +62,10 @@ class ApiKeys(BaseModel):
 class ApiSettings(BaseModel):
     """API设置"""
     api_keys: ApiKeys = Field(default_factory=ApiKeys, description="API密钥")
+    api_provider: str = Field(default="dashscope", description="LLM提供商")
+    llm_provider: str = Field(default="dashscope", description="LLM提供商（兼容字段）")
     api_model: str = Field(default="qwen-plus", description="默认模型")
+    ollama_base_url: str = Field(default="http://127.0.0.1:11434/v1", description="Ollama服务地址")
     api_max_tokens: int = Field(default=4096, description="最大Token数")
     api_timeout: int = Field(default=30, description="API超时时间(秒)")
     
@@ -301,7 +305,9 @@ async def clear_settings(
 
 class TestApiRequest(BaseModel):
     provider: str
-    api_key: str
+    api_key: str = ""
+    model_name: str = "qwen-plus"
+    base_url: str = "http://127.0.0.1:11434/v1"
 
 @router.post("/test-api")
 async def test_api_connection(request: TestApiRequest):
@@ -309,6 +315,26 @@ async def test_api_connection(request: TestApiRequest):
     check_desktop_mode()
     
     try:
+        if request.provider == "ollama":
+            from backend.core.llm_providers import OllamaProvider
+            provider_instance = OllamaProvider(
+                api_key=request.api_key or "ollama",
+                model_name=request.model_name or OllamaProvider.DEFAULT_MODEL,
+                base_url=request.base_url,
+            )
+            test_result = provider_instance.test_connection()
+            if test_result:
+                return {
+                    "success": True,
+                    "message": "Ollama 连接测试成功",
+                    "provider": request.provider,
+                }
+            return {
+                "success": False,
+                "error": "无法连接 Ollama，请确认服务已启动且模型已 pull",
+                "provider": request.provider,
+            }
+
         # 首先进行基本的API Key格式验证
         if not request.api_key or len(request.api_key.strip()) < 10:
             return {
@@ -418,6 +444,10 @@ async def update_settings(settings: DesktopSettings):
         from backend.core.desktop_config import save_desktop_config
         if not save_desktop_config(config):
             raise HTTPException(status_code=500, detail="保存主配置文件失败")
+
+        # 重新加载 LLM 管理器，使新 provider / 模型立即生效
+        from backend.core.llm_manager import initialize_llm_manager
+        initialize_llm_manager(settings_file)
         
         return {"message": "设置更新成功", "settings_file": str(settings_file)}
         
@@ -644,6 +674,10 @@ async def get_available_models():
                 {"name": "qwen-plus", "display_name": "通义千问增强版", "max_tokens": 8192, "description": "通过硅基流动访问"},
                 {"name": "qwen-turbo", "display_name": "通义千问标准版", "max_tokens": 8192, "description": "通过硅基流动访问"}
             ],
+            "ollama": [
+                {"name": "qwen2.5vl:7b", "display_name": "Qwen 2.5 VL 7B", "max_tokens": 32768, "description": "推荐中文视频字幕分析"},
+                {"name": "gemma4:12b", "display_name": "Gemma 4 12B", "max_tokens": 32768, "description": "更大参数，适合复杂内容理解"},
+            ],
         }
         
         return {"models": models}
@@ -659,16 +693,47 @@ async def get_current_provider():
     
     try:
         config = get_desktop_config()
-        
-        # 根据当前配置返回提供商信息
-        provider_info = {
-            "provider": "dashscope",  # 默认提供商
-            "model": config.default_model or "qwen-plus",
-            "available": True,
-            "display_name": "通义千问",
-            "description": "阿里云通义千问服务"
+        settings_file = config.paths.data_dir / "settings.json"
+        provider = "dashscope"
+        model = config.default_model or "qwen-plus"
+        ollama_base_url = "http://127.0.0.1:11434/v1"
+
+        if settings_file.exists():
+            try:
+                with open(settings_file, "r", encoding="utf-8") as f:
+                    saved_settings = json.load(f)
+                api_section = saved_settings.get("api", {})
+                provider = api_section.get("llm_provider") or api_section.get("api_provider") or provider
+                model = api_section.get("api_model") or model
+                ollama_base_url = api_section.get("ollama_base_url") or ollama_base_url
+            except Exception as e:
+                logger.warning(f"读取当前提供商设置失败: {e}")
+
+        display_names = {
+            "dashscope": "通义千问",
+            "openai": "OpenAI",
+            "gemini": "Google Gemini",
+            "siliconflow": "硅基流动",
+            "ollama": "Ollama 本地",
         }
-        
+        descriptions = {
+            "dashscope": "阿里云通义千问服务",
+            "openai": "OpenAI GPT 系列模型",
+            "gemini": "Google Gemini 服务",
+            "siliconflow": "硅基流动模型服务",
+            "ollama": "本地 Ollama 服务",
+        }
+
+        provider_info = {
+            "provider": provider,
+            "model": model,
+            "available": True,
+            "display_name": display_names.get(provider, provider),
+            "description": descriptions.get(provider, ""),
+        }
+        if provider == "ollama":
+            provider_info["ollama_base_url"] = ollama_base_url
+
         return provider_info
         
     except Exception as e:

@@ -67,6 +67,7 @@ def process_video_pipeline(
     project_id: str,
     input_video_path: str,
     input_srt_path: Optional[str] = None,
+    start_from_step: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     处理视频流水线任务 - 使用Pipeline适配器
@@ -129,12 +130,18 @@ def process_video_pipeline(
             
             # 执行Pipeline处理 - 使用异步包装器
             import asyncio
-            result = asyncio.run(pipeline_adapter.process_project_sync(input_video_path, input_srt_path))
+            result = asyncio.run(
+                pipeline_adapter.process_project_sync(
+                    input_video_path,
+                    input_srt_path,
+                    start_from_step=start_from_step,
+                )
+            )
             
             # 检查处理结果
             if result.get("status") == "failed":
                 # 处理失败
-                error_msg = result.get("message", "处理失败")
+                error_msg = result.get("error") or result.get("message") or "处理失败"
                 task.status = TaskStatus.FAILED
                 task.error_message = error_msg
                 task.result_data = result

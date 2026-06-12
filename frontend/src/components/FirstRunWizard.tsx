@@ -188,18 +188,23 @@ const FirstRunWizard: React.FC<FirstRunWizardProps> = ({ onComplete }) => {
           max_memory_usage: 2048
         },
         api: {
+          api_provider: config.llmProvider,
+          llm_provider: config.llmProvider,
           api_keys: {
             // 只更新当前提供商的API key，保持其他提供商的值
             dashscope: config.llmProvider === 'dashscope' ? config.llmApiKey : (existingApiKeys.dashscope || ''),
             openai: config.llmProvider === 'openai' ? config.llmApiKey : (existingApiKeys.openai || ''),
             gemini: config.llmProvider === 'gemini' ? config.llmApiKey : (existingApiKeys.gemini || ''),
             siliconflow: config.llmProvider === 'siliconflow' ? config.llmApiKey : (existingApiKeys.siliconflow || ''),
+            ollama: config.llmProvider === 'ollama' ? (config.llmApiKey || '') : (existingApiKeys.ollama || ''),
             jimeng_access: existingApiKeys.jimeng_access || '',
             jimeng_secret: existingApiKeys.jimeng_secret || ''
           },
-          api_model: config.llmProvider === 'dashscope' ? 'qwen-plus' : 
+          api_model: config.llmProvider === 'ollama' ? 'qwen2.5vl:7b' :
+                     config.llmProvider === 'dashscope' ? 'qwen-plus' : 
                      config.llmProvider === 'openai' ? 'gpt-3.5-turbo' :
                      config.llmProvider === 'gemini' ? 'gemini-pro' : 'qwen-plus',
+          ollama_base_url: 'http://127.0.0.1:11434/v1',
           api_max_tokens: 4000,
           api_timeout: 30
         },
@@ -381,6 +386,11 @@ const FirstRunWizard: React.FC<FirstRunWizardProps> = ({ onComplete }) => {
         name: 'SiliconFlow',
         url: 'https://cloud.siliconflow.cn',
         description: '注册SiliconFlow账号,在控制台创建API Key'
+      },
+      ollama: {
+        name: 'Ollama 本地',
+        url: 'https://ollama.com',
+        description: '安装 Ollama 并 pull 模型：qwen2.5vl:7b 或 gemma4:12b'
       }
     }
     return helpMap[provider] || helpMap.dashscope
@@ -471,6 +481,12 @@ const FirstRunWizard: React.FC<FirstRunWizardProps> = ({ onComplete }) => {
                     <Space>
                       <Text strong>SiliconFlow</Text>
                       <Text type="secondary">(国内替代方案)</Text>
+                    </Space>
+                  </Option>
+                  <Option value="ollama">
+                    <Space>
+                      <Text strong>Ollama 本地</Text>
+                      <Text type="secondary">(无需 API Key)</Text>
                     </Space>
                   </Option>
                 </Select>

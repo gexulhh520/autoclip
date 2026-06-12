@@ -111,7 +111,7 @@ const SpeechRecognitionConfig: React.FC<SpeechRecognitionConfigProps> = () => {
 
       {!supported && (
         <Alert type="warning" showIcon message="当前平台不支持"
-          description="mlx-whisper 仅支持 Apple Silicon (M 系列) Mac。" />
+          description="Whisper 运行时暂不支持当前操作系统。" />
       )}
 
       {/* 运行时 */}
@@ -123,6 +123,9 @@ const SpeechRecognitionConfig: React.FC<SpeechRecognitionConfigProps> = () => {
               <Text strong>已安装</Text>
               <Text type="secondary">（{(runtime?.packages || []).join(', ')}）</Text>
             </Space>
+            {runtime?.install_dir && (
+              <Text type="secondary" style={{ fontSize: 12 }}>目录：{runtime.install_dir}</Text>
+            )}
             <Popconfirm title="卸载 Whisper 运行时？已下载的模型不会被删除。" onConfirm={handleUninstall} okText="卸载" cancelText="取消">
               <Button danger size="small" icon={<DeleteOutlined />}>卸载运行时</Button>
             </Popconfirm>
@@ -163,9 +166,13 @@ const SpeechRecognitionConfig: React.FC<SpeechRecognitionConfigProps> = () => {
       {/* 模型 */}
       <Card size="small" title="Whisper 模型">
         {!installed && (
-          <Text type="secondary">请先安装 Whisper 运行时，然后在这里下载模型。</Text>
+          <Paragraph type="secondary" style={{ marginBottom: 12 }}>
+            请先完成上方「Whisper 运行时」安装，再下载模型。下方为可选模型列表。
+          </Paragraph>
         )}
-        {installed && (
+        {models.length === 0 ? (
+          <Text type="secondary">暂无模型信息，请确认后端已启动。</Text>
+        ) : (
           <List
             dataSource={models}
             renderItem={(m) => {
@@ -181,7 +188,13 @@ const SpeechRecognitionConfig: React.FC<SpeechRecognitionConfigProps> = () => {
                     ) : downloading ? (
                       <Button size="small" loading disabled>下载中</Button>
                     ) : (
-                      <Button size="small" type="primary" icon={<DownloadOutlined />} onClick={() => handleDownload(m.name)}>
+                      <Button
+                        size="small"
+                        type="primary"
+                        icon={<DownloadOutlined />}
+                        disabled={!installed}
+                        onClick={() => handleDownload(m.name)}
+                      >
                         下载
                       </Button>
                     ),

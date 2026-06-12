@@ -32,6 +32,15 @@ def test_get_data_directory_in_desktop_mode(monkeypatch, tmp_path):
     assert result.exists()
 
 
+def test_get_data_directory_in_desktop_mode_uses_project_data_in_source_tree(monkeypatch):
+    monkeypatch.delenv("AUTOCLIP_DATA_DIR", raising=False)
+    monkeypatch.delenv("AUTOCLIP_APP_DIR", raising=False)
+    monkeypatch.setenv("AUTOCLIP_DESKTOP_MODE", "1")
+
+    result = path_utils.get_data_directory()
+    assert result == path_utils.get_project_root() / "data"
+
+
 def test_get_log_file_path_respects_explicit_log_file(monkeypatch, tmp_path):
     log_file = tmp_path / "logs" / "custom.log"
     monkeypatch.setenv("LOG_FILE", str(log_file))

@@ -105,6 +105,10 @@ export const checkApiConfig = async (): Promise<ApiConfigStatus> => {
         hasValidKey = !!currentApiKey.trim()
         console.log('SiliconFlow API Key检查:', { hasKey: !!currentApiKey, keyLength: currentApiKey.length, isValid: hasValidKey })
         break
+      case 'ollama':
+        hasValidKey = true
+        console.log('Ollama 本地模式，无需 API Key')
+        break
       case 'jimeng':
         currentApiKey = apiKeys.jimeng_access || ''
         hasValidKey = !!(apiKeys.jimeng_access?.trim() && apiKeys.jimeng_secret?.trim())

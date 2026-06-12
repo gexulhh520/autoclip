@@ -12,13 +12,21 @@ from collections import defaultdict
 from ..utils.llm_client import LLMClient
 from ..utils.text_processor import TextProcessor
 from ..core.shared_config import PROMPT_FILES, METADATA_DIR
+from ..core.clip_duration_config import ClipDurationConfig, resolve_clip_duration_config
+from ..utils.timeline_duration import enforce_timeline_duration_limits
 
 logger = logging.getLogger(__name__)
 
 class TimelineExtractor:
     """从大纲和SRT字幕中提取精确时间线"""
     
-    def __init__(self, metadata_dir: Path = None, prompt_files: Dict = None):
+    def __init__(
+        self,
+        metadata_dir: Path = None,
+        prompt_files: Dict = None,
+        prompt_contents: Dict = None,
+        duration_config: ClipDurationConfig = None,
+    ):
         self.llm_client = LLMClient()
         self.text_processor = TextProcessor()
         
@@ -26,11 +34,15 @@ class TimelineExtractor:
         if metadata_dir is None:
             metadata_dir = METADATA_DIR
         self.metadata_dir = metadata_dir
+        self.duration_config = duration_config or resolve_clip_duration_config()
         
-        # 加载提示词
-        prompt_files_to_use = prompt_files if prompt_files is not None else PROMPT_FILES
-        with open(prompt_files_to_use['timeline'], 'r', encoding='utf-8') as f:
-            self.timeline_prompt = f.read()
+        # 优先使用已注入时长参数的 prompt 文本
+        if prompt_contents and "timeline" in prompt_contents:
+            self.timeline_prompt = prompt_contents["timeline"]
+        else:
+            prompt_files_to_use = prompt_files if prompt_files is not None else PROMPT_FILES
+            with open(prompt_files_to_use['timeline'], 'r', encoding='utf-8') as f:
+                self.timeline_prompt = f.read()
             
         # SRT块的目录
         self.srt_chunks_dir = self.metadata_dir / "step1_srt_chunks"
@@ -108,7 +120,9 @@ class TimelineExtractor:
                     # 构建用于LLM的SRT文本
                     srt_text_for_prompt = ""
                     for sub in srt_chunk_data:
-                        srt_text_for_prompt += f"{sub['index']}\\n{sub['start_time']} --> {sub['end_time']}\\n{sub['text']}\\n\\n"
+                        srt_text_for_prompt += (
+                            f"{sub['index']}\n{sub['start_time']} --> {sub['end_time']}\n{sub['text']}\n\n"
+                        )
                     
                     # 为LLM准备一个"干净"的输入，只包含它需要的信息
                     llm_input_outlines = [
@@ -132,6 +146,15 @@ class TimelineExtractor:
                             if not raw_response:
                                 logger.warning(f"  > 块 {chunk_index} LLM响应为空，跳过")
                                 break
+                            if len(raw_response.strip()) < 20:
+                                logger.error(
+                                    "  > 块 %s LLM 响应过短（%d 字符: %r），"
+                                    "通常是 Ollama num_ctx 不足导致上下文被 prompt 占满，"
+                                    "将重试或请增大 OLLAMA_NUM_CTX（建议 65536）",
+                                    chunk_index,
+                                    len(raw_response),
+                                    raw_response[:80],
+                                )
                             
                             # 保存原始响应到缓存
                             cache_file = self.llm_raw_output_dir / f"chunk_{chunk_index}_attempt_{retry_count}.txt"
@@ -205,6 +228,22 @@ class TimelineExtractor:
                 
             except Exception as e:
                 logger.error(f"对最终结果排序时出错: {e}。返回未排序的结果。")
+
+        # 代码兜底：拆分超过配置上限的片段
+        if all_timeline_data:
+            before = len(all_timeline_data)
+            all_timeline_data = enforce_timeline_duration_limits(
+                all_timeline_data,
+                self.duration_config,
+                self.metadata_dir,
+            )
+            if len(all_timeline_data) != before:
+                logger.info(
+                    "时长 enforce 完成: %d → %d 段 (max=%ds)",
+                    before,
+                    len(all_timeline_data),
+                    self.duration_config.max_seconds,
+                )
 
         return all_timeline_data
         
@@ -338,14 +377,26 @@ class TimelineExtractor:
         with open(input_path, 'r', encoding='utf-8') as f:
             return json.load(f)
 
-def run_step2_timeline(outline_path: Path, metadata_dir: Path = None, output_path: Optional[Path] = None, prompt_files: Dict = None) -> List[Dict]:
+def run_step2_timeline(
+    outline_path: Path,
+    metadata_dir: Path = None,
+    output_path: Optional[Path] = None,
+    prompt_files: Dict = None,
+    prompt_contents: Dict = None,
+    duration_config: ClipDurationConfig = None,
+) -> List[Dict]:
     """
     运行Step 2: 时间点提取
     """
     if metadata_dir is None:
         metadata_dir = METADATA_DIR
         
-    extractor = TimelineExtractor(metadata_dir, prompt_files)
+    extractor = TimelineExtractor(
+        metadata_dir,
+        prompt_files,
+        prompt_contents,
+        duration_config,
+    )
     
     # 加载大纲
     with open(outline_path, 'r', encoding='utf-8') as f:

@@ -125,6 +125,51 @@ export interface UploadFilesRequest {
   srt_file?: File
   project_name: string
   video_category?: string
+  clip_duration_preset?: string
+  clip_min_seconds?: number
+  clip_target_seconds?: number
+  clip_max_seconds?: number
+  clip_goal?: string
+}
+
+export interface ClipDurationPreset {
+  value: string
+  name: string
+  description: string
+  min_seconds: number
+  target_seconds: number
+  max_seconds: number
+}
+
+export interface ClipDurationPresetsResponse {
+  presets: ClipDurationPreset[]
+  default_preset: string
+}
+
+export interface ClipDurationSelection {
+  clip_duration_preset?: string
+  clip_min_seconds?: number
+  clip_target_seconds?: number
+  clip_max_seconds?: number
+}
+
+export interface ClipGoal {
+  id: string
+  name: string
+  description: string
+  pipeline_id: string
+  prompt_pack: string
+  default_duration_preset: string
+  step_ids?: string[] | null
+}
+
+export interface ClipGoalsResponse {
+  goals: ClipGoal[]
+  default_goal: string
+}
+
+export interface ClipGoalSelection {
+  clip_goal?: string
 }
 
 export interface VideoCategory {
@@ -149,6 +194,52 @@ export interface ProcessingStatus {
   error_message?: string
 }
 
+export interface PipelineStepInfo {
+  id: string
+  name: string
+  description: string
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped'
+  item_count?: number | null
+  message?: string
+  can_run: boolean
+  run_blocked_reason?: string | null
+}
+
+export interface PipelineStepsResponse {
+  project_id: string
+  project_status: string
+  is_pipeline_running: boolean
+  stale_recovered?: boolean
+  progress?: {
+    stage: string
+    percent: number
+    message: string
+    ts?: number
+  } | null
+  steps: PipelineStepInfo[]
+}
+
+export type PipelineStepResultType =
+  | 'media_info'
+  | 'outline_list'
+  | 'timeline_list'
+  | 'score_list'
+  | 'title_list'
+  | 'collection_list'
+  | 'export_summary'
+  | 'empty'
+
+export interface PipelineStepResultResponse {
+  step_id: string
+  step_name: string
+  result_type: PipelineStepResultType
+  available: boolean
+  message?: string
+  meta?: Record<string, unknown>
+  summary?: Record<string, number>
+  items: Record<string, unknown>[]
+}
+
 // B站相关接口类型
 export interface BilibiliVideoInfo {
   title: string
@@ -166,6 +257,11 @@ export interface BilibiliDownloadRequest {
   url: string
   project_name: string
   video_category?: string
+  clip_duration_preset?: string
+  clip_min_seconds?: number
+  clip_target_seconds?: number
+  clip_max_seconds?: number
+  clip_goal?: string
   browser?: string
 }
 
@@ -188,7 +284,7 @@ export interface BilibiliDownloadTask {
 export const settingsApi = {
   // 获取系统配置
   getSettings: (): Promise<any> => {
-    return api.get('/settings')
+    return api.get('/settings/')
   },
 
   // 更新系统配置
@@ -197,11 +293,22 @@ export const settingsApi = {
   },
 
   // 测试API密钥
-  testApiKey: (provider: string, apiKey: string): Promise<{ success: boolean; error?: string }> => {
-    return api.post('/settings/test-api', { 
-      provider, 
-      api_key: apiKey
-    })
+  testApiKey: (
+    provider: string,
+    apiKey: string,
+    options?: { model_name?: string; base_url?: string }
+  ): Promise<{ success: boolean; error?: string }> => {
+    const payload: Record<string, string> = {
+      provider,
+      api_key: apiKey,
+    }
+    if (options?.model_name) {
+      payload.model_name = options.model_name
+    }
+    if (options?.base_url) {
+      payload.base_url = options.base_url
+    }
+    return api.post('/settings/test-api', payload)
   },
 
   // 获取所有可用模型
@@ -227,6 +334,14 @@ export const projectApi = {
     return api.get('/video-categories')
   },
 
+  getClipDurationPresets: async (): Promise<ClipDurationPresetsResponse> => {
+    return api.get('/clip-duration-presets')
+  },
+
+  getClipGoals: async (): Promise<ClipGoalsResponse> => {
+    return api.get('/clip-goals')
+  },
+
   // 获取所有项目
   getProjects: async (): Promise<Project[]> => {
     const response = await api.get('/projects/')
@@ -239,6 +354,15 @@ export const projectApi = {
     return api.get(`/projects/${id}`)
   },
 
+  // 从文件系统同步项目数据到数据库（切片/合集）
+  syncProjectFromFilesystem: async (projectId: string): Promise<{
+    success: boolean
+    clips_synced: number
+    collections_synced: number
+  }> => {
+    return api.post(`/projects/sync/${projectId}`)
+  },
+
   // 上传文件并创建项目
   uploadFiles: async (data: UploadFilesRequest): Promise<Project> => {
     const formData = new FormData()
@@ -249,6 +373,21 @@ export const projectApi = {
     formData.append('project_name', data.project_name)
     if (data.video_category) {
       formData.append('video_category', data.video_category)
+    }
+    if (data.clip_duration_preset) {
+      formData.append('clip_duration_preset', data.clip_duration_preset)
+    }
+    if (data.clip_min_seconds != null) {
+      formData.append('clip_min_seconds', String(data.clip_min_seconds))
+    }
+    if (data.clip_target_seconds != null) {
+      formData.append('clip_target_seconds', String(data.clip_target_seconds))
+    }
+    if (data.clip_max_seconds != null) {
+      formData.append('clip_max_seconds', String(data.clip_max_seconds))
+    }
+    if (data.clip_goal) {
+      formData.append('clip_goal', data.clip_goal)
     }
     
     try {
@@ -293,34 +432,53 @@ export const projectApi = {
     return api.get(`/projects/${id}/status`)
   },
 
+  // 流水线各步骤状态
+  getPipelineSteps: async (id: string): Promise<PipelineStepsResponse> => {
+    return api.get(`/projects/${id}/pipeline-steps`)
+  },
+
+  resetStuckPipeline: async (
+    id: string
+  ): Promise<{ success: boolean; message: string; new_status: string }> => {
+    return api.post(`/projects/${id}/pipeline-steps/reset-stuck`)
+  },
+
+  // 获取某步骤解析结果
+  getPipelineStepResult: async (
+    id: string,
+    stepId: string
+  ): Promise<PipelineStepResultResponse> => {
+    return api.get(`/projects/${id}/pipeline-steps/${stepId}/result`)
+  },
+
+  // 从指定步骤续跑
+  runPipelineStep: async (
+    id: string,
+    stepId: string,
+    force = true
+  ): Promise<{ success: boolean; message: string }> => {
+    return api.post(`/projects/${id}/pipeline-steps/${stepId}/run`, null, {
+      params: { force },
+    })
+  },
+
   // 获取项目日志
   getProjectLogs: async (id: string, lines: number = 50): Promise<{logs: Array<{timestamp: string, module: string, level: string, message: string}>}> => {
     return api.get(`/projects/${id}/logs?lines=${lines}`)
   },
 
-  // 获取项目切片
+  // 获取项目切片（自动分页拉取全部）
   getClips: async (projectId: string): Promise<any[]> => {
     try {
-      // 只从数据库获取数据，不再回退到文件系统
-      console.log('🔍 Calling clips API for project:', projectId)
-      const response = await api.get(`/clips/?project_id=${projectId}`)
-      console.log('📦 Raw API response:', response)
-      const clips = (response as any).items || response || []
-      console.log('📋 Extracted clips:', clips.length, 'clips found')
-      
-      // 转换后端数据格式为前端期望的格式
-      const convertedClips = clips.map((clip: any) => {
-        // 转换秒数为时间字符串格式
-        const formatSecondsToTime = (seconds: number) => {
-          const hours = Math.floor(seconds / 3600)
-          const minutes = Math.floor((seconds % 3600) / 60)
-          const secs = Math.floor(seconds % 60)
-          return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
-        }
-        
-        // 获取metadata中的内容
+      const formatSecondsToTime = (seconds: number) => {
+        const hours = Math.floor(seconds / 3600)
+        const minutes = Math.floor((seconds % 3600) / 60)
+        const secs = Math.floor(seconds % 60)
+        return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+      }
+
+      const convertClip = (clip: any) => {
         const metadata = clip.clip_metadata || {}
-        
         return {
           id: clip.id,
           title: clip.title,
@@ -331,15 +489,28 @@ export const projectApi = {
           final_score: clip.score || 0,
           recommend_reason: metadata.recommend_reason || '',
           outline: metadata.outline || '',
-          // 只使用metadata中的content，避免使用description（可能是转写文本）
           content: metadata.content || [],
-          chunk_index: metadata.chunk_index || 0
+          chunk_index: metadata.chunk_index || 0,
         }
-      })
-      
-      console.log('✅ Converted clips:', convertedClips.length, 'clips')
-      console.log('📄 First clip sample:', convertedClips[0])
-      return convertedClips
+      }
+
+      const allRawClips: any[] = []
+      let page = 1
+      const size = 100
+
+      while (true) {
+        const response = await api.get(`/clips/?project_id=${projectId}&page=${page}&size=${size}`)
+        const items = (response as any).items || []
+        allRawClips.push(...items)
+
+        const pagination = (response as any).pagination
+        if (!pagination || page >= pagination.pages || items.length === 0) {
+          break
+        }
+        page += 1
+      }
+
+      return allRawClips.map(convertClip)
     } catch (error) {
       console.error('❌ Failed to get clips:', error)
       return []
@@ -632,6 +803,8 @@ export interface WhisperRuntimeStatus {
   log_tail?: string
   platform_supported: boolean
   packages: string[]
+  install_dir?: string
+  models_dir?: string
 }
 
 export interface WhisperModel {

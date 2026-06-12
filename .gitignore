@@ -58,6 +58,7 @@ venv_*/
 *.db
 *.sqlite
 *.sqlite3
+data/
 data/autoclip.db
 data/progress.db
 data/*.json

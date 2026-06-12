@@ -17,22 +17,29 @@ logger = logging.getLogger(__name__)
 class OutlineExtractor:
     """大纲提取器（重构版）"""
     
-    def __init__(self, metadata_dir: Path = None, prompt_files: Dict = None):
+    def __init__(
+        self,
+        metadata_dir: Path = None,
+        prompt_files: Dict = None,
+        prompt_contents: Dict = None,
+        parse_mode: str = "markdown",
+    ):
         self.llm_client = LLMClient()
         self.text_processor = TextProcessor()
+        self.parse_mode = parse_mode
         
         # 使用传入的metadata_dir或默认值
         if metadata_dir is None:
             metadata_dir = METADATA_DIR
         self.metadata_dir = metadata_dir
         
-        # 使用传入的prompt_files或默认值
-        if prompt_files is None:
-            prompt_files = PROMPT_FILES
-        
-        # 加载提示词
-        with open(prompt_files['outline'], 'r', encoding='utf-8') as f:
-            self.outline_prompt = f.read()
+        # 优先使用已注入时长参数的 prompt 文本
+        if prompt_contents and "outline" in prompt_contents:
+            self.outline_prompt = prompt_contents["outline"]
+        else:
+            prompt_files_to_use = prompt_files if prompt_files is not None else PROMPT_FILES
+            with open(prompt_files_to_use['outline'], 'r', encoding='utf-8') as f:
+                self.outline_prompt = f.read()
             
         # 创建用于存放中间文本块的目录
         self.chunks_dir = self.metadata_dir / "step1_chunks"
@@ -40,6 +47,10 @@ class OutlineExtractor:
         # 创建用于存放中间SRT块的目录
         self.srt_chunks_dir = self.metadata_dir / "step1_srt_chunks"
         self.srt_chunks_dir.mkdir(parents=True, exist_ok=True)
+        self.llm_raw_output_dir = self.metadata_dir / "step1_llm_raw_output"
+        self.llm_raw_output_dir.mkdir(parents=True, exist_ok=True)
+        self.debug_responses_dir = self.metadata_dir / "debug_responses"
+        self.debug_responses_dir.mkdir(parents=True, exist_ok=True)
 
     def extract_outline(self, srt_path: Path) -> List[Dict]:
         """
@@ -86,9 +97,17 @@ class OutlineExtractor:
                 response = self.llm_client.call_with_retry(self.outline_prompt, input_data)
                 
                 if response:
-                    # 解析响应并附加块索引
-                    # 注意：这里的chunk_index直接用i，与文件名和原始chunk对应
+                    raw_path = self.llm_raw_output_dir / f"chunk_{i}.txt"
+                    raw_path.write_text(response, encoding="utf-8")
                     parsed_outlines = self._parse_outline_response(response, i)
+                    if not parsed_outlines and response.strip():
+                        logger.warning(
+                            "块 %d LLM 有响应但解析为 0 条（parse_mode=%s），"
+                            "原始响应已保存至 %s",
+                            i,
+                            self.parse_mode,
+                            raw_path,
+                        )
                     all_outlines.extend(parsed_outlines)
                 else:
                     logger.warning(f"处理第{i+1}个文本块时返回空响应")
@@ -130,15 +149,53 @@ class OutlineExtractor:
         logger.info(f"所有SRT块已保存到: {self.srt_chunks_dir}")
 
     def _parse_outline_response(self, response: str, chunk_index: int) -> List[Dict]:
+        if self.parse_mode == "json":
+            items = self._parse_json_outline_response(response, chunk_index)
+            if items:
+                return items
+            # JSON 模式失败时回退 Markdown，兼容模型未严格按 JSON 输出的情况
+            return self._parse_markdown_outline_response(response, chunk_index)
+        return self._parse_markdown_outline_response(response, chunk_index)
+
+    def _parse_json_outline_response(self, response: str, chunk_index: int) -> List[Dict]:
+        """解析 moment / 金句类目标要求的 JSON 数组。"""
+        outlines: List[Dict] = []
+        try:
+            parsed = self.llm_client.parse_json_response(response)
+        except Exception as exc:
+            logger.warning("块 %d JSON 解析失败: %s", chunk_index, exc)
+            self._save_debug_response(response, chunk_index, "step1_json_parse_error")
+            return []
+
+        if not isinstance(parsed, list):
+            logger.warning("块 %d JSON 根节点不是数组", chunk_index)
+            return []
+
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            title = item.get("title") or item.get("outline")
+            if not title:
+                continue
+            subtopics = item.get("subtopics") or item.get("content") or []
+            if isinstance(subtopics, str):
+                subtopics = [subtopics]
+            elif not isinstance(subtopics, list):
+                subtopics = []
+            subtopics = [str(s).strip() for s in subtopics if s][:10]
+            # moment 类 prompt 要求 chunk_index 与输入块一致，但模型常返回 1-based 序号；
+            # 必须始终使用当前 SRT 分块索引，否则 step2 找不到 chunk_N.json。
+            outlines.append({
+                "title": str(title).strip(),
+                "subtopics": subtopics,
+                "chunk_index": chunk_index,
+            })
+
+        return outlines
+
+    def _parse_markdown_outline_response(self, response: str, chunk_index: int) -> List[Dict]:
         """
-        解析大模型的大纲响应 (与之前版本保持一致，无质量检查)
-        
-        Args:
-            response: 大模型响应
-            chunk_index: 当前处理的块索引
-            
-        Returns:
-            解析后的大纲结构
+        解析 Markdown 格式大纲：1. **话题** + - 子要点
         """
         outlines = []
         lines = response.split('\n')
@@ -167,6 +224,13 @@ class OutlineExtractor:
             outlines.append(current_outline)
         
         return outlines
+
+    def _save_debug_response(self, response: str, chunk_index: int, error_type: str) -> None:
+        try:
+            debug_file = self.debug_responses_dir / f"step1_chunk_{chunk_index}_{error_type}.txt"
+            debug_file.write_text(response, encoding="utf-8")
+        except Exception as exc:
+            logger.error("保存 step1 调试响应失败: %s", exc)
     
     def _merge_outlines(self, outlines: List[Dict]) -> List[Dict]:
         """
@@ -201,14 +265,27 @@ class OutlineExtractor:
         with open(input_path, 'r', encoding='utf-8') as f:
             return json.load(f)
 
-def run_step1_outline(srt_path: Path, metadata_dir: Path = None, output_path: Optional[Path] = None, prompt_files: Dict = None) -> List[Dict]:
+def run_step1_outline(
+    srt_path: Path,
+    metadata_dir: Path = None,
+    output_path: Optional[Path] = None,
+    prompt_files: Dict = None,
+    prompt_contents: Dict = None,
+    parse_mode: str = "markdown",
+) -> List[Dict]:
     """
     运行Step 1: 大纲提取
+    parse_mode: "markdown"（知识干货）| "json"（金句/高能 moment）
     """
     if metadata_dir is None:
         metadata_dir = METADATA_DIR
         
-    extractor = OutlineExtractor(metadata_dir, prompt_files)
+    extractor = OutlineExtractor(
+        metadata_dir,
+        prompt_files,
+        prompt_contents,
+        parse_mode=parse_mode,
+    )
     outlines = extractor.extract_outline(srt_path)
     
     if output_path is None:

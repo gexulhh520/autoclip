@@ -39,6 +39,87 @@ def sanitized_yt_env():
         os.environ.clear()
         os.environ.update(original_env)
 
+
+def _apply_yt_client(ydl_opts: dict, client: Optional[str] = None) -> dict:
+    opts = dict(ydl_opts)
+    client_name = (client or os.getenv("AUTOCLIP_YT_CLIENT", "")).strip().lower()
+    if client_name in {"android", "ios", "tv"}:
+        opts.setdefault("extractor_args", {}).setdefault("youtube", {}).setdefault(
+            "player_client", [],
+        ).append(client_name)
+    return opts
+
+
+def _is_browser_cookie_error(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return "cookie" in msg and (
+        "could not copy" in msg or "failed to load" in msg or "permission" in msg
+    )
+
+
+def _base_ytdl_opts() -> dict:
+    return {
+        "quiet": True,
+        "no_warnings": True,
+        "ignoreconfig": True,
+        "noplaylist": True,
+        "config_locations": [],
+        "cachedir": False,
+    }
+
+
+def _extract_info(url: str, ydl_opts: dict, browser: Optional[str] = None):
+    """提取视频信息；浏览器 Cookie 不可读时自动降级为无 Cookie 重试。"""
+
+    def _run(use_browser: bool):
+        opts = dict(ydl_opts)
+        if use_browser and browser:
+            opts["cookiesfrombrowser"] = (browser.lower(),)
+        else:
+            opts.pop("cookiesfrombrowser", None)
+        with sanitized_yt_env():
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                return ydl.extract_info(url, download=False)
+
+    try:
+        return _run(bool(browser))
+    except Exception as e:
+        if browser and _is_browser_cookie_error(e):
+            logger.warning(
+                "无法读取 %s 浏览器 Cookie（请完全关闭该浏览器，或不要选择浏览器），将无 Cookie 重试: %s",
+                browser,
+                e,
+            )
+            return _run(False)
+        raise
+
+
+def _download_url(url: str, ydl_opts: dict, browser: Optional[str] = None):
+    """下载视频；浏览器 Cookie 不可读时自动降级为无 Cookie 重试。"""
+
+    def _run(use_browser: bool):
+        opts = dict(ydl_opts)
+        if use_browser and browser:
+            opts["cookiesfrombrowser"] = (browser.lower(),)
+        else:
+            opts.pop("cookiesfrombrowser", None)
+        with sanitized_yt_env():
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                return ydl.download([url])
+
+    try:
+        return _run(bool(browser))
+    except Exception as e:
+        if browser and _is_browser_cookie_error(e):
+            logger.warning(
+                "无法读取 %s 浏览器 Cookie（请完全关闭该浏览器，或不要选择浏览器），将无 Cookie 重试: %s",
+                browser,
+                e,
+            )
+            return _run(False)
+        raise
+
+
 class YouTubeParseRequest(BaseModel):
     url: str
     browser: Optional[str] = None
@@ -47,6 +128,11 @@ class YouTubeDownloadRequest(BaseModel):
     url: str
     project_name: str
     video_category: Optional[str] = "default"
+    clip_duration_preset: Optional[str] = "standard"
+    clip_min_seconds: Optional[int] = None
+    clip_target_seconds: Optional[int] = None
+    clip_max_seconds: Optional[int] = None
+    clip_goal: Optional[str] = "knowledge"
     browser: Optional[str] = None
 
 class YouTubeVideoInfo(BaseModel):
@@ -91,72 +177,13 @@ async def parse_youtube_video(
         except Exception:
             pass
 
-        # 使用 subprocess 直接调用 yt-dlp 命令行工具，避免 Python 环境配置影响
-        import subprocess
-        import json
-        import asyncio
-        
-        def extract_info_sync(url, browser):
-            # 构建 yt-dlp 命令
-            cmd = [
-                '/Users/zhoukk/autoclip/venv/bin/yt-dlp',
-                '--ignore-config',
-                '--no-warnings',
-                '--no-playlist',
-                '--dump-json',
-                '--skip-download',  # 修正参数名
-                '--no-cache-dir'
-            ]
-            
-            if browser:
-                cmd.extend(['--cookies-from-browser', browser.lower()])
+        # 使用 yt-dlp Python API（与 /download 一致，跨平台）
+        def extract_info_sync(target_url: str, browser_name: Optional[str], yt_client: Optional[str]):
+            ydl_opts = _apply_yt_client(_base_ytdl_opts(), yt_client)
+            return _extract_info(target_url, ydl_opts, browser_name)
 
-            # 可选兜底客户端，规避 SABR
-            yt_client = (client or os.getenv('AUTOCLIP_YT_CLIENT', '')).strip().lower()
-            if yt_client in {"android", "ios", "tv"}:
-                cmd.extend(['--extractor-args', f"youtube:player_client={yt_client}"])
-            
-            cmd.append(url)
-            
-            try:
-                # 执行命令（清理环境变量，避免 YT_* 影响）
-                env = os.environ.copy()
-                for k in list(env.keys()):
-                    uk = k.upper()
-                    if uk.startswith('YT_DLP') or uk.startswith('YTDL') or uk.startswith('YOUTUBE_DL') or uk.startswith('YOUTUBEDL'):
-                        env.pop(k, None)
-
-                logger.info(f"执行命令: {' '.join(cmd)}")
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                    cwd='/Users/zhoukk/autoclip',
-                    env=env
-                )
-
-                logger.info(f"命令返回码: {result.returncode}")
-                logger.info(f"命令输出(前200字): {result.stdout[:200]}...")
-                if result.stderr:
-                    logger.info(f"命令错误: {result.stderr}")
-
-                if result.returncode != 0:
-                    raise Exception(f"yt-dlp failed: {result.stderr or result.stdout}")
-
-                # 解析 JSON 输出
-                info_dict = json.loads(result.stdout)
-                return info_dict
-                
-            except subprocess.TimeoutExpired:
-                raise Exception("yt-dlp timeout")
-            except json.JSONDecodeError as e:
-                raise Exception(f"Failed to parse yt-dlp output: {e}")
-            except Exception as e:
-                raise Exception(f"yt-dlp execution failed: {e}")
-        
         loop = asyncio.get_event_loop()
-        info_dict = await loop.run_in_executor(None, extract_info_sync, url, browser)
+        info_dict = await loop.run_in_executor(None, extract_info_sync, url, browser, client)
         
         logger.info(f"YouTube视频信息解析成功: {info_dict.get('title', 'Unknown')}")
         
@@ -188,30 +215,15 @@ async def create_youtube_download_task(request: YouTubeDownloadRequest):
         import yt_dlp
         import asyncio
         
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'ignoreconfig': True,
-            'noplaylist': True,
-            'config_locations': [],
-            'cachedir': False,
-        }
-        
-        if request.browser:
-            ydl_opts['cookiesfrombrowser'] = (request.browser.lower(),)
+        ydl_opts = _apply_yt_client(_base_ytdl_opts())
 
-        # 可选兜底客户端
-        yt_client_env = os.getenv('AUTOCLIP_YT_CLIENT', '').strip().lower()
-        if yt_client_env in {"android", "ios", "tv"}:
-            ydl_opts.setdefault('extractor_args', {}).setdefault('youtube', {}).setdefault('player_client', []).append(yt_client_env)
-        
-        def extract_info_sync(url, ydl_opts):
-            with sanitized_yt_env():
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    return ydl.extract_info(url, download=False)
-        
+        def extract_info_sync(target_url, opts, browser_name):
+            return _extract_info(target_url, opts, browser_name)
+
         loop = asyncio.get_event_loop()
-        video_info = await loop.run_in_executor(None, extract_info_sync, request.url, ydl_opts)
+        video_info = await loop.run_in_executor(
+            None, extract_info_sync, request.url, ydl_opts, request.browser,
+        )
         
         # 立即创建项目记录
         from ...core.database import SessionLocal
@@ -244,6 +256,29 @@ async def create_youtube_download_task(request: YouTubeDownloadRequest):
                     # 缩略图处理失败不影响主流程
             
             # 创建项目数据
+            youtube_settings = {
+                "download_status": "downloading",
+                "download_progress": 0.0,
+                "video_category": request.video_category or "default",
+                "clip_duration_preset": request.clip_duration_preset or "standard",
+                "clip_goal": request.clip_goal or "knowledge",
+                "youtube_info": {
+                    "url": request.url,
+                    "browser": request.browser,
+                    "title": video_info.get('title', 'Unknown'),
+                    "uploader": video_info.get('uploader', 'Unknown'),
+                    "duration": video_info.get('duration', 0),
+                    "view_count": video_info.get('view_count', 0),
+                    "thumbnail_url": thumbnail_url
+                }
+            }
+            if request.clip_min_seconds is not None:
+                youtube_settings["clip_min_seconds"] = request.clip_min_seconds
+            if request.clip_target_seconds is not None:
+                youtube_settings["clip_target_seconds"] = request.clip_target_seconds
+            if request.clip_max_seconds is not None:
+                youtube_settings["clip_max_seconds"] = request.clip_max_seconds
+
             project_data = ProjectCreate(
                 name=request.project_name,
                 description=f"从YouTube下载: {video_info.get('title', 'Unknown')}",
@@ -251,19 +286,7 @@ async def create_youtube_download_task(request: YouTubeDownloadRequest):
                 status=ProjectStatus.PENDING,  # 初始状态为等待中
                 source_url=request.url,
                 source_file=None,  # 暂时为空，下载完成后更新
-                settings={
-                    "download_status": "downloading",
-                    "download_progress": 0.0,
-                    "youtube_info": {
-                        "url": request.url,
-                        "browser": request.browser,
-                        "title": video_info.get('title', 'Unknown'),
-                        "uploader": video_info.get('uploader', 'Unknown'),
-                        "duration": video_info.get('duration', 0),
-                        "view_count": video_info.get('view_count', 0),
-                        "thumbnail_url": thumbnail_url
-                    }
-                }
+                settings=youtube_settings,
             )
             
             project = project_service.create_project(project_data)
@@ -356,10 +379,13 @@ async def update_project_download_progress(project_id: str, progress: float, mes
                 if not project.processing_config:
                     project.processing_config = {}
                 
-                project.processing_config.update({
+                updates = {
                     "download_progress": progress,
-                    "download_message": message
-                })
+                    "download_message": message,
+                }
+                if progress >= 100.0:
+                    updates["download_status"] = "completed"
+                project.processing_config.update(updates)
                 
                 # 如果进度达到100%，更新状态为等待处理
                 if progress >= 100.0:
@@ -375,12 +401,31 @@ async def update_project_download_progress(project_id: str, progress: float, mes
     except Exception as e:
         logger.error(f"更新项目下载进度失败: {e}")
 
+def _ensure_download_task(
+    task_id: str, request: YouTubeDownloadRequest, project_id: str
+) -> YouTubeDownloadTask:
+    """确保 download_tasks 中存在任务记录（重试路径可能未预先注册）。"""
+    if task_id not in download_tasks:
+        download_tasks[task_id] = YouTubeDownloadTask(
+            id=task_id,
+            url=request.url,
+            project_name=request.project_name,
+            video_category=request.video_category or "default",
+            status="pending",
+            progress=0.0,
+            project_id=project_id,
+            created_at=datetime.now().isoformat(),
+            updated_at=datetime.now().isoformat(),
+        )
+    return download_tasks[task_id]
+
 async def process_youtube_download_task(task_id: str, request: YouTubeDownloadRequest, project_id: str):
     """处理YouTube下载任务"""
+    task = _ensure_download_task(task_id, request, project_id)
     try:
         # 更新任务状态为处理中
-        download_tasks[task_id].status = "processing"
-        download_tasks[task_id].progress = 10.0
+        task.status = "processing"
+        task.progress = 10.0
         
         # 更新项目状态和进度
         await update_project_download_progress(project_id, 10.0, "正在获取视频信息...")
@@ -398,36 +443,24 @@ async def process_youtube_download_task(task_id: str, request: YouTubeDownloadRe
         await update_project_download_progress(project_id, 30.0, "正在下载视频...")
         
         # 设置下载选项
-        ydl_opts = {
+        ydl_opts = _apply_yt_client({
             'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
             'writesubtitles': True,
             'writeautomaticsub': True,  # 下载自动生成的字幕
             'subtitleslangs': ['en', 'zh-Hans', 'zh', 'en-US', 'auto'],  # 英文和中文字幕，包括自动检测
             'subtitlesformat': 'srt',
             'outtmpl': str(download_dir / '%(title)s.%(ext)s'),
-            'noplaylist': True,
-            'quiet': True,
+            **_base_ytdl_opts(),
             'no_warnings': False,  # 显示警告信息以便调试
-            'ignoreconfig': True,
-            'config_locations': [],
-            'cachedir': False,
-        }
+        })
         
-        if request.browser:
-            ydl_opts['cookiesfrombrowser'] = (request.browser.lower(),)
-
-        # 可选兜底客户端
-        yt_client_env = os.getenv('AUTOCLIP_YT_CLIENT', '').strip().lower()
-        if yt_client_env in {"android", "ios", "tv"}:
-            ydl_opts.setdefault('extractor_args', {}).setdefault('youtube', {}).setdefault('player_client', []).append(yt_client_env)
-        
-        def download_sync(url, ydl_opts):
-            with sanitized_yt_env():
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    return ydl.download([url])
+        def download_sync(target_url, opts, browser_name):
+            return _download_url(target_url, opts, browser_name)
         
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, download_sync, request.url, ydl_opts)
+        await loop.run_in_executor(
+            None, download_sync, request.url, ydl_opts, request.browser,
+        )
         
         # 查找下载的文件
         video_files = list(download_dir.glob("*.mp4"))
@@ -439,7 +472,7 @@ async def process_youtube_download_task(task_id: str, request: YouTubeDownloadRe
         video_path = str(video_files[0])
         subtitle_path = str(subtitle_files[0]) if subtitle_files else ""
         
-        download_tasks[task_id].progress = 80.0
+        task.progress = 80.0
         
         # 更新项目进度
         await update_project_download_progress(project_id, 60.0, "视频下载完成，正在处理字幕...")
@@ -536,7 +569,6 @@ async def process_youtube_download_task(task_id: str, request: YouTubeDownloadRe
             
             # 移动视频文件到项目目录
             import shutil
-            from pathlib import Path
             
             if video_path:
                 video_file_path = Path(video_path)
@@ -578,11 +610,11 @@ async def process_youtube_download_task(task_id: str, request: YouTubeDownloadRe
                 db.commit()
                 
                 # 更新任务状态为失败
-                download_tasks[task_id].status = "failed"
-                download_tasks[task_id].error_message = "字幕文件不存在且Whisper生成失败"
-                download_tasks[task_id].progress = 0.0
-                download_tasks[task_id].project_id = str(project.id)
-                download_tasks[task_id].updated_at = datetime.now().isoformat()
+                task.status = "failed"
+                task.error_message = "字幕文件不存在且Whisper生成失败"
+                task.progress = 0.0
+                task.project_id = str(project.id)
+                task.updated_at = datetime.now().isoformat()
                 
                 # 更新项目下载进度为失败
                 await update_project_download_progress(project_id, 0.0, "下载失败：字幕文件不存在")
@@ -594,10 +626,10 @@ async def process_youtube_download_task(task_id: str, request: YouTubeDownloadRe
             await update_project_download_progress(project_id, 100.0, "下载完成，准备开始处理")
             
             # 更新任务状态
-            download_tasks[task_id].status = "completed"
-            download_tasks[task_id].progress = 100.0
-            download_tasks[task_id].project_id = str(project.id)
-            download_tasks[task_id].updated_at = datetime.now().isoformat()
+            task.status = "completed"
+            task.progress = 100.0
+            task.project_id = str(project.id)
+            task.updated_at = datetime.now().isoformat()
             
             logger.info(f"YouTube下载任务完成: {task_id}, 项目ID: {project.id}")
             
@@ -647,10 +679,38 @@ async def process_youtube_download_task(task_id: str, request: YouTubeDownloadRe
             
     except Exception as e:
         logger.error(f"处理下载任务失败: {str(e)}")
-        download_tasks[task_id].status = "failed"
-        download_tasks[task_id].error_message = str(e)
-        download_tasks[task_id].progress = 0.0
-        download_tasks[task_id].updated_at = datetime.now().isoformat()
+        task = _ensure_download_task(task_id, request, project_id)
+        task.status = "failed"
+        task.error_message = str(e)
+        task.progress = 0.0
+        task.updated_at = datetime.now().isoformat()
+
+        # 同时把「项目」标记为失败，否则项目会永远停留在 pending，
+        # 前端会反复 POST /process（返回 400 "Video file not found"）。
+        try:
+            from ...core.database import SessionLocal
+            from ...services.project_service import ProjectService
+            from ...schemas.project import ProjectStatus
+            db = SessionLocal()
+            try:
+                project_service = ProjectService(db)
+                project = project_service.get(project_id)
+                if project and project.status == ProjectStatus.PENDING:
+                    project.status = ProjectStatus.FAILED
+                    if not project.processing_config:
+                        project.processing_config = {}
+                    project.processing_config.update({
+                        "download_status": "failed",
+                        "download_progress": 0.0,
+                        "download_message": f"下载失败: {e}",
+                        "error_message": f"下载失败: {e}",
+                    })
+                    db.commit()
+                    logger.info(f"项目 {project_id} 已标记为失败")
+            finally:
+                db.close()
+        except Exception as inner:
+            logger.error(f"标记项目 {project_id} 失败状态时出错: {inner}")
 
 
 async def _try_youtube_subtitle_strategies(url: str, download_dir: Path, browser: Optional[str] = None) -> str:

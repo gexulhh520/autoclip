@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react'
 import { Button, message, Progress, Input, Card, Typography, Space, Spin, Select } from 'antd'
 import { DownloadOutlined } from '@ant-design/icons'
-import { projectApi, bilibiliApi, VideoCategory, BilibiliDownloadTask } from '../services/api'
+import { projectApi, bilibiliApi, VideoCategory, BilibiliDownloadTask, ClipDurationSelection, ClipGoalSelection } from '../services/api'
 import { useProjectStore } from '../store/useProjectStore'
 import { validateApiConfigBeforeProjectCreation } from '../utils/apiConfigCheck'
+import ClipDurationSelector from './ClipDurationSelector'
+import ClipGoalSelector from './ClipGoalSelector'
 
 const { Text } = Typography
 
@@ -17,6 +19,12 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
   const [url, setUrl] = useState('')
   const [projectName, setProjectName] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string>('')
+  const [clipDuration, setClipDuration] = useState<ClipDurationSelection>({
+    clip_duration_preset: 'standard',
+  })
+  const [clipGoal, setClipGoal] = useState<ClipGoalSelection>({
+    clip_goal: 'knowledge',
+  })
   const [selectedBrowser, setSelectedBrowser] = useState<string>('')
   const [categories, setCategories] = useState<VideoCategory[]>([])
   const [loadingCategories, setLoadingCategories] = useState(false)
@@ -208,7 +216,9 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
     try {
       const requestBody: any = {
         url: url.trim(),
-        video_category: selectedCategory
+        video_category: selectedCategory,
+        ...clipDuration,
+        ...clipGoal,
       }
       
       if (projectName.trim()) {
@@ -477,6 +487,10 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
                   </div>
                 )}
               </div>
+
+              <ClipGoalSelector value={clipGoal} onChange={setClipGoal} />
+
+              <ClipDurationSelector value={clipDuration} onChange={setClipDuration} />
             </>
           )}
         </Space>

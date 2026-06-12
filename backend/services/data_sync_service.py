@@ -16,6 +16,21 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
+def _step6_output_counts(step6_output: Dict[str, Any]) -> tuple[int, int]:
+    """从 step6 输出 JSON 读取切片/合集数量（兼容新旧字段名）。"""
+    clips = int(
+        step6_output.get("clips_generated")
+        or step6_output.get("clips_count")
+        or 0
+    )
+    collections = int(
+        step6_output.get("collections_generated")
+        or step6_output.get("collections_count")
+        or 0
+    )
+    return clips, collections
+
+
 class DataSyncService:
     """数据同步服务"""
     
@@ -110,8 +125,10 @@ class DataSyncService:
             collections_count = self._sync_collections_from_filesystem(project_id, project_dir)
             logger.info(f"项目 {project_id} 合集同步完成，同步了 {collections_count} 个合集")
             
-            # 检查项目是否已完成处理，更新项目状态
-            self._update_project_status_if_completed(project_id, project_dir)
+            # 检查项目是否已完成处理，更新状态
+            self._update_project_status_if_completed(
+                project_id, project_dir, clips_synced=clips_count
+            )
             
             return {
                 "success": True,
@@ -192,23 +209,27 @@ class DataSyncService:
                     ).first()
                     
                     if existing_clip:
-                        # 更新现有切片的video_path和tags，强制使用项目内输出目录
                         clip_id = clip_data.get('id', str(synced_count + 1))
-                        safe_title = clip_data.get('generated_title', clip_data.get('title', clip_data.get('outline', '')))
-                        # 清理文件名，移除特殊字符
-                        safe_title = "".join(c for c in safe_title if c.isalnum() or c in (' ', '-', '_')).rstrip()
-                        safe_title = safe_title.replace(' ', '_')
-                        
-                        # 强制使用项目内标准路径
                         from ..core.path_utils import get_project_directory
                         project_dir = get_project_directory(project_id)
                         project_clips_dir = project_dir / "output" / "clips"
                         project_clips_dir.mkdir(parents=True, exist_ok=True)
-                        project_video_path = project_clips_dir / f"{clip_id}_{safe_title}.mp4"
-                        
-                        # 兼容旧的全局输出目录，如果存在则迁移到项目目录
+
+                        actual_filename = None
+                        for file_path in project_clips_dir.glob(f"{clip_id}_*.mp4"):
+                            actual_filename = file_path.name
+                            break
+
+                        if actual_filename:
+                            project_video_path = project_clips_dir / actual_filename
+                        else:
+                            title = clip_data.get('generated_title', clip_data.get('title', clip_data.get('outline', '')))
+                            safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+                            safe_title = safe_title.replace(' ', '_')
+                            project_video_path = project_clips_dir / f"{clip_id}_{safe_title}.mp4"
+
                         from ..core.path_utils import get_data_directory
-                        legacy_video_path = get_data_directory() / "output" / "clips" / f"{clip_id}_{safe_title}.mp4"
+                        legacy_video_path = get_data_directory() / "output" / "clips" / project_video_path.name
                         try:
                             if legacy_video_path.exists() and not project_video_path.exists():
                                 import shutil
@@ -216,9 +237,8 @@ class DataSyncService:
                                 logger.info(f"迁移旧切片文件到项目目录: {legacy_video_path} -> {project_video_path}")
                         except Exception as _e:
                             logger.warning(f"迁移旧切片文件失败: {legacy_video_path} -> {project_video_path}: {_e}")
-                        
-                        # 始终使用项目内路径
-                        video_path = str(project_video_path)
+
+                        video_path = str(project_video_path.resolve()) if project_video_path.exists() else str(project_video_path)
                         logger.info(f"更新切片 {existing_clip.id} 的video_path: {video_path}")
                         existing_clip.video_path = video_path
                         if existing_clip.tags is None:
@@ -667,12 +687,14 @@ class DataSyncService:
             raise
     
     def _update_project_stats(self, project_id: str, clips_count: int, collections_count: int):
-        """更新项目统计信息"""
+        """更新项目统计信息（写入 project_metadata，Project 表无 total_clips 列）。"""
         try:
             project = self.db.query(Project).filter(Project.id == project_id).first()
             if project:
-                project.total_clips = clips_count
-                project.total_collections = collections_count
+                meta = dict(project.project_metadata or {})
+                meta["total_clips"] = clips_count
+                meta["total_collections"] = collections_count
+                project.project_metadata = meta
                 self.db.commit()
                 logger.info(f"更新项目统计: clips={clips_count}, collections={collections_count}")
         except Exception as e:
@@ -719,37 +741,48 @@ class DataSyncService:
             logger.error(f"时间转换失败: {time_str}, 错误: {e}")
             return 0
     
-    def _update_project_status_if_completed(self, project_id: str, project_dir: Path):
-        """检查项目是否已完成处理，如果是则更新状态为completed"""
+    def _update_project_status_if_completed(
+        self,
+        project_id: str,
+        project_dir: Path,
+        clips_synced: int = 0,
+    ):
+        """检查 step6 输出，将项目标记为已完成并记录统计。"""
         try:
-            # 检查是否有step6_video_output.json文件，这是处理完成的标志
             step6_output_file = project_dir / "output" / "step6_video_output.json"
             
-            if step6_output_file.exists():
-                # 获取项目记录
-                project = self.db.query(Project).filter(Project.id == project_id).first()
-                if project and project.status != ProjectStatus.COMPLETED:
-                    # 读取step6输出文件获取统计信息
-                    try:
-                        with open(step6_output_file, 'r', encoding='utf-8') as f:
-                            step6_output = json.load(f)
-                        
-                        # 更新项目状态和统计信息
-                        project.status = ProjectStatus.COMPLETED
-                        project.total_clips = step6_output.get("clips_count", 0)
-                        project.total_collections = step6_output.get("collections_count", 0)
-                        project.completed_at = datetime.now()
-                        
-                        self.db.commit()
-                        logger.info(f"项目 {project_id} 状态已更新为已完成，切片数: {project.total_clips}, 合集数: {project.total_collections}")
-                        
-                    except Exception as e:
-                        logger.error(f"读取step6输出文件失败: {e}")
-                        # 即使读取失败，也标记为已完成
-                        project.status = ProjectStatus.COMPLETED
-                        project.completed_at = datetime.now()
-                        self.db.commit()
-                        logger.info(f"项目 {project_id} 状态已更新为已完成（无统计信息）")
+            if not step6_output_file.exists():
+                return
+
+            project = self.db.query(Project).filter(Project.id == project_id).first()
+            if not project:
+                return
+
+            try:
+                with open(step6_output_file, 'r', encoding='utf-8') as f:
+                    step6_output = json.load(f)
+                clips_count, collections_count = _step6_output_counts(step6_output)
+            except Exception as e:
+                logger.error(f"读取step6输出文件失败: {e}")
+                clips_count, collections_count = clips_synced, 0
+
+            if clips_synced > 0:
+                clips_count = max(clips_count, clips_synced)
+
+            if project.status != ProjectStatus.COMPLETED:
+                project.status = ProjectStatus.COMPLETED
+                project.completed_at = datetime.now()
+
+            meta = dict(project.project_metadata or {})
+            meta["total_clips"] = clips_count
+            meta["total_collections"] = collections_count
+            project.project_metadata = meta
+
+            self.db.commit()
+            logger.info(
+                f"项目 {project_id} 状态已更新为已完成，"
+                f"切片数: {clips_count}, 合集数: {collections_count}"
+            )
                         
         except Exception as e:
             logger.error(f"更新项目状态失败: {e}")
