@@ -892,6 +892,33 @@ def _outline_title(outline: Any) -> str:
     return str(outline or "未知话题")
 
 
+def _clip_effective_passed(clip: Dict[str, Any], threshold: float = MIN_SCORE_THRESHOLD) -> bool:
+    manual = clip.get("manual_passed")
+    if manual is True:
+        return True
+    if manual is False:
+        return False
+    return float(clip.get("final_score") or 0) >= threshold
+
+
+def _rebuild_high_score_clips(
+    all_scored: List[Dict[str, Any]],
+    threshold: float = MIN_SCORE_THRESHOLD,
+) -> List[Dict[str, Any]]:
+    return [clip for clip in all_scored if _clip_effective_passed(clip, threshold)]
+
+
+def _resolve_step3_score_paths(
+    project_dir: Path,
+    source_id: Optional[str] = None,
+) -> Tuple[Path, Path]:
+    metadata_dir = _resolve_metadata_dir(project_dir, source_id)
+    return (
+        metadata_dir / "step3_all_scored.json",
+        metadata_dir / "step3_high_score_clips.json",
+    )
+
+
 def _load_json_file(path: Path) -> Any:
     if not path.exists():
         return None
@@ -916,13 +943,24 @@ def _media_entry(label: str, path: Path, project_dir: Path) -> Dict[str, Any]:
     return {"label": label, "path": rel_path, "detail": "未就绪", "ready": False}
 
 
-def get_pipeline_step_result(project_id: str, step_id: str, project: Any) -> Dict[str, Any]:
+def _resolve_metadata_dir(project_dir: Path, source_id: Optional[str] = None) -> Path:
+    if source_id:
+        return project_dir / "metadata" / "sources" / source_id
+    return project_dir / "metadata"
+
+
+def get_pipeline_step_result(
+    project_id: str,
+    step_id: str,
+    project: Any,
+    source_id: Optional[str] = None,
+) -> Dict[str, Any]:
     if step_id not in STEP_BY_ID:
         raise ValueError(f"无效步骤: {step_id}")
 
     project_dir = get_project_directory(project_id)
     defn = STEP_BY_ID[step_id]
-    metadata_dir = project_dir / "metadata"
+    metadata_dir = _resolve_metadata_dir(project_dir, source_id)
 
     if step_id == "download":
         video_path = project_dir / "raw" / "input.mp4"
@@ -951,7 +989,7 @@ def get_pipeline_step_result(project_id: str, step_id: str, project: Any) -> Dic
     if not defn.output_rel:
         raise ValueError("该步骤无输出结果")
 
-    output_path = project_dir / defn.output_rel
+    output_path = _resolve_step_artifact_path(project_dir, defn, source_id)
     if not output_path.exists():
         return {
             "step_id": step_id,
@@ -991,6 +1029,8 @@ def get_pipeline_step_result(project_id: str, step_id: str, project: Any) -> Dic
             {
                 "id": item.get("id"),
                 "title": _outline_title(item.get("outline")),
+                "outline": item.get("outline"),
+                "content": item.get("content") or [],
                 "start_time": item.get("start_time"),
                 "end_time": item.get("end_time"),
                 "chunk_index": item.get("chunk_index"),
@@ -1013,6 +1053,7 @@ def get_pipeline_step_result(project_id: str, step_id: str, project: Any) -> Dic
         items = []
         for item in data:
             score = float(item.get("final_score") or 0)
+            passed = _clip_effective_passed(item)
             content = item.get("content")
             if isinstance(content, list):
                 content_preview = " ".join(str(c) for c in content[:3])
@@ -1025,7 +1066,8 @@ def get_pipeline_step_result(project_id: str, step_id: str, project: Any) -> Dic
                     "id": item.get("id"),
                     "title": _outline_title(item.get("outline")),
                     "score": score,
-                    "passed": score >= MIN_SCORE_THRESHOLD,
+                    "passed": passed,
+                    "manual_passed": item.get("manual_passed"),
                     "recommend_reason": item.get("recommend_reason") or "",
                     "start_time": item.get("start_time"),
                     "end_time": item.get("end_time"),
@@ -1122,6 +1164,271 @@ def get_pipeline_step_result(project_id: str, step_id: str, project: Any) -> Dic
         }
 
     raise ValueError(f"未支持的步骤: {step_id}")
+
+
+def update_pipeline_outline_item(
+    project_id: str,
+    item_index: int,
+    payload: Dict[str, Any],
+    source_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """更新 step1 大纲中的单条记录并写回 metadata/step1_outline.json。"""
+    if item_index < 1:
+        raise ValueError("无效条目序号")
+
+    title = str(payload.get("title", "")).strip()
+    if not title:
+        raise ValueError("标题不能为空")
+
+    subtopics_raw = payload.get("subtopics")
+    if subtopics_raw is None:
+        raise ValueError("subtopics 不能为空")
+    if not isinstance(subtopics_raw, list):
+        raise ValueError("subtopics 必须是数组")
+    subtopics = [str(s).strip() for s in subtopics_raw if str(s).strip()]
+
+    chunk_index = payload.get("chunk_index")
+    if chunk_index is not None:
+        try:
+            chunk_index = int(chunk_index)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("chunk_index 必须是整数") from exc
+
+    project_dir = get_project_directory(project_id)
+    defn = STEP_BY_ID["step1_outline"]
+    output_path = _resolve_step_artifact_path(project_dir, defn, source_id)
+    if not output_path.exists():
+        raise ValueError("大纲文件不存在，请先完成大纲提取")
+
+    data = _load_json_file(output_path)
+    if not isinstance(data, list):
+        raise ValueError("大纲数据格式无效")
+
+    array_index = item_index - 1
+    if array_index >= len(data):
+        raise ValueError("条目不存在")
+
+    item = data[array_index]
+    if not isinstance(item, dict):
+        raise ValueError("条目数据格式无效")
+
+    item["title"] = title
+    item["subtopics"] = subtopics
+    if chunk_index is not None:
+        item["chunk_index"] = chunk_index
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+    logger.info(
+        "项目 %s 已更新大纲条目 %d: %s",
+        project_id,
+        item_index,
+        title,
+    )
+    return {
+        "success": True,
+        "item_index": item_index,
+        "item": {
+            "index": item_index,
+            "title": item["title"],
+            "subtopics": item.get("subtopics") or [],
+            "chunk_index": item.get("chunk_index"),
+        },
+    }
+
+
+def _validate_srt_timestamp(time_str: str, field_name: str) -> str:
+    import re
+
+    value = str(time_str or "").strip()
+    if not re.match(r"^\d{2}:\d{2}:\d{2},\d{3}$", value):
+        raise ValueError(f"{field_name}格式无效，应为 HH:MM:SS,mmm")
+    return value
+
+
+def update_pipeline_timeline_item(
+    project_id: str,
+    item_id: str,
+    payload: Dict[str, Any],
+    source_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """更新 step2 时间线中的单条记录并写回 metadata/step2_timeline.json。"""
+    from backend.utils.text_processor import TextProcessor
+
+    clip_id = str(item_id or "").strip()
+    if not clip_id:
+        raise ValueError("无效条目 ID")
+
+    project_dir = get_project_directory(project_id)
+    defn = STEP_BY_ID["step2_timeline"]
+    output_path = _resolve_step_artifact_path(project_dir, defn, source_id)
+    if not output_path.exists():
+        raise ValueError("时间线文件不存在，请先完成时间线定位")
+
+    data = _load_json_file(output_path)
+    if not isinstance(data, list):
+        raise ValueError("时间线数据格式无效")
+
+    item = None
+    for entry in data:
+        if str(entry.get("id")) == clip_id:
+            item = entry
+            break
+    if item is None or not isinstance(item, dict):
+        raise ValueError("条目不存在")
+
+    if "outline" in payload and payload["outline"] is not None:
+        outline = payload["outline"]
+        if isinstance(outline, dict):
+            item["outline"] = outline
+        else:
+            outline_text = str(outline).strip()
+            if not outline_text:
+                raise ValueError("标题不能为空")
+            item["outline"] = outline_text
+
+    if "content" in payload and payload["content"] is not None:
+        content_raw = payload["content"]
+        if not isinstance(content_raw, list):
+            raise ValueError("content 必须是数组")
+        item["content"] = [str(c).strip() for c in content_raw if str(c).strip()]
+
+    start_time = _validate_srt_timestamp(
+        payload.get("start_time", item.get("start_time")),
+        "开始时间",
+    )
+    end_time = _validate_srt_timestamp(
+        payload.get("end_time", item.get("end_time")),
+        "结束时间",
+    )
+
+    tp = TextProcessor()
+    if tp.time_to_seconds(end_time) <= tp.time_to_seconds(start_time):
+        raise ValueError("结束时间必须晚于开始时间")
+
+    item["start_time"] = start_time
+    item["end_time"] = end_time
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+    logger.info(
+        "项目 %s 已更新时间线条目 %s: %s -> %s",
+        project_id,
+        clip_id,
+        start_time,
+        end_time,
+    )
+    return {
+        "success": True,
+        "item_id": clip_id,
+        "item": {
+            "id": item.get("id"),
+            "title": _outline_title(item.get("outline")),
+            "outline": item.get("outline"),
+            "content": item.get("content") or [],
+            "start_time": item.get("start_time"),
+            "end_time": item.get("end_time"),
+            "chunk_index": item.get("chunk_index"),
+        },
+    }
+
+
+def update_pipeline_score_item(
+    project_id: str,
+    item_id: str,
+    payload: Dict[str, Any],
+    source_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """更新 step3 评分中的单条记录，并同步 high_score 列表。"""
+    clip_id = str(item_id or "").strip()
+    if not clip_id:
+        raise ValueError("无效条目 ID")
+
+    if "final_score" not in payload:
+        raise ValueError("请提供 final_score")
+
+    try:
+        final_score = round(float(payload["final_score"]), 2)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("final_score 必须是 0–1 之间的数字") from exc
+    if not 0 <= final_score <= 1:
+        raise ValueError("final_score 必须在 0–1 之间")
+
+    recommend_reason = str(payload.get("recommend_reason", "")).strip()
+    if not recommend_reason:
+        raise ValueError("推荐理由不能为空")
+
+    manual_passed = payload.get("passed")
+    if manual_passed is not None:
+        manual_passed = bool(manual_passed)
+
+    project_dir = get_project_directory(project_id)
+    all_scored_path, high_score_path = _resolve_step3_score_paths(project_dir, source_id)
+    if not all_scored_path.exists():
+        raise ValueError("评分文件不存在，请先完成内容评分")
+
+    data = _load_json_file(all_scored_path)
+    if not isinstance(data, list):
+        raise ValueError("评分数据格式无效")
+
+    item = None
+    for entry in data:
+        if str(entry.get("id")) == clip_id:
+            item = entry
+            break
+    if item is None or not isinstance(item, dict):
+        raise ValueError("条目不存在")
+
+    item["final_score"] = final_score
+    item["recommend_reason"] = recommend_reason
+    if manual_passed is None:
+        item.pop("manual_passed", None)
+    else:
+        item["manual_passed"] = manual_passed
+
+    high_score_clips = _rebuild_high_score_clips(data)
+    all_scored_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(all_scored_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    with open(high_score_path, "w", encoding="utf-8") as f:
+        json.dump(high_score_clips, f, ensure_ascii=False, indent=2)
+
+    passed = _clip_effective_passed(item)
+    logger.info(
+        "项目 %s 已更新评分条目 %s: score=%.2f passed=%s",
+        project_id,
+        clip_id,
+        final_score,
+        passed,
+    )
+    content = item.get("content")
+    if isinstance(content, list):
+        content_preview = " ".join(str(c) for c in content[:3])
+        if len(content) > 3:
+            content_preview += "…"
+    else:
+        content_preview = str(content or "")[:200]
+
+    return {
+        "success": True,
+        "item_id": clip_id,
+        "high_score_count": len(high_score_clips),
+        "item": {
+            "id": item.get("id"),
+            "title": _outline_title(item.get("outline")),
+            "score": final_score,
+            "passed": passed,
+            "manual_passed": item.get("manual_passed"),
+            "recommend_reason": recommend_reason,
+            "start_time": item.get("start_time"),
+            "end_time": item.get("end_time"),
+            "content_preview": content_preview,
+        },
+    }
 
 
 def _resolve_media_paths(project: Any, project_dir: Path) -> Tuple[str, Optional[str]]:

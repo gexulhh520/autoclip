@@ -173,7 +173,7 @@ const PipelineStepsPanel: React.FC<PipelineStepsPanelProps> = ({
 
       try {
 
-        const result = await projectApi.getPipelineStepResult(projectId, stepId)
+        const result = await projectApi.getPipelineStepResult(projectId, stepId, sourceId ?? undefined)
 
         setStepResults((prev) => ({ ...prev, [stepId]: result }))
 
@@ -197,11 +197,82 @@ const PipelineStepsPanel: React.FC<PipelineStepsPanelProps> = ({
 
     },
 
-    [projectId, stepResults]
+    [projectId, sourceId, stepResults]
 
   )
 
 
+
+  const handleOutlineItemSaved = useCallback(
+    (itemIndex: number, item: Record<string, unknown>) => {
+      setStepResults((prev) => {
+        const current = prev.step1_outline
+        if (!current || current.result_type !== 'outline_list') return prev
+        const items = current.items.map((entry) =>
+          Number(entry.index) === itemIndex ? { ...entry, ...item } : entry
+        )
+        return {
+          ...prev,
+          step1_outline: {
+            ...current,
+            items,
+          },
+        }
+      })
+    },
+    []
+  )
+
+  const handleTimelineItemSaved = useCallback(
+    (itemId: string, item: Record<string, unknown>) => {
+      setStepResults((prev) => {
+        const current = prev.step2_timeline
+        if (!current || current.result_type !== 'timeline_list') return prev
+        const items = current.items.map((entry) =>
+          String(entry.id) === itemId ? { ...entry, ...item, title: item.title ?? entry.title } : entry
+        )
+        return {
+          ...prev,
+          step2_timeline: {
+            ...current,
+            items,
+          },
+        }
+      })
+    },
+    []
+  )
+
+  const handleScoreItemSaved = useCallback(
+    (itemId: string, item: Record<string, unknown>, highScoreCount: number) => {
+      setStepResults((prev) => {
+        const current = prev.step3_scoring
+        if (!current || current.result_type !== 'score_list') return prev
+        const items = current.items.map((entry) =>
+          String(entry.id) === itemId
+            ? {
+                ...entry,
+                ...item,
+                score: item.score ?? entry.score,
+                title: item.title ?? entry.title,
+              }
+            : entry
+        )
+        return {
+          ...prev,
+          step3_scoring: {
+            ...current,
+            meta: {
+              ...current.meta,
+              high_score_count: highScoreCount,
+            },
+            items,
+          },
+        }
+      })
+    },
+    []
+  )
 
   const toggleStepExpand = async (step: PipelineStepInfo) => {
 
@@ -776,7 +847,14 @@ const PipelineStepsPanel: React.FC<PipelineStepsPanelProps> = ({
 
                   ) : result ? (
 
-                    <PipelineStepResultView result={result} />
+                    <PipelineStepResultView
+                      result={result}
+                      projectId={projectId}
+                      sourceId={sourceId}
+                      onOutlineItemSaved={handleOutlineItemSaved}
+                      onTimelineItemSaved={handleTimelineItemSaved}
+                      onScoreItemSaved={handleScoreItemSaved}
+                    />
 
                   ) : (
 

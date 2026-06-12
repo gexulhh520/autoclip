@@ -572,9 +572,29 @@ export const projectApi = {
   // 获取某步骤解析结果
   getPipelineStepResult: async (
     id: string,
-    stepId: string
+    stepId: string,
+    sourceId?: string | null
   ): Promise<PipelineStepResultResponse> => {
-    return api.get(`/projects/${id}/pipeline-steps/${stepId}/result`)
+    const params = sourceId ? { source_id: sourceId } : undefined
+    return api.get(`/projects/${id}/pipeline-steps/${stepId}/result`, { params })
+  },
+
+  updatePipelineOutlineItem: async (
+    projectId: string,
+    itemIndex: number,
+    payload: { title: string; subtopics: string[]; chunk_index?: number | null },
+    sourceId?: string | null
+  ): Promise<{
+    success: boolean
+    item_index: number
+    item: { index: number; title: string; subtopics: string[]; chunk_index?: number | null }
+  }> => {
+    const params = sourceId ? { source_id: sourceId } : undefined
+    return api.patch(
+      `/projects/${projectId}/pipeline-steps/step1_outline/items/${itemIndex}`,
+      payload,
+      { params }
+    )
   },
 
   // 从指定步骤续跑
@@ -827,7 +847,61 @@ export const projectApi = {
 
   // 获取项目视频URL
   getProjectVideoUrl: (projectId: string): string => {
-    return `${api.defaults.baseURL}/projects/${projectId}/video`
+    return `${api.defaults.baseURL}/projects/${projectId}/source-video`
+  },
+
+  getProjectSourceVideoUrl: (projectId: string, sourceId?: string | null): string => {
+    const base = `${api.defaults.baseURL}/projects/${projectId}/source-video`
+    if (sourceId) {
+      return `${base}?source_id=${encodeURIComponent(sourceId)}`
+    }
+    return base
+  },
+
+  updatePipelineTimelineItem: async (
+    projectId: string,
+    itemId: string,
+    payload: {
+      outline?: string
+      content?: string[]
+      start_time: string
+      end_time: string
+    },
+    sourceId?: string | null
+  ): Promise<{
+    success: boolean
+    item_id: string
+    item: Record<string, unknown>
+  }> => {
+    const params = sourceId ? { source_id: sourceId } : undefined
+    return api.patch(
+      `/projects/${projectId}/pipeline-steps/step2_timeline/items/${encodeURIComponent(itemId)}`,
+      payload,
+      { params }
+    )
+  },
+
+  updatePipelineScoreItem: async (
+    projectId: string,
+    itemId: string,
+    payload: {
+      final_score: number
+      recommend_reason: string
+      passed?: boolean
+    },
+    sourceId?: string | null
+  ): Promise<{
+    success: boolean
+    item_id: string
+    high_score_count: number
+    item: Record<string, unknown>
+  }> => {
+    const params = sourceId ? { source_id: sourceId } : undefined
+    return api.patch(
+      `/projects/${projectId}/pipeline-steps/step3_scoring/items/${encodeURIComponent(itemId)}`,
+      payload,
+      { params }
+    )
   },
 
   // 获取切片视频URL

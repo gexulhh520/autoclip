@@ -1044,6 +1044,7 @@ async def reset_project_pipeline_stuck(
 async def get_project_pipeline_step_result(
     project_id: str,
     step_id: str,
+    source_id: Optional[str] = Query(None, description="多源项目：指定源视频 ID"),
     project_service: ProjectService = Depends(get_project_service),
 ):
     """获取流水线某步骤的解析结果，供前端审查。"""
@@ -1052,7 +1053,7 @@ async def get_project_pipeline_step_result(
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
         from backend.services.pipeline_steps_service import get_pipeline_step_result
-        return get_pipeline_step_result(project_id, step_id, project)
+        return get_pipeline_step_result(project_id, step_id, project, source_id=source_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
@@ -1060,6 +1061,167 @@ async def get_project_pipeline_step_result(
     except Exception as e:
         logger.exception("获取流水线步骤结果失败: %s step=%s", project_id, step_id)
         raise HTTPException(status_code=500, detail="获取步骤结果失败")
+
+
+class PipelineOutlineItemUpdate(BaseModel):
+    title: str = Field(..., min_length=1, description="话题/金句标题")
+    subtopics: List[str] = Field(default_factory=list, description="子要点列表")
+    chunk_index: Optional[int] = Field(None, description="SRT 分块索引")
+
+
+@router.patch("/{project_id}/pipeline-steps/step1_outline/items/{item_index}")
+async def update_project_pipeline_outline_item(
+    project_id: str,
+    item_index: int,
+    body: PipelineOutlineItemUpdate,
+    source_id: Optional[str] = Query(None, description="多源项目：指定源视频 ID"),
+    project_service: ProjectService = Depends(get_project_service),
+):
+    """更新大纲提取结果中的单条记录。"""
+    try:
+        project = project_service.get(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        from backend.services.pipeline_steps_service import update_pipeline_outline_item
+        return update_pipeline_outline_item(
+            project_id,
+            item_index,
+            body.model_dump(),
+            source_id=source_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(
+            "更新大纲条目失败: %s item=%s",
+            project_id,
+            item_index,
+        )
+        raise HTTPException(status_code=500, detail="更新大纲条目失败")
+
+
+class PipelineTimelineItemUpdate(BaseModel):
+    outline: Optional[str] = Field(None, description="话题/金句摘要")
+    content: Optional[List[str]] = Field(None, description="要点列表")
+    start_time: str = Field(..., description="开始时间 HH:MM:SS,mmm")
+    end_time: str = Field(..., description="结束时间 HH:MM:SS,mmm")
+
+
+@router.patch("/{project_id}/pipeline-steps/step2_timeline/items/{item_id}")
+async def update_project_pipeline_timeline_item(
+    project_id: str,
+    item_id: str,
+    body: PipelineTimelineItemUpdate,
+    source_id: Optional[str] = Query(None, description="多源项目：指定源视频 ID"),
+    project_service: ProjectService = Depends(get_project_service),
+):
+    """更新时间线定位结果中的单条记录。"""
+    try:
+        project = project_service.get(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        from backend.services.pipeline_steps_service import update_pipeline_timeline_item
+        return update_pipeline_timeline_item(
+            project_id,
+            item_id,
+            body.model_dump(exclude_unset=True),
+            source_id=source_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(
+            "更新时间线条目失败: %s item=%s",
+            project_id,
+            item_id,
+        )
+        raise HTTPException(status_code=500, detail="更新时间线条目失败")
+
+
+class PipelineScoreItemUpdate(BaseModel):
+    final_score: float = Field(..., ge=0, le=1, description="最终评分 0–1")
+    recommend_reason: str = Field(..., min_length=1, description="推荐理由")
+    passed: Optional[bool] = Field(None, description="手动设为通过/未通过；不传则清除手动覆盖")
+
+
+@router.patch("/{project_id}/pipeline-steps/step3_scoring/items/{item_id}")
+async def update_project_pipeline_score_item(
+    project_id: str,
+    item_id: str,
+    body: PipelineScoreItemUpdate,
+    source_id: Optional[str] = Query(None, description="多源项目：指定源视频 ID"),
+    project_service: ProjectService = Depends(get_project_service),
+):
+    """更新内容评分结果中的单条记录。"""
+    try:
+        project = project_service.get(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        from backend.services.pipeline_steps_service import update_pipeline_score_item
+        return update_pipeline_score_item(
+            project_id,
+            item_id,
+            body.model_dump(exclude_unset=True),
+            source_id=source_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(
+            "更新评分条目失败: %s item=%s",
+            project_id,
+            item_id,
+        )
+        raise HTTPException(status_code=500, detail="更新评分条目失败")
+
+
+@router.get("/{project_id}/source-video")
+async def get_project_source_video(
+    project_id: str,
+    source_id: Optional[str] = Query(None, description="多源项目：指定源视频 ID"),
+    project_service: ProjectService = Depends(get_project_service),
+):
+    """获取项目原片（单源 raw/input.mp4 或多源 raw/sources/{id}/input.mp4）。"""
+    from fastapi.responses import FileResponse
+    from backend.core.path_utils import get_project_directory, resolve_source_video_path
+
+    try:
+        project = project_service.get(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        if source_id:
+            video_path = resolve_source_video_path(project_id, source_id)
+        else:
+            video_path = get_project_directory(project_id) / "raw" / "input.mp4"
+            if not video_path.exists() and project.video_path:
+                alt = Path(project.video_path)
+                if alt.exists():
+                    video_path = alt
+
+        if not video_path.exists() or video_path.stat().st_size == 0:
+            raise HTTPException(status_code=404, detail="原视频文件不存在")
+
+        return FileResponse(
+            path=str(video_path),
+            filename=video_path.name,
+            media_type="video/mp4",
+            headers={
+                "Accept-Ranges": "bytes",
+                "Cache-Control": "public, max-age=3600",
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("获取项目原片失败: %s", project_id)
+        raise HTTPException(status_code=500, detail="获取项目原片失败")
 
 
 @router.post("/{project_id}/pipeline-steps/{step_id}/run")
