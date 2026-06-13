@@ -10,6 +10,13 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from backend.core.path_utils import get_project_directory
 from backend.pipeline.overlay_pipeline import resolve_overlay_pipeline
+from backend.pipeline.composition import (
+    build_frame_ffmpeg_filter,
+    normalize_fit_mode,
+    resolve_canvas_size,
+    should_apply_canvas_in_final_pass,
+    should_apply_canvas_per_segment,
+)
 from backend.schemas.edit_session import EditBlock, EditSession
 from backend.utils.ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path
 from backend.utils.video_processor import VideoProcessor
@@ -27,25 +34,13 @@ VISUAL_FILTER_PRESETS: Dict[str, Optional[str]] = {
 }
 
 
-ASPECT_RATIOS = {
-    "16:9": (16, 9),
-    "4:3": (4, 3),
-    "2.35:1": (47, 20),
-    "2:1": (2, 1),
-    "1.85:1": (37, 20),
-    "9:16": (9, 16),
-    "3:4": (3, 4),
-    "5.8": (9, 195),  # 5.8 寸竖屏约 9:19.5
-    "1:1": (1, 1),
-    "1:2": (1, 2),
-}
-
-
-def _ensure_even(value: int) -> int:
-    size = max(2, int(value))
-    if size % 2:
-        size += 1
-    return size
+def build_frame_filter(settings, fit_mode: Optional[str] = None) -> Optional[str]:
+    if hasattr(settings, "model_copy"):
+        export_settings = settings
+        if fit_mode:
+            export_settings = settings.model_copy(update={"fit_mode": fit_mode})
+        return build_frame_ffmpeg_filter(normalize_fit_mode(export_settings))
+    return build_frame_ffmpeg_filter(settings)
 
 
 def target_dimensions(
@@ -53,66 +48,9 @@ def target_dimensions(
     source_width: Optional[int] = None,
     source_height: Optional[int] = None,
 ) -> Tuple[int, int]:
-    aspect = getattr(settings, "aspect", settings) if not isinstance(settings, str) else settings
-    height = getattr(settings, "height", 1080) if not isinstance(settings, str) else 1080
-
-    if isinstance(settings, str):
-        aspect = settings
-
-    if aspect == "original":
-        if source_width and source_height:
-            return _ensure_even(source_width), _ensure_even(source_height)
-        return 1920, 1080
-
-    if aspect == "custom":
-        custom_width = getattr(settings, "custom_width", None) if not isinstance(settings, str) else None
-        custom_height = getattr(settings, "custom_height", None) if not isinstance(settings, str) else None
-        return _ensure_even(custom_width or 1080), _ensure_even(custom_height or 1920)
-
-    rw, rh = ASPECT_RATIOS.get(aspect, (9, 16))
-    out_h = _ensure_even(height)
-    out_w = _ensure_even(int(out_h * rw / rh))
-    return out_w, out_h
-
-
-def build_frame_filter(settings, fit_mode: Optional[str] = None) -> Optional[str]:
-    aspect = settings.aspect if hasattr(settings, "aspect") else settings
-    if isinstance(settings, str):
-        aspect = settings
-    if aspect == "original":
-        return None
-
-    mode = fit_mode or getattr(settings, "fit_mode", "contain")
-    width, out_height = target_dimensions(settings)
-    if mode == "contain_blur":
-        return (
-            f"[0:v]split=2[bg][fg];"
-            f"[bg]scale={width}:{out_height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{out_height},boxblur=20:10[blurred];"
-            f"[fg]scale={width}:{out_height}:force_original_aspect_ratio=decrease[scaled];"
-            f"[blurred][scaled]overlay=(W-w)/2:(H-h)/2"
-        )
-    if mode == "cover":
-        return (
-            f"scale={width}:{out_height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{out_height}"
-        )
-    return (
-        f"scale={width}:{out_height}:force_original_aspect_ratio=decrease,"
-        f"pad={width}:{out_height}:(ow-iw)/2:(oh-ih)/2:black,setsar=1"
-    )
-
-
-def should_apply_canvas_per_segment(settings) -> bool:
-    aspect = getattr(settings, "aspect", "9:16")
-    fit_mode = getattr(settings, "fit_mode", "contain")
-    return aspect != "original" and fit_mode == "contain"
-
-
-def should_apply_canvas_in_final_pass(settings) -> bool:
-    aspect = getattr(settings, "aspect", "original")
-    fit_mode = getattr(settings, "fit_mode", "contain")
-    return aspect != "original" and fit_mode in ("contain_blur", "cover")
+    export_settings = normalize_fit_mode(settings) if hasattr(settings, "aspect") else settings
+    canvas = resolve_canvas_size(export_settings, source_width, source_height)
+    return canvas.width, canvas.height
 
 
 def build_final_video_filter(
@@ -146,13 +84,35 @@ def block_to_clip_data(block: EditBlock) -> Dict[str, Any]:
     }
 
 
+def _block_playback_rate(block: EditBlock) -> float:
+    rate = float(block.playback_rate or 1.0)
+    return max(0.25, min(4.0, rate))
+
+
 def _block_duration(block: EditBlock) -> float:
     duration = float(block.trim.out_sec - block.trim.in_sec)
     if duration > 0:
-        return duration
+        return duration / _block_playback_rate(block)
     if block.duration_sec > 0:
-        return float(block.duration_sec)
+        return float(block.duration_sec) / _block_playback_rate(block)
     return 0.0
+
+
+def _build_speed_audio_filter(rate: float) -> Optional[str]:
+    clamped = max(0.25, min(4.0, float(rate)))
+    if abs(clamped - 1.0) < 0.01:
+        return None
+    parts: List[str] = []
+    remaining = clamped
+    while remaining > 2.0 + 0.001:
+        parts.append("atempo=2.0")
+        remaining /= 2.0
+    while remaining < 0.5 - 0.001:
+        parts.append("atempo=0.5")
+        remaining /= 0.5
+    if abs(remaining - 1.0) >= 0.01:
+        parts.append(f"atempo={remaining:.4f}")
+    return ",".join(parts) if parts else None
 
 
 def _probe_duration(path: Path) -> float:
@@ -287,6 +247,13 @@ def render_block_segment(
         fade_out_sec=block.audio.fade_out_sec,
         duration_sec=duration,
     )
+    playback_rate = _block_playback_rate(block)
+    if abs(playback_rate - 1.0) >= 0.01:
+        speed_vf = f"setpts=PTS/{playback_rate:.6f}"
+        vf = f"{vf},{speed_vf}" if vf else speed_vf
+        speed_af = _build_speed_audio_filter(playback_rate)
+        if speed_af:
+            af = f"{af},{speed_af}" if af else speed_af
     filter_parts: List[str] = []
     if vf:
         filter_parts.append(vf)
@@ -689,6 +656,9 @@ def export_edit_session(
         if progress_callback is not None:
             progress_callback(max(0, min(progress, 100)), message)
 
+    session = session.model_copy(deep=True)
+    session.export_settings = normalize_fit_mode(session.export_settings)
+
     project_dir = get_project_directory(session.project_id)
     export_dir = project_dir / "edit_exports" / session.id
     export_dir.mkdir(parents=True, exist_ok=True)
@@ -980,4 +950,10 @@ def preview_block_overlay(session: EditSession, block_id: str) -> Dict[str, Any]
     if block is None:
         raise ValueError("片段不存在")
     pipeline = resolve_overlay_pipeline(_settings_from_session(session))
-    return build_overlay_preview(block_to_clip_data(block), pipeline)
+    canvas = resolve_canvas_size(session.export_settings)
+    return build_overlay_preview(
+        block_to_clip_data(block),
+        pipeline,
+        ref_width=canvas.width,
+        ref_height=canvas.height,
+    )

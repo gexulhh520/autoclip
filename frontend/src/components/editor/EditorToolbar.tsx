@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { message } from 'antd'
 import { useEditSessionStore } from '../../stores/useEditSessionStore'
+import { createTextOverlayElement } from '../../utils/editTextOverlay'
+import EditorShortcutsModal from './EditorShortcutsModal'
 
 interface EditorToolbarProps {
   projectId: string
@@ -28,8 +30,12 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({ projectId }) => {
   const isPlaying = useEditSessionStore((state) => state.isPlaying)
   const setPlaying = useEditSessionStore((state) => state.setPlaying)
   const saveSession = useEditSessionStore((state) => state.saveSession)
+  const addOverlayElement = useEditSessionStore((state) => state.addOverlayElement)
+  const sequencePlayheadSec = useEditSessionStore((state) => state.sequencePlayheadSec)
+  const setInspectorTab = useEditSessionStore((state) => state.setInspectorTab)
   const [trimmingSilence, setTrimmingSilence] = useState(false)
   const [splittingSilence, setSplittingSilence] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const canUndo = historyPast.length > 0
   const canRedo = historyFuture.length > 0
   const hasClipboard = clipboardHasBlock()
@@ -85,12 +91,24 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({ projectId }) => {
       if (event.key.toLowerCase() === 'b' && !mod) {
         event.preventDefault()
         splitSelectedBlockAtPlayhead()
+        return
+      }
+      if (event.key.toLowerCase() === 't' && !mod) {
+        event.preventDefault()
+        addOverlayElement(createTextOverlayElement(sequencePlayheadSec))
+        setInspectorTab('text')
+        return
+      }
+      if (event.key === '?' && !mod) {
+        event.preventDefault()
+        setShortcutsOpen(true)
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [
     copySelectedBlock,
+    addOverlayElement,
     deleteSelectedBlock,
     isPlaying,
     pasteBlock,
@@ -98,6 +116,8 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({ projectId }) => {
     redo,
     saveSession,
     selectedBlockId,
+    sequencePlayheadSec,
+    setInspectorTab,
     setPlaying,
     splitSelectedBlockAtPlayhead,
     undo,
@@ -178,6 +198,25 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({ projectId }) => {
       <button
         type="button"
         className="editor-tool-btn"
+        title="在播放头添加自由文本层 (T)"
+        onClick={() => {
+          addOverlayElement(createTextOverlayElement(sequencePlayheadSec))
+          setInspectorTab('text')
+        }}
+      >
+        文本
+      </button>
+      <button
+        type="button"
+        className="editor-tool-btn"
+        title="快捷键帮助 (?)"
+        onClick={() => setShortcutsOpen(true)}
+      >
+        ?
+      </button>
+      <button
+        type="button"
+        className="editor-tool-btn"
         disabled={!selectedBlockId || trimmingSilence}
         title="检测并裁掉首尾静音"
         onClick={async () => {
@@ -223,6 +262,7 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({ projectId }) => {
       >
         {splittingSilence ? '切分中…' : '静音切分'}
       </button>
+      <EditorShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
     </div>
   )
 }

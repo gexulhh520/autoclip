@@ -10,6 +10,7 @@ import type {
   EditSessionUpdateRequest,
   EditSessionAppendRequest,
   EditSessionAppendResponse,
+  EditSessionImportMediaResponse,
 } from '../types/editSession'
 
 export const editApi = {
@@ -114,9 +115,28 @@ export const editApi = {
     )) as EditSessionAppendResponse
   },
 
+  importMedia: async (
+    projectId: string,
+    sessionId: string,
+    file: File
+  ): Promise<EditSessionImportMediaResponse> => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return (await api.post(
+      `/projects/${projectId}/edit-sessions/${sessionId}/import-media`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    )) as EditSessionImportMediaResponse
+  },
+
   getBgmUrl: (projectId: string, sessionId: string): string => {
     const base = api.defaults.baseURL || '/api/v1'
     return `${base}/projects/${projectId}/edit-sessions/${sessionId}/bgm`
+  },
+
+  getBlockMediaUrl: (projectId: string, sessionId: string, blockId: string): string => {
+    const base = api.defaults.baseURL || '/api/v1'
+    return `${base}/projects/${projectId}/edit-sessions/${sessionId}/blocks/${blockId}/media`
   },
 
   previewOverlay: async (

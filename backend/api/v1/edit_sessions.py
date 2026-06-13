@@ -21,6 +21,7 @@ from backend.schemas.edit_session import (
     EditSessionExportRequest,
     EditSessionExportJobStatusResponse,
     EditSessionExportResponse,
+    EditSessionImportMediaResponse,
     EditSessionListResponse,
     EditSessionPreviewOverlayRequest,
     EditSessionRegenerateRequest,
@@ -470,6 +471,76 @@ async def upload_edit_session_bgm(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/import-media",
+    response_model=EditSessionImportMediaResponse,
+)
+async def import_edit_session_media(
+    project_id: str,
+    session_id: str,
+    file: UploadFile = File(...),
+    service: EditSessionService = Depends(get_edit_session_service),
+):
+    try:
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="缺少文件名")
+        content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="视频文件为空")
+        session, block = service.import_media_file(
+            project_id,
+            session_id,
+            file.filename,
+            content,
+        )
+        return EditSessionImportMediaResponse(
+            session=session,
+            block_id=block.id,
+            title=block.title,
+            duration_sec=block.duration_sec,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("导入视频失败: %s/%s", project_id, session_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/{project_id}/edit-sessions/{session_id}/blocks/{block_id}/media")
+async def stream_edit_session_block_media(
+    project_id: str,
+    session_id: str,
+    block_id: str,
+    service: EditSessionService = Depends(get_edit_session_service),
+):
+    from fastapi.responses import FileResponse
+
+    from backend.core.path_utils import get_project_directory
+    from backend.pipeline.edit_renderer import _resolve_input_video
+
+    try:
+        session = service.get_session(project_id, session_id)
+        block = next((item for item in session.sequence if item.id == block_id), None)
+        if block is None:
+            raise HTTPException(status_code=404, detail="片段不存在")
+        project_dir = get_project_directory(project_id)
+        video_path = _resolve_input_video(project_dir, block)
+        return FileResponse(
+            path=str(video_path.resolve()),
+            media_type="video/mp4",
+            filename=video_path.name,
+            headers={"Accept-Ranges": "bytes", "Cache-Control": "public, max-age=3600"},
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("读取片段媒体失败: %s/%s/%s", project_id, session_id, block_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

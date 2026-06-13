@@ -58,14 +58,14 @@ def test_export_settings_normalizes_cover_to_contain():
     assert settings.fit_mode == "contain"
 
 
-def test_build_frame_filter_cover():
+def test_build_frame_filter_cover_normalized_to_contain():
     vf = build_frame_filter(
-        EditExportSettings(aspect="9:16", height=1080, fit_mode="contain"),
-        fit_mode="cover",
+        EditExportSettings(aspect="9:16", height=1080, fit_mode="cover"),
     )
     assert vf is not None
-    assert "scale=" in vf
-    assert "crop=" in vf
+    assert "decrease" in vf
+    assert "pad=" in vf
+    assert "crop=" not in vf
 
 
 def test_build_frame_filter_original():

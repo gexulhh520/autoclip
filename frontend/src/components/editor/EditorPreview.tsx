@@ -1,13 +1,18 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { projectApi } from '../../services/api'
 import editApi from '../../services/editApi'
+import {
+  buildCompositionTimelineSegments,
+  renderSceneToPreviewViewModel,
+  resolveCompositionPlayhead,
+  resolveSceneAt,
+} from '../../editor/scene'
+import { getBlockVideoUrl } from '../../utils/editBlockMedia'
 import { useEditSessionStore } from '../../stores/useEditSessionStore'
 import {
   BASE_PX_PER_SEC,
-  buildTimelineSegments,
   formatTimecode,
-  getTotalDuration,
-  resolveSequencePlayhead,
+  getCompositionTotalDuration,
 } from '../../utils/editTimeline'
 import { resolveCanvasAspectRatio } from '../../utils/editAspectRatios'
 import { formatExportSettingsSummary } from '../../utils/editExportSummary'
@@ -16,89 +21,93 @@ import {
   shouldShowBlurBackground,
 } from '../../utils/editPreviewFit'
 import { resolveVisualFilterStyle } from '../../utils/editVisualFilter'
+import { overlayFontFamilyCss } from '../../utils/editOverlayFonts'
 import QuoteOverlayPreview from '../QuoteOverlayPreview'
 import type { OverlayPreviewLayer } from '../QuoteOverlayPreview'
 import EditorAspectRatioPicker from './EditorAspectRatioPicker'
+import PreviewVideoLayer from './EditorPreviewVideoLayer'
+import type { EditBlock } from '../../types/editSession'
+
 interface EditorPreviewProps {
   projectId: string
   sessionId: string
 }
 
+interface OverlayState {
+  layout: 'cinema' | 'highlight' | 'none'
+  layers: OverlayPreviewLayer[]
+  config?: Record<string, unknown>
+}
+
 const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) => {
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const blurVideoRef = useRef<HTMLVideoElement>(null)
   const bgmRef = useRef<HTMLAudioElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [assetPreviewTimeSec, setAssetPreviewTimeSec] = useState(0)
   const [assetPreviewDurationSec, setAssetPreviewDurationSec] = useState(0)
+  const [videoNaturalSize, setVideoNaturalSize] = useState<{ width: number; height: number } | null>(
+    null
+  )
+  const [overlayByBlockId, setOverlayByBlockId] = useState<Record<string, OverlayState>>({})
+
   const session = useEditSessionStore((state) => state.session)
   const assetPreviewClip = useEditSessionStore((state) => state.assetPreviewClip)
   const timelineZoom = useEditSessionStore((state) => state.timelineZoom)
   const previewZoom = useEditSessionStore((state) => state.previewZoom)
   const setPreviewZoom = useEditSessionStore((state) => state.setPreviewZoom)
+  const previewBurnSubtitles = useEditSessionStore((state) => state.previewBurnSubtitles)
+  const setPreviewBurnSubtitles = useEditSessionStore((state) => state.setPreviewBurnSubtitles)
   const sequencePlayheadSec = useEditSessionStore((state) => state.sequencePlayheadSec)
   const isPlaying = useEditSessionStore((state) => state.isPlaying)
   const setPlaying = useEditSessionStore((state) => state.setPlaying)
   const advanceSequencePlayhead = useEditSessionStore((state) => state.advanceSequencePlayhead)
-
-  const [overlayData, setOverlayData] = useState<{
-    layout: 'cinema' | 'highlight' | 'none'
-    layers: OverlayPreviewLayer[]
-    config?: Record<string, unknown>
-  } | null>(null)
-  const [videoNaturalSize, setVideoNaturalSize] = useState<{ width: number; height: number } | null>(
-    null
-  )
+  const timelineTrackMuted = useEditSessionStore((state) => state.timelineTrackMuted)
 
   const isAssetPreview = Boolean(assetPreviewClip)
+  const clipAudioMuted = timelineTrackMuted.mainVideo || timelineTrackMuted.audioWave
+  const captionsMuted = timelineTrackMuted.overlayCaption
+  const freeOverlayMuted = timelineTrackMuted.overlayText
+  const bgmMuted = timelineTrackMuted.audioBgm
   const pxPerSec = BASE_PX_PER_SEC * (timelineZoom / 100)
-  const segments = useMemo(
-    () => buildTimelineSegments(session?.sequence ?? [], pxPerSec),
-    [session?.sequence, pxPerSec]
-  )
-  const totalDuration = useMemo(
-    () => getTotalDuration(session?.sequence ?? []),
-    [session?.sequence]
-  )
-
-  const resolved = useMemo(
-    () => (isAssetPreview ? null : resolveSequencePlayhead(sequencePlayheadSec, segments)),
-    [isAssetPreview, sequencePlayheadSec, segments]
-  )
-
-  const previewBlock = resolved?.segment.block
-  const relativeSec = resolved?.relativeSec ?? 0
+  const blocks = session?.sequence ?? []
+  const transitionDurationSec = session?.audio_settings?.transition_duration_sec ?? 0.35
   const useSourcePreview = session?.audio_settings?.use_source_video ?? false
+
+  const compositionSegments = useMemo(
+    () => buildCompositionTimelineSegments(blocks, pxPerSec, transitionDurationSec),
+    [blocks, pxPerSec, transitionDurationSec]
+  )
+
+  const totalDuration = useMemo(
+    () => getCompositionTotalDuration(blocks, transitionDurationSec),
+    [blocks, transitionDurationSec]
+  )
+
+  const sceneBuilderInput = useMemo(
+    () =>
+      session
+        ? {
+            session,
+            options: {
+              burnSubtitles: previewBurnSubtitles,
+              useSourceVideo: useSourcePreview,
+            },
+          }
+        : null,
+    [session, useSourcePreview, previewBurnSubtitles]
+  )
+
+  const renderScene = useMemo(() => {
+    if (!sceneBuilderInput || isAssetPreview) return null
+    return resolveSceneAt(sceneBuilderInput, sequencePlayheadSec, videoNaturalSize)
+  }, [sceneBuilderInput, isAssetPreview, sequencePlayheadSec, videoNaturalSize])
+
+  const previewVm = useMemo(() => {
+    if (!renderScene) return null
+    return renderSceneToPreviewViewModel(renderScene, blocks)
+  }, [renderScene, blocks])
+
   const previewFps = session?.export_settings?.fps ?? 30
-
-  const videoUrl = useMemo(() => {
-    if (assetPreviewClip) {
-      return projectApi.getClipVideoUrl(
-        projectId,
-        assetPreviewClip.clipId,
-        assetPreviewClip.title
-      )
-    }
-    if (!previewBlock) return ''
-    if (
-      useSourcePreview &&
-      previewBlock.media.source_video_path &&
-      previewBlock.media.source_start_sec != null
-    ) {
-      const sourceId = previewBlock.media.source_video_path.includes('sources/')
-        ? previewBlock.media.source_video_path.split('/').find((_, i, arr) => arr[i - 1] === 'sources')
-        : null
-      return projectApi.getSourceVideoUrl(projectId, sourceId)
-    }
-    return projectApi.getClipVideoUrl(projectId, previewBlock.source_clip_id, previewBlock.title)
-  }, [assetPreviewClip, previewBlock, projectId, useSourcePreview])
-
-  const bgmUrl =
-    !isAssetPreview && session?.audio_settings?.bgm_path
-      ? editApi.getBgmUrl(projectId, sessionId)
-      : null
-  const bgmVolume = session?.audio_settings?.bgm_volume ?? 0.28
   const exportSettings = session?.export_settings
   const fitMode = exportSettings?.fit_mode ?? 'contain'
   const canvasAspect = useMemo(
@@ -107,86 +116,112 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   )
   const showBlurBackground = shouldShowBlurBackground(fitMode, canvasAspect)
 
-  useEffect(() => {
-    setVideoNaturalSize(null)
-  }, [videoUrl])
+  const getVideoUrlForBlock = useCallback(
+    (block: EditBlock): string => {
+      if (
+        useSourcePreview &&
+        block.media.source_video_path &&
+        block.media.source_start_sec != null
+      ) {
+        const sourceId = block.media.source_video_path.includes('sources/')
+          ? block.media.source_video_path.split('/').find((_, i, arr) => arr[i - 1] === 'sources')
+          : null
+        return projectApi.getSourceVideoUrl(projectId, sourceId)
+      }
+      return getBlockVideoUrl(projectId, sessionId, block)
+    },
+    [projectId, sessionId, useSourcePreview]
+  )
+
+  const getSourceTimeForBlock = useCallback(
+    (block: EditBlock, relativeSec: number): number => {
+      const sourceOffset =
+        useSourcePreview && block.media.source_start_sec != null
+          ? block.media.source_start_sec
+          : 0
+      return sourceOffset + block.trim.in_sec + relativeSec
+    },
+    [useSourcePreview]
+  )
+
+  const assetVideoUrl = useMemo(() => {
+    if (!assetPreviewClip) return ''
+    return projectApi.getClipVideoUrl(
+      projectId,
+      assetPreviewClip.clipId,
+      assetPreviewClip.title
+    )
+  }, [assetPreviewClip, projectId])
+
+  const bgmUrl =
+    !isAssetPreview && session?.audio_settings?.bgm_path
+      ? editApi.getBgmUrl(projectId, sessionId)
+      : null
+  const bgmVolume = session?.audio_settings?.bgm_volume ?? 0.28
+  const bgmStartSec = session?.audio_settings?.bgm_start_sec ?? 0
+
+  const primaryVideoLayer = previewVm?.videoLayers[0] ?? null
+  const secondaryVideoLayer = previewVm?.videoLayers[1] ?? null
 
   useEffect(() => {
-    if (isAssetPreview || !previewBlock) {
-      setOverlayData(null)
+    setVideoNaturalSize(null)
+  }, [primaryVideoLayer?.block.id, assetVideoUrl])
+
+  useEffect(() => {
+    if (isAssetPreview || !renderScene) {
       return
     }
+    const blockIds = new Set(renderScene.templateCaptions.map((item) => item.blockId))
+
     let cancelled = false
-    void editApi
-      .previewOverlay(projectId, sessionId, previewBlock.id)
-      .then((result) => {
-        if (!cancelled) {
-          setOverlayData({
+    for (const blockId of blockIds) {
+      void editApi.previewOverlay(projectId, sessionId, blockId).then((result) => {
+        if (cancelled) return
+        setOverlayByBlockId((prev) => ({
+          ...prev,
+          [blockId]: {
             layout: (result.layout as 'cinema' | 'highlight' | 'none') || 'none',
             layers: (result.layers as OverlayPreviewLayer[]) || [],
             config: (result.config as Record<string, unknown>) || {},
-          })
-        }
+          },
+        }))
       })
-      .catch(() => {
-        if (!cancelled) setOverlayData(null)
-      })
+    }
     return () => {
       cancelled = true
     }
-  }, [projectId, sessionId, previewBlock?.id, previewBlock?.overlay, isAssetPreview])
+  }, [
+    isAssetPreview,
+    projectId,
+    renderScene,
+    sessionId,
+    session?.export_settings,
+  ])
 
   useEffect(() => {
     setAssetPreviewTimeSec(0)
     setAssetPreviewDurationSec(0)
-  }, [assetPreviewClip?.clipId, videoUrl])
-
-  useEffect(() => {
-    const video = videoRef.current
-    const blurVideo = blurVideoRef.current
-    if (!video) return
-    if (isPlaying) {
-      void video.play().catch(() => setPlaying(false))
-      if (blurVideo) {
-        void blurVideo.play().catch(() => undefined)
-      }
-    } else {
-      video.pause()
-      blurVideo?.pause()
-    }
-  }, [isPlaying, setPlaying, videoUrl, showBlurBackground])
+  }, [assetPreviewClip?.clipId, assetVideoUrl])
 
   useEffect(() => {
     const bgm = bgmRef.current
     if (!bgm || !bgmUrl || isAssetPreview) return
-    bgm.volume = bgmVolume
-    if (isPlaying) {
+    bgm.volume = bgmMuted ? 0 : bgmVolume
+    if (isPlaying && !bgmMuted) {
       void bgm.play().catch(() => undefined)
     } else {
       bgm.pause()
     }
-  }, [isPlaying, bgmUrl, bgmVolume, isAssetPreview])
-
-  useEffect(() => {
-    const video = videoRef.current
-    if (!video || isAssetPreview || !previewBlock) return
-    const sourceOffset =
-      useSourcePreview && previewBlock.media.source_start_sec != null
-        ? previewBlock.media.source_start_sec
-        : 0
-    const target = sourceOffset + previewBlock.trim.in_sec + relativeSec
-    if (Math.abs(video.currentTime - target) > 0.35) {
-      video.currentTime = target
-    }
-  }, [previewBlock?.id, relativeSec, videoUrl, useSourcePreview, isAssetPreview])
+  }, [isPlaying, bgmUrl, bgmVolume, bgmMuted, isAssetPreview])
 
   useEffect(() => {
     const bgm = bgmRef.current
     if (!bgm || !bgmUrl || isPlaying || isAssetPreview) return
-    if (Math.abs(bgm.currentTime - sequencePlayheadSec) > 0.35) {
-      bgm.currentTime = sequencePlayheadSec % (bgm.duration || totalDuration || 1)
+    const target = Math.max(0, sequencePlayheadSec + bgmStartSec)
+    if (Math.abs(bgm.currentTime - target) > 0.35) {
+      bgm.currentTime = target
     }
-  }, [sequencePlayheadSec, bgmUrl, isPlaying, totalDuration, isAssetPreview])
+  }, [sequencePlayheadSec, bgmUrl, bgmStartSec, isPlaying, isAssetPreview])
 
   useEffect(() => {
     const onFullscreenChange = () => {
@@ -195,6 +230,59 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     document.addEventListener('fullscreenchange', onFullscreenChange)
     return () => document.removeEventListener('fullscreenchange', onFullscreenChange)
   }, [])
+
+  const handleOutgoingTimeUpdate = (video: HTMLVideoElement) => {
+    if (isAssetPreview) {
+      setAssetPreviewTimeSec(video.currentTime)
+      return
+    }
+    if (!primaryVideoLayer) return
+    const segment = compositionSegments.find(
+      (item) => item.block.id === primaryVideoLayer.block.id
+    )
+    if (!segment) return
+
+    let relative = 0
+    if (useSourcePreview && primaryVideoLayer.block.media.source_start_sec != null) {
+      relative =
+        video.currentTime -
+        primaryVideoLayer.block.media.source_start_sec -
+        primaryVideoLayer.block.trim.in_sec
+    } else {
+      relative = video.currentTime - primaryVideoLayer.block.trim.in_sec
+    }
+    const rate = primaryVideoLayer.playbackRate || 1
+    const nextPlayhead = segment.startSec + Math.max(0, relative / rate)
+    advanceSequencePlayhead(nextPlayhead)
+
+    const bgm = bgmRef.current
+    if (bgm && bgmUrl) {
+      bgm.currentTime = Math.max(0, nextPlayhead + bgmStartSec)
+    }
+  }
+
+  const handleVideoEnded = () => {
+    if (isAssetPreview) {
+      setPlaying(false)
+      return
+    }
+    if (previewVm?.inDissolve) {
+      return
+    }
+    const resolved = resolveCompositionPlayhead(sequencePlayheadSec, compositionSegments)
+    if (!resolved) {
+      setPlaying(false)
+      return
+    }
+    const index = compositionSegments.findIndex(
+      (item) => item.block.id === resolved.segment.block.id
+    )
+    if (index >= 0 && index < compositionSegments.length - 1) {
+      advanceSequencePlayhead(compositionSegments[index + 1].startSec + 0.02)
+      return
+    }
+    setPlaying(false)
+  }
 
   const toggleFullscreen = async () => {
     const frame = frameRef.current
@@ -206,37 +294,18 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     await frame.requestFullscreen()
   }
 
-  const handleVideoEnded = () => {
-    if (isAssetPreview) {
-      setPlaying(false)
-      return
-    }
-    if (!resolved || !session) {
-      setPlaying(false)
-      return
-    }
-    const index = segments.findIndex((item) => item.block.id === resolved.segment.block.id)
-    if (index >= 0 && index < segments.length - 1) {
-      const next = segments[index + 1]
-      advanceSequencePlayhead(next.startSec + 0.02)
-      return
-    }
-    setPlaying(false)
-  }
-
-  const canPreview = Boolean(videoUrl)
+  const canPreview = isAssetPreview ? Boolean(assetVideoUrl) : Boolean(primaryVideoLayer)
   const displayCurrentSec = isAssetPreview ? assetPreviewTimeSec : sequencePlayheadSec
   const displayTotalSec = isAssetPreview ? assetPreviewDurationSec : totalDuration
 
-  const previewAspectW = canvasAspect.width
-  const previewAspectH = canvasAspect.height
   const frameStyle = {
-    '--preview-ar-w': previewAspectW,
-    '--preview-ar-h': previewAspectH,
+    '--preview-ar-w': canvasAspect.width,
+    '--preview-ar-h': canvasAspect.height,
   } as React.CSSProperties
   const videoFitClass = resolvePreviewVideoFitClass(fitMode, canvasAspect)
   const videoFilterStyle = resolveVisualFilterStyle(exportSettings?.visual_filter)
   const exportSummary = formatExportSettingsSummary(exportSettings, videoNaturalSize)
+
   const handleVideoMetadata = (video: HTMLVideoElement) => {
     if (video.videoWidth > 0 && video.videoHeight > 0) {
       setVideoNaturalSize({ width: video.videoWidth, height: video.videoHeight })
@@ -259,65 +328,105 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
             className={`editor-preview-frame editor-preview-frame--canvas${isFullscreen ? ' is-fullscreen' : ''}`}
             style={isFullscreen ? videoFilterStyle : { ...frameStyle, ...videoFilterStyle }}
           >
-            {videoUrl ? (
-              <>
-                {showBlurBackground ? (
-                  <video
-                    key={`${videoUrl}-bg`}
-                    ref={blurVideoRef}
-                    className="is-cover is-blur-bg"
-                    src={videoUrl}
-                    muted
-                    playsInline
-                    aria-hidden
-                  />
-                ) : null}
-                <video
-                  ref={videoRef}
-                  key={videoUrl}
-                  src={videoUrl}
-                  className={videoFitClass}
-                  onLoadedMetadata={(event) => handleVideoMetadata(event.currentTarget)}
-                  onTimeUpdate={(event) => {
-                    const current = event.currentTarget
-                    if (showBlurBackground && blurVideoRef.current) {
-                      const bg = blurVideoRef.current
-                      if (Math.abs(bg.currentTime - current.currentTime) > 0.2) {
-                        bg.currentTime = current.currentTime
-                      }
-                    }
-                    if (isAssetPreview) {
-                      setAssetPreviewTimeSec(current.currentTime)
-                      return
-                    }
-                    if (!previewBlock || !resolved) return
-                    const sourceOffset =
-                      useSourcePreview && previewBlock.media.source_start_sec != null
-                        ? previewBlock.media.source_start_sec
-                        : 0
-                    const relative =
-                      current.currentTime - sourceOffset - previewBlock.trim.in_sec
-                    advanceSequencePlayhead(resolved.segment.startSec + relative)
-                    const bgm = bgmRef.current
-                    if (bgm && bgmUrl) {
-                      bgm.currentTime = resolved.segment.startSec + relative
-                    }
-                  }}
+            {isAssetPreview && assetVideoUrl ? (
+              <PreviewVideoLayer
+                videoUrl={assetVideoUrl}
+                showBlurBackground={showBlurBackground}
+                videoFitClass={videoFitClass}
+                opacity={1}
+                volume={1}
+                isPlaying={isPlaying}
+                targetTimeSec={assetPreviewTimeSec}
+                onMetadata={handleVideoMetadata}
+                onTimeUpdate={(video) => setAssetPreviewTimeSec(video.currentTime)}
+                onEnded={handleVideoEnded}
+              />
+            ) : primaryVideoLayer ? (
+              <div className="editor-preview-video-stack">
+                <PreviewVideoLayer
+                  videoUrl={getVideoUrlForBlock(primaryVideoLayer.block)}
+                  showBlurBackground={showBlurBackground}
+                  videoFitClass={videoFitClass}
+                  opacity={primaryVideoLayer.opacity}
+                  volume={clipAudioMuted ? 0 : primaryVideoLayer.volume}
+                  playbackRate={primaryVideoLayer.playbackRate}
+                  isPlaying={isPlaying}
+                  targetTimeSec={getSourceTimeForBlock(
+                    primaryVideoLayer.block,
+                    primaryVideoLayer.relativeSourceSec
+                  )}
+                  onMetadata={handleVideoMetadata}
+                  onTimeUpdate={handleOutgoingTimeUpdate}
                   onEnded={handleVideoEnded}
                 />
-              </>
+                {secondaryVideoLayer ? (
+                  <PreviewVideoLayer
+                    videoUrl={getVideoUrlForBlock(secondaryVideoLayer.block)}
+                    showBlurBackground={showBlurBackground}
+                    videoFitClass={videoFitClass}
+                    opacity={secondaryVideoLayer.opacity}
+                    volume={clipAudioMuted ? 0 : secondaryVideoLayer.volume}
+                    playbackRate={secondaryVideoLayer.playbackRate}
+                    isPlaying={isPlaying}
+                    targetTimeSec={getSourceTimeForBlock(
+                      secondaryVideoLayer.block,
+                      secondaryVideoLayer.relativeSourceSec
+                    )}
+                  />
+                ) : null}
+              </div>
             ) : (
               <div className="editor-empty-hint">点击左侧素材预览，或选择时间线片段</div>
             )}
+
             {bgmUrl ? (
               <audio ref={bgmRef} src={bgmUrl} preload="auto" loop />
             ) : null}
-            {!isAssetPreview && overlayData && overlayData.layers.length > 0 ? (
-              <QuoteOverlayPreview
-                layout={overlayData.layout}
-                layers={overlayData.layers}
-                config={overlayData.config}
-              />
+
+            {!isAssetPreview && !captionsMuted && previewBurnSubtitles && previewVm?.showTemplateCaptions
+              ? previewVm.captionLayers.map(({ blockId, opacity }) => {
+                  const overlayData = overlayByBlockId[blockId]
+                  if (!overlayData?.layers.length) return null
+                  return (
+                    <div
+                      key={blockId}
+                      className="editor-preview-caption-layer"
+                      style={{ opacity }}
+                    >
+                      <QuoteOverlayPreview
+                        layout={overlayData.layout}
+                        layers={overlayData.layers}
+                        config={overlayData.config}
+                      />
+                    </div>
+                  )
+                })
+              : null}
+
+            {!isAssetPreview && !freeOverlayMuted && previewVm?.freeOverlays.length
+              ? previewVm.freeOverlays.map(({ element, opacity }) => (
+                  <div
+                    key={element.id}
+                    className="editor-free-overlay"
+                    style={{
+                      left: `${element.transform.x * 100}%`,
+                      top: `${element.transform.y * 100}%`,
+                      transform: `translate(-50%, -50%) scale(${element.transform.scale}) rotate(${element.transform.rotation}deg)`,
+                      fontSize: element.font_size,
+                      color: element.color,
+                      fontWeight: element.bold ? 700 : 400,
+                      fontStyle: element.italic ? 'italic' : 'normal',
+                      fontFamily: overlayFontFamilyCss(element.font_family),
+                      opacity,
+                    }}
+                  >
+                    {element.content}
+                  </div>
+                ))
+              : null}
+
+            {previewVm?.inDissolve ? (
+              <div className="editor-preview-dissolve-badge">叠化</div>
             ) : null}
           </div>
         </div>
@@ -352,11 +461,22 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
           />
           <span>{previewZoom}%</span>
         </div>
+        {!isAssetPreview ? (
+          <label className="editor-preview-burn-toggle" title="与导出烧录字幕开关同步">
+            <input
+              type="checkbox"
+              checked={previewBurnSubtitles}
+              onChange={(event) => setPreviewBurnSubtitles(event.target.checked)}
+            />
+            字幕
+          </label>
+        ) : null}
         {exportSummary ? (
           <span className="editor-preview-badge" title="导出将与预览一致">
             {exportSummary}
           </span>
-        ) : null}        {isAssetPreview ? (
+        ) : null}
+        {isAssetPreview ? (
           <span className="editor-preview-badge" title="素材预览，未加入时间线">
             素材
           </span>
@@ -366,9 +486,19 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
             原片
           </span>
         ) : null}
-        {!isAssetPreview && bgmUrl ? (
+        {!isAssetPreview && bgmUrl && !bgmMuted ? (
           <span className="editor-preview-badge" title="预览含 BGM">
             BGM
+          </span>
+        ) : null}
+        {!isAssetPreview && !freeOverlayMuted && previewVm?.freeOverlays.length ? (
+          <span className="editor-preview-badge" title="预览含自由文本层">
+            文本
+          </span>
+        ) : null}
+        {!isAssetPreview && previewVm?.inDissolve ? (
+          <span className="editor-preview-badge" title="叠化转场预览">
+            叠化
           </span>
         ) : null}
         <span className="editor-timecode">{formatTimecode(displayTotalSec, previewFps)}</span>

@@ -124,3 +124,200 @@ def test_update_edit_session_sequence(tmp_path, monkeypatch):
     )
     assert updated.name == "新名称"
     assert updated.sequence[0].source_clip_id == session.sequence[1].source_clip_id
+
+
+def test_edit_session_accepts_imported_clip_media_type():
+    from backend.schemas.edit_session import EditSession
+
+    session = EditSession.model_validate(
+        {
+            "schema_version": 1,
+            "id": "s-import",
+            "project_id": "p1",
+            "name": "import test",
+            "template_id": "golden_quote_cinema",
+            "overlay_snapshot": {},
+            "sequence": [
+                {
+                    "id": "b1",
+                    "source_clip_id": "import-abc",
+                    "title": "导入片段",
+                    "media": {
+                        "type": "imported_clip",
+                        "path": "edit_sessions/s1/media/clip.mp4",
+                    },
+                    "trim": {"in_sec": 0, "out_sec": 5},
+                    "overlay": {"outline": "", "content": [], "recommend_reason": ""},
+                    "audio": {"volume": 1},
+                    "transition_out": "cut",
+                    "duration_sec": 5,
+                }
+            ],
+            "export_settings": {
+                "aspect": "9:16",
+                "height": 1080,
+                "fps": 30,
+                "visual_filter": "none",
+                "fit_mode": "contain",
+            },
+            "audio_settings": {
+                "bgm_volume": 0.28,
+                "fade_in_sec": 0.3,
+                "fade_out_sec": 0.3,
+                "use_source_video": False,
+                "transition_duration_sec": 0.35,
+            },
+            "created_at": "2026-01-01T00:00:00",
+            "updated_at": "2026-01-01T00:00:00",
+        }
+    )
+    assert session.sequence[0].media.type == "imported_clip"
+
+
+def test_stream_block_media_endpoint(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from backend.main import app
+
+    project_id = "edit-block-media"
+    project_dir = tmp_path / "projects" / project_id
+    session_dir = project_dir / "edit_sessions" / "sess1" / "media"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    video_path = session_dir / "clip.mp4"
+    video_path.write_bytes(b"fake-video")
+
+    session_json = {
+        "schema_version": 1,
+        "id": "sess1",
+        "project_id": project_id,
+        "name": "import test",
+        "template_id": "golden_quote_cinema",
+        "overlay_snapshot": {},
+        "sequence": [
+            {
+                "id": "b1",
+                "source_clip_id": "import-abc",
+                "title": "导入片段",
+                "media": {
+                    "type": "imported_clip",
+                    "path": "edit_sessions/sess1/media/clip.mp4",
+                },
+                "trim": {"in_sec": 0, "out_sec": 5},
+                "overlay": {"outline": "", "content": [], "recommend_reason": ""},
+                "audio": {"volume": 1},
+                "transition_out": "cut",
+                "duration_sec": 5,
+            }
+        ],
+        "export_settings": {
+            "aspect": "9:16",
+            "height": 1080,
+            "fps": 30,
+            "visual_filter": "none",
+            "fit_mode": "contain",
+        },
+        "audio_settings": {
+            "bgm_volume": 0.28,
+            "fade_in_sec": 0.3,
+            "fade_out_sec": 0.3,
+            "use_source_video": False,
+            "transition_duration_sec": 0.35,
+        },
+        "created_at": "2026-01-01T00:00:00",
+        "updated_at": "2026-01-01T00:00:00",
+    }
+    (project_dir / "edit_sessions" / "sess1.json").write_text(
+        json.dumps(session_json, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "backend.core.path_utils.get_project_directory",
+        lambda _pid: project_dir,
+    )
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+
+    client = TestClient(app)
+    response = client.get(
+        f"/api/v1/projects/{project_id}/edit-sessions/sess1/blocks/b1/media"
+    )
+    assert response.status_code == 200
+    assert response.content == b"fake-video"
+
+
+def test_import_media_endpoint(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from backend.main import app
+
+    project_id = "edit-import-media"
+    session_id = "sess-import"
+    project_dir = tmp_path / "projects" / project_id
+    session_path = project_dir / "edit_sessions" / f"{session_id}.json"
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    session_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "id": session_id,
+                "project_id": project_id,
+                "name": "导入测试",
+                "overlay_snapshot": {},
+                "sequence": [],
+                "overlay_elements": [],
+                "bookmarks": [],
+                "export_settings": {
+                    "aspect": "9:16",
+                    "height": 1080,
+                    "fps": 30,
+                    "visual_filter": "none",
+                    "fit_mode": "contain",
+                },
+                "audio_settings": {
+                    "bgm_volume": 0.28,
+                    "fade_in_sec": 0.3,
+                    "fade_out_sec": 0.3,
+                    "bgm_duck_enabled": True,
+                    "bgm_duck_ratio": 8,
+                    "use_source_video": True,
+                    "transition_duration_sec": 0.35,
+                },
+                "created_at": "2026-01-01T00:00:00",
+                "updated_at": "2026-01-01T00:00:00",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "backend.core.path_utils.get_project_directory",
+        lambda _pid: project_dir,
+    )
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+    monkeypatch.setattr(
+        "backend.utils.video_processor.VideoProcessor.get_video_info",
+        lambda _path: {"duration": 12.5},
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        f"/api/v1/projects/{project_id}/edit-sessions/{session_id}/import-media",
+        files={"file": ("demo.mp4", b"fake-video-bytes", "video/mp4")},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["block_id"]
+    assert payload["title"] == "demo"
+    assert payload["duration_sec"] == 12.5
+    assert len(payload["session"]["sequence"]) == 1
+    assert payload["session"]["sequence"][0]["media"]["type"] == "imported_clip"
+
+    media_dir = project_dir / "edit_sessions" / session_id / "media"
+    assert any(media_dir.glob("import-*.mp4"))

@@ -445,6 +445,10 @@ class EditSessionService:
             data["name"] = payload.name
         if payload.sequence is not None:
             data["sequence"] = [block.model_dump() for block in payload.sequence]
+        if payload.overlay_elements is not None:
+            data["overlay_elements"] = [item.model_dump() for item in payload.overlay_elements]
+        if payload.bookmarks is not None:
+            data["bookmarks"] = [item.model_dump() for item in payload.bookmarks]
         if payload.export_settings is not None:
             data["export_settings"] = payload.export_settings.model_dump()
         if payload.audio_settings is not None:
@@ -501,6 +505,59 @@ class EditSessionService:
             session_id,
             EditSessionUpdateRequest(sequence=sequence),
         )
+
+    _IMPORT_VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}
+
+    def import_media_file(
+        self,
+        project_id: str,
+        session_id: str,
+        file_name: str,
+        content: bytes,
+    ) -> tuple[EditSession, EditBlock]:
+        if not content:
+            raise ValueError("视频文件为空")
+
+        session = self.get_session(project_id, session_id)
+        project_dir = get_project_directory(project_id)
+        media_dir = _edit_sessions_dir(project_dir) / session_id / "media"
+        media_dir.mkdir(parents=True, exist_ok=True)
+
+        suffix = Path(file_name).suffix.lower()
+        if suffix not in self._IMPORT_VIDEO_SUFFIXES:
+            suffix = ".mp4"
+
+        import_id = f"import-{uuid.uuid4().hex[:12]}"
+        dest = media_dir / f"{import_id}{suffix}"
+        dest.write_bytes(content)
+
+        info = VideoProcessor.get_video_info(dest)
+        duration_sec = float(info.get("duration") or 0.0)
+        if duration_sec <= 0:
+            duration_sec = 0.1
+
+        title = Path(file_name).stem.strip() or "导入视频"
+        block = EditBlock(
+            id=str(uuid.uuid4()),
+            source_clip_id=import_id,
+            title=title[:64],
+            media=EditBlockMedia(
+                type="imported_clip",
+                path=_relative_project_path(project_dir, dest),
+            ),
+            trim=EditBlockTrim(in_sec=0.0, out_sec=duration_sec),
+            overlay=EditBlockOverlay(outline="", content=[], recommend_reason=""),
+            duration_sec=duration_sec,
+            playback_rate=1.0,
+        )
+
+        updated = self.update_session(
+            project_id,
+            session_id,
+            EditSessionUpdateRequest(sequence=[*session.sequence, block]),
+        )
+        saved_block = next((item for item in updated.sequence if item.id == block.id), block)
+        return updated, saved_block
 
     def save_bgm_file(
         self,

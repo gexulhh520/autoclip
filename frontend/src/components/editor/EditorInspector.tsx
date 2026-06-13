@@ -7,6 +7,8 @@ import type { EditAspectPresetId } from '../../utils/editAspectRatios'
 import { collectTrimSnapPoints, snapTime } from '../../utils/editTimeline'
 import { srtTimeToSeconds, secondsToSrtTime } from '../../utils/srtTime'
 import { projectApi } from '../../services/api'
+import EditorInspectorSelectionBanner from './EditorInspectorSelectionBanner'
+import { DEFAULT_OVERLAY_FONT_FAMILY, OVERLAY_FONT_FAMILIES } from '../../utils/editOverlayFonts'
 
 interface EditorInspectorProps {
   projectId: string
@@ -27,12 +29,14 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   const session = useEditSessionStore((state) => state.session)
   const saving = useEditSessionStore((state) => state.saving)
   const selectedBlockId = useEditSessionStore((state) => state.selectedBlockId)
+  const selectedOverlayId = useEditSessionStore((state) => state.selectedOverlayId)
   const inspectorTab = useEditSessionStore((state) => state.inspectorTab)
   const setInspectorTab = useEditSessionStore((state) => state.setInspectorTab)
   const updateSessionName = useEditSessionStore((state) => state.updateSessionName)
   const updateBlockOverlay = useEditSessionStore((state) => state.updateBlockOverlay)
   const updateBlockTrim = useEditSessionStore((state) => state.updateBlockTrim)
   const updateBlockAudio = useEditSessionStore((state) => state.updateBlockAudio)
+  const updateBlockPlaybackRate = useEditSessionStore((state) => state.updateBlockPlaybackRate)
   const updateBlockTransition = useEditSessionStore((state) => state.updateBlockTransition)
   const updateExportSettings = useEditSessionStore((state) => state.updateExportSettings)
   const updateAudioSettings = useEditSessionStore((state) => state.updateAudioSettings)
@@ -40,6 +44,11 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   const snapEnabled = useEditSessionStore((state) => state.snapEnabled)
   const previewZoom = useEditSessionStore((state) => state.previewZoom)
   const setPreviewZoom = useEditSessionStore((state) => state.setPreviewZoom)
+  const previewBurnSubtitles = useEditSessionStore((state) => state.previewBurnSubtitles)
+  const setPreviewBurnSubtitles = useEditSessionStore((state) => state.setPreviewBurnSubtitles)
+  const updateOverlayElement = useEditSessionStore((state) => state.updateOverlayElement)
+  const removeOverlayElement = useEditSessionStore((state) => state.removeOverlayElement)
+  const setSelectedOverlayId = useEditSessionStore((state) => state.setSelectedOverlayId)
 
   const [regenerating, setRegenerating] = useState(false)
   const [textSubTab, setTextSubTab] = useState<TextSubTab>('basic')
@@ -47,6 +56,8 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
 
   const selectedBlock =
     session?.sequence.find((block) => block.id === selectedBlockId) ?? session?.sequence[0]
+  const selectedOverlay =
+    session?.overlay_elements?.find((item) => item.id === selectedOverlayId) ?? null
 
   useEffect(() => {
     if (!selectedBlock?.media.source_start_sec || !selectedBlock?.media.source_end_sec) {
@@ -94,6 +105,10 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
     : 0
   const trimSnapPoints = selectedBlock ? collectTrimSnapPoints(maxDur, srtBoundaries) : []
   const overlay = selectedBlock?.overlay
+  const totalTimelineSec = session.sequence.reduce(
+    (sum, block) => sum + blockDuration(block),
+    0
+  )
 
   const renderDraftTab = () => (
     <>
@@ -196,6 +211,17 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
         </div>
       </div>
       <div className="editor-inspector-section">
+        <div className="editor-inspector-label">预览</div>
+        <label className="editor-modal__check">
+          <input
+            type="checkbox"
+            checked={previewBurnSubtitles}
+            onChange={(event) => setPreviewBurnSubtitles(event.target.checked)}
+          />
+          预览模板字幕（与导出烧录开关同步）
+        </label>
+      </div>
+      <div className="editor-inspector-section">
         <div className="editor-inspector-label">预览缩放 ({previewZoom}%)</div>
         <input
           className="editor-range"
@@ -256,6 +282,25 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
               })
             }}
           />
+        </div>
+        <div className="editor-inspector-section">
+          <div className="editor-inspector-label">
+            播放倍速 ({(selectedBlock.playback_rate ?? 1).toFixed(2)}×)
+          </div>
+          <input
+            className="editor-range"
+            type="range"
+            min={0.25}
+            max={4}
+            step={0.05}
+            value={selectedBlock.playback_rate ?? 1}
+            onChange={(event) =>
+              updateBlockPlaybackRate(selectedBlock.id, Number(event.target.value))
+            }
+          />
+          <div className="editor-inspector-muted" style={{ marginTop: 8 }}>
+            2× 表示时间线时长减半，预览与导出一致
+          </div>
         </div>
       </>
     )
@@ -329,8 +374,209 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   }
 
   const renderTextTab = () => {
+    if (selectedOverlay) {
+      const transform = selectedOverlay.transform
+      return (
+        <>
+          <div className="editor-inspector-section">
+            <textarea
+              className="editor-textarea"
+              value={selectedOverlay.content}
+              onChange={(event) =>
+                updateOverlayElement(selectedOverlay.id, { content: event.target.value })
+              }
+              rows={4}
+              placeholder="输入自由文本…"
+            />
+          </div>
+          <div className="editor-inspector-section">
+            <div className="editor-inspector-label">字号 ({selectedOverlay.font_size})</div>
+            <input
+              className="editor-range"
+              type="range"
+              min={12}
+              max={72}
+              value={selectedOverlay.font_size}
+              onChange={(event) =>
+                updateOverlayElement(selectedOverlay.id, {
+                  font_size: Number(event.target.value),
+                })
+              }
+            />
+          </div>
+          <div className="editor-inspector-section">
+            <label className="editor-modal__field">
+              <span>字体</span>
+              <select
+                className="editor-select"
+                value={selectedOverlay.font_family ?? DEFAULT_OVERLAY_FONT_FAMILY}
+                onChange={(event) =>
+                  updateOverlayElement(selectedOverlay.id, { font_family: event.target.value })
+                }
+              >
+                {OVERLAY_FONT_FAMILIES.map((font) => (
+                  <option key={font.id} value={font.id}>
+                    {font.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="editor-modal__field" style={{ marginTop: 10 }}>
+              <span>颜色</span>
+              <input
+                className="editor-select"
+                type="color"
+                value={selectedOverlay.color}
+                onChange={(event) =>
+                  updateOverlayElement(selectedOverlay.id, { color: event.target.value })
+                }
+              />
+            </label>
+          </div>
+          <div className="editor-inspector-section">
+            <div className="editor-inspector-label">
+              水平位置 ({Math.round(transform.x * 100)}%)
+            </div>
+            <input
+              className="editor-range"
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={transform.x}
+              onChange={(event) =>
+                updateOverlayElement(selectedOverlay.id, {
+                  transform: { ...transform, x: Number(event.target.value) },
+                })
+              }
+            />
+            <div className="editor-inspector-label" style={{ marginTop: 12 }}>
+              垂直位置 ({Math.round(transform.y * 100)}%)
+            </div>
+            <input
+              className="editor-range"
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={transform.y}
+              onChange={(event) =>
+                updateOverlayElement(selectedOverlay.id, {
+                  transform: { ...transform, y: Number(event.target.value) },
+                })
+              }
+            />
+            <div className="editor-inspector-label" style={{ marginTop: 12 }}>
+              缩放 ({transform.scale.toFixed(2)}×)
+            </div>
+            <input
+              className="editor-range"
+              type="range"
+              min={0.5}
+              max={2}
+              step={0.05}
+              value={transform.scale}
+              onChange={(event) =>
+                updateOverlayElement(selectedOverlay.id, {
+                  transform: { ...transform, scale: Number(event.target.value) },
+                })
+              }
+            />
+            <div className="editor-inspector-label" style={{ marginTop: 12 }}>
+              旋转 ({Math.round(transform.rotation)}°)
+            </div>
+            <input
+              className="editor-range"
+              type="range"
+              min={-180}
+              max={180}
+              step={1}
+              value={transform.rotation}
+              onChange={(event) =>
+                updateOverlayElement(selectedOverlay.id, {
+                  transform: { ...transform, rotation: Number(event.target.value) },
+                })
+              }
+            />
+          </div>
+          <div className="editor-inspector-section">
+            <div className="editor-text-style-row">
+              <button
+                type="button"
+                className={`editor-style-toggle ${selectedOverlay.bold ? 'is-active' : ''}`}
+                onClick={() =>
+                  updateOverlayElement(selectedOverlay.id, { bold: !selectedOverlay.bold })
+                }
+              >
+                B
+              </button>
+              <button
+                type="button"
+                className={`editor-style-toggle ${selectedOverlay.italic ? 'is-active' : ''}`}
+                onClick={() =>
+                  updateOverlayElement(selectedOverlay.id, { italic: !selectedOverlay.italic })
+                }
+              >
+                I
+              </button>
+            </div>
+          </div>
+          <div className="editor-inspector-section">
+            <div className="editor-inspector-label">
+              起始 ({selectedOverlay.start_sec.toFixed(1)}s)
+            </div>
+            <input
+              className="editor-range"
+              type="range"
+              min={0}
+              max={Math.max(totalTimelineSec - 0.5, 0.5)}
+              step={0.1}
+              value={selectedOverlay.start_sec}
+              onChange={(event) =>
+                updateOverlayElement(selectedOverlay.id, {
+                  start_sec: Number(event.target.value),
+                })
+              }
+            />
+            <div className="editor-inspector-label" style={{ marginTop: 12 }}>
+              时长 ({selectedOverlay.duration_sec.toFixed(1)}s)
+            </div>
+            <input
+              className="editor-range"
+              type="range"
+              min={0.5}
+              max={Math.max(totalTimelineSec, 1)}
+              step={0.1}
+              value={selectedOverlay.duration_sec}
+              onChange={(event) =>
+                updateOverlayElement(selectedOverlay.id, {
+                  duration_sec: Number(event.target.value),
+                })
+              }
+            />
+          </div>
+          <div className="editor-inspector-section">
+            <button
+              type="button"
+              className="editor-header__back"
+              onClick={() => {
+                removeOverlayElement(selectedOverlay.id)
+                setSelectedOverlayId(null)
+              }}
+            >
+              删除文本层
+            </button>
+          </div>
+        </>
+      )
+    }
+
     if (!selectedBlock || !overlay) {
-      return <div className="editor-empty-hint">选中片段编辑字幕文本</div>
+      return (
+        <div className="editor-empty-hint">
+          选中片段编辑模板字幕，或按 T 在播放头添加自由文本层
+        </div>
+      )
     }
     return (
       <>
@@ -436,25 +682,55 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
 
   const renderTransitionTab = () => {
     if (!selectedBlock) {
-      return <div className="editor-empty-hint">选中片段设置转场</div>
+      return <div className="editor-empty-hint">选中片段后设置至下一片段的转场</div>
     }
+    const blockIndex = session.sequence.findIndex((item) => item.id === selectedBlock.id)
+    const isLast = blockIndex < 0 || blockIndex >= session.sequence.length - 1
+    if (isLast) {
+      return <div className="editor-empty-hint">最后一个片段无需设置转场</div>
+    }
+    const transition = selectedBlock.transition_out ?? 'cut'
     return (
-      <div className="editor-inspector-section">
-        <div className="editor-inspector-label">转场（至下一片段）</div>
-        <select
-          className="editor-select"
-          value={selectedBlock.transition_out}
-          onChange={(event) =>
-            updateBlockTransition(selectedBlock.id, event.target.value as 'cut' | 'dissolve')
-          }
-        >
-          <option value="cut">硬切</option>
-          <option value="dissolve">叠化</option>
-        </select>
-        <div className="editor-inspector-muted" style={{ marginTop: 8 }}>
-          叠化时长 {session.audio_settings.transition_duration_sec.toFixed(2)}s
+      <>
+        <div className="editor-inspector-section">
+          <div className="editor-inspector-label">转场类型（至下一片段）</div>
+          <div className="editor-transition-type-row">
+            <button
+              type="button"
+              className={`editor-transition-type ${transition === 'cut' ? 'is-active' : ''}`}
+              onClick={() => updateBlockTransition(selectedBlock.id, 'cut')}
+            >
+              硬切
+            </button>
+            <button
+              type="button"
+              className={`editor-transition-type ${transition === 'dissolve' ? 'is-active' : ''}`}
+              onClick={() => updateBlockTransition(selectedBlock.id, 'dissolve')}
+            >
+              叠化
+            </button>
+          </div>
+          <p className="editor-inspector-muted" style={{ marginTop: 10 }}>
+            也可点击时间线片段衔接处的标记快速切换
+          </p>
         </div>
-      </div>
+        <div className="editor-inspector-section">
+          <div className="editor-inspector-label">
+            叠化时长 ({session.audio_settings.transition_duration_sec.toFixed(2)}s)
+          </div>
+          <input
+            className="editor-range"
+            type="range"
+            min={0.1}
+            max={1.5}
+            step={0.05}
+            value={session.audio_settings.transition_duration_sec}
+            onChange={(event) =>
+              updateAudioSettings({ transition_duration_sec: Number(event.target.value) })
+            }
+          />
+        </div>
+      </>
     )
   }
 
@@ -480,6 +756,14 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
           </button>
         ))}
       </div>
+      {selectedOverlay ? (
+        <EditorInspectorSelectionBanner
+          label="自由文本层"
+          subLabel={`${selectedOverlay.start_sec.toFixed(1)}s · ${selectedOverlay.duration_sec.toFixed(1)}s`}
+        />
+      ) : selectedBlock ? (
+        <EditorInspectorSelectionBanner label="视频片段" subLabel={selectedBlock.title} />
+      ) : null}
       <div className="editor-inspector-content">{tabContent[inspectorTab]}</div>
     </aside>
   )

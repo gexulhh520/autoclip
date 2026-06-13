@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class EditBlockMedia(BaseModel):
-    type: Literal["step6_clip", "source_range"] = "step6_clip"
+    type: Literal["step6_clip", "source_range", "imported_clip"] = "step6_clip"
     path: str = Field(description="相对 project 目录的 mp4 路径")
     source_video_path: Optional[str] = None
     source_start_sec: Optional[float] = None
@@ -45,6 +45,40 @@ class EditBlock(BaseModel):
     audio: EditBlockAudio = Field(default_factory=EditBlockAudio)
     transition_out: Literal["cut", "dissolve"] = "cut"
     duration_sec: float = 0.0
+    playback_rate: float = 1.0
+
+    @model_validator(mode="after")
+    def normalize_playback_rate(self) -> "EditBlock":
+        self.playback_rate = max(0.25, min(4.0, float(self.playback_rate or 1.0)))
+        return self
+
+
+class EditOverlayTransform(BaseModel):
+    x: float = 0.5
+    y: float = 0.82
+    scale: float = 1.0
+    rotation: float = 0.0
+
+
+class EditOverlayElement(BaseModel):
+    id: str
+    type: Literal["text", "sticker"] = "text"
+    start_sec: float = 0.0
+    duration_sec: float = 3.0
+    content: str = ""
+    font_size: int = 24
+    color: str = "#FFFFFF"
+    bold: bool = False
+    italic: bool = False
+    font_family: Optional[str] = "noto-sc"
+    transform: EditOverlayTransform = Field(default_factory=EditOverlayTransform)
+    hidden: bool = False
+
+
+class TimelineBookmark(BaseModel):
+    id: str
+    time_sec: float = 0.0
+    label: str = ""
 
 
 EditAspectPreset = Literal[
@@ -85,6 +119,8 @@ class EditSessionAudioSettings(BaseModel):
     bgm_volume: float = 0.28
     fade_in_sec: float = 0.3
     fade_out_sec: float = 0.3
+    bgm_start_sec: Optional[float] = None
+    bgm_end_sec: Optional[float] = None
     bgm_duck_enabled: bool = True
     bgm_duck_ratio: float = 8.0
     use_source_video: bool = True
@@ -100,6 +136,8 @@ class EditSession(BaseModel):
     template_version: Optional[str] = None
     overlay_snapshot: Dict[str, Any] = Field(default_factory=dict)
     sequence: List[EditBlock] = Field(default_factory=list)
+    overlay_elements: List[EditOverlayElement] = Field(default_factory=list)
+    bookmarks: List[TimelineBookmark] = Field(default_factory=list)
     export_settings: EditExportSettings = Field(default_factory=EditExportSettings)
     audio_settings: EditSessionAudioSettings = Field(default_factory=EditSessionAudioSettings)
     created_at: str
@@ -116,6 +154,13 @@ class EditSessionAppendResponse(BaseModel):
     added_count: int
 
 
+class EditSessionImportMediaResponse(BaseModel):
+    session: EditSession
+    block_id: str
+    title: str
+    duration_sec: float
+
+
 class EditSessionCreateRequest(BaseModel):
     clip_ids: List[str] = Field(min_length=1)
     name: Optional[str] = None
@@ -125,6 +170,8 @@ class EditSessionCreateRequest(BaseModel):
 class EditSessionUpdateRequest(BaseModel):
     name: Optional[str] = None
     sequence: Optional[List[EditBlock]] = None
+    overlay_elements: Optional[List[EditOverlayElement]] = None
+    bookmarks: Optional[List[TimelineBookmark]] = None
     export_settings: Optional[EditExportSettings] = None
     audio_settings: Optional[EditSessionAudioSettings] = None
 

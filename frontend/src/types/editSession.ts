@@ -1,5 +1,5 @@
 export interface EditBlockMedia {
-  type: 'step6_clip' | 'source_range'
+  type: 'step6_clip' | 'source_range' | 'imported_clip'
   path: string
   source_video_path?: string | null
   source_start_sec?: number | null
@@ -37,6 +37,8 @@ export interface EditBlock {
   audio: EditBlockAudio
   transition_out: 'cut' | 'dissolve'
   duration_sec: number
+  /** 播放倍速：1=原速，2=两倍速（时间线时长缩短） */
+  playback_rate?: number
 }
 
 import type { EditAspectPresetId } from '../utils/editAspectRatios'
@@ -51,11 +53,41 @@ export interface EditExportSettings {
   fit_mode: 'contain' | 'cover' | 'contain_blur'
 }
 
+export interface EditOverlayTransform {
+  x: number
+  y: number
+  scale: number
+  rotation: number
+}
+
+export interface EditOverlayElement {
+  id: string
+  type: 'text' | 'sticker'
+  start_sec: number
+  duration_sec: number
+  content: string
+  font_size: number
+  color: string
+  bold: boolean
+  italic: boolean
+  font_family?: string
+  transform: EditOverlayTransform
+  hidden: boolean
+}
+
+export interface TimelineBookmark {
+  id: string
+  time_sec: number
+  label: string
+}
+
 export interface EditSessionAudioSettings {
   bgm_path?: string | null
   bgm_volume: number
   fade_in_sec: number
   fade_out_sec: number
+  bgm_start_sec?: number
+  bgm_end_sec?: number
   bgm_duck_enabled?: boolean
   bgm_duck_ratio?: number
   use_source_video: boolean
@@ -71,6 +103,8 @@ export interface EditSession {
   template_version?: string | null
   overlay_snapshot: Record<string, unknown>
   sequence: EditBlock[]
+  overlay_elements?: EditOverlayElement[]
+  bookmarks?: TimelineBookmark[]
   export_settings: EditExportSettings
   audio_settings: EditSessionAudioSettings
   created_at: string
@@ -88,6 +122,8 @@ export interface EditSessionCreateRequest {
 export interface EditSessionUpdateRequest {
   name?: string
   sequence?: EditBlock[]
+  overlay_elements?: EditOverlayElement[]
+  bookmarks?: TimelineBookmark[]
   export_settings?: EditExportSettings
   audio_settings?: EditSessionAudioSettings
 }
@@ -139,6 +175,13 @@ export interface EditSessionAppendRequest {
 export interface EditSessionAppendResponse {
   session: EditSession
   added_count: number
+}
+
+export interface EditSessionImportMediaResponse {
+  session: EditSession
+  block_id: string
+  title: string
+  duration_sec: number
 }
 
 export interface EditSessionBatchExportItem {

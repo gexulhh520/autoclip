@@ -1,14 +1,25 @@
-import type { EditBlock } from '../types/editSession'
+import type { EditBlock, TimelineBookmark } from '../types/editSession'
 
 export const BASE_PX_PER_SEC = 24
 export const TRACK_GAP_PX = 8
 export const TRACK_OFFSET_PX = 4
+export const TIMELINE_SIDEBAR_WIDTH_PX = 112
 
-export const blockDuration = (block: EditBlock): number => {
+/** 源素材裁剪长度（不含变速） */
+export const blockSourceTrimDuration = (block: EditBlock): number => {
   const trimmed = block.trim.out_sec - block.trim.in_sec
   if (trimmed > 0) return trimmed
   return block.duration_sec > 0 ? block.duration_sec : 5
 }
+
+export const blockPlaybackRate = (block: EditBlock): number => {
+  const rate = block.playback_rate ?? 1
+  return rate > 0 ? Math.min(4, Math.max(0.25, rate)) : 1
+}
+
+/** 合成时间轴上的片段时长（含变速） */
+export const blockDuration = (block: EditBlock): number =>
+  blockSourceTrimDuration(block) / blockPlaybackRate(block)
 
 export interface TimelineSegment {
   block: EditBlock
@@ -46,6 +57,13 @@ export function getTotalDuration(blocks: EditBlock[]): number {
   return blocks.reduce((sum, block) => sum + blockDuration(block), 0)
 }
 
+export {
+  buildCompositionTimelineSegments,
+  getCompositionTotalDuration,
+  resolveCompositionPlayhead,
+  type CompositionTimelineSegment,
+} from '../editor/scene/timelineLayout'
+
 export function resolveSequencePlayhead(
   sequencePlayheadSec: number,
   segments: TimelineSegment[]
@@ -65,9 +83,40 @@ export function resolveSequencePlayhead(
   return { segment: last, relativeSec: last.duration }
 }
 
-export function pxToSequenceSec(clientX: number, laneRect: DOMRect, pxPerSec: number): number {
-  const x = clientX - laneRect.left - TRACK_OFFSET_PX
+export function pxToSequenceSec(
+  clientX: number,
+  laneRect: DOMRect,
+  pxPerSec: number,
+  sidebarWidthPx = 0
+): number {
+  const x = clientX - laneRect.left - sidebarWidthPx - TRACK_OFFSET_PX
   return Math.max(0, x / pxPerSec)
+}
+
+export interface RulerTick {
+  left: number
+  label: string
+}
+
+export function buildRulerTicks(totalDuration: number, pxPerSec: number): RulerTick[] {
+  const minSpacingPx = 72
+  const candidates = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600]
+  let interval = candidates[candidates.length - 1]
+  for (const candidate of candidates) {
+    if (candidate * pxPerSec >= minSpacingPx) {
+      interval = candidate
+      break
+    }
+  }
+
+  const ticks: RulerTick[] = []
+  for (let sec = 0; sec <= totalDuration + 0.001; sec += interval) {
+    ticks.push({
+      left: TRACK_OFFSET_PX + sec * pxPerSec,
+      label: formatTimecode(sec),
+    })
+  }
+  return ticks
 }
 
 export function formatTimecode(totalSec: number, fps = 30): string {
@@ -81,11 +130,17 @@ export function formatTimecode(totalSec: number, fps = 30): string {
 export const SNAP_GRID_SEC = 0.1
 export const DEFAULT_SNAP_THRESHOLD_SEC = 0.12
 
-export function collectSequenceSnapPoints(segments: TimelineSegment[]): number[] {
+export function collectSequenceSnapPoints(
+  segments: Array<{ startSec: number; endSec: number }>,
+  bookmarks: TimelineBookmark[] = []
+): number[] {
   const points = new Set<number>([0])
   for (const segment of segments) {
     points.add(segment.startSec)
     points.add(segment.endSec)
+  }
+  for (const bookmark of bookmarks) {
+    points.add(bookmark.time_sec)
   }
   return Array.from(points).sort((a, b) => a - b)
 }

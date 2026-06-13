@@ -2,21 +2,43 @@ import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { nanoid } from 'nanoid'
 import editApi from '../services/editApi'
-import type { EditBlock, EditSession, EditSessionAudioSettings, EditExportSettings, EditorPanelMode } from '../types/editSession'
+import type {
+  EditBlock,
+  EditOverlayElement,
+  EditSession,
+  EditSessionAudioSettings,
+  EditExportSettings,
+  EditorPanelMode,
+  TimelineBookmark,
+} from '../types/editSession'
 import {
+  DEFAULT_TRACK_COLLAPSED,
+  DEFAULT_TRACK_MUTED,
+  type TimelineTrackId,
+} from '../types/timelineTracks'
+import { createTextOverlayElement } from '../utils/editTextOverlay'
+import { loadExportPreset, saveExportPreset } from '../utils/editExportPresets'
+import {
+  BASE_PX_PER_SEC,
   blockDuration,
-  buildTimelineSegments,
-  getTotalDuration,
-  resolveSequencePlayhead,
+  buildCompositionTimelineSegments,
+  getCompositionTotalDuration,
+  resolveCompositionPlayhead,
 } from '../utils/editTimeline'
 
 const MAX_HISTORY = 50
 const EXPORT_POLL_MS = 800
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
 const cloneSequence = (sequence: EditBlock[]): EditBlock[] =>
   JSON.parse(JSON.stringify(sequence)) as EditBlock[]
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+const transitionDurationSec = (session: EditSession): number =>
+  session.audio_settings.transition_duration_sec ?? 0.35
+
+const compositionTotalDuration = (session: EditSession): number =>
+  getCompositionTotalDuration(session.sequence, transitionDurationSec(session))
 
 export interface AssetPreviewClip {
   clipId: string
@@ -33,11 +55,16 @@ interface EditSessionState {
   error: string | null
   dirty: boolean
   selectedBlockId: string | null
+  selectedBlockIds: string[]
+  selectedOverlayId: string | null
+  timelineTrackCollapsed: Record<TimelineTrackId, boolean>
+  timelineTrackMuted: Record<TimelineTrackId, boolean>
   assetPreviewClip: AssetPreviewClip | null
   isPlaying: boolean
   sequencePlayheadSec: number
   timelineZoom: number
   previewZoom: number
+  previewBurnSubtitles: boolean
   snapEnabled: boolean
   rippleTrimEnabled: boolean
   editorPanelMode: EditorPanelMode
@@ -90,6 +117,7 @@ interface EditSessionState {
   detectSilenceTrim: (projectId: string, blockId: string) => Promise<number>
   splitAtInternalSilence: (projectId: string, blockId: string) => Promise<number>
   appendClips: (projectId: string, clipIds: string[], sourceId?: string | null) => Promise<number>
+  importMedia: (projectId: string, file: File) => Promise<void>
   copySelectedBlock: () => void
   pasteBlock: () => void
   clipboardHasBlock: () => boolean
@@ -98,14 +126,28 @@ interface EditSessionState {
   setRippleTrimEnabled: (enabled: boolean) => void
   previewZoom: number
   setPreviewZoom: (zoom: number) => void
+  setPreviewBurnSubtitles: (enabled: boolean) => void
   setEditorPanelMode: (mode: EditorPanelMode) => void
   setInspectorTab: (tab: 'draft' | 'video' | 'audio' | 'text' | 'transition') => void
   updateExportSettings: (settings: Partial<EditExportSettings>) => void
   updateAudioSettings: (settings: Partial<EditSessionAudioSettings>) => void
   updateBlockAudio: (blockId: string, audio: Partial<EditBlock['audio']>) => void
+  updateBlockPlaybackRate: (blockId: string, rate: number) => void
   updateBlockTransition: (blockId: string, transition: EditBlock['transition_out']) => void
   uploadBgm: (projectId: string, file: File) => Promise<void>
-  setSelectedBlockId: (blockId: string | null) => void
+  setSelectedBlockId: (blockId: string | null, options?: { additive?: boolean }) => void
+  setSelectedOverlayId: (overlayId: string | null) => void
+  toggleTimelineTrackCollapsed: (trackId: TimelineTrackId) => void
+  toggleTimelineTrackMuted: (trackId: TimelineTrackId) => void
+  addOverlayElement: (element: Omit<EditOverlayElement, 'id'>) => void
+  updateOverlayElement: (
+    elementId: string,
+    patch: Partial<EditOverlayElement>,
+    options?: { recordHistory?: boolean }
+  ) => void
+  removeOverlayElement: (elementId: string) => void
+  addBookmark: (timeSec: number, label?: string) => void
+  removeBookmark: (bookmarkId: string) => void
   setAssetPreviewClip: (clip: AssetPreviewClip | null) => void
   reorderBlocks: (fromIndex: number, toIndex: number) => void
   setPlaying: (playing: boolean) => void
@@ -146,15 +188,19 @@ export const useEditSessionStore = create<EditSessionState>()(
     const clampPlayhead = (sec: number) => {
       const { session } = get()
       if (!session) return 0
-      return Math.max(0, Math.min(sec, getTotalDuration(session.sequence)))
+      return Math.max(0, Math.min(sec, compositionTotalDuration(session)))
     }
 
     const syncSelectionToPlayhead = (sec: number) => {
       const { session, timelineZoom } = get()
       if (!session) return
-      const pxPerSec = (timelineZoom / 100) * 24
-      const segments = buildTimelineSegments(session.sequence, pxPerSec)
-      const resolved = resolveSequencePlayhead(sec, segments)
+      const pxPerSec = (timelineZoom / 100) * BASE_PX_PER_SEC
+      const segments = buildCompositionTimelineSegments(
+        session.sequence,
+        pxPerSec,
+        transitionDurationSec(session)
+      )
+      const resolved = resolveCompositionPlayhead(sec, segments)
       if (resolved) {
         set({ selectedBlockId: resolved.segment.block.id })
       }
@@ -224,11 +270,16 @@ export const useEditSessionStore = create<EditSessionState>()(
       error: null,
       dirty: false,
       selectedBlockId: null,
+      selectedBlockIds: [],
+      selectedOverlayId: null,
+      timelineTrackCollapsed: { ...DEFAULT_TRACK_COLLAPSED },
+      timelineTrackMuted: { ...DEFAULT_TRACK_MUTED },
       assetPreviewClip: null,
       isPlaying: false,
       sequencePlayheadSec: 0,
       timelineZoom: 100,
       previewZoom: 100,
+      previewBurnSubtitles: true,
       snapEnabled: true,
       rippleTrimEnabled: true,
       editorPanelMode: 'media',
@@ -262,11 +313,33 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (!session.export_settings.visual_filter) {
             session.export_settings.visual_filter = 'none'
           }
+          for (const block of session.sequence) {
+            if (!block.transition_out) {
+              block.transition_out = 'cut'
+            }
+            if (!block.playback_rate || block.playback_rate <= 0) {
+              block.playback_rate = 1
+            } else {
+              block.playback_rate = Math.min(4, Math.max(0.25, block.playback_rate))
+            }
+          }
+          if (!session.overlay_elements) {
+            session.overlay_elements = []
+          }
+          if (!session.bookmarks) {
+            session.bookmarks = []
+          }
+          const exportPreset = loadExportPreset()
           set({
             session,
             loading: false,
             dirty: migrated,
+            previewBurnSubtitles: exportPreset.burn_subtitles,
             selectedBlockId: session.sequence[0]?.id ?? null,
+            selectedBlockIds: session.sequence[0]?.id ? [session.sequence[0].id] : [],
+            selectedOverlayId: null,
+            timelineTrackCollapsed: { ...DEFAULT_TRACK_COLLAPSED },
+            timelineTrackMuted: { ...DEFAULT_TRACK_MUTED },
             historyPast: [],
             historyFuture: [],
             sequencePlayheadSec: 0,
@@ -287,6 +360,8 @@ export const useEditSessionStore = create<EditSessionState>()(
           const updated = await editApi.updateSession(projectId, session.id, {
             name: session.name,
             sequence: session.sequence,
+            overlay_elements: session.overlay_elements,
+            bookmarks: session.bookmarks,
             export_settings: session.export_settings,
             audio_settings: session.audio_settings,
           })
@@ -478,6 +553,11 @@ export const useEditSessionStore = create<EditSessionState>()(
       setSnapEnabled: (enabled) => set({ snapEnabled: enabled }),
       setRippleTrimEnabled: (enabled) => set({ rippleTrimEnabled: enabled }),
       setPreviewZoom: (zoom) => set({ previewZoom: Math.min(150, Math.max(50, zoom)) }),
+      setPreviewBurnSubtitles: (enabled) => {
+        set({ previewBurnSubtitles: enabled })
+        const preset = loadExportPreset()
+        saveExportPreset({ ...preset, burn_subtitles: enabled })
+      },
       setEditorPanelMode: (mode) => {
         const tabMap: Record<EditorPanelMode, 'draft' | 'video' | 'audio' | 'text' | 'transition'> = {
           media: 'video',
@@ -506,6 +586,40 @@ export const useEditSessionStore = create<EditSessionState>()(
           set({
             saving: false,
             error: error instanceof Error ? error.message : '追加片段失败',
+          })
+          throw error
+        }
+      },
+
+      importMedia: async (projectId, file) => {
+        const { session } = get()
+        if (!session) throw new Error('无剪辑工程')
+        set({ saving: true, error: null })
+        try {
+          const result = await editApi.importMedia(projectId, session.id, file)
+          const transitionDur = transitionDurationSec(result.session)
+          const segments = buildCompositionTimelineSegments(
+            result.session.sequence,
+            BASE_PX_PER_SEC,
+            transitionDur
+          )
+          const importedSegment = segments.find((item) => item.block.id === result.block_id)
+          set({
+            session: result.session,
+            saving: false,
+            dirty: false,
+            selectedBlockId: result.block_id,
+            selectedBlockIds: [result.block_id],
+            selectedOverlayId: null,
+            sequencePlayheadSec: importedSegment?.startSec ?? 0,
+            isPlaying: false,
+            historyPast: [],
+            historyFuture: [],
+          })
+        } catch (error: unknown) {
+          set({
+            saving: false,
+            error: error instanceof Error ? error.message : '导入视频失败',
           })
           throw error
         }
@@ -551,19 +665,129 @@ export const useEditSessionStore = create<EditSessionState>()(
         })
       },
 
-      setSelectedBlockId: (blockId) => {
+      setSelectedBlockId: (blockId, options) => {
         const { session } = get()
         if (!session || !blockId) {
-          set({ selectedBlockId: blockId, assetPreviewClip: null, isPlaying: false })
+          set({
+            selectedBlockId: blockId,
+            selectedBlockIds: [],
+            selectedOverlayId: null,
+            assetPreviewClip: null,
+            isPlaying: false,
+          })
           return
         }
-        const segments = buildTimelineSegments(session.sequence, 24)
+        const segments = buildCompositionTimelineSegments(
+          session.sequence,
+          24,
+          transitionDurationSec(session)
+        )
         const segment = segments.find((item) => item.block.id === blockId)
-        set({
-          selectedBlockId: blockId,
-          assetPreviewClip: null,
-          sequencePlayheadSec: segment?.startSec ?? 0,
-          isPlaying: false,
+        const additive = options?.additive ?? false
+        set((state) => {
+          if (additive) {
+            const ids = state.selectedBlockIds.includes(blockId)
+              ? state.selectedBlockIds.filter((id) => id !== blockId)
+              : [...state.selectedBlockIds, blockId]
+            state.selectedBlockIds = ids
+            state.selectedBlockId = ids[ids.length - 1] ?? blockId
+          } else {
+            state.selectedBlockId = blockId
+            state.selectedBlockIds = [blockId]
+          }
+          state.selectedOverlayId = null
+          state.assetPreviewClip = null
+          state.sequencePlayheadSec = segment?.startSec ?? 0
+          state.isPlaying = false
+        })
+      },
+
+      setSelectedOverlayId: (overlayId) => {
+        set({ selectedOverlayId: overlayId, isPlaying: false })
+      },
+
+      toggleTimelineTrackCollapsed: (trackId) => {
+        set((state) => {
+          state.timelineTrackCollapsed[trackId] = !state.timelineTrackCollapsed[trackId]
+        })
+      },
+
+      toggleTimelineTrackMuted: (trackId) => {
+        set((state) => {
+          state.timelineTrackMuted[trackId] = !state.timelineTrackMuted[trackId]
+        })
+      },
+
+      addOverlayElement: (element) => {
+        pushHistory()
+        const id = nanoid()
+        set((state) => {
+          if (!state.session) return
+          if (!state.session.overlay_elements) {
+            state.session.overlay_elements = []
+          }
+          state.session.overlay_elements.push({
+            ...createTextOverlayElement(element.start_sec, element.content),
+            ...element,
+            id,
+          })
+          state.selectedOverlayId = id
+          state.selectedBlockId = null
+          state.selectedBlockIds = []
+          state.dirty = true
+        })
+      },
+
+      updateOverlayElement: (elementId, patch, options) => {
+        if (options?.recordHistory !== false && Object.keys(patch).length > 0) {
+          pushHistory()
+        }
+        set((state) => {
+          if (!state.session?.overlay_elements) return
+          const element = state.session.overlay_elements.find((item) => item.id === elementId)
+          if (!element) return
+          Object.assign(element, patch)
+          state.dirty = true
+        })
+      },
+
+      removeOverlayElement: (elementId) => {
+        pushHistory()
+        set((state) => {
+          if (!state.session?.overlay_elements) return
+          state.session.overlay_elements = state.session.overlay_elements.filter(
+            (item) => item.id !== elementId
+          )
+          if (state.selectedOverlayId === elementId) {
+            state.selectedOverlayId = null
+          }
+          state.dirty = true
+        })
+      },
+
+      addBookmark: (timeSec, label = '') => {
+        set((state) => {
+          if (!state.session) return
+          if (!state.session.bookmarks) {
+            state.session.bookmarks = []
+          }
+          const bookmark: TimelineBookmark = {
+            id: nanoid(),
+            time_sec: timeSec,
+            label,
+          }
+          state.session.bookmarks.push(bookmark)
+          state.dirty = true
+        })
+      },
+
+      removeBookmark: (bookmarkId) => {
+        set((state) => {
+          if (!state.session?.bookmarks) return
+          state.session.bookmarks = state.session.bookmarks.filter(
+            (item) => item.id !== bookmarkId
+          )
+          state.dirty = true
         })
       },
 
@@ -655,6 +879,17 @@ export const useEditSessionStore = create<EditSessionState>()(
         })
       },
 
+      updateBlockPlaybackRate: (blockId, rate) => {
+        pushHistory()
+        set((state) => {
+          if (!state.session) return
+          const block = state.session.sequence.find((item) => item.id === blockId)
+          if (!block) return
+          block.playback_rate = Math.min(4, Math.max(0.25, rate))
+          state.dirty = true
+        })
+      },
+
       updateBlockTransition: (blockId, transition) => {
         pushHistory()
         set((state) => {
@@ -662,6 +897,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           const block = state.session.sequence.find((item) => item.id === blockId)
           if (!block) return
           block.transition_out = transition
+          state.dirty = true
         })
       },
 
@@ -692,13 +928,14 @@ export const useEditSessionStore = create<EditSessionState>()(
       deleteSelectedBlock: (options) => {
         const { session, selectedBlockId, sequencePlayheadSec, timelineZoom } = get()
         if (!session || !selectedBlockId) return
-        const pxPerSec = (timelineZoom / 100) * 24
-        const segments = buildTimelineSegments(session.sequence, pxPerSec)
+        const pxPerSec = (timelineZoom / 100) * BASE_PX_PER_SEC
+        const transitionSec = transitionDurationSec(session)
+        const segments = buildCompositionTimelineSegments(session.sequence, pxPerSec, transitionSec)
         const deletedSegment = segments.find((item) => item.block.id === selectedBlockId)
         const deletedIndex = session.sequence.findIndex((block) => block.id === selectedBlockId)
         const ripple = options?.ripple !== false
         const nextPlayhead = ripple
-          ? Math.max(0, (deletedSegment?.startSec ?? sequencePlayheadSec))
+          ? Math.max(0, deletedSegment?.startSec ?? sequencePlayheadSec)
           : 0
 
         pushHistory()
@@ -710,16 +947,23 @@ export const useEditSessionStore = create<EditSessionState>()(
           const nextBlocks = state.session.sequence
           const nextIndex = Math.min(Math.max(0, deletedIndex), Math.max(0, nextBlocks.length - 1))
           state.selectedBlockId = nextBlocks[nextIndex]?.id ?? null
-          state.sequencePlayheadSec = Math.min(nextPlayhead, getTotalDuration(nextBlocks))
+          state.sequencePlayheadSec = Math.min(
+            nextPlayhead,
+            getCompositionTotalDuration(nextBlocks, transitionSec)
+          )
         })
       },
 
       splitSelectedBlockAtPlayhead: () => {
         const { session, sequencePlayheadSec, timelineZoom } = get()
         if (!session) return
-        const pxPerSec = (timelineZoom / 100) * 24
-        const segments = buildTimelineSegments(session.sequence, pxPerSec)
-        const resolved = resolveSequencePlayhead(sequencePlayheadSec, segments)
+        const pxPerSec = (timelineZoom / 100) * BASE_PX_PER_SEC
+        const segments = buildCompositionTimelineSegments(
+          session.sequence,
+          pxPerSec,
+          transitionDurationSec(session)
+        )
+        const resolved = resolveCompositionPlayhead(sequencePlayheadSec, segments)
         if (!resolved) return
 
         const block = resolved.segment.block
@@ -789,11 +1033,16 @@ export const useEditSessionStore = create<EditSessionState>()(
           error: null,
           dirty: false,
           selectedBlockId: null,
+          selectedBlockIds: [],
+          selectedOverlayId: null,
+          timelineTrackCollapsed: { ...DEFAULT_TRACK_COLLAPSED },
+          timelineTrackMuted: { ...DEFAULT_TRACK_MUTED },
           assetPreviewClip: null,
           isPlaying: false,
           sequencePlayheadSec: 0,
           timelineZoom: 100,
           previewZoom: 100,
+          previewBurnSubtitles: true,
           rippleTrimEnabled: true,
           editorPanelMode: 'media',
           inspectorTab: 'draft',

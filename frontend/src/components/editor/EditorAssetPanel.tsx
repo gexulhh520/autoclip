@@ -15,6 +15,7 @@ interface ProjectClip {
 
 const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const videoInputRef = useRef<HTMLInputElement>(null)
   const editorPanelMode = useEditSessionStore((state) => state.editorPanelMode)
   const session = useEditSessionStore((state) => state.session)
   const saving = useEditSessionStore((state) => state.saving)
@@ -24,6 +25,7 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
   const updateExportSettings = useEditSessionStore((state) => state.updateExportSettings)
   const uploadBgm = useEditSessionStore((state) => state.uploadBgm)
   const appendClips = useEditSessionStore((state) => state.appendClips)
+  const importMedia = useEditSessionStore((state) => state.importMedia)
   const assetPreviewClip = useEditSessionStore((state) => state.assetPreviewClip)
   const setAssetPreviewClip = useEditSessionStore((state) => state.setAssetPreviewClip)
 
@@ -78,17 +80,39 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
     return (
       <aside className="editor-asset-panel">
         <div className="editor-asset-toolbar">
-          <button type="button" className="editor-import-btn" disabled={loadingClips}>
-            <PlusOutlined /> 导入
+          <input
+            ref={videoInputRef}
+            type="file"
+            accept="video/*,.mp4,.mov,.mkv,.webm,.m4v,.avi"
+            hidden
+            onChange={async (event) => {
+              const file = event.target.files?.[0]
+              event.target.value = ''
+              if (!file) return
+              try {
+                await importMedia(projectId, file)
+                message.success(`已导入「${file.name}」并添加到时间线`)
+              } catch (error: unknown) {
+                message.error(error instanceof Error ? error.message : '视频导入失败')
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="editor-import-btn"
+            disabled={loadingClips || saving || !session}
+            onClick={() => videoInputRef.current?.click()}
+          >
+            <PlusOutlined /> 导入视频
           </button>
           <span className="editor-asset-toolbar__hint">
-            {loadingClips ? '加载素材…' : `${projectClips.length} 个切片`}
+            {loadingClips ? '加载素材…' : `${projectClips.length} 个 AI 切片`}
           </span>
         </div>
         <div className="editor-panel-body">
-          {projectClips.length === 0 ? (
+            {projectClips.length === 0 ? (
             <div className="editor-empty-hint">
-              暂无切片素材。请先在 AI 自动切片生成片段，或从项目详情勾选进入剪辑。
+              暂无 AI 切片。可点击上方「导入视频」直接加入时间线，或从项目详情勾选切片进入剪辑。
             </div>
           ) : (
             <div className="editor-media-grid">
@@ -264,9 +288,87 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
               <PlusOutlined /> 导入 BGM
             </button>
             {audioSettings.bgm_path ? (
-              <div className="editor-inspector-muted" style={{ marginTop: 8 }}>
-                {audioSettings.bgm_path.split('/').pop()}
-              </div>
+              <>
+                <div className="editor-inspector-muted" style={{ marginTop: 8 }}>
+                  {audioSettings.bgm_path.split('/').pop()}
+                </div>
+                <div className="editor-inspector-section" style={{ marginTop: 16 }}>
+                  <div className="editor-inspector-label">
+                    BGM 音量 ({Math.round(audioSettings.bgm_volume * 100)}%)
+                  </div>
+                  <input
+                    className="editor-range"
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.02}
+                    value={audioSettings.bgm_volume}
+                    onChange={(event) =>
+                      updateAudioSettings({ bgm_volume: Number(event.target.value) })
+                    }
+                  />
+                </div>
+                <div className="editor-inspector-section">
+                  <div className="editor-inspector-label">
+                    淡入 ({audioSettings.fade_in_sec.toFixed(1)}s)
+                  </div>
+                  <input
+                    className="editor-range"
+                    type="range"
+                    min={0}
+                    max={3}
+                    step={0.1}
+                    value={audioSettings.fade_in_sec}
+                    onChange={(event) =>
+                      updateAudioSettings({ fade_in_sec: Number(event.target.value) })
+                    }
+                  />
+                  <div className="editor-inspector-label" style={{ marginTop: 12 }}>
+                    淡出 ({audioSettings.fade_out_sec.toFixed(1)}s)
+                  </div>
+                  <input
+                    className="editor-range"
+                    type="range"
+                    min={0}
+                    max={3}
+                    step={0.1}
+                    value={audioSettings.fade_out_sec}
+                    onChange={(event) =>
+                      updateAudioSettings({ fade_out_sec: Number(event.target.value) })
+                    }
+                  />
+                </div>
+                <div className="editor-inspector-section">
+                  <label className="editor-modal__check">
+                    <input
+                      type="checkbox"
+                      checked={audioSettings.bgm_duck_enabled ?? true}
+                      onChange={(event) =>
+                        updateAudioSettings({ bgm_duck_enabled: event.target.checked })
+                      }
+                    />
+                    人声 Ducking（导出时压低 BGM）
+                  </label>
+                  {audioSettings.bgm_duck_enabled !== false ? (
+                    <>
+                      <div className="editor-inspector-label" style={{ marginTop: 12 }}>
+                        Duck 比例 ({(audioSettings.bgm_duck_ratio ?? 8).toFixed(1)})
+                      </div>
+                      <input
+                        className="editor-range"
+                        type="range"
+                        min={2}
+                        max={16}
+                        step={0.5}
+                        value={audioSettings.bgm_duck_ratio ?? 8}
+                        onChange={(event) =>
+                          updateAudioSettings({ bgm_duck_ratio: Number(event.target.value) })
+                        }
+                      />
+                    </>
+                  ) : null}
+                </div>
+              </>
             ) : null}
           </div>
         </div>
