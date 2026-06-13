@@ -3,6 +3,10 @@
   position: relative;
 }
 
+.clip-card--selected {
+  transform: none;
+}
+
 .clip-card:hover {
   transform: translateY(-2px);
   box-shadow: var(--ac-shadow);

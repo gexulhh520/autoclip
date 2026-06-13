@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Card, Button, Tooltip, Modal, message } from 'antd'
+import { Card, Button, Tooltip, Modal, message, Checkbox } from 'antd'
 import { PlayCircleOutlined, DownloadOutlined, ClockCircleOutlined, StarFilled, UploadOutlined } from '@ant-design/icons'
 import ReactPlayer from 'react-player'
 import { Clip } from '../store/useProjectStore'
@@ -13,6 +13,9 @@ interface ClipCardProps {
   onDownload: (clipId: string) => void
   projectId?: string
   onClipUpdate?: (clipId: string, updates: Partial<Clip>) => void
+  selectable?: boolean
+  selected?: boolean
+  onSelectChange?: (clipId: string, selected: boolean) => void
 }
 
 const ClipCard: React.FC<ClipCardProps> = ({ 
@@ -20,7 +23,10 @@ const ClipCard: React.FC<ClipCardProps> = ({
   videoUrl, 
   onDownload,
   projectId,
-  onClipUpdate
+  onClipUpdate,
+  selectable = false,
+  selected = false,
+  onSelectChange,
 }) => {
   const [showPlayer, setShowPlayer] = useState(false)
   const [videoThumbnail, setVideoThumbnail] = useState<string | null>(null)
@@ -155,15 +161,16 @@ const ClipCard: React.FC<ClipCardProps> = ({
   return (
     <>
       <Card
-          className="clip-card"
+          className={`clip-card${selected ? ' clip-card--selected' : ''}`}
           hoverable
           style={{ 
             height: '380px',
             borderRadius: '16px',
-            border: '1px solid var(--ac-line)',
+            border: selected ? '1px solid var(--ac-accent)' : '1px solid var(--ac-line)',
             background: 'var(--ac-card)',
             overflow: 'hidden',
-            cursor: 'pointer'
+            cursor: 'pointer',
+            boxShadow: selected ? '0 0 0 1px var(--ac-accent)' : undefined,
           }}
           styles={{
             body: {
@@ -184,8 +191,30 @@ const ClipCard: React.FC<ClipCardProps> = ({
                 cursor: 'pointer',
                 overflow: 'hidden'
               }}
-              onClick={() => setShowPlayer(true)}
+              onClick={() => {
+                if (selectable) {
+                  onSelectChange?.(clip.id, !selected)
+                  return
+                }
+                setShowPlayer(true)
+              }}
             >
+              {selectable ? (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '12px',
+                    left: '12px',
+                    zIndex: 2,
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Checkbox
+                    checked={selected}
+                    onChange={(e) => onSelectChange?.(clip.id, e.target.checked)}
+                  />
+                </div>
+              ) : null}
               <div 
                 style={{
                   position: 'absolute',

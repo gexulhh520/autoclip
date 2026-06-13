@@ -1,8 +1,8 @@
 {
   "id": "golden_quote_cinema",
   "name": "经典影视金句",
-  "description": "从影视解说、混剪素材中提取可独立传播的金句 moment，适合竖屏短视频与口播切片。切片自动叠加金句标题。",
-  "version": "1.0.3",
+  "description": "从影视解说、混剪素材中提取可独立传播的金句 moment，适合竖屏短视频与口播切片。切片自动叠加影视感金句字幕。",
+  "version": "1.1.1",
   "enabled": true,
   "tags": [
     "金句",
@@ -23,18 +23,16 @@
   },
   "rules": {
     "enable_clustering": false,
-    "subtitle_style": "quote_highlight",
+    "subtitle_style": "quote_cinema",
     "quote_overlay": {
-      "font_size": 46,
-      "font_color": "#FFFFFF",
-      "border_color": "#000000",
-      "border_width": 3,
-      "box": true,
-      "box_color": "#00000099",
-      "box_border_width": 20,
-      "margin_bottom": 88,
-      "line_spacing": 8,
-      "max_chars_per_line": 16
+      "layout": "cinema",
+      "base_font_size": 32,
+      "margin_left": 44,
+      "margin_bottom": 72,
+      "max_headline_chars": 12,
+      "max_body_chars": 24,
+      "show_tagline_en": false,
+      "caps_label": "THE MOMENT"
     }
   }
 }

@@ -701,6 +701,29 @@ export const projectApi = {
     return api.patch(`/projects/${projectId}/clips/${clipId}`, updates)
   },
 
+  // 删除切片
+  deleteClip: async (clipId: string): Promise<void> => {
+    await api.delete(`/clips/${clipId}`)
+  },
+
+  deleteClips: async (
+    clipIds: string[]
+  ): Promise<{ deleted: string[]; failed: string[] }> => {
+    const results = await Promise.allSettled(
+      clipIds.map((clipId) => api.delete(`/clips/${clipId}`))
+    )
+    const deleted: string[] = []
+    const failed: string[] = []
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        deleted.push(clipIds[index])
+      } else {
+        failed.push(clipIds[index])
+      }
+    })
+    return { deleted, failed }
+  },
+
   // 更新切片标题
   updateClipTitle: async (clipId: string, title: string): Promise<any> => {
     return api.patch(`/clips/${clipId}/title`, { title })
@@ -876,6 +899,79 @@ export const projectApi = {
     const params = sourceId ? { source_id: sourceId } : undefined
     return api.patch(
       `/projects/${projectId}/pipeline-steps/step2_timeline/items/${encodeURIComponent(itemId)}`,
+      payload,
+      { params }
+    )
+  },
+
+  getTimelineSrtSegments: async (
+    projectId: string,
+    startTime: string,
+    endTime: string,
+    sourceId?: string | null,
+    padding = 3
+  ): Promise<{
+    segments: Array<{
+      index: number
+      start_time: string
+      end_time: string
+      text: string
+      in_range: boolean
+    }>
+    range_start: string
+    range_end: string
+    clip_start: string
+    clip_end: string
+    segment_count: number
+  }> => {
+    const params: Record<string, string | number> = {
+      start_time: startTime,
+      end_time: endTime,
+      padding,
+    }
+    if (sourceId) params.source_id = sourceId
+    return api.get(`/projects/${projectId}/pipeline-steps/step2_timeline/srt-segments`, { params })
+  },
+
+  updateSrtEntry: async (
+    projectId: string,
+    entryIndex: number,
+    text: string,
+    sourceId?: string | null
+  ): Promise<{
+    success: boolean
+    index: number
+    text: string
+    start_time: string
+    end_time: string
+  }> => {
+    const params = sourceId ? { source_id: sourceId } : undefined
+    return api.patch(
+      `/projects/${projectId}/pipeline-steps/srt/entries/${entryIndex}`,
+      { text },
+      { params }
+    )
+  },
+
+  regenerateTimelineContent: async (
+    projectId: string,
+    payload: {
+      start_time: string
+      end_time: string
+      mode?: 'outline' | 'content' | 'both'
+      outline?: string
+      content?: string[]
+    },
+    sourceId?: string | null
+  ): Promise<{
+    success: boolean
+    outline: string
+    content: string[]
+    mode: string
+  }> => {
+    const params = sourceId ? { source_id: sourceId } : undefined
+    return api.post(
+      `/projects/${projectId}/pipeline-steps/step2_timeline/regenerate-content`,
       payload,
       { params }
     )

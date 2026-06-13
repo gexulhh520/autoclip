@@ -37,7 +37,7 @@ def main() -> int:
     all_ok &= check(
         "golden_quote_cinema settings",
         cinema_settings["clip_goal"] == "golden_quote"
-        and cinema_settings["template_rules"]["subtitle_style"] == "quote_highlight",
+        and cinema_settings["template_rules"]["subtitle_style"] == "quote_cinema",
     )
 
     digest_settings = engine.resolve_processing_settings("knowledge_digest")

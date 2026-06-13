@@ -949,6 +949,33 @@ def _resolve_metadata_dir(project_dir: Path, source_id: Optional[str] = None) ->
     return project_dir / "metadata"
 
 
+def _resolve_srt_path(project_dir: Path, source_id: Optional[str] = None) -> Path:
+    if source_id:
+        return project_dir / "raw" / "sources" / source_id / "input.srt"
+    return project_dir / "raw" / "input.srt"
+
+
+_TIMELINE_REGENERATE_PROMPT = """你是视频金句编辑助手。根据给定时间范围内的字幕原文，生成或优化金句摘要与要点。
+
+## 输入
+- srt_text: 该时间范围内的 SRT 字幕（含序号与时间戳）
+- current_outline: 当前金句摘要（可为空）
+- current_content: 当前要点列表（可为空）
+- mode: outline（仅摘要）| content（仅要点）| both（两者）
+
+## 输出要求
+输出单个 JSON 对象（不要用 Markdown 代码块），字段：
+- outline: 字符串，一句话金句摘要，抓核心观点
+- content: 字符串数组，2–5 条要点；首条尽量贴近原话核心句
+
+规则：
+1. 严格基于 srt_text，不编造字幕中不存在的事实
+2. mode=outline 时保留 content 与 current_content 一致（若为空则 []）
+3. mode=content 时保留 outline 与 current_outline 一致（若为空则 ""）
+4. 使用标准英文双引号，确保 JSON 可被解析
+"""
+
+
 def get_pipeline_step_result(
     project_id: str,
     step_id: str,
@@ -1337,6 +1364,204 @@ def update_pipeline_timeline_item(
     }
 
 
+def get_timeline_srt_segments(
+    project_id: str,
+    start_time: str,
+    end_time: str,
+    source_id: Optional[str] = None,
+    padding_seconds: float = 3.0,
+) -> Dict[str, Any]:
+    """获取时间线校准范围内的 SRT 字幕段（含前后 padding）。"""
+    from backend.utils.text_processor import TextProcessor
+
+    start_time = _validate_srt_timestamp(start_time, "开始时间")
+    end_time = _validate_srt_timestamp(end_time, "结束时间")
+
+    tp = TextProcessor()
+    start_sec = tp.time_to_seconds(start_time)
+    end_sec = tp.time_to_seconds(end_time)
+    if end_sec <= start_sec:
+        raise ValueError("结束时间必须晚于开始时间")
+
+    project_dir = get_project_directory(project_id)
+    srt_path = _resolve_srt_path(project_dir, source_id)
+    if not srt_path.exists():
+        raise ValueError("字幕文件不存在")
+
+    range_start = max(0.0, start_sec - padding_seconds)
+    range_end = end_sec + padding_seconds
+    srt_data = tp.parse_srt(srt_path)
+
+    segments = []
+    for entry in srt_data:
+        sub_start = tp.time_to_seconds(str(entry["start_time"]))
+        sub_end = tp.time_to_seconds(str(entry["end_time"]))
+        if sub_start < range_end and sub_end > range_start:
+            in_range = sub_start >= start_sec and sub_end <= end_sec
+            segments.append(
+                {
+                    "index": entry.get("index"),
+                    "start_time": str(entry["start_time"]),
+                    "end_time": str(entry["end_time"]),
+                    "text": entry.get("text", ""),
+                    "in_range": in_range,
+                }
+            )
+
+    return {
+        "segments": segments,
+        "range_start": seconds_to_srt_timestamp(range_start),
+        "range_end": seconds_to_srt_timestamp(range_end),
+        "clip_start": start_time,
+        "clip_end": end_time,
+        "segment_count": len(segments),
+    }
+
+
+def update_srt_entry(
+    project_id: str,
+    index: int,
+    text: str,
+    source_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """修正原字幕文件中单条字幕的文本。"""
+    import pysrt
+
+    if index < 1:
+        raise ValueError("字幕序号无效")
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        raise ValueError("字幕文本不能为空")
+
+    project_dir = get_project_directory(project_id)
+    srt_path = _resolve_srt_path(project_dir, source_id)
+    if not srt_path.exists():
+        raise ValueError("字幕文件不存在")
+
+    try:
+        subs = pysrt.open(str(srt_path), encoding="utf-8")
+    except UnicodeDecodeError:
+        subs = pysrt.open(str(srt_path), encoding="utf-8-sig")
+
+    sub = next((s for s in subs if s.index == index), None)
+    if sub is None:
+        raise ValueError(f"字幕序号 {index} 不存在")
+
+    sub.text = cleaned
+    subs.save(str(srt_path), encoding="utf-8")
+
+    logger.info("项目 %s 已更新字幕 #%s", project_id, index)
+    return {
+        "success": True,
+        "index": index,
+        "text": cleaned,
+        "start_time": str(sub.start),
+        "end_time": str(sub.end),
+    }
+
+
+def regenerate_timeline_item_content(
+    project_id: str,
+    start_time: str,
+    end_time: str,
+    mode: str = "both",
+    current_outline: Optional[str] = None,
+    current_content: Optional[List[str]] = None,
+    source_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """基于时间范围内字幕，用 LLM 重新生成金句摘要和/或要点。"""
+    from backend.utils.llm_client import LLMClient
+    from backend.utils.text_processor import TextProcessor
+
+    mode = str(mode or "both").strip().lower()
+    if mode not in {"outline", "content", "both"}:
+        raise ValueError("mode 必须是 outline、content 或 both")
+
+    start_time = _validate_srt_timestamp(start_time, "开始时间")
+    end_time = _validate_srt_timestamp(end_time, "结束时间")
+
+    tp = TextProcessor()
+    if tp.time_to_seconds(end_time) <= tp.time_to_seconds(start_time):
+        raise ValueError("结束时间必须晚于开始时间")
+
+    project_dir = get_project_directory(project_id)
+    srt_path = _resolve_srt_path(project_dir, source_id)
+    if not srt_path.exists():
+        raise ValueError("字幕文件不存在")
+
+    start_sec = tp.time_to_seconds(start_time)
+    end_sec = tp.time_to_seconds(end_time)
+    srt_data = tp.parse_srt(srt_path)
+
+    srt_text = ""
+    for entry in srt_data:
+        sub_start = tp.time_to_seconds(str(entry["start_time"]))
+        sub_end = tp.time_to_seconds(str(entry["end_time"]))
+        if sub_start < end_sec and sub_end > start_sec:
+            srt_text += (
+                f"{entry.get('index')}\n"
+                f"{entry['start_time']} --> {entry['end_time']}\n"
+                f"{entry.get('text', '')}\n\n"
+            )
+
+    if not srt_text.strip():
+        raise ValueError("该时间范围内没有可用字幕")
+
+    llm = LLMClient()
+    input_data = {
+        "srt_text": srt_text,
+        "current_outline": str(current_outline or "").strip(),
+        "current_content": current_content or [],
+        "mode": mode,
+    }
+    raw = llm.call_with_retry(_TIMELINE_REGENERATE_PROMPT, input_data, max_retries=2)
+    if not raw or not raw.strip():
+        raise ValueError("LLM 未返回有效内容")
+
+    parsed = llm.parse_json_response(raw)
+    if isinstance(parsed, list) and parsed:
+        parsed = parsed[0]
+    if not isinstance(parsed, dict):
+        raise ValueError("LLM 返回格式无效")
+
+    outline = str(parsed.get("outline") or current_outline or "").strip()
+    content_raw = parsed.get("content")
+    if isinstance(content_raw, list):
+        content = [str(c).strip() for c in content_raw if str(c).strip()]
+    else:
+        content = list(current_content or [])
+
+    if mode == "outline":
+        content = list(current_content or [])
+    elif mode == "content":
+        outline = str(current_outline or outline).strip()
+
+    if mode in {"outline", "both"} and not outline:
+        raise ValueError("未能生成金句摘要")
+    if mode in {"content", "both"} and not content:
+        raise ValueError("未能生成要点")
+
+    return {
+        "success": True,
+        "outline": outline,
+        "content": content,
+        "mode": mode,
+    }
+
+
+def seconds_to_srt_timestamp(total_seconds: float) -> str:
+    """秒数转 SRT 时间戳 HH:MM:SS,mmm。"""
+    clamped = max(0.0, total_seconds)
+    hours = int(clamped // 3600)
+    minutes = int((clamped % 3600) // 60)
+    secs = int(clamped % 60)
+    millis = int(round((clamped - int(clamped)) * 1000))
+    return (
+        f"{hours:02d}:{minutes:02d}:{secs:02d},"
+        f"{millis:03d}"
+    )
+
+
 def update_pipeline_score_item(
     project_id: str,
     item_id: str,
@@ -1500,6 +1725,24 @@ def _can_run_step(
     return _step_inputs_ready(step_id, project_dir, project)
 
 
+def _safe_unlink(path: Path, retries: int = 5, delay: float = 0.4) -> bool:
+    """删除文件；Windows 上若被播放器占用则重试，避免 step6 重跑失败。"""
+    for attempt in range(retries):
+        try:
+            path.unlink()
+            return True
+        except PermissionError:
+            if attempt < retries - 1:
+                time.sleep(delay)
+                continue
+            logger.warning("文件被占用，跳过删除: %s", path)
+            return False
+        except OSError as exc:
+            logger.warning("删除文件失败: %s (%s)", path, exc)
+            return False
+    return False
+
+
 def clear_step_outputs(project_id: str, from_step_id: str) -> None:
     if from_step_id not in STEP_OUTPUTS_TO_CLEAR:
         return
@@ -1507,8 +1750,9 @@ def clear_step_outputs(project_id: str, from_step_id: str) -> None:
     for rel in STEP_OUTPUTS_TO_CLEAR[from_step_id]:
         path = project_dir / rel
         if path.exists():
-            path.unlink()
-            logger.info("已清除步骤输出: %s", path)
+            _safe_unlink(path)
+            if not path.exists():
+                logger.info("已清除步骤输出: %s", path)
     if from_step_id == "step6_video":
         for rel_dir in STEP6_MEDIA_DIRS:
             media_dir = project_dir / rel_dir
@@ -1516,8 +1760,8 @@ def clear_step_outputs(project_id: str, from_step_id: str) -> None:
                 continue
             for f in media_dir.iterdir():
                 if f.is_file():
-                    f.unlink()
-                    logger.info("已清除旧切片文件: %s", f)
+                    if _safe_unlink(f):
+                        logger.info("已清除旧切片文件: %s", f)
 
 
 def run_pipeline_from_step(

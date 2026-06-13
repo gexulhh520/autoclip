@@ -109,10 +109,11 @@
         },
         "subtitle_style": {
           "type": "string",
-          "description": "字幕样式：default | quote_highlight",
+          "description": "字幕样式：default | quote_highlight | quote_cinema",
           "enum": [
             "default",
-            "quote_highlight"
+            "quote_highlight",
+            "quote_cinema"
           ]
         },
         "quote_overlay": {

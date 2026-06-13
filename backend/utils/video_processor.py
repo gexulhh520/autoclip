@@ -274,6 +274,85 @@ class VideoProcessor:
         return ":".join(parts)
 
     @staticmethod
+    def _probe_video_dimensions(input_video: Path) -> tuple[int, int]:
+        """读取视频宽高，供字幕排版缩放。"""
+        try:
+            ffprobe_bin = get_ffprobe_path()
+            result = subprocess.run(
+                [
+                    ffprobe_bin,
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "v:0",
+                    "-show_entries",
+                    "stream=width,height",
+                    "-of",
+                    "json",
+                    str(input_video),
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="ignore",
+            )
+            if result.returncode != 0:
+                raise ValueError(result.stderr[:200])
+            payload = json.loads(result.stdout or "{}")
+            streams = payload.get("streams") or []
+            if not streams:
+                raise ValueError("no video stream")
+            width = int(streams[0].get("width") or 720)
+            height = int(streams[0].get("height") or 1280)
+            return width, height
+        except Exception as exc:
+            logger.warning("读取视频尺寸失败，使用默认 720x1280: %s", exc)
+            return 720, 1280
+
+    @staticmethod
+    def _escape_subtitles_path(path: Path) -> str:
+        escaped = path.resolve().as_posix().replace(":", "\\:")
+        escaped = escaped.replace("'", r"\'")
+        return escaped
+
+    @staticmethod
+    def _build_cinema_subtitles_filter(
+        clip_data: Dict[str, Any],
+        output_path: Path,
+        input_video: Path,
+        duration_sec: float,
+        style_config: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        """生成左下角影视感多层 ASS 字幕滤镜。"""
+        from backend.pipeline.quote_overlay_composer import compose_quote_cinema_layers
+        from backend.utils.ass_subtitle_builder import AssSubtitleBuilder, resolve_cinema_fonts
+
+        style_config = style_config or {}
+        fonts = resolve_cinema_fonts(style_config)
+        if not fonts:
+            logger.warning(
+                "未找到影视感字幕字体（中文+手写体），跳过 quote_cinema 叠加。"
+            )
+            return None
+
+        width, height = VideoProcessor._probe_video_dimensions(input_video)
+        layers = compose_quote_cinema_layers(clip_data, style_config)
+        if not layers:
+            return None
+
+        builder = AssSubtitleBuilder(fonts, style_config)
+        ass_path = builder.build(
+            layers,
+            output_path,
+            width=width,
+            height=height,
+            duration_sec=duration_sec,
+        )
+
+        ass_arg = VideoProcessor._escape_filter_value(ass_path.name)
+        return f"subtitles={ass_arg}"
+
+    @staticmethod
     def _escape_drawtext(text: str) -> str:
         escaped = text.replace("\\", "\\\\")
         escaped = escaped.replace(":", "\\:")
@@ -287,6 +366,7 @@ class VideoProcessor:
                     *,
                     subtitle_style: str = "default",
                     overlay_text: Optional[str] = None,
+                    overlay_clip_data: Optional[Dict[str, Any]] = None,
                     subtitle_config: Optional[Dict[str, Any]] = None) -> bool:
         """
         从视频中提取指定时间段的片段
@@ -314,13 +394,48 @@ class VideoProcessor:
             duration = end_seconds - start_seconds
             
             ffmpeg_bin = get_ffmpeg_path()
+            use_cinema_overlay = (
+                subtitle_style == "quote_cinema"
+                and overlay_clip_data
+            )
             use_quote_overlay = (
                 subtitle_style == "quote_highlight"
                 and overlay_text
                 and overlay_text.strip()
             )
+            use_text_overlay = use_cinema_overlay or use_quote_overlay
 
-            if use_quote_overlay:
+            if use_cinema_overlay:
+                vf = VideoProcessor._build_cinema_subtitles_filter(
+                    overlay_clip_data,
+                    output_path,
+                    input_video,
+                    duration,
+                    subtitle_config,
+                )
+                if not vf:
+                    logger.warning("quote_cinema 字体不可用，回退为 drawtext: %s", output_path)
+                    from backend.pipeline.quote_overlay_composer import get_quote_overlay_fallback_text
+
+                    fallback_config = dict(subtitle_config or {})
+                    fallback_config.setdefault("x", "48")
+                    fallback_config.setdefault("y", "h-text_h-72")
+                    fallback_config.setdefault("font_color", "#E8C872")
+                    fallback_config.setdefault("box", False)
+                    fallback_config.setdefault("font_size", 36)
+                    return VideoProcessor.extract_clip(
+                        input_video,
+                        output_path,
+                        start_time,
+                        end_time,
+                        subtitle_style="quote_highlight",
+                        overlay_text=get_quote_overlay_fallback_text(
+                            overlay_clip_data or {},
+                            subtitle_config,
+                        ),
+                        subtitle_config=fallback_config,
+                    )
+            elif use_quote_overlay:
                 vf = VideoProcessor._build_drawtext_filter(
                     overlay_text.strip(),
                     output_path,
@@ -335,10 +450,16 @@ class VideoProcessor:
                         end_time,
                         subtitle_style="default",
                     )
+            else:
+                vf = None
+
+            if use_text_overlay and vf:
+                input_arg = str(input_video.resolve())
+                output_arg = str(output_path.resolve())
                 cmd = [
                     ffmpeg_bin,
                     '-ss', ffmpeg_start_time,
-                    '-i', str(input_video),
+                    '-i', input_arg,
                     '-t', str(duration),
                     '-vf', vf,
                     '-c:v', 'libx264',
@@ -348,9 +469,11 @@ class VideoProcessor:
                     '-b:a', '128k',
                     '-avoid_negative_ts', 'make_zero',
                     '-y',
-                    str(output_path),
+                    output_arg,
                 ]
+                ffmpeg_cwd = str(output_path.parent) if use_cinema_overlay else None
             else:
+                ffmpeg_cwd = None
                 cmd = [
                     ffmpeg_bin,
                     '-ss', ffmpeg_start_time,  # 在输入前定位，更精确
@@ -364,16 +487,52 @@ class VideoProcessor:
                 ]
             
             # 执行命令
-            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='ignore')
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='ignore',
+                cwd=ffmpeg_cwd,
+            )
             if use_quote_overlay:
                 overlay_sidecar = output_path.with_suffix(output_path.suffix + ".overlay.txt")
                 overlay_sidecar.unlink(missing_ok=True)
+            if use_cinema_overlay:
+                ass_sidecar = output_path.with_suffix(output_path.suffix + ".overlay.ass")
+                ass_sidecar.unlink(missing_ok=True)
             
             if result.returncode == 0:
                 logger.info(f"成功提取视频片段: {output_path} ({ffmpeg_start_time} -> {ffmpeg_end_time}, 时长: {duration:.2f}秒)")
                 return True
 
-            if use_quote_overlay:
+            if use_text_overlay:
+                if use_cinema_overlay:
+                    logger.warning(
+                        "quote_cinema 叠加失败，回退为 drawtext: %s",
+                        result.stderr[:300],
+                    )
+                    from backend.pipeline.quote_overlay_composer import get_quote_overlay_fallback_text
+
+                    fallback_config = dict(subtitle_config or {})
+                    fallback_config.setdefault("x", "48")
+                    fallback_config.setdefault("y", "h-text_h-72")
+                    fallback_config.setdefault("font_color", "#E8C872")
+                    fallback_config.setdefault("box", False)
+                    fallback_config.setdefault("font_size", 36)
+                    fallback_text = get_quote_overlay_fallback_text(
+                        overlay_clip_data or {},
+                        subtitle_config,
+                    )
+                    return VideoProcessor.extract_clip(
+                        input_video,
+                        output_path,
+                        start_time,
+                        end_time,
+                        subtitle_style="quote_highlight",
+                        overlay_text=fallback_text,
+                        subtitle_config=fallback_config,
+                    )
                 logger.warning("quote_highlight 叠加失败，回退为 stream copy: %s", result.stderr[:200])
                 return VideoProcessor.extract_clip(
                     input_video,
@@ -604,6 +763,7 @@ class VideoProcessor:
                 end_time,
                 subtitle_style=subtitle_style,
                 overlay_text=title if subtitle_style == "quote_highlight" else None,
+                overlay_clip_data=clip_data if subtitle_style == "quote_cinema" else None,
                 subtitle_config=subtitle_config,
             ):
                 successful_clips.append(output_path)

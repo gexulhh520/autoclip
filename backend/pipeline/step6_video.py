@@ -61,7 +61,11 @@ class VideoGenerator:
                 'id': clip['id'],
                 'title': clip.get('generated_title', f"片段_{clip['id']}"),
                 'start_time': clip['start_time'],
-                'end_time': clip['end_time']
+                'end_time': clip['end_time'],
+                'outline': clip.get('outline'),
+                'content': clip.get('content') or [],
+                'recommend_reason': clip.get('recommend_reason') or '',
+                'generated_title': clip.get('generated_title') or clip.get('title'),
             })
         
         # 批量生成切片

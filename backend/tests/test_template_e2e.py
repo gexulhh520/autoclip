@@ -30,7 +30,7 @@ def test_template_detail_api(client: TestClient):
     body = response.json()
     assert body["template"]["id"] == "golden_quote_cinema"
     assert body["resolved_settings"]["clip_goal"] == "golden_quote"
-    assert body["resolved_settings"]["template_rules"]["subtitle_style"] == "quote_highlight"
+    assert body["resolved_settings"]["template_rules"]["subtitle_style"] == "quote_cinema"
 
 
 def test_template_asset_api(client: TestClient):
@@ -71,7 +71,7 @@ def test_orchestrator_build_context_with_template(monkeypatch, tmp_path):
     assert ctx.settings["template_id"] == "golden_quote_cinema"
     assert "影视解说" in ctx.prompts.get("outline", "")
     assert (ctx.metadata_dir / "template_config.json").exists()
-    assert ctx.settings["template_rules"]["subtitle_style"] == "quote_highlight"
+    assert ctx.settings["template_rules"]["subtitle_style"] == "quote_cinema"
 
 
 def test_upload_invalid_template_id_rejected(client: TestClient):

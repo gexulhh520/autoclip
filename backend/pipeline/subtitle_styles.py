@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 
 DEFAULT_SUBTITLE_STYLE = "default"
 QUOTE_HIGHLIGHT_STYLE = "quote_highlight"
+QUOTE_CINEMA_STYLE = "quote_cinema"
 
 DEFAULT_QUOTE_OVERLAY_CONFIG: Dict[str, Any] = {
     "font_size": 42,
@@ -19,6 +20,17 @@ DEFAULT_QUOTE_OVERLAY_CONFIG: Dict[str, Any] = {
     "max_chars_per_line": 18,
 }
 
+DEFAULT_QUOTE_CINEMA_CONFIG: Dict[str, Any] = {
+    "layout": "cinema",
+    "base_font_size": 32,
+    "margin_left": 44,
+    "margin_bottom": 72,
+    "max_headline_chars": 12,
+    "max_body_chars": 24,
+    "show_tagline_en": False,
+    "caps_label": "THE MOMENT",
+}
+
 
 def resolve_subtitle_style(settings: Optional[Dict[str, Any]] = None) -> str:
     settings = settings or {}
@@ -28,10 +40,16 @@ def resolve_subtitle_style(settings: Optional[Dict[str, Any]] = None) -> str:
 
 
 def resolve_quote_overlay_config(settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """返回 quote_highlight 标题叠加的排版配置。"""
+    """返回金句叠加的排版配置（quote_highlight / quote_cinema 共用）。"""
     settings = settings or {}
     rules = settings.get("template_rules") or {}
-    config = dict(DEFAULT_QUOTE_OVERLAY_CONFIG)
+    style = rules.get("subtitle_style") or DEFAULT_SUBTITLE_STYLE
+    base_defaults = (
+        dict(DEFAULT_QUOTE_CINEMA_CONFIG)
+        if style == QUOTE_CINEMA_STYLE
+        else dict(DEFAULT_QUOTE_OVERLAY_CONFIG)
+    )
+    config = dict(base_defaults)
 
     # 新配置入口：rules.quote_overlay = {font_size, font_color, ...}
     overlay_rules = rules.get("quote_overlay") or rules.get("subtitle_overlay") or {}
@@ -55,4 +73,8 @@ def resolve_quote_overlay_config(settings: Optional[Dict[str, Any]] = None) -> D
 
 
 def should_apply_quote_overlay(style: str) -> bool:
-    return style == QUOTE_HIGHLIGHT_STYLE
+    return style in {QUOTE_HIGHLIGHT_STYLE, QUOTE_CINEMA_STYLE}
+
+
+def should_apply_cinema_overlay(style: str) -> bool:
+    return style == QUOTE_CINEMA_STYLE

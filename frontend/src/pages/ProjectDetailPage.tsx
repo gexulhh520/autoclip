@@ -10,12 +10,15 @@ import {
   Spin, 
   Empty,
   message,
-  Radio
+  Radio,
+  Checkbox,
+  Modal
 } from 'antd'
 import { 
   ArrowLeftOutlined, 
   PlayCircleOutlined,
-  PlusOutlined
+  PlusOutlined,
+  DeleteOutlined
 } from '@ant-design/icons'
 import { useProjectStore, Clip, Collection } from '../store/useProjectStore'
 import { projectApi, ProjectSourcesResponse } from '../services/api'
@@ -56,6 +59,9 @@ const ProjectDetailPage: React.FC = () => {
   const [multiSource, setMultiSource] = useState<ProjectSourcesResponse['multi_source'] | null>(null)
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null)
   const [retryingSourceId, setRetryingSourceId] = useState<string | null>(null)
+  const [clipBatchMode, setClipBatchMode] = useState(false)
+  const [selectedClipIds, setSelectedClipIds] = useState<string[]>([])
+  const [deletingClips, setDeletingClips] = useState(false)
   const { generateAndDownloadCollectionVideo } = useCollectionVideoDownload()
 
   useEffect(() => {
@@ -293,6 +299,84 @@ const ProjectDetailPage: React.FC = () => {
     }
   }
 
+  const sortedClips = getSortedClips()
+  const allVisibleClipIds = sortedClips.map((clip) => clip.id)
+  const allVisibleSelected =
+    allVisibleClipIds.length > 0 &&
+    allVisibleClipIds.every((clipId) => selectedClipIds.includes(clipId))
+  const someVisibleSelected = selectedClipIds.length > 0 && !allVisibleSelected
+
+  const exitClipBatchMode = () => {
+    setClipBatchMode(false)
+    setSelectedClipIds([])
+  }
+
+  const handleClipSelectChange = (clipId: string, selected: boolean) => {
+    setSelectedClipIds((prev) =>
+      selected ? Array.from(new Set([...prev, clipId])) : prev.filter((id) => id !== clipId)
+    )
+  }
+
+  const handleToggleSelectAllClips = () => {
+    if (allVisibleSelected) {
+      setSelectedClipIds([])
+      return
+    }
+    setSelectedClipIds(allVisibleClipIds)
+  }
+
+  const handleBatchDeleteClips = () => {
+    if (!id || selectedClipIds.length === 0) return
+
+    Modal.confirm({
+      title: `删除 ${selectedClipIds.length} 个视频片段？`,
+      content: '删除后无法恢复，合集中引用这些片段的记录也会一并移除。',
+      okText: '删除',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        setDeletingClips(true)
+        try {
+          const { deleted, failed } = await projectApi.deleteClips(selectedClipIds)
+          if (deleted.length > 0 && currentProject) {
+            const deletedSet = new Set(deleted)
+            const remainingClips =
+              currentProject.clips?.filter((clip) => !deletedSet.has(clip.id)) || []
+            const remainingCollections =
+              currentProject.collections?.map((collection) => ({
+                ...collection,
+                clip_ids: collection.clip_ids.filter((clipId) => !deletedSet.has(clipId)),
+              })) || []
+            const updatedProject = {
+              ...currentProject,
+              clips: remainingClips,
+              collections: remainingCollections,
+              total_clips: remainingClips.length,
+            }
+            setCurrentProject(updatedProject)
+            upsertProject(updatedProject)
+          }
+          setSelectedClipIds((prev) => prev.filter((clipId) => !deleted.includes(clipId)))
+          if (failed.length === 0) {
+            message.success(`已删除 ${deleted.length} 个片段`)
+            if (deleted.length === allVisibleClipIds.length) {
+              exitClipBatchMode()
+            }
+          } else if (deleted.length > 0) {
+            message.warning(`已删除 ${deleted.length} 个，${failed.length} 个删除失败`)
+          } else {
+            message.error('删除失败')
+          }
+        } catch (error) {
+          console.error('Failed to batch delete clips:', error)
+          message.error('删除片段失败')
+        } finally {
+          setDeletingClips(false)
+        }
+      },
+    })
+  }
+
   if (loading) {
     return (
       <Content style={{ padding: '24px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
@@ -523,7 +607,35 @@ const ProjectDetailPage: React.FC = () => {
                 </div>
                 
                 <Space>
-                  {(!currentProject.collections || currentProject.collections.length === 0) && (
+                  {currentProject.clips && currentProject.clips.length > 0 ? (
+                    clipBatchMode ? (
+                      <>
+                        <Checkbox
+                          indeterminate={someVisibleSelected}
+                          checked={allVisibleSelected}
+                          onChange={handleToggleSelectAllClips}
+                        >
+                          全选
+                        </Checkbox>
+                        <Text style={{ fontSize: 13, color: 'var(--ac-sub)' }}>
+                          已选 {selectedClipIds.length} 项
+                        </Text>
+                        <Button
+                          danger
+                          icon={<DeleteOutlined />}
+                          loading={deletingClips}
+                          disabled={selectedClipIds.length === 0}
+                          onClick={handleBatchDeleteClips}
+                        >
+                          删除
+                        </Button>
+                        <Button onClick={exitClipBatchMode}>取消</Button>
+                      </>
+                    ) : (
+                      <Button onClick={() => setClipBatchMode(true)}>批量管理</Button>
+                    )
+                  ) : null}
+                  {(!currentProject.collections || currentProject.collections.length === 0) && !clipBatchMode ? (
                     <Button 
                       type="primary" 
                       icon={<PlusOutlined />}
@@ -540,7 +652,7 @@ const ProjectDetailPage: React.FC = () => {
                     >
                       创建合集
                     </Button>
-                  )}
+                  ) : null}
                 </Space>
               </div>
             </div>
@@ -554,13 +666,16 @@ const ProjectDetailPage: React.FC = () => {
                   padding: '8px 0'
                 }}
               >
-                {getSortedClips().map((clip) => (
+                {sortedClips.map((clip) => (
                   <ClipCard
                     key={clip.id}
                     clip={clip}
                     projectId={currentProject.id}
                     videoUrl={projectApi.getClipVideoUrl(currentProject.id, clip.id, clip.title || clip.generated_title)}
                     onDownload={(clipId) => projectApi.downloadVideo(currentProject.id, clipId)}
+                    selectable={clipBatchMode}
+                    selected={selectedClipIds.includes(clip.id)}
+                    onSelectChange={handleClipSelectChange}
                     onClipUpdate={(clipId: string, updates: Partial<Clip>) => {
                       // 更新本地状态
                       if (currentProject) {

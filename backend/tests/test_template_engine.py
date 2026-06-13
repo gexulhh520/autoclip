@@ -42,7 +42,7 @@ def test_resolve_processing_settings(engine: TemplateEngine):
     assert settings["clip_duration_preset"] == "short"
     assert settings["prompt_pack"] == "golden_quote"
     assert settings["template_rules"]["enable_clustering"] is False
-    assert settings["template_rules"]["subtitle_style"] == "quote_highlight"
+    assert settings["template_rules"]["subtitle_style"] == "quote_cinema"
 
 
 def test_to_summary_omits_rules(engine: TemplateEngine):

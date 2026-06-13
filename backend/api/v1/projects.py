@@ -1142,6 +1142,109 @@ async def update_project_pipeline_timeline_item(
         raise HTTPException(status_code=500, detail="更新时间线条目失败")
 
 
+class PipelineSrtEntryUpdate(BaseModel):
+    text: str = Field(..., min_length=1, description="修正后的字幕文本")
+
+
+class PipelineTimelineRegenerateRequest(BaseModel):
+    start_time: str = Field(..., description="开始时间 HH:MM:SS,mmm")
+    end_time: str = Field(..., description="结束时间 HH:MM:SS,mmm")
+    mode: str = Field("both", description="outline | content | both")
+    outline: Optional[str] = Field(None, description="当前金句摘要")
+    content: Optional[List[str]] = Field(None, description="当前要点列表")
+
+
+@router.get("/{project_id}/pipeline-steps/step2_timeline/srt-segments")
+async def get_project_timeline_srt_segments(
+    project_id: str,
+    start_time: str = Query(..., description="片段开始时间 HH:MM:SS,mmm"),
+    end_time: str = Query(..., description="片段结束时间 HH:MM:SS,mmm"),
+    padding: float = Query(3.0, ge=0, le=30, description="前后扩展秒数"),
+    source_id: Optional[str] = Query(None, description="多源项目：指定源视频 ID"),
+    project_service: ProjectService = Depends(get_project_service),
+):
+    """获取时间线校准范围内的原字幕段。"""
+    try:
+        project = project_service.get(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        from backend.services.pipeline_steps_service import get_timeline_srt_segments
+        return get_timeline_srt_segments(
+            project_id,
+            start_time,
+            end_time,
+            source_id=source_id,
+            padding_seconds=padding,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("获取时间线字幕失败: %s", project_id)
+        raise HTTPException(status_code=500, detail="获取字幕失败")
+
+
+@router.patch("/{project_id}/pipeline-steps/srt/entries/{entry_index}")
+async def update_project_srt_entry(
+    project_id: str,
+    entry_index: int,
+    body: PipelineSrtEntryUpdate,
+    source_id: Optional[str] = Query(None, description="多源项目：指定源视频 ID"),
+    project_service: ProjectService = Depends(get_project_service),
+):
+    """修正原片字幕文件中单条字幕文本。"""
+    try:
+        project = project_service.get(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        from backend.services.pipeline_steps_service import update_srt_entry
+        return update_srt_entry(
+            project_id,
+            entry_index,
+            body.text,
+            source_id=source_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("更新字幕失败: %s entry=%s", project_id, entry_index)
+        raise HTTPException(status_code=500, detail="更新字幕失败")
+
+
+@router.post("/{project_id}/pipeline-steps/step2_timeline/regenerate-content")
+async def regenerate_project_timeline_content(
+    project_id: str,
+    body: PipelineTimelineRegenerateRequest,
+    source_id: Optional[str] = Query(None, description="多源项目：指定源视频 ID"),
+    project_service: ProjectService = Depends(get_project_service),
+):
+    """基于时间范围内字幕，用 LLM 重新生成金句摘要和/或要点。"""
+    try:
+        project = project_service.get(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        from backend.services.pipeline_steps_service import regenerate_timeline_item_content
+        return regenerate_timeline_item_content(
+            project_id,
+            body.start_time,
+            body.end_time,
+            mode=body.mode,
+            current_outline=body.outline,
+            current_content=body.content,
+            source_id=source_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("重新生成时间线内容失败: %s", project_id)
+        raise HTTPException(status_code=500, detail="重新生成失败")
+
+
 class PipelineScoreItemUpdate(BaseModel):
     final_score: float = Field(..., ge=0, le=1, description="最终评分 0–1")
     recommend_reason: str = Field(..., min_length=1, description="推荐理由")

@@ -9,9 +9,9 @@ def test_quote_overlay_config_comes_from_template():
     settings = get_template_engine().resolve_processing_settings("golden_quote_cinema")
     config = resolve_quote_overlay_config(settings)
 
-    assert config["font_size"] == 46
-    assert config["font_color"] == "#FFFFFF"
-    assert config["max_chars_per_line"] == 16
+    assert config["layout"] == "cinema"
+    assert config["base_font_size"] == 32
+    assert config["max_headline_chars"] == 12
 
 
 def test_drawtext_filter_uses_fontfile_and_utf8_textfile(tmp_path):
