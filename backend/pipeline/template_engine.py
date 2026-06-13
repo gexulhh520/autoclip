@@ -87,6 +87,7 @@ class TemplateEngine:
 
         settings: Dict[str, Any] = {
             "template_id": template.id,
+            "template_version": template.version,
             "clip_goal": template.pipeline.clip_goal,
             "video_category": template.pipeline.video_category,
         }
@@ -99,7 +100,11 @@ class TemplateEngine:
         settings["prompt_pack"] = prompt_pack
 
         if template.rules:
-            settings["template_rules"] = template.rules.model_dump(exclude_none=True)
+            rules_payload = template.rules.model_dump(exclude_none=True)
+            settings["template_rules"] = rules_payload
+            from backend.pipeline.overlay_pipeline import normalize_overlay_rules
+
+            settings["overlay"] = normalize_overlay_rules(rules_payload)
 
         if template.prompts and template.prompts.overrides:
             settings["prompt_overrides"] = {

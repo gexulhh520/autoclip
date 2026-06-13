@@ -25,34 +25,82 @@ def _escape_ass_text(text: str) -> str:
     )
 
 
-def _layer_style(role: str) -> Tuple[str, float, bool, int, int]:
-    """返回 (style_name, size_scale, bold, outline, shadow)。"""
-    mapping = {
-        "quote_mark": ("QuoteMark", 0.55, False, 0, 1),
+def _layer_style(role: str, config: Dict[str, Any]) -> Tuple[str, float, bool, int, int]:
+    """返回 (style_name, size_scale, bold, outline, shadow)；可被模板 role_styles 覆盖。"""
+    defaults: Dict[str, Tuple[str, float, bool, int, int]] = {
+        "quote_mark": ("QuoteMark", float(config.get("quote_mark_size_scale", 0.55) or 0.55), False, 0, 1),
         "tagline_en": ("Tagline", 0.58, False, 0, 1),
-        "headline": ("HeadlineGold", 1.0, True, 1, 2),
-        "body": ("BodyWhite", 0.72, False, 0, 1),
-        "emphasis": ("EmphasisGold", 0.82, True, 0, 1),
+        "headline": (
+            "HeadlineGold",
+            float(config.get("headline_size_scale", 1.0) or 1.0),
+            bool(config.get("headline_bold", True)),
+            int(config.get("headline_outline", 1) or 1),
+            int(config.get("headline_shadow", 2) or 2),
+        ),
+        "body": ("BodyWhite", 0.72, False, 0, int(config.get("body_shadow", 1) or 1)),
+        "emphasis": (
+            "EmphasisGold",
+            float(config.get("emphasis_size_scale", 0.82) or 0.82),
+            True,
+            0,
+            1,
+        ),
     }
-    return mapping.get(role, ("BodyWhite", 0.72, False, 0, 1))
+    role_styles = config.get("role_styles") or {}
+    if isinstance(role_styles, dict) and role in role_styles:
+        base = defaults.get(role, ("BodyWhite", 0.72, False, 0, 1))
+        override = role_styles[role] or {}
+        return (
+            base[0],
+            float(override.get("size_scale", base[1])),
+            bool(override.get("bold", base[2])),
+            int(override.get("outline", base[3])),
+            int(override.get("shadow", base[4])),
+        )
+    return defaults.get(role, ("BodyWhite", 0.72, False, 0, 1))
+
+
+def _resolve_ass_anchor(alignment: str) -> int:
+    """ASS \\an 锚点：7=左上 8=中上 9=右上（配合自下而上堆叠）。"""
+    mapping = {
+        "bottom-left": 7,
+        "bottom-center": 8,
+        "bottom-right": 9,
+    }
+    return mapping.get(alignment, 7)
 
 
 def _stack_positions(
     layers: List[QuoteCinemaLayer],
-    left: int,
+    width: int,
     height: int,
     base_size: int,
     margin_bottom: int,
-) -> List[Tuple[int, int]]:
-    """自下而上堆叠，保证行距足够、不重叠。"""
-    positions: List[Tuple[int, int]] = []
+    margin_left: int,
+    margin_right: int,
+    config: Dict[str, Any],
+) -> List[Tuple[int, int, int]]:
+    """返回 (x, y, ass_anchor) 列表。"""
+    line_factor = float(config.get("line_height_factor", 1.35) or 1.35)
+    min_line = int(config.get("min_font_size", 16) or 16)
+    alignment = str(config.get("alignment") or "bottom-left")
+    ass_anchor = _resolve_ass_anchor(alignment)
+
+    if alignment == "bottom-center":
+        x_base = width // 2
+    elif alignment == "bottom-right":
+        x_base = width - margin_right
+    else:
+        x_base = margin_left
+
+    positions: List[Tuple[int, int, int]] = []
     y_cursor = height - margin_bottom
 
     for layer in reversed(layers):
-        _, size_scale, _, _, _ = _layer_style(layer.role)
-        line_height = max(22, int(base_size * size_scale * layer.size_scale * 1.35))
+        _, size_scale, _, _, _ = _layer_style(layer.role, config)
+        line_height = max(min_line, int(base_size * size_scale * layer.size_scale * line_factor))
         y_cursor -= line_height
-        positions.append((left, y_cursor))
+        positions.append((x_base, y_cursor, ass_anchor))
 
     positions.reverse()
     return positions
@@ -79,9 +127,6 @@ def _font_family_name(font_path: Path) -> str:
 
 
 class AssSubtitleBuilder:
-    GOLD = "#E8C872"
-    WHITE = "#FFFFFF"
-
     def __init__(
         self,
         fonts: Dict[str, Path],
@@ -89,6 +134,8 @@ class AssSubtitleBuilder:
     ) -> None:
         self.fonts = fonts
         self.config = config or {}
+        self.headline_color = str(self.config.get("headline_color") or "#E8C872")
+        self.body_color = str(self.config.get("body_color") or "#FFFFFF")
         self.font_names = {
             "primary": str(
                 self.config.get("primary_font_name") or _font_family_name(fonts["primary"])
@@ -111,30 +158,54 @@ class AssSubtitleBuilder:
         start = "0:00:00.00"
         end = self._format_ass_time(max(duration_sec, 0.5))
 
-        margin_left = int(self.config.get("margin_left", max(40, width * 0.055)))
-        margin_bottom = int(self.config.get("margin_bottom", max(56, height * 0.11)))
+        margin_left = int(
+            self.config.get("margin_left")
+            or max(40, width * float(self.config.get("margin_left_ratio", 0.055) or 0.055))
+        )
+        margin_bottom = int(
+            self.config.get("margin_bottom")
+            or max(56, height * float(self.config.get("margin_bottom_ratio", 0.11) or 0.11))
+        )
         base_size = int(
             self.config.get(
                 "base_font_size",
                 max(28, min(36, int(height * 0.048))),
             )
         )
+        min_font = int(self.config.get("min_font_size", 16) or 16)
+        margin_right = int(
+            self.config.get("margin_right")
+            or margin_left
+            or max(40, width * float(self.config.get("margin_right_ratio", 0.055) or 0.055))
+        )
 
         styles = self._style_block(base_size)
-        positions = _stack_positions(layers, margin_left, height, base_size, margin_bottom)
+        positions = _stack_positions(
+            layers,
+            width,
+            height,
+            base_size,
+            margin_bottom,
+            margin_left,
+            margin_right,
+            self.config,
+        )
 
         events = []
-        for layer, (x, y) in zip(layers, positions):
-            style_name, size_scale, bold, outline, shadow = _layer_style(layer.role)
-            size = max(16, int(base_size * size_scale * layer.size_scale))
-            is_gold = "gold" in layer.color
-            color = _ass_color(self.GOLD if is_gold else self.WHITE)
+        for layer, (x, y, ass_anchor) in zip(layers, positions):
+            style_name, size_scale, bold, outline, shadow = _layer_style(layer.role, self.config)
+            size = max(min_font, int(base_size * size_scale * layer.size_scale))
+            color = _ass_color(
+                layer.color
+                if str(layer.color).startswith("#")
+                else (self.headline_color if layer.role in {"headline", "emphasis", "tagline_en"} else self.body_color)
+            )
             font_key = "script" if layer.role == "tagline_en" else "primary"
             font_name = self.font_names[font_key]
             weight = 1 if bold else 0
             text = _escape_ass_text(layer.text)
             override = (
-                rf"{{\an7\pos({x},{y})\fn{font_name}\fs{size}\b{weight}"
+                rf"{{\an{ass_anchor}\pos({x},{y})\fn{font_name}\fs{size}\b{weight}"
                 rf"\shad{shadow}\bord{outline}"
                 rf"\1c{color}\3c&H40000000&\4c&H00000000&}}"
             )
@@ -164,8 +235,8 @@ class AssSubtitleBuilder:
         return ass_path
 
     def _style_block(self, base_size: int) -> str:
-        primary = _ass_color(self.WHITE)
-        gold = _ass_color(self.GOLD)
+        primary = _ass_color(self.body_color)
+        gold = _ass_color(self.headline_color)
         outline = "&H40000000"
         back = "&H00000000"
 

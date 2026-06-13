@@ -80,3 +80,44 @@ pub async fn is_autostart_enabled(manager: State<'_, AutoLaunchManager>) -> Resu
         Err(e) => Err(format!("检查自动启动状态失败: {}", e)),
     }
 }
+
+#[tauri::command]
+pub fn pick_export_directory(default_path: Option<String>) -> Result<Option<String>, String> {
+    let mut dialog = rfd::FileDialog::new().title("选择导出目录");
+    if let Some(path) = default_path.filter(|value| !value.is_empty()) {
+        dialog = dialog.set_directory(path);
+    }
+    Ok(dialog
+        .pick_folder()
+        .map(|path| path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub fn reveal_export_directory(path: String) -> Result<(), String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("目录路径为空".to_string());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(trimmed)
+            .spawn()
+            .map_err(|error| format!("打开目录失败: {}", error))?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(trimmed)
+            .spawn()
+            .map_err(|error| format!("打开目录失败: {}", error))?;
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(trimmed)
+            .spawn()
+            .map_err(|error| format!("打开目录失败: {}", error))?;
+    }
+    Ok(())
+}

@@ -322,6 +322,9 @@ class VideoProcessor:
         input_video: Path,
         duration_sec: float,
         style_config: Optional[Dict[str, Any]] = None,
+        *,
+        canvas_width: Optional[int] = None,
+        canvas_height: Optional[int] = None,
     ) -> Optional[str]:
         """生成左下角影视感多层 ASS 字幕滤镜。"""
         from backend.pipeline.quote_overlay_composer import compose_quote_cinema_layers
@@ -335,7 +338,10 @@ class VideoProcessor:
             )
             return None
 
-        width, height = VideoProcessor._probe_video_dimensions(input_video)
+        if canvas_width and canvas_height:
+            width, height = int(canvas_width), int(canvas_height)
+        else:
+            width, height = VideoProcessor._probe_video_dimensions(input_video)
         layers = compose_quote_cinema_layers(clip_data, style_config)
         if not layers:
             return None

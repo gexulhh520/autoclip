@@ -1,0 +1,62 @@
+.ai-slice-page__intro {
+  margin-bottom: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-slice-import {
+  margin-bottom: 48px;
+}
+
+.ai-slice-import__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 4px 14px;
+}
+
+.ai-slice-import__card {
+  background: var(--ac-card);
+  border-radius: 16px;
+  border: 1px solid var(--ac-line);
+  padding: 18px;
+  box-shadow: var(--ac-shadow);
+}
+
+.ai-slice-import__tabs {
+  display: inline-flex;
+  margin-bottom: 14px;
+  border-radius: 999px;
+  background: var(--ac-line-2);
+  padding: 3px;
+  gap: 2px;
+}
+
+.ai-slice-tab {
+  padding: 8px 18px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ac-sub);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  border: none;
+}
+
+.ai-slice-tab.is-active {
+  background: var(--ac-card);
+  color: var(--ac-ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.ai-slice-projects {
+  margin-top: 8px;
+}
+
+.ai-slice-projects__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 24px;
+}

@@ -1245,6 +1245,39 @@ async def regenerate_project_timeline_content(
         raise HTTPException(status_code=500, detail="重新生成失败")
 
 
+class PipelineTimelineOverlayPreviewRequest(BaseModel):
+    outline: Optional[str] = Field(None, description="金句摘要")
+    content: Optional[List[str]] = Field(None, description="要点列表")
+    recommend_reason: Optional[str] = Field(None, description="推荐理由（可选）")
+
+
+@router.post("/{project_id}/pipeline-steps/step2_timeline/preview-overlay")
+async def preview_project_timeline_overlay(
+    project_id: str,
+    body: PipelineTimelineOverlayPreviewRequest,
+    source_id: Optional[str] = Query(None, description="多源项目：指定源视频 ID"),
+    project_service: ProjectService = Depends(get_project_service),
+):
+    """预览导出切片时将叠加的字幕排版（与 Step6 quote_cinema 一致）。"""
+    try:
+        project = project_service.get(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        from backend.services.pipeline_steps_service import preview_timeline_overlay
+        return preview_timeline_overlay(
+            project_id,
+            body.model_dump(exclude_unset=True),
+            source_id=source_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("预览字幕叠加失败: %s", project_id)
+        raise HTTPException(status_code=500, detail="预览字幕叠加失败")
+
+
 class PipelineScoreItemUpdate(BaseModel):
     final_score: float = Field(..., ge=0, le=1, description="最终评分 0–1")
     recommend_reason: str = Field(..., min_length=1, description="推荐理由")

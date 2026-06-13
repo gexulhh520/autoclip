@@ -118,8 +118,12 @@ class ProjectService(BaseService[Project, ProjectCreate, ProjectUpdate, ProjectR
         items, pagination_response = self.get_paginated(pagination, filter_dict)
         
         # Convert to response schemas
+        from ..services.editor_workspace_service import is_editor_workspace_project
+
         project_responses = []
         for project in items:
+            if is_editor_workspace_project(project):
+                continue
             # Get actual statistics for each project
             from ..models.clip import Clip
             from ..models.collection import Collection

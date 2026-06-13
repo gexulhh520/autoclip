@@ -18,10 +18,12 @@ import {
   ArrowLeftOutlined, 
   PlayCircleOutlined,
   PlusOutlined,
-  DeleteOutlined
+  DeleteOutlined,
+  ScissorOutlined
 } from '@ant-design/icons'
 import { useProjectStore, Clip, Collection } from '../store/useProjectStore'
 import { projectApi, ProjectSourcesResponse } from '../services/api'
+import editApi from '../services/editApi'
 import ClipCard from '../components/ClipCard'
 import CollectionCard from '../components/CollectionCard'
 import CollectionPreviewModal from '../components/CollectionPreviewModal'
@@ -30,6 +32,7 @@ import { useCollectionVideoDownload } from '../hooks/useCollectionVideoDownload'
 import PipelineStepsPanel from '../components/PipelineStepsPanel'
 import ProjectSourcesPanel from '../components/ProjectSourcesPanel'
 import TemplateBadge from '../components/TemplateBadge'
+import EditSessionsPanel from '../components/EditSessionsPanel'
 
 const { Content } = Layout
 const { Title, Text } = Typography
@@ -62,6 +65,7 @@ const ProjectDetailPage: React.FC = () => {
   const [clipBatchMode, setClipBatchMode] = useState(false)
   const [selectedClipIds, setSelectedClipIds] = useState<string[]>([])
   const [deletingClips, setDeletingClips] = useState(false)
+  const [enteringEditor, setEnteringEditor] = useState(false)
   const { generateAndDownloadCollectionVideo } = useCollectionVideoDownload()
 
   useEffect(() => {
@@ -325,6 +329,23 @@ const ProjectDetailPage: React.FC = () => {
     setSelectedClipIds(allVisibleClipIds)
   }
 
+  const handleEnterEditor = async () => {
+    if (!id || selectedClipIds.length === 0) return
+    setEnteringEditor(true)
+    try {
+      const session = await editApi.createSession(id, {
+        clip_ids: selectedClipIds,
+        source_id: selectedSourceId,
+      })
+      exitClipBatchMode()
+      navigate(`/project/${id}/edit/${session.id}`)
+    } catch (error: unknown) {
+      message.error(error instanceof Error ? error.message : '创建剪辑工程失败')
+    } finally {
+      setEnteringEditor(false)
+    }
+  }
+
   const handleBatchDeleteClips = () => {
     if (!id || selectedClipIds.length === 0) return
 
@@ -464,6 +485,12 @@ const ProjectDetailPage: React.FC = () => {
       {/* 主要内容：已完成或已有切片产物时展示片段区 */}
       {showClipWorkspace ? (
         <div>
+          <EditSessionsPanel
+            projectId={currentProject.id}
+            selectedClipIds={selectedClipIds}
+            selectedSourceId={selectedSourceId}
+            onClearSelection={exitClipBatchMode}
+          />
           {/* AI合集横向滚动区域 */}
           {currentProject.collections && currentProject.collections.length > 0 && (
             <Card style={{ marginBottom: '24px' }}>
@@ -620,6 +647,15 @@ const ProjectDetailPage: React.FC = () => {
                         <Text style={{ fontSize: 13, color: 'var(--ac-sub)' }}>
                           已选 {selectedClipIds.length} 项
                         </Text>
+                        <Button
+                          type="primary"
+                          icon={<ScissorOutlined />}
+                          loading={enteringEditor}
+                          disabled={selectedClipIds.length === 0}
+                          onClick={handleEnterEditor}
+                        >
+                          进入剪辑
+                        </Button>
                         <Button
                           danger
                           icon={<DeleteOutlined />}

@@ -109,17 +109,39 @@
         },
         "subtitle_style": {
           "type": "string",
-          "description": "字幕样式：default | quote_highlight | quote_cinema",
+          "description": "字幕样式：default | quote_highlight | quote_cinema（legacy，与 overlay 二选一或并存）",
           "enum": [
             "default",
             "quote_highlight",
             "quote_cinema"
           ]
         },
+        "overlay": {
+          "type": "object",
+          "description": "Overlay 管线：composer 编排层，renderer 渲染引擎",
+          "additionalProperties": true,
+          "properties": {
+            "composer": {
+              "type": "string",
+              "enum": ["none", "quote_cinema", "quote_highlight"],
+              "description": "内容编排器"
+            },
+            "renderer": {
+              "type": "string",
+              "enum": ["none", "ass_stack", "drawtext"],
+              "description": "渲染后端"
+            },
+            "config": {
+              "type": "object",
+              "description": "composer 专属排版配置；可与 quote_overlay 合并",
+              "additionalProperties": true
+            }
+          }
+        },
         "quote_overlay": {
           "type": "object",
-          "description": "quote_highlight 标题/金句叠加排版配置；字体默认由系统或内置字体解析，可通过 font_file 覆盖",
-          "additionalProperties": false,
+          "description": "字幕叠加排版配置。quote_cinema 使用 cinema 字段；quote_highlight 使用 font_size/box 等字段",
+          "additionalProperties": true,
           "properties": {
             "font_file": {
               "type": "string",
@@ -197,6 +219,54 @@
             },
             "shadow_color": {
               "type": "string"
+            },
+            "layout": {
+              "type": "string",
+              "enum": ["cinema"],
+              "description": "quote_cinema 布局标识"
+            },
+            "content_priority": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "字幕文案来源优先级，如 content / outline / recommend_reason"
+            },
+            "base_font_size": { "type": "integer", "minimum": 12, "maximum": 120 },
+            "margin_left": { "type": "integer", "minimum": 0, "maximum": 500 },
+            "margin_left_ratio": { "type": "number", "minimum": 0, "maximum": 0.5 },
+            "margin_bottom_ratio": { "type": "number", "minimum": 0, "maximum": 0.5 },
+            "max_headline_chars": { "type": "integer", "minimum": 4, "maximum": 80 },
+            "max_body_chars": { "type": "integer", "minimum": 4, "maximum": 120 },
+            "max_body_points": { "type": "integer", "minimum": 0, "maximum": 5 },
+            "headline_color": { "type": "string", "description": "主金句颜色 #RRGGBB" },
+            "body_color": { "type": "string", "description": "副文案颜色 #RRGGBB" },
+            "headline_size_scale": { "type": "number", "minimum": 0.5, "maximum": 2 },
+            "body_size_scales": {
+              "type": "array",
+              "items": { "type": "number" },
+              "description": "各条副文案字号比例"
+            },
+            "line_height_factor": { "type": "number", "minimum": 1, "maximum": 2 },
+            "min_font_size": { "type": "integer", "minimum": 10, "maximum": 48 },
+            "headline_bold": { "type": "boolean" },
+            "headline_outline": { "type": "integer", "minimum": 0, "maximum": 8 },
+            "headline_shadow": { "type": "integer", "minimum": 0, "maximum": 8 },
+            "body_shadow": { "type": "integer", "minimum": 0, "maximum": 8 },
+            "show_quote_mark": { "type": "boolean" },
+            "show_emphasis_line": { "type": "boolean" },
+            "show_tagline_en": { "type": "boolean" },
+            "caps_label": { "type": "string" },
+            "role_styles": { "type": "object", "additionalProperties": true },
+            "alignment": {
+              "type": "string",
+              "enum": ["bottom-left", "bottom-center", "bottom-right"],
+              "description": "quote_cinema 字幕对齐方式"
+            },
+            "margin_right": { "type": "integer", "minimum": 0, "maximum": 500 },
+            "margin_right_ratio": { "type": "number", "minimum": 0, "maximum": 0.5 },
+            "color_preset": {
+              "type": "string",
+              "enum": ["golden_cinema", "mono_white", "calm_ink", "accent_blue"],
+              "description": "配色方案；显式 headline_color/body_color 优先于 preset"
             }
           }
         }

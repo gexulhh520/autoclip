@@ -10,6 +10,7 @@ import os
 import hashlib
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from uuid import UUID
 
@@ -22,6 +23,26 @@ from ..schemas.bilibili import BilibiliAccountCreate, UploadRequest
 from ..utils.crypto import encrypt_data, decrypt_data
 
 logger = logging.getLogger(__name__)
+
+
+def build_upload_metadata(record: UploadRecord) -> Dict[str, Any]:
+    """从投稿记录构建 B 站上传元数据。"""
+    tags: List[str] = []
+    if record.tags:
+        try:
+            parsed = json.loads(record.tags)
+            if isinstance(parsed, list):
+                tags = [str(item) for item in parsed]
+            else:
+                tags = [str(parsed)]
+        except json.JSONDecodeError:
+            tags = [part.strip() for part in str(record.tags).split(",") if part.strip()]
+    return {
+        "title": record.title,
+        "description": record.description or "",
+        "partition_id": record.partition_id or 36,
+        "tags": tags,
+    }
 
 
 class BilibiliAccountService:
@@ -392,19 +413,19 @@ class BilibiliUploadService:
     
     def create_upload_record(self, project_id: UUID, upload_data: UploadRequest) -> UploadRecord:
         """创建投稿记录"""
-        # 验证账号
-        account = self.account_service.get_account(upload_data.account_id)
+        account_id = int(upload_data.account_id) if upload_data.account_id else 0
+        account = self.account_service.get_account_by_id(account_id)
         if not account:
             raise ValueError("账号不存在")
         
         # 创建投稿记录
         record = UploadRecord(
             project_id=project_id,
-            account_id=upload_data.account_id,
+            account_id=account_id,
             clip_id=",".join(upload_data.clip_ids),  # 暂存为逗号分隔
             title=upload_data.title,
             description=upload_data.description,
-            tags=json.dumps(upload_data.tags),
+            tags=json.dumps(upload_data.tags, ensure_ascii=False),
             partition_id=upload_data.partition_id,
             status="pending"
         )
@@ -415,6 +436,105 @@ class BilibiliUploadService:
         
         logger.info(f"投稿记录创建成功: {record.id}")
         return record
+
+    def resolve_video_path_for_record(self, record: UploadRecord) -> Optional[str]:
+        """解析投稿记录对应的本地视频路径。"""
+        from pathlib import Path
+
+        from ..core.path_utils import get_project_output_directory
+
+        if record.video_path:
+            path = Path(record.video_path)
+            if path.exists():
+                return str(path.resolve())
+
+        if not record.project_id or not record.clip_id:
+            return None
+
+        clip_ids = [item.strip() for item in record.clip_id.split(",") if item.strip()]
+        if not clip_ids or clip_ids[0].startswith("edit:"):
+            return None
+
+        clip_id = clip_ids[0]
+        project_output_dir = get_project_output_directory(str(record.project_id))
+        from ..models.clip import Clip
+
+        clip = self.db.query(Clip).filter(Clip.id == clip_id).first()
+        clip_title = ""
+        if clip is not None:
+            clip_title = clip.title or clip.generated_title or ""
+
+        possible_paths = [
+            project_output_dir / "clips" / f"{clip_id}.mp4",
+            project_output_dir / "clips" / f"{clip_id}_clip_{clip_id}.mp4",
+            project_output_dir / "clips" / f"{clip_id}_clip.mp4",
+        ]
+        if clip_title:
+            import re
+
+            clean_title = re.sub(r'[<>:"/\\|?*]', "", clip_title)
+            possible_paths.append(project_output_dir / "clips" / f"{clean_title}.mp4")
+
+        for path in possible_paths:
+            if path.exists():
+                return str(path.resolve())
+
+        clips_dir = project_output_dir / "clips"
+        if clips_dir.exists():
+            mp4_files = list(clips_dir.glob("*.mp4"))
+            if len(mp4_files) == 1:
+                return str(mp4_files[0].resolve())
+            for mp4_file in mp4_files:
+                if clip_id in mp4_file.name:
+                    return str(mp4_file.resolve())
+                if clip_title and any(keyword in mp4_file.name for keyword in clip_title.split()[:3]):
+                    return str(mp4_file.resolve())
+        return None
+
+    def start_upload_record(self, record_id: int) -> None:
+        """在后台线程启动投稿上传。"""
+        import threading
+
+        thread = threading.Thread(
+            target=self._run_upload_record,
+            args=(record_id,),
+            daemon=True,
+            name=f"bilibili-upload-{record_id}",
+        )
+        thread.start()
+
+    def _run_upload_record(self, record_id: int) -> None:
+        from ..core.database import SessionLocal
+
+        db = SessionLocal()
+        try:
+            service = BilibiliUploadService(db)
+            record = service.get_upload_record_by_id(record_id)
+            if record is None:
+                logger.error("投稿记录不存在: %s", record_id)
+                return
+
+            service.update_upload_status(record_id, "processing")
+            video_path = service.resolve_video_path_for_record(record)
+            if not video_path:
+                service.update_upload_status(record_id, "failed", "未找到视频文件")
+                return
+
+            path_obj = Path(video_path)
+            record.file_size = path_obj.stat().st_size
+            db.commit()
+
+            success = service.upload_clip_sync(record_id, video_path)
+            if not success:
+                latest = service.get_upload_record_by_id(record_id)
+                message = latest.error_message if latest else "上传失败"
+                service.update_upload_status(record_id, "failed", message)
+        except Exception as exc:
+            logger.exception("后台投稿上传失败: %s", record_id)
+            service = BilibiliUploadService(db)
+            service.update_upload_status(record_id, "failed", str(exc))
+        finally:
+            db.close()
     
     async def upload_clip(self, record_id: int, video_path: str, max_retries: int = 3) -> bool:
         """上传单个切片 - 使用内置上传实现"""
@@ -441,25 +561,16 @@ class BilibiliUploadService:
             uploader = BilibiliDirectUploader(cookies)
             success = await uploader.upload_video(
                 video_path=video_path,
-                metadata={
-                    'title': record.title,
-                    'desc': record.description or '',
-                    'tid': record.tid,
-                    'tag': record.tags or '',
-                    'source': record.source or '',
-                    'copyright': record.copyright or 1
-                },
+                metadata=build_upload_metadata(record),
                 max_retries=max_retries
             )
             
             if success:
                 record.status = 'completed'
                 record.bv_id = uploader.bv_id
-                record.completed_at = datetime.utcnow()
             else:
                 record.status = 'failed'
                 record.error_message = uploader.error_message
-                record.failed_at = datetime.utcnow()
             
             self.db.commit()
             return success
@@ -514,12 +625,7 @@ class BilibiliUploadService:
             self.db.commit()
             
             # 重新启动上传任务
-            clip_ids = record.clip_id.split(",") if record.clip_id else []
-            for clip_id in clip_ids:
-                clip_id = clip_id.strip()
-                if clip_id:
-                    from ..tasks.upload import upload_clip_task
-                    upload_clip_task.delay(str(record.id), clip_id)
+            self.start_upload_record(record_id)
             
             logger.info(f"投稿任务重试已启动: {record_id}")
             return True
@@ -659,25 +765,17 @@ class BilibiliUploadService:
             uploader = BilibiliDirectUploader(cookies)
             success = uploader.upload_video_sync(
                 video_path=video_path,
-                metadata={
-                    'title': record.title,
-                    'desc': record.description or '',
-                    'tid': record.tid,
-                    'tag': record.tags or '',
-                    'source': record.source or '',
-                    'copyright': record.copyright or 1
-                },
-                max_retries=max_retries
+                metadata=build_upload_metadata(record),
+                max_retries=max_retries,
             )
             
             if success:
                 record.status = 'completed'
                 record.bv_id = uploader.bv_id
-                record.completed_at = datetime.utcnow()
+                record.progress = 100
             else:
                 record.status = 'failed'
                 record.error_message = uploader.error_message
-                record.failed_at = datetime.utcnow()
             
             self.db.commit()
             return success
@@ -707,30 +805,43 @@ class BilibiliDirectUploader:
         self.session = None
     
     async def upload_video(self, video_path: str, metadata: dict, max_retries: int = 3) -> bool:
-        """上传视频 - 简化版本，暂时返回失败状态"""
+        """上传视频（异步）。"""
         try:
-            # 暂时返回失败，因为需要重新实现上传逻辑
-            self.error_message = "上传功能正在开发中，请稍后再试"
-            logger.warning("上传功能暂未实现，返回失败状态")
-            return False
-                
+            async with aiohttp.ClientSession() as session:
+                self.session = session
+                return await self._upload_video_impl(video_path, metadata, max_retries)
         except Exception as e:
             self.error_message = str(e)
             logger.error(f"上传视频失败: {e}")
             return False
     
     def upload_video_sync(self, video_path: str, metadata: dict, max_retries: int = 3) -> bool:
-        """同步版本的上传视频"""
+        """同步版本的上传视频。"""
         try:
-            # 暂时返回失败，因为需要重新实现上传逻辑
-            self.error_message = "上传功能正在开发中，请稍后再试"
-            logger.warning("上传功能暂未实现，返回失败状态")
-            return False
-                
+            return asyncio.run(self._upload_video_async(video_path, metadata, max_retries))
         except Exception as e:
             self.error_message = str(e)
             logger.error(f"上传视频失败: {e}")
             return False
+
+    async def _upload_video_async(self, video_path: str, metadata: dict, max_retries: int) -> bool:
+        async with aiohttp.ClientSession() as session:
+            self.session = session
+            return await self._upload_video_impl(video_path, metadata, max_retries)
+
+    async def _upload_video_impl(self, video_path: str, metadata: dict, max_retries: int) -> bool:
+        if not os.path.exists(video_path):
+            self.error_message = f"视频文件不存在: {video_path}"
+            return False
+
+        upload_id = await self._pre_upload(video_path)
+        if not upload_id:
+            return False
+        if not await self._chunk_upload(video_path, upload_id, max_retries):
+            return False
+        if not await self._merge_chunks(upload_id):
+            return False
+        return await self._submit_video(upload_id, metadata)
     
     async def _pre_upload(self, video_path: str) -> Optional[str]:
         """预上传，获取upload_id"""
@@ -750,7 +861,7 @@ class BilibiliDirectUploader:
             }
             
             async with self.session.post(
-                "https://member.bilibili.com/x/vu/web/add",
+                "https://member.bilibili.com/x/vu/web/preupload",
                 headers=headers,
                 data=data,
                 timeout=aiohttp.ClientTimeout(total=30)

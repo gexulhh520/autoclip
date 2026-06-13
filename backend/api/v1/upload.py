@@ -351,28 +351,20 @@ async def create_upload_task(
     upload_data: UploadRequest,
     upload_service: BilibiliUploadService = Depends(get_upload_service)
 ):
-    """创建投稿任务 - 功能暂时禁用"""
-    # 功能暂时禁用，返回开发中提示
-    raise HTTPException(status_code=503, detail="B站上传功能正在开发中，敬请期待！")
-    
-    # 原有代码已禁用
+    """创建投稿任务并启动后台上传。"""
     try:
         record = upload_service.create_upload_record(project_id, upload_data)
-        
-        # 启动异步上传任务
-        for clip_id in upload_data.clip_ids:
-            upload_clip_task.delay(str(record.id), clip_id)
-        
+        upload_service.start_upload_record(record.id)
         return {
             "message": "投稿任务创建成功",
             "record_id": str(record.id),
-            "clip_count": len(upload_data.clip_ids)
+            "clip_count": len(upload_data.clip_ids),
         }
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error(f"创建投稿任务失败: {str(e)}")
-        raise HTTPException(status_code=500, detail="创建投稿任务失败")
+        raise HTTPException(status_code=500, detail="创建投稿任务失败") from e
 
 
 @router.post("/records/{record_id}/retry")
@@ -448,15 +440,15 @@ async def get_upload_records(
 
 @router.get("/records/{record_id}")
 async def get_upload_record(
-    record_id: UUID,
+    record_id: int,
     upload_service: BilibiliUploadService = Depends(get_upload_service)
 ):
     """获取指定投稿记录"""
     try:
-        record = upload_service.get_upload_record(record_id)
+        record = upload_service.get_upload_record_by_id(record_id)
         if not record:
             raise HTTPException(status_code=404, detail="投稿记录不存在")
-        return UploadRecordResponse.from_orm(record)
+        return UploadRecordResponse.model_validate(record)
     except HTTPException:
         raise
     except Exception as e:

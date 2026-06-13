@@ -183,16 +183,21 @@ def save_goal_config_to_metadata(metadata_dir: Path, goal: GoalProfile) -> None:
 
 
 def save_template_config_to_metadata(metadata_dir: Path, settings: Dict[str, Any]) -> None:
-    """审计：写入本次运行使用的模板配置。"""
+    """审计：写入本次运行使用的模板配置（项目级快照，后续迭代不自动覆盖）。"""
     template_id = settings.get("template_id")
     if not template_id:
         return
+    from backend.pipeline.overlay_pipeline import build_overlay_snapshot
+
     metadata_dir.mkdir(parents=True, exist_ok=True)
+    rules = settings.get("template_rules") or {}
     payload = {
         "template_id": template_id,
+        "template_version": settings.get("template_version"),
         "prompt_pack": settings.get("prompt_pack"),
-        "template_rules": settings.get("template_rules") or {},
-        "subtitle_style": (settings.get("template_rules") or {}).get("subtitle_style"),
+        "template_rules": rules,
+        "subtitle_style": rules.get("subtitle_style"),
+        "overlay": settings.get("overlay") or build_overlay_snapshot(settings),
     }
     path = metadata_dir / "template_config.json"
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -19,6 +19,10 @@
   },
   "rules": {
     "enable_clustering": true,
-    "subtitle_style": "default"
+    "subtitle_style": "default",
+    "overlay": {
+      "composer": "none",
+      "renderer": "none"
+    }
   }
 }

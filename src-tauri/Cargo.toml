@@ -16,11 +16,12 @@ tauri-build = { version = "2.0.0-rc", features = [] }
 tauri = { version = "2.0.0-rc", features = ["tray-icon"] }
 tauri-plugin-autostart = "2.0.0-rc"
 tauri-plugin-shell = "2.0.0-rc"
+tauri-plugin-dialog = "2.0.0-rc"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.0", features = ["full"] }
 reqwest = { version = "0.11", features = ["json"] }
-chrono = { version = "0.4", features = ["serde"] }
+rfd = "0.15"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem

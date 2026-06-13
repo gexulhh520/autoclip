@@ -977,6 +977,35 @@ export const projectApi = {
     )
   },
 
+  previewTimelineOverlay: async (
+    projectId: string,
+    payload: {
+      outline?: string
+      content?: string[]
+      recommend_reason?: string
+    },
+    sourceId?: string | null
+  ): Promise<{
+    subtitle_style: string
+    applicable: boolean
+    layout: 'cinema' | 'highlight' | 'none'
+    layers: Array<{
+      role: string
+      text: string
+      color: string
+      size_scale: number
+    }>
+    config: Record<string, number>
+    message?: string
+  }> => {
+    const params = sourceId ? { source_id: sourceId } : undefined
+    return api.post(
+      `/projects/${projectId}/pipeline-steps/step2_timeline/preview-overlay`,
+      payload,
+      { params }
+    )
+  },
+
   updatePipelineScoreItem: async (
     projectId: string,
     itemId: string,
@@ -1004,6 +1033,12 @@ export const projectApi = {
   getClipVideoUrl: (projectId: string, clipId: string, _clipTitle?: string): string => {
     // 使用projects路由获取切片视频
     return `/api/v1/projects/${projectId}/clips/${clipId}`
+  },
+
+  // 获取项目原片 URL（剪辑预览/重切）
+  getSourceVideoUrl: (projectId: string, sourceId?: string | null): string => {
+    const params = sourceId ? `?source_id=${encodeURIComponent(sourceId)}` : ''
+    return `/api/v1/projects/${projectId}/source-video${params}`
   },
 
   // 获取合集视频URL

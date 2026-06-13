@@ -2,7 +2,7 @@
   "id": "golden_quote_cinema",
   "name": "经典影视金句",
   "description": "从影视解说、混剪素材中提取可独立传播的金句 moment，适合竖屏短视频与口播切片。切片自动叠加影视感金句字幕。",
-  "version": "1.1.1",
+  "version": "1.3.0",
   "enabled": true,
   "tags": [
     "金句",
@@ -24,15 +24,36 @@
   "rules": {
     "enable_clustering": false,
     "subtitle_style": "quote_cinema",
+    "overlay": {
+      "composer": "quote_cinema",
+      "renderer": "ass_stack"
+    },
     "quote_overlay": {
       "layout": "cinema",
+      "alignment": "bottom-left",
+      "color_preset": "golden_cinema",
+      "content_priority": ["content", "outline", "recommend_reason"],
       "base_font_size": 32,
       "margin_left": 44,
+      "margin_right": 44,
       "margin_bottom": 72,
+      "margin_left_ratio": 0.055,
+      "margin_bottom_ratio": 0.11,
+      "margin_right_ratio": 0.055,
       "max_headline_chars": 12,
       "max_body_chars": 24,
-      "show_tagline_en": false,
-      "caps_label": "THE MOMENT"
+      "max_body_points": 2,
+      "headline_size_scale": 1.0,
+      "body_size_scales": [0.72, 0.65],
+      "line_height_factor": 1.35,
+      "min_font_size": 16,
+      "headline_bold": true,
+      "headline_outline": 1,
+      "headline_shadow": 2,
+      "body_shadow": 1,
+      "show_quote_mark": false,
+      "show_emphasis_line": false,
+      "show_tagline_en": false
     }
   }
 }

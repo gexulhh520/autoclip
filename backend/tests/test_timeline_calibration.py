@@ -5,6 +5,7 @@ import pytest
 
 from backend.services.pipeline_steps_service import (
     get_timeline_srt_segments,
+    preview_timeline_overlay,
     regenerate_timeline_item_content,
     update_srt_entry,
 )
@@ -131,3 +132,43 @@ def test_regenerate_rejects_empty_range(tmp_path, monkeypatch):
             "00:02:00,000",
             "00:02:10,000",
         )
+
+
+def test_preview_timeline_overlay_uses_template(tmp_path, monkeypatch):
+    project_id = "test-overlay-preview"
+    project_dir = tmp_path / "projects" / project_id
+    metadata_dir = project_dir / "metadata"
+    metadata_dir.mkdir(parents=True)
+    (metadata_dir / "template_config.json").write_text(
+        json.dumps(
+            {
+                "template_id": "golden_quote_cinema",
+                "template_rules": {
+                    "subtitle_style": "quote_cinema",
+                    "quote_overlay": {"caps_label": "THE MOMENT"},
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "backend.services.pipeline_steps_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+
+    result = preview_timeline_overlay(
+        project_id,
+        {
+            "outline": "摘要",
+            "content": ["天生我才必有用", "千金散尽还复来"],
+        },
+    )
+
+    assert result["applicable"] is True
+    assert result["layout"] == "cinema"
+    assert result["subtitle_style"] == "quote_cinema"
+    roles = [layer["role"] for layer in result["layers"]]
+    assert "headline" in roles
+    assert any(layer["text"] == "天生我才必有用" for layer in result["layers"])

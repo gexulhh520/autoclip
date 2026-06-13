@@ -12,6 +12,22 @@ def test_quote_overlay_config_comes_from_template():
     assert config["layout"] == "cinema"
     assert config["base_font_size"] == 32
     assert config["max_headline_chars"] == 12
+    assert config["headline_color"] == "#E8C872"
+    assert config["max_body_points"] == 2
+    assert config["alignment"] == "bottom-left"
+    assert config["color_preset"] == "golden_cinema"
+
+
+def test_color_preset_can_be_overridden():
+    settings = get_template_engine().resolve_processing_settings("golden_quote_cinema")
+    rules = settings.setdefault("template_rules", {})
+    overlay = dict(rules.get("quote_overlay") or {})
+    overlay["color_preset"] = "mono_white"
+    overlay["headline_color"] = "#FF0000"
+    rules["quote_overlay"] = overlay
+    config = resolve_quote_overlay_config(settings)
+    assert config["headline_color"] == "#FF0000"
+    assert config["body_color"] == "#D8D8D8"
 
 
 def test_drawtext_filter_uses_fontfile_and_utf8_textfile(tmp_path):

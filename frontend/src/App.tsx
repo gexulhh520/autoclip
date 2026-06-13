@@ -1,16 +1,15 @@
 import { useEffect } from 'react'
 import { Routes, Route, useLocation } from 'react-router-dom'
-import { Layout } from 'antd'
-import HomePage from './pages/HomePage'
+import DesktopLayout from './layouts/DesktopLayout'
+import DesktopHomePage from './pages/DesktopHomePage'
+import AiSlicePage from './pages/AiSlicePage'
+import EditorHubPage from './pages/EditorHubPage'
 import ProjectDetailPage from './pages/ProjectDetailPage'
 import SettingsPage from './pages/SettingsPage'
 import TemplatesPage from './pages/TemplatesPage'
-import Header from './components/Header'
+import EditSessionPage from './pages/EditSessionPage'
 import { trackPageview } from './analytics/posthog'
 
-const { Content } = Layout
-
-// HashRouter 下手动上报 pageview（init 时已关闭自动 pageview）
 function usePageviewTracking() {
   const location = useLocation()
   useEffect(() => {
@@ -19,21 +18,22 @@ function usePageviewTracking() {
 }
 
 function App() {
-  console.log('🎬 App组件已加载');
+  console.log('🎬 App组件已加载')
   usePageviewTracking()
 
   return (
-    <Layout>
-      <Header />
-      <Content>
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/templates" element={<TemplatesPage />} />
-          <Route path="/project/:id" element={<ProjectDetailPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-        </Routes>
-      </Content>
-    </Layout>
+    <Routes>
+      <Route path="/editor/draft/:sessionId" element={<EditSessionPage />} />
+      <Route path="/project/:id/edit/:sessionId" element={<EditSessionPage />} />
+      <Route element={<DesktopLayout />}>
+        <Route path="/" element={<DesktopHomePage />} />
+        <Route path="/editor" element={<EditorHubPage />} />
+        <Route path="/ai-slice" element={<AiSlicePage />} />
+        <Route path="/templates" element={<TemplatesPage />} />
+        <Route path="/project/:id" element={<ProjectDetailPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
+      </Route>
+    </Routes>
   )
 }
 

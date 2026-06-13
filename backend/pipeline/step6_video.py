@@ -176,19 +176,16 @@ def run_step6_video(clips_with_titles_path: Path, collections_path: Path,
     # 创建视频生成器
     generator = VideoGenerator(clips_dir=clips_dir, collections_dir=collections_dir, metadata_dir=metadata_dir)
 
-    from backend.pipeline.subtitle_styles import (
-        resolve_quote_overlay_config,
-        resolve_subtitle_style,
-    )
-    subtitle_style = resolve_subtitle_style(settings)
-    subtitle_config = resolve_quote_overlay_config(settings)
+    from backend.pipeline.overlay_pipeline import resolve_overlay_pipeline
+
+    overlay_pipeline = resolve_overlay_pipeline(settings)
     
     # 生成切片视频
     successful_clips = generator.generate_clips(
         clips_with_titles,
         input_video,
-        subtitle_style=subtitle_style,
-        subtitle_config=subtitle_config,
+        subtitle_style=overlay_pipeline.subtitle_style,
+        subtitle_config=overlay_pipeline.config,
     )
     
     # 生成合集视频
@@ -213,8 +210,13 @@ def run_step6_video(clips_with_titles_path: Path, collections_path: Path,
         'collection_paths': [collection['video_path'] for collection in successful_collections],
         'collection_thumbnails': [collection['thumbnail_path'] for collection in successful_collections if collection['thumbnail_path']],
         'collections_info': successful_collections,
-        'subtitle_style': subtitle_style,
-        'subtitle_config': subtitle_config,
+        'subtitle_style': overlay_pipeline.subtitle_style,
+        'subtitle_config': overlay_pipeline.config,
+        'overlay': {
+            'composer': overlay_pipeline.composer,
+            'renderer': overlay_pipeline.renderer,
+            'template_version': overlay_pipeline.template_version,
+        },
     }
     
     logger.info(f"视频生成完成: {result['clips_generated']}个切片, {result['collections_generated']}个合集")

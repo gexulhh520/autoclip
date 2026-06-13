@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Button, Input, Modal, Space, Spin, Typography, message } from 'antd'
+import { Button, Input, Modal, Space, Spin, Switch, Typography, message } from 'antd'
 import {
   ReloadOutlined,
   StepBackwardOutlined,
@@ -7,6 +7,10 @@ import {
 } from '@ant-design/icons'
 import ReactPlayer from 'react-player'
 import { projectApi } from '../services/api'
+import QuoteOverlayPreview, {
+  OverlayPreviewConfig,
+  OverlayPreviewLayer,
+} from './QuoteOverlayPreview'
 import {
   adjustSrtTime,
   formatSrtTimeDisplay,
@@ -97,6 +101,16 @@ const TimelinePreviewModal: React.FC<TimelinePreviewModalProps> = ({
   const [regenerating, setRegenerating] = useState<'outline' | 'content' | 'both' | null>(null)
   const [segmentDrafts, setSegmentDrafts] = useState<Record<number, string>>({})
   const [draggingHandle, setDraggingHandle] = useState<RangeDragMode | null>(null)
+  const [showOverlayPreview, setShowOverlayPreview] = useState(true)
+  const [overlayPreview, setOverlayPreview] = useState<{
+    layout: 'cinema' | 'highlight' | 'none'
+    layers: OverlayPreviewLayer[]
+    config?: OverlayPreviewConfig
+    applicable: boolean
+    message?: string
+    subtitle_style?: string
+  } | null>(null)
+  const [loadingOverlayPreview, setLoadingOverlayPreview] = useState(false)
 
   const syncViewBounds = useCallback(
     (
@@ -327,6 +341,52 @@ const TimelinePreviewModal: React.FC<TimelinePreviewModalProps> = ({
     return () => window.clearTimeout(timer)
   }, [open, loadSegments])
 
+  const fetchOverlayPreview = useCallback(async () => {
+    if (!open || !projectId) return
+    const contentLines = draftContent
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+    if (!draftOutline.trim() && contentLines.length === 0) {
+      setOverlayPreview({
+        layout: 'none',
+        layers: [],
+        applicable: false,
+        message: '填写金句摘要或要点后可预览',
+      })
+      return
+    }
+    setLoadingOverlayPreview(true)
+    try {
+      const res = await projectApi.previewTimelineOverlay(
+        projectId,
+        {
+          outline: draftOutline.trim(),
+          content: contentLines,
+        },
+        sourceId
+      )
+      setOverlayPreview({
+        layout: res.layout,
+        layers: res.layers,
+        config: res.config as OverlayPreviewConfig,
+        applicable: res.applicable,
+        message: res.message,
+        subtitle_style: res.subtitle_style,
+      })
+    } catch {
+      setOverlayPreview(null)
+    } finally {
+      setLoadingOverlayPreview(false)
+    }
+  }, [open, projectId, sourceId, draftOutline, draftContent])
+
+  useEffect(() => {
+    if (!open) return
+    const timer = window.setTimeout(fetchOverlayPreview, 400)
+    return () => window.clearTimeout(timer)
+  }, [open, fetchOverlayPreview])
+
   const handleProgress = (state: { playedSeconds: number }) => {
     setCurrentSec(state.playedSeconds)
     if (state.playedSeconds >= endSec - 0.05) {
@@ -505,21 +565,47 @@ const TimelinePreviewModal: React.FC<TimelinePreviewModalProps> = ({
     >
       {item ? (
         <div className="timeline-preview-body">
-          <div className="timeline-preview-video">
-            <ReactPlayer
-              ref={playerRef}
-              url={videoUrl}
-              width="100%"
-              height="100%"
-              playing={playing}
-              controls
-              progressInterval={100}
-              onProgress={handleProgress}
-              onPause={() => setPlaying(false)}
-              onPlay={() => setPlaying(true)}
-              config={{ file: { attributes: { controlsList: 'nodownload' } } }}
+          <div className="timeline-preview-video-wrap">
+            <div className="timeline-preview-video">
+              <ReactPlayer
+                ref={playerRef}
+                url={videoUrl}
+                width="100%"
+                height="100%"
+                playing={playing}
+                controls
+                progressInterval={100}
+                onProgress={handleProgress}
+                onPause={() => setPlaying(false)}
+                onPlay={() => setPlaying(true)}
+                config={{ file: { attributes: { controlsList: 'nodownload' } } }}
+              />
+            </div>
+            <QuoteOverlayPreview
+              layout={overlayPreview?.layout ?? 'none'}
+              layers={overlayPreview?.layers ?? []}
+              config={overlayPreview?.config}
+              visible={showOverlayPreview && Boolean(overlayPreview?.applicable)}
             />
+            <label className="timeline-overlay-toggle">
+              <Switch
+                size="small"
+                checked={showOverlayPreview}
+                onChange={setShowOverlayPreview}
+              />
+              <span className="timeline-overlay-toggle-label">
+                导出字幕预览
+                {loadingOverlayPreview ? ' …' : ''}
+              </span>
+            </label>
           </div>
+          {showOverlayPreview && overlayPreview && !overlayPreview.applicable && overlayPreview.message ? (
+            <Text className="timeline-overlay-hint">{overlayPreview.message}</Text>
+          ) : showOverlayPreview && overlayPreview?.applicable ? (
+            <Text className="timeline-overlay-hint">
+              预览与 Step 6 导出叠加规则一致（要点 → 字幕层）；实际渲染以视频分辨率为准，此处为近似效果
+            </Text>
+          ) : null}
 
           <div>
             <div

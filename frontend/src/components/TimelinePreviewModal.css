@@ -25,6 +25,20 @@
   aspect-ratio: 16 / 9;
 }
 
+.timeline-preview-video-wrap {
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #000;
+  aspect-ratio: 16 / 9;
+}
+
+.timeline-preview-video-wrap .timeline-preview-video {
+  border-radius: 0;
+  aspect-ratio: auto;
+  height: 100%;
+}
+
 .timeline-range-bar {
   position: relative;
   height: 28px;
@@ -259,4 +273,32 @@
 .timeline-hint {
   font-size: 12px;
   color: var(--ac-muted, #a8a59f);
+}
+
+.timeline-overlay-toggle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.52);
+  backdrop-filter: blur(4px);
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.timeline-overlay-toggle-label {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.88);
+  user-select: none;
+}
+
+.timeline-overlay-hint {
+  font-size: 11px;
+  color: var(--ac-muted, #a8a59f);
+  margin-top: -8px;
 }

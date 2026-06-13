@@ -77,15 +77,21 @@ def test_prompt_loader_applies_inline_overrides():
 
 
 def test_save_template_config_to_metadata(tmp_path):
-    settings = {
-        "template_id": "golden_quote_cinema",
-        "prompt_pack": "golden_quote",
-        "template_rules": {"enable_clustering": False, "subtitle_style": "default"},
+    from pathlib import Path
+
+    engine = TemplateEngine(
+        templates_dir=Path(__file__).resolve().parent.parent / "templates"
+    )
+    settings = engine.resolve_processing_settings("golden_quote_cinema")
+    settings["template_rules"] = {
+        **settings["template_rules"],
+        "subtitle_style": "default",
     }
     save_template_config_to_metadata(tmp_path, settings)
     payload = (tmp_path / "template_config.json").read_text(encoding="utf-8")
     assert "golden_quote_cinema" in payload
-    assert "subtitle_style" in payload
+    assert "template_version" in payload
+    assert "overlay" in payload
 
 
 def test_template_engine_includes_prompt_overrides():

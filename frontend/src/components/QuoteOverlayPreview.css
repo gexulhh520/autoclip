@@ -1,0 +1,77 @@
+.quote-overlay-preview {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  max-width: 72%;
+}
+
+.quote-overlay-preview--cinema {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18em;
+}
+
+.quote-overlay-preview--align-left {
+  align-items: flex-start;
+}
+
+.quote-overlay-preview--align-center {
+  align-items: center;
+  text-align: center;
+}
+
+.quote-overlay-preview--align-right {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.quote-overlay-preview--highlight {
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 88%;
+  text-align: center;
+}
+
+.quote-overlay-line {
+  color: #ffffff;
+  line-height: 1.35;
+  font-family: var(--font-sans, "Geist", "PingFang SC", sans-serif);
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.55),
+    0 0 12px rgba(0, 0, 0, 0.35);
+  word-break: break-word;
+}
+
+.quote-overlay-line--headline {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.quote-overlay-line--emphasis {
+  font-weight: 600;
+  font-size: 0.82em !important;
+  opacity: 0.95;
+}
+
+.quote-overlay-line--body {
+  opacity: 0.92;
+}
+
+.quote-overlay-line--mark {
+  opacity: 0.75;
+  line-height: 1;
+}
+
+.quote-overlay-line--tagline {
+  font-style: italic;
+  opacity: 0.88;
+}
+
+.quote-overlay-line--highlight {
+  display: inline-block;
+  padding: 0.35em 0.65em;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-weight: 500;
+}

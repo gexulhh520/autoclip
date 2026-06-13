@@ -1549,6 +1549,72 @@ def regenerate_timeline_item_content(
     }
 
 
+def _load_project_processing_settings(
+    project_dir: Path,
+    source_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """读取项目冻结的 template_config；仅用引擎补全 pipeline 字段，不覆盖 rules/overlay。"""
+    metadata_dir = _resolve_metadata_dir(project_dir, source_id)
+    config_path = metadata_dir / "template_config.json"
+    if not config_path.exists():
+        return {}
+    raw = _load_json_file(config_path)
+    if not isinstance(raw, dict):
+        return {}
+
+    settings: Dict[str, Any] = {
+        "template_id": raw.get("template_id"),
+        "template_version": raw.get("template_version"),
+        "prompt_pack": raw.get("prompt_pack"),
+    }
+    if raw.get("template_rules"):
+        settings["template_rules"] = raw["template_rules"]
+    if raw.get("overlay"):
+        settings["overlay"] = raw["overlay"]
+
+    template_id = raw.get("template_id")
+    if template_id:
+        try:
+            from backend.pipeline.template_engine import get_template_engine
+
+            resolved = get_template_engine().resolve_processing_settings(str(template_id))
+            for key in ("clip_goal", "video_category", "clip_duration_preset", "prompt_pack"):
+                if resolved.get(key) is not None:
+                    settings.setdefault(key, resolved[key])
+            settings.setdefault("template_version", resolved.get("template_version"))
+            if "template_rules" not in settings:
+                settings["template_rules"] = resolved.get("template_rules") or {}
+            if "overlay" not in settings:
+                settings["overlay"] = resolved.get("overlay") or {}
+        except Exception as exc:
+            logger.warning("读取模板配置失败，使用 metadata 内嵌 rules: %s", exc)
+
+    return settings
+
+
+def preview_timeline_overlay(
+    project_id: str,
+    payload: Dict[str, Any],
+    source_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """预览 Step6 导出时将叠加的字幕层（与 overlay pipeline 一致）。"""
+    from backend.pipeline.overlay_pipeline import (
+        build_overlay_preview,
+        resolve_overlay_pipeline,
+    )
+
+    project_dir = get_project_directory(project_id)
+    settings = _load_project_processing_settings(project_dir, source_id)
+    pipeline = resolve_overlay_pipeline(settings)
+
+    clip_data = {
+        "outline": payload.get("outline") or "",
+        "content": payload.get("content") or [],
+        "recommend_reason": payload.get("recommend_reason") or "",
+    }
+    return build_overlay_preview(clip_data, pipeline)
+
+
 def seconds_to_srt_timestamp(total_seconds: float) -> str:
     """秒数转 SRT 时间戳 HH:MM:SS,mmm。"""
     clamped = max(0.0, total_seconds)
