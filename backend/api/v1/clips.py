@@ -232,7 +232,7 @@ async def delete_clip(
 ):
     """Delete a clip."""
     try:
-        success = clip_service.delete(clip_id)
+        success = clip_service.delete_clip_with_filesystem_update(clip_id)
         if not success:
             raise HTTPException(status_code=404, detail="Clip not found")
         return {"message": "Clip deleted successfully"}

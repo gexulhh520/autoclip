@@ -113,6 +113,26 @@ def _load_clips_data_from_project_dir(project_dir: Path) -> Optional[List[Dict[s
     return all_clips or None
 
 
+def _load_deleted_clip_records(project_dir: Path) -> tuple[set[str], set[str]]:
+    """读取已删除切片的 pipeline id 与 title|start_time 备用键。"""
+    deleted_pipeline_ids: set[str] = set()
+    deleted_clip_keys: set[str] = set()
+
+    deleted_clips_file = project_dir / "deleted_clips.json"
+    if not deleted_clips_file.exists():
+        return deleted_pipeline_ids, deleted_clip_keys
+
+    try:
+        with open(deleted_clips_file, "r", encoding="utf-8") as f:
+            deleted_data = json.load(f)
+        deleted_pipeline_ids = set(deleted_data.get("deleted_pipeline_ids", []))
+        deleted_clip_keys = set(deleted_data.get("deleted_clip_keys", []))
+    except Exception as e:
+        logger.warning(f"读取切片删除记录失败: {e}")
+
+    return deleted_pipeline_ids, deleted_clip_keys
+
+
 class DataSyncService:
     """数据同步服务"""
     
@@ -269,11 +289,28 @@ class DataSyncService:
             if not clips_data:
                 logger.info(f"项目 {project_id} 没有找到切片数据")
                 return 0
+
+            deleted_pipeline_ids, deleted_clip_keys = _load_deleted_clip_records(project_dir)
             
             synced_count = 0
             updated_count = 0
             for clip_data in clips_data:
                 try:
+                    pipeline_id = str(clip_data.get("id") or "")
+                    if pipeline_id and pipeline_id in deleted_pipeline_ids:
+                        logger.info(f"切片 {pipeline_id} 已被删除，跳过同步")
+                        continue
+
+                    title = clip_data.get(
+                        "generated_title",
+                        clip_data.get("title", clip_data.get("outline", "")),
+                    )
+                    start_time = self._convert_time_to_seconds(clip_data.get("start_time", "00:00:00"))
+                    fallback_key = f"{title}|{start_time}"
+                    if fallback_key in deleted_clip_keys:
+                        logger.info(f"切片 {fallback_key} 已被删除，跳过同步")
+                        continue
+
                     existing_clip = self._find_existing_clip(project_id, clip_data)
                     
                     if existing_clip:

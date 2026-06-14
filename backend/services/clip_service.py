@@ -135,4 +135,65 @@ class ClipService(BaseService[Clip, ClipCreate, ClipUpdate, ClipResponse]):
         return ClipListResponse(
             items=clip_responses,
             pagination=pagination_response
-        ) 
+        )
+
+    def delete_clip_with_filesystem_update(self, clip_id: str) -> bool:
+        """删除切片并记录到文件系统，避免刷新后从 metadata 重新同步回来。"""
+        import json
+        import logging
+        from datetime import datetime
+        from ..core.path_utils import get_project_directory
+
+        logger = logging.getLogger(__name__)
+
+        clip = self.get(clip_id)
+        if not clip:
+            return False
+
+        project_id = clip.project_id
+        metadata = clip.clip_metadata or {}
+        pipeline_id = str(metadata.get("id") or "")
+        fallback_key = f"{clip.title}|{clip.start_time}"
+
+        success = self.delete(clip_id)
+        if not success:
+            return False
+
+        try:
+            project_dir = get_project_directory(project_id)
+            deleted_clips_file = project_dir / "deleted_clips.json"
+
+            deleted_pipeline_ids: list[str] = []
+            deleted_db_clip_ids: list[str] = []
+            deleted_clip_keys: list[str] = []
+            if deleted_clips_file.exists():
+                try:
+                    with open(deleted_clips_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    deleted_pipeline_ids = list(data.get("deleted_pipeline_ids", []))
+                    deleted_db_clip_ids = list(data.get("deleted_db_clip_ids", []))
+                    deleted_clip_keys = list(data.get("deleted_clip_keys", []))
+                except Exception as e:
+                    logger.warning(f"读取切片删除记录失败: {e}")
+
+            if pipeline_id and pipeline_id not in deleted_pipeline_ids:
+                deleted_pipeline_ids.append(pipeline_id)
+            if clip_id not in deleted_db_clip_ids:
+                deleted_db_clip_ids.append(clip_id)
+            if fallback_key not in deleted_clip_keys:
+                deleted_clip_keys.append(fallback_key)
+
+            deleted_data = {
+                "deleted_pipeline_ids": deleted_pipeline_ids,
+                "deleted_db_clip_ids": deleted_db_clip_ids,
+                "deleted_clip_keys": deleted_clip_keys,
+                "last_updated": datetime.now().isoformat(),
+            }
+            with open(deleted_clips_file, "w", encoding="utf-8") as f:
+                json.dump(deleted_data, f, ensure_ascii=False, indent=2)
+
+            logger.info(f"已更新切片删除记录: {deleted_clips_file}")
+        except Exception as e:
+            logger.error(f"更新切片删除记录失败: {e}")
+
+        return True 
