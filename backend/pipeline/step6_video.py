@@ -66,6 +66,7 @@ class VideoGenerator:
                 'content': clip.get('content') or [],
                 'recommend_reason': clip.get('recommend_reason') or '',
                 'generated_title': clip.get('generated_title') or clip.get('title'),
+                'overlay_copy': clip.get('overlay_copy'),
             })
         
         # 批量生成切片
@@ -176,16 +177,25 @@ def run_step6_video(clips_with_titles_path: Path, collections_path: Path,
     # 创建视频生成器
     generator = VideoGenerator(clips_dir=clips_dir, collections_dir=collections_dir, metadata_dir=metadata_dir)
 
-    from backend.pipeline.overlay_pipeline import resolve_overlay_pipeline
+    from backend.pipeline.overlay_pipeline import (
+        resolve_overlay_pipeline,
+        should_burn_overlay_on_clip_export,
+    )
+    from backend.pipeline.subtitle_styles import DEFAULT_SUBTITLE_STYLE
 
     overlay_pipeline = resolve_overlay_pipeline(settings)
+    burn_on_export = should_burn_overlay_on_clip_export(settings)
+    export_subtitle_style = (
+        overlay_pipeline.subtitle_style if burn_on_export else DEFAULT_SUBTITLE_STYLE
+    )
+    export_subtitle_config = overlay_pipeline.config if burn_on_export else None
     
-    # 生成切片视频
+    # 生成切片视频（金句模板默认不烧录旁白，留给剪辑器与下载时再叠加）
     successful_clips = generator.generate_clips(
         clips_with_titles,
         input_video,
-        subtitle_style=overlay_pipeline.subtitle_style,
-        subtitle_config=overlay_pipeline.config,
+        subtitle_style=export_subtitle_style,
+        subtitle_config=export_subtitle_config,
     )
     
     # 生成合集视频

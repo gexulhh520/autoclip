@@ -1985,24 +1985,54 @@ async def download_project_file(
             file_path = Path(clip.video_path)
             if not file_path.exists():
                 raise HTTPException(status_code=404, detail="切片视频文件不存在")
+
+            from ...pipeline.overlay_pipeline import (
+                resolve_overlay_pipeline,
+                should_burn_overlay_on_download,
+            )
+            from ...utils.video_processor import VideoProcessor
+            import tempfile
+            from starlette.background import BackgroundTask
+
+            processing_config = getattr(project, "processing_config", None) or {}
+            overlay_pipeline = resolve_overlay_pipeline(processing_config)
+            clip_metadata = getattr(clip, "clip_metadata", None) or {}
+            deliver_path = file_path
+            temp_output: Optional[Path] = None
+
+            if should_burn_overlay_on_download(processing_config) and overlay_pipeline.composer != "none":
+                temp_output = Path(tempfile.mkstemp(suffix=".mp4")[1])
+                burned = VideoProcessor.burn_overlay_on_video(
+                    file_path,
+                    temp_output,
+                    clip_metadata,
+                    subtitle_style=overlay_pipeline.subtitle_style,
+                    subtitle_config=overlay_pipeline.config,
+                )
+                if burned and temp_output.exists():
+                    deliver_path = temp_output
             
             # 生成下载文件名
             clip_title = clip.title or f"clip_{clip_id}"
-            from ...utils.video_processor import VideoProcessor
             safe_name = VideoProcessor.sanitize_filename(clip_title)
             filename = f"{safe_name}.mp4"
             
             # 对文件名进行URL编码
             import urllib.parse
             encoded_filename = urllib.parse.quote(filename.encode('utf-8'))
+
+            background = None
+            if temp_output is not None and deliver_path == temp_output:
+                background = BackgroundTask(lambda p=temp_output: p.unlink(missing_ok=True))
             
             return FileResponse(
-                path=str(file_path),
+                path=str(deliver_path),
                 filename=filename,
                 media_type="video/mp4",
                 headers={
                     "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
-                }
+                },
+                background=background,
             )
         
         else:

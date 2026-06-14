@@ -242,6 +242,25 @@ class DataSyncService:
         
         return None
     
+    def _find_existing_clip(self, project_id: str, clip_data: Dict[str, Any]) -> Optional[Any]:
+        """按 pipeline id 或标题匹配已有切片记录。"""
+        from ..models.clip import Clip
+
+        pipeline_id = str(clip_data.get("id") or "")
+        if pipeline_id:
+            candidates = self.db.query(Clip).filter(Clip.project_id == project_id).all()
+            for clip in candidates:
+                meta = clip.clip_metadata or {}
+                if str(meta.get("id") or "") == pipeline_id:
+                    return clip
+
+        title = clip_data.get("generated_title", clip_data.get("title", ""))
+        return (
+            self.db.query(Clip)
+            .filter(Clip.project_id == project_id, Clip.title == title)
+            .first()
+        )
+
     def _sync_clips_from_filesystem(self, project_id: str, project_dir: Path) -> int:
         """从文件系统同步切片数据"""
         try:
@@ -255,11 +274,7 @@ class DataSyncService:
             updated_count = 0
             for clip_data in clips_data:
                 try:
-                    # 检查切片是否已存在
-                    existing_clip = self.db.query(Clip).filter(
-                        Clip.project_id == project_id,
-                        Clip.title == clip_data.get("generated_title", clip_data.get("title", ""))
-                    ).first()
+                    existing_clip = self._find_existing_clip(project_id, clip_data)
                     
                     if existing_clip:
                         clip_id = clip_data.get('id', str(synced_count + 1))

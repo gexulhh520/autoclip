@@ -23,6 +23,8 @@
   },
   "rules": {
     "enable_clustering": false,
+    "burn_overlay_on_clip_export": false,
+    "burn_overlay_on_download": true,
     "subtitle_style": "quote_cinema",
     "overlay": {
       "composer": "quote_cinema",

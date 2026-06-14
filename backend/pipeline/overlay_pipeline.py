@@ -100,6 +100,28 @@ def pipeline_to_subtitle_style(composer: str, renderer: str) -> str:
     return DEFAULT_SUBTITLE_STYLE
 
 
+def should_burn_overlay_on_clip_export(settings: Optional[Dict[str, Any]] = None) -> bool:
+    """Step6 导出切片时是否烧录旁白。有 overlay 合成器时默认不烧录，便于剪辑器调整。"""
+    settings = dict(settings or {})
+    rules = settings.get("template_rules") or {}
+    explicit = rules.get("burn_overlay_on_clip_export")
+    if explicit is not None:
+        return bool(explicit)
+    pipeline = resolve_overlay_pipeline(settings)
+    return pipeline.composer == COMPOSER_NONE
+
+
+def should_burn_overlay_on_download(settings: Optional[Dict[str, Any]] = None) -> bool:
+    """用户下载切片时是否烧录旁白。"""
+    settings = dict(settings or {})
+    rules = settings.get("template_rules") or {}
+    explicit = rules.get("burn_overlay_on_download")
+    if explicit is not None:
+        return bool(explicit)
+    pipeline = resolve_overlay_pipeline(settings)
+    return pipeline.composer != COMPOSER_NONE
+
+
 def resolve_overlay_pipeline(settings: Optional[Dict[str, Any]] = None) -> OverlayPipeline:
     """单一入口：解析 composer / renderer / 排版 config / legacy subtitle_style。"""
     settings = dict(settings or {})

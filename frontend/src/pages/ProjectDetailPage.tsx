@@ -74,7 +74,19 @@ const ProjectDetailPage: React.FC = () => {
     loadProcessingStatus()
   }, [id])
 
-  const loadProjectMedia = async (projectId: string, sourceId?: string | null) => {
+  const loadProjectMedia = async (
+    projectId: string,
+    sourceId?: string | null,
+    options?: { forceSync?: boolean },
+  ) => {
+    if (options?.forceSync) {
+      try {
+        await projectApi.syncProjectFromFilesystem(projectId)
+      } catch (syncErr) {
+        console.warn('Force sync clips failed:', syncErr)
+      }
+    }
+
     let [clips, collections] = await Promise.all([
       projectApi.getClips(projectId, sourceId ?? undefined),
       projectApi.getCollections(projectId),
@@ -128,9 +140,11 @@ const ProjectDetailPage: React.FC = () => {
         project.status === 'failed' ||
         (sourceInfo?.completed_sources ?? 0) > 0
 
-      if (shouldLoadMedia && project.status !== 'processing') {
+      if (shouldLoadMedia && (project.status !== 'processing' || step6Ready)) {
         try {
-          const { clips, collections } = await loadProjectMedia(id, selectedSourceId)
+          const { clips, collections } = await loadProjectMedia(id, selectedSourceId, {
+            forceSync: step6Ready,
+          })
 
           const projectWithData = {
             ...project,

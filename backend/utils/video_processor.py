@@ -554,6 +554,90 @@ class VideoProcessor:
         except Exception as e:
             logger.error(f"视频处理异常: {str(e)}")
             return False
+
+    @staticmethod
+    def burn_overlay_on_video(
+        input_video: Path,
+        output_path: Path,
+        clip_data: Dict[str, Any],
+        *,
+        subtitle_style: str = "quote_cinema",
+        subtitle_config: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """在已切割的干净切片上烧录旁白（用于下载导出）。"""
+        try:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            info = VideoProcessor.get_video_info(input_video)
+            duration_sec = float(info.get("duration") or 0.0)
+            if duration_sec <= 0:
+                duration_sec = 5.0
+
+            ffmpeg_bin = get_ffmpeg_path()
+            vf: Optional[str] = None
+            ffmpeg_cwd: Optional[str] = None
+
+            if subtitle_style == "quote_cinema":
+                vf = VideoProcessor._build_cinema_subtitles_filter(
+                    clip_data,
+                    output_path,
+                    input_video,
+                    duration_sec,
+                    subtitle_config,
+                )
+                if vf:
+                    ffmpeg_cwd = str(output_path.parent)
+            elif subtitle_style == "quote_highlight":
+                from backend.pipeline.quote_overlay_composer import get_quote_overlay_fallback_text
+
+                overlay_text = get_quote_overlay_fallback_text(clip_data, subtitle_config)
+                if overlay_text:
+                    vf = VideoProcessor._build_drawtext_filter(
+                        overlay_text.strip(),
+                        output_path,
+                        subtitle_config,
+                    )
+
+            if not vf:
+                import shutil
+                shutil.copy2(input_video, output_path)
+                return True
+
+            cmd = [
+                ffmpeg_bin,
+                "-i",
+                str(input_video.resolve()),
+                "-vf",
+                vf,
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                "23",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+                "-y",
+                str(output_path.resolve()),
+            ]
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="ignore",
+                cwd=ffmpeg_cwd,
+            )
+            if subtitle_style == "quote_cinema":
+                output_path.with_suffix(output_path.suffix + ".overlay.ass").unlink(missing_ok=True)
+            if result.returncode == 0:
+                return True
+            logger.error("下载旁白烧录失败: %s", result.stderr[:400])
+            return False
+        except Exception as exc:
+            logger.error("下载旁白烧录异常: %s", exc)
+            return False
     
     @staticmethod
     def create_collection(clips_list: List[Path], output_path: Path) -> bool:
