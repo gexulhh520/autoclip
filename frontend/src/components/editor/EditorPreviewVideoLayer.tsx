@@ -51,8 +51,23 @@ const PreviewVideoLayer: React.FC<PreviewVideoLayerProps> = ({
     const blur = blurRef.current
     if (!video) return
     if (isPlaying) {
+      if (video.ended) {
+        const seekTo = Math.min(
+          Math.max(0, targetTimeSec),
+          Number.isFinite(video.duration) ? Math.max(0, video.duration - 0.04) : targetTimeSec
+        )
+        video.currentTime = seekTo
+      }
       void video.play().catch(() => undefined)
-      if (blur) void blur.play().catch(() => undefined)
+      if (blur) {
+        if (blur.ended) {
+          blur.currentTime = Math.min(
+            Math.max(0, targetTimeSec),
+            Number.isFinite(blur.duration) ? Math.max(0, blur.duration - 0.04) : targetTimeSec
+          )
+        }
+        void blur.play().catch(() => undefined)
+      }
     } else {
       video.pause()
       blur?.pause()

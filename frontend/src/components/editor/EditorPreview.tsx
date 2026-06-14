@@ -70,6 +70,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const isPlaying = useEditSessionStore((state) => state.isPlaying)
   const setPlaying = useEditSessionStore((state) => state.setPlaying)
   const advanceSequencePlayhead = useEditSessionStore((state) => state.advanceSequencePlayhead)
+  const setSequencePlayheadSec = useEditSessionStore((state) => state.setSequencePlayheadSec)
   const timelineTrackMuted = useEditSessionStore((state) => state.timelineTrackMuted)
   const timelineTrackHidden = useEditSessionStore((state) => state.timelineTrackHidden)
   const overlayElements = useEditSessionStore((state) => state.session?.overlay_elements)
@@ -283,6 +284,17 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     }
     const rate = primaryVideoLayer.playbackRate || 1
     const nextPlayhead = segment.startSec + Math.max(0, relative / rate)
+
+    if (nextPlayhead >= totalDuration - 0.05) {
+      setSequencePlayheadSec(totalDuration)
+      const bgm = bgmRef.current
+      if (bgm && bgmUrl) {
+        bgm.pause()
+        bgm.currentTime = Math.max(0, totalDuration + bgmStartSec)
+      }
+      return
+    }
+
     advanceSequencePlayhead(nextPlayhead)
 
     const bgm = bgmRef.current
@@ -296,22 +308,30 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
       setPlaying(false)
       return
     }
-    if (previewVm?.inDissolve) {
+
+    const playhead = useEditSessionStore.getState().sequencePlayheadSec
+    const atCompositionEnd = playhead >= totalDuration - 0.05
+
+    if (previewVm?.inDissolve && !atCompositionEnd) {
       return
     }
-    const resolved = resolveCompositionPlayhead(sequencePlayheadSec, compositionSegments)
+
+    const resolved = resolveCompositionPlayhead(playhead, compositionSegments)
     if (!resolved) {
-      setPlaying(false)
+      setSequencePlayheadSec(totalDuration)
       return
     }
+
     const index = compositionSegments.findIndex(
       (item) => item.block.id === resolved.segment.block.id
     )
-    if (index >= 0 && index < compositionSegments.length - 1) {
+
+    if (!atCompositionEnd && index >= 0 && index < compositionSegments.length - 1) {
       advanceSequencePlayhead(compositionSegments[index + 1].startSec + 0.02)
       return
     }
-    setPlaying(false)
+
+    setSequencePlayheadSec(totalDuration)
   }
 
   const toggleFullscreen = async () => {
@@ -457,6 +477,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                       secondaryVideoLayer.block,
                       secondaryVideoLayer.relativeSourceSec
                     )}
+                    onEnded={handleVideoEnded}
                   />
                 ) : null}
               </div>
@@ -557,7 +578,12 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
           <button
             type="button"
             className="editor-play-btn"
-            onClick={() => setPlaying(!isPlaying)}
+            onClick={() => {
+              if (!isPlaying && !isAssetPreview && sequencePlayheadSec >= totalDuration - 0.05) {
+                setSequencePlayheadSec(0)
+              }
+              setPlaying(!isPlaying)
+            }}
             disabled={!canPreview}
             aria-label={isPlaying ? '暂停' : '播放'}
           >
