@@ -77,6 +77,7 @@ interface EditSessionState {
   textTrackMuted: Record<string, boolean>
   activeTextTrackId: string | null
   assetPreviewClip: AssetPreviewClip | null
+  previewVideoNaturalSize: { width: number; height: number } | null
   isPlaying: boolean
   sequencePlayheadSec: number
   timelineZoom: number
@@ -190,6 +191,7 @@ interface EditSessionState {
   addBookmark: (timeSec: number, label?: string) => void
   removeBookmark: (bookmarkId: string) => void
   setAssetPreviewClip: (clip: AssetPreviewClip | null) => void
+  setPreviewVideoNaturalSize: (size: { width: number; height: number } | null) => void
   reorderBlocks: (fromIndex: number, toIndex: number) => void
   setPlaying: (playing: boolean) => void
   setSequencePlayheadSec: (sec: number) => void
@@ -326,6 +328,7 @@ export const useEditSessionStore = create<EditSessionState>()(
       textTrackMuted: {},
       activeTextTrackId: DEFAULT_TEXT_TRACK_ID,
       assetPreviewClip: null,
+      previewVideoNaturalSize: null,
       isPlaying: false,
       sequencePlayheadSec: 0,
       timelineZoom: 100,
@@ -994,7 +997,10 @@ export const useEditSessionStore = create<EditSessionState>()(
             state.session.overlay_elements = []
           }
           ensureTextTracks(state.session)
-          const dims = resolveCanvasDimensions(state.session.export_settings)
+          const dims = resolveCanvasDimensions(
+            state.session.export_settings,
+            state.previewVideoNaturalSize
+          )
           const startSec = partial?.start_sec ?? state.sequencePlayheadSec
           const content =
             typeof partial?.params?.content === 'string'
@@ -1025,6 +1031,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           state.selectedCaptionBlockIds = []
           state.sequencePlayheadSec = startSec
           state.activeTextTrackId = trackId
+          state.isPlaying = false
           state.dirty = true
         })
       },
@@ -1189,6 +1196,8 @@ export const useEditSessionStore = create<EditSessionState>()(
       setAssetPreviewClip: (clip) => {
         set({ assetPreviewClip: clip, isPlaying: false })
       },
+
+      setPreviewVideoNaturalSize: (size) => set({ previewVideoNaturalSize: size }),
 
       reorderBlocks: (fromIndex, toIndex) => {
         if (fromIndex === toIndex) return
@@ -1442,6 +1451,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           textTrackMuted: {},
           activeTextTrackId: DEFAULT_TEXT_TRACK_ID,
           assetPreviewClip: null,
+          previewVideoNaturalSize: null,
           isPlaying: false,
           sequencePlayheadSec: 0,
           timelineZoom: 100,

@@ -86,6 +86,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const setInspectorTab = useEditSessionStore((state) => state.setInspectorTab)
   const updateOverlayParams = useEditSessionStore((state) => state.updateOverlayParams)
   const updateBlockOverlay = useEditSessionStore((state) => state.updateBlockOverlay)
+  const setPreviewVideoNaturalSize = useEditSessionStore((state) => state.setPreviewVideoNaturalSize)
 
   const isAssetPreview = Boolean(assetPreviewClip)
   const clipAudioMuted = timelineTrackMuted.mainVideo || timelineTrackMuted.audioWave
@@ -121,11 +122,20 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
               burnSubtitles: previewBurnSubtitles,
               useSourceVideo: useSourcePreview,
               selectedOverlayId,
+              selectedOverlayIds,
               mutedTextTrackIds,
             },
           }
         : null,
-    [session, useSourcePreview, previewBurnSubtitles, selectedOverlayId, overlayElements, mutedTextTrackIds]
+    [
+      session,
+      useSourcePreview,
+      previewBurnSubtitles,
+      selectedOverlayId,
+      selectedOverlayIds,
+      overlayElements,
+      mutedTextTrackIds,
+    ]
   )
 
   const renderScene = useMemo(() => {
@@ -196,7 +206,12 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
 
   useEffect(() => {
     setVideoNaturalSize(null)
-  }, [primaryVideoLayer?.block.id, assetVideoUrl])
+    setPreviewVideoNaturalSize(null)
+  }, [primaryVideoLayer?.block.id, assetVideoUrl, setPreviewVideoNaturalSize])
+
+  useEffect(() => {
+    setPreviewVideoNaturalSize(videoNaturalSize)
+  }, [videoNaturalSize, setPreviewVideoNaturalSize])
 
   useEffect(() => {
     if (isAssetPreview || !renderScene) {
@@ -355,6 +370,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const videoFitClass = resolvePreviewVideoFitClass(fitMode, canvasAspect)
   const videoFilterStyle = resolveVisualFilterStyle(exportSettings?.visual_filter)
   const exportSummary = formatExportSettingsSummary(exportSettings, videoNaturalSize)
+  const hasFreeTextElements = (overlayElements?.length ?? 0) > 0
   const canvasDims = useMemo(
     () => resolveCanvasDimensions(exportSettings ?? { aspect: '9:16', height: 1080, fps: 30, visual_filter: 'none', fit_mode: 'contain' }, videoNaturalSize),
     [exportSettings, videoNaturalSize]
@@ -537,7 +553,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                 })
               : null}
 
-            {!isAssetPreview && previewVm && previewVm.freeOverlays.length > 0 ? (
+            {!isAssetPreview && previewVm && hasFreeTextElements ? (
               <OpenCutTextCanvas
                 ref={textCanvasRef}
                 elements={previewVm.freeOverlays}

@@ -1,4 +1,4 @@
-import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react'
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from 'react'
 import type { OpenCutTextOverlay } from '../../editor/opencut-text/params'
 import { renderTextOverlayToContext } from '../../editor/opencut-text/render'
 import {
@@ -174,6 +174,12 @@ const OpenCutTextCanvas = forwardRef<OpenCutTextCanvasHandle, OpenCutTextCanvasP
         paint()
       })
     }, [paint])
+
+    useLayoutEffect(() => {
+      schedulePaint()
+      const raf = window.requestAnimationFrame(() => schedulePaint())
+      return () => window.cancelAnimationFrame(raf)
+    }, [schedulePaint, elements, canvasWidth, canvasHeight])
 
     useEffect(() => {
       schedulePaint()

@@ -48,10 +48,15 @@ export function resolveFreeTextLayers(
   timeSec: number,
   options?: {
     selectedOverlayId?: string | null
+    selectedOverlayIds?: string[]
     mutedTrackIds?: Set<string>
   }
 ): Array<{ element: OpenCutTextOverlay; opacity: number }> {
-  const selectedId = options?.selectedOverlayId ?? null
+  const selectedIds = new Set(
+    [options?.selectedOverlayId, ...(options?.selectedOverlayIds ?? [])].filter(
+      (id): id is string => Boolean(id)
+    )
+  )
   const mutedTrackIds = options?.mutedTrackIds
   const hiddenTrackIds = new Set(
     resolveTextTracks(session).filter((track) => track.hidden).map((track) => track.id)
@@ -62,23 +67,26 @@ export function resolveFreeTextLayers(
     resolveTextTracks(session)
   )
 
-  const candidates = sorted.filter((element) => {
+  const isVisibleForPreview = (element: OpenCutTextOverlay, forceSelected: boolean): boolean => {
     if (element.hidden || !overlayHasContent(element)) return false
+    if (forceSelected && selectedIds.has(element.id)) return true
     const trackId = getOverlayTrackId(element)
     if (mutedTrackIds?.has(trackId)) return false
     if (hiddenTrackIds.has(trackId)) return false
     return true
-  })
+  }
+
+  const candidates = sorted.filter((element) => isVisibleForPreview(element, false))
 
   const active = candidates
     .filter((element) => isOverlayActiveAt(element, timeSec))
     .map((element) => ({ element, opacity: 1 }))
 
-  if (selectedId && !active.some((item) => item.element.id === selectedId)) {
-    const selected = candidates.find((element) => element.id === selectedId)
-    if (selected) {
-      active.push({ element: selected, opacity: 0.55 })
-    }
+  for (const id of selectedIds) {
+    if (active.some((item) => item.element.id === id)) continue
+    const selected = sorted.find((element) => element.id === id)
+    if (!selected || !isVisibleForPreview(selected, true)) continue
+    active.push({ element: selected, opacity: 1 })
   }
 
   return active
@@ -251,6 +259,7 @@ export function resolveSceneAt(
 
   const freeTextLayers = resolveFreeTextLayers(session, clampedTime, {
     selectedOverlayId: options.selectedOverlayId,
+    selectedOverlayIds: options.selectedOverlayIds,
     mutedTrackIds: options.mutedTextTrackIds
       ? new Set(options.mutedTextTrackIds)
       : undefined,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { EditBlock, EditSession } from '../../types/editSession'
 import { buildCompositionTimeline } from './timelineLayout'
-import { compileExportPlan, resolveSceneAt } from './sceneBuilder'
+import { compileExportPlan, resolveFreeTextLayers, resolveSceneAt } from './sceneBuilder'
 
 const block = (id: string, duration: number, transition: 'cut' | 'dissolve' = 'cut'): EditBlock => ({
   id,
@@ -145,6 +145,34 @@ describe('sceneBuilder', () => {
       0.5
     )
     expect(outside.freeTextLayers).toHaveLength(1)
-    expect(outside.freeTextLayers[0]?.opacity).toBeCloseTo(0.55)
+    expect(outside.freeTextLayers[0]?.opacity).toBe(1)
+  })
+
+  it('keeps selected overlay visible on muted text track', () => {
+    const base = session([block('a', 4)])
+    base.text_tracks = [{ id: 'default-text', name: 'Text', order: 0, hidden: false }]
+    base.overlay_elements = [
+      {
+        id: 'txt-muted',
+        type: 'text',
+        track_id: 'default-text',
+        start_sec: 1,
+        duration_sec: 3,
+        hidden: false,
+        params: {
+          content: '静音轨文本',
+          fontSize: 15,
+          'transform.positionX': 0,
+          'transform.positionY': 0,
+        },
+      },
+    ]
+
+    const muted = resolveFreeTextLayers(base, 1.5, {
+      selectedOverlayId: 'txt-muted',
+      mutedTrackIds: new Set(['default-text']),
+    })
+    expect(muted).toHaveLength(1)
+    expect(muted[0]?.element.id).toBe('txt-muted')
   })
 })
