@@ -1,4 +1,5 @@
 import type { EditExportSettings } from '../../types/editSession'
+import { resolveVisualFilterCss } from '../../editor/effects'
 import { normalizeAspectPresetId, resolveExportDimensions } from '../../utils/editAspectRatios'
 
 export type CompositionBackground = 'color' | 'blur'
@@ -150,18 +151,10 @@ export function getBlurBackdropTransform(spec: CompositionSpec): VisualTransform
   )
 }
 
-const VISUAL_FILTER_CSS: Record<EditExportSettings['visual_filter'], string | undefined> = {
-  none: undefined,
-  mono_soft: 'brightness(1.02) saturate(0.65) contrast(1.05)',
-  mono_contrast: 'contrast(1.18) brightness(0.97) saturate(0.55)',
-  mono_cool: 'saturate(0.5) brightness(1.01)',
-  mono_warm: 'saturate(0.62) brightness(1.03) contrast(1.06)',
-}
-
 export function resolveCanvasFilter(
   filter: EditExportSettings['visual_filter'] | undefined
 ): string | undefined {
-  return VISUAL_FILTER_CSS[filter ?? 'none']
+  return resolveVisualFilterCss(filter)
 }
 
 export function drawCompositionFrame(

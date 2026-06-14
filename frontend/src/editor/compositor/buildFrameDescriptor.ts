@@ -1,6 +1,5 @@
 import type { EditSession } from '../../types/editSession'
 import {
-  findDissolveAtTime,
   mapCompositionTimeToRelativeSource,
 } from '../scene/timelineLayout'
 import { resolveFreeTextLayers } from '../scene/sceneBuilder'
@@ -11,6 +10,11 @@ import {
   buildVideoCompositionSpec,
   resolveVideoLayerTransforms,
 } from './geometry'
+import {
+  frameLayerFromTransitionSpec,
+  resolvePlanSceneEffects,
+  resolveTransitionAtTime,
+} from '../effects'
 import {
   COMPOSITOR_SCHEMA_VERSION,
   type BuildFrameDescriptorOptions,
@@ -123,7 +127,14 @@ export function buildFrameDescriptor(
     })
   }
 
-  const dissolve = findDissolveAtTime(timeline, clampedTime)
+  const transitionResult = resolveTransitionAtTime({
+    plan,
+    clampedTime,
+    foreground,
+    blurBackdrop,
+    timeline,
+  })
+
   const freeTextDefs = plan.layers.filter(
     (layer): layer is FreeTextLayerDef => layer.kind === 'free_text'
   )
@@ -167,31 +178,14 @@ export function buildFrameDescriptor(
     }
   }
 
-  if (dissolve) {
-    const { outgoing, incoming, progress } = dissolve
+  for (const layerSpec of transitionResult.videoLayers) {
+    items.push(frameLayerFromTransitionSpec(layerSpec, zIndex++))
+  }
+
+  if (transitionResult.dissolve) {
+    const { outgoing, incoming, progress } = transitionResult.dissolve
     const outRelative = mapCompositionTimeToRelativeSource(outgoing, clampedTime)
     const inRelative = mapCompositionTimeToRelativeSource(incoming, clampedTime)
-
-    items.push({
-      kind: 'layer',
-      id: `video:${outgoing.block.id}`,
-      source: 'video',
-      blockId: outgoing.block.id,
-      relativeSourceSec: outRelative,
-      transform: foreground,
-      opacity: 1 - progress,
-      zIndex: zIndex++,
-    })
-    items.push({
-      kind: 'layer',
-      id: `video:${incoming.block.id}`,
-      source: 'video',
-      blockId: incoming.block.id,
-      relativeSourceSec: inRelative,
-      transform: foreground,
-      opacity: progress,
-      zIndex: zIndex++,
-    })
 
     appendTemplateFreeText(outgoing.block.id, 1 - progress)
     appendTemplateFreeText(incoming.block.id, progress)
@@ -222,38 +216,22 @@ export function buildFrameDescriptor(
         ),
       }
     )
-  } else {
-    const active = timeline.segments.find(
-      (segment) =>
-        clampedTime >= segment.compositionStartSec - 0.001 &&
-        clampedTime < segment.compositionStartSec + segment.sourceDurationSec + 0.001
-    )
-
-    if (active) {
-      const relative = mapCompositionTimeToRelativeSource(active, clampedTime)
-      items.push({
-        kind: 'layer',
-        id: `video:${active.block.id}`,
-        source: 'video',
-        blockId: active.block.id,
-        relativeSourceSec: relative,
-        transform: foreground,
-        opacity: 1,
-        zIndex: zIndex++,
-      })
-
-      appendTemplateFreeText(active.block.id, 1)
-
+  } else if (transitionResult.videoLayers.length === 1) {
+    const activeBlockId = transitionResult.videoLayers[0]?.blockId
+    const activeSegment = timeline.segments.find((seg) => seg.block.id === activeBlockId)
+    if (activeSegment && activeBlockId) {
+      const relative = mapCompositionTimeToRelativeSource(activeSegment, clampedTime)
+      appendTemplateFreeText(activeBlockId, 1)
       audio.push({
         kind: 'clip',
-        blockId: active.block.id,
+        blockId: activeBlockId,
         timelineSec: clampedTime,
         volume: blockVolumeAtRelative(
-          active.block.audio.volume,
+          activeSegment.block.audio.volume,
           relative,
-          active.sourceDurationSec,
-          active.block.audio.fade_in_sec ?? 0,
-          active.block.audio.fade_out_sec ?? 0
+          activeSegment.sourceDurationSec,
+          activeSegment.block.audio.fade_in_sec ?? 0,
+          activeSegment.block.audio.fade_out_sec ?? 0
         ),
       })
     }
@@ -294,15 +272,8 @@ export function buildFrameDescriptor(
     }
   }
 
-  const filterLayer = plan.layers.find(
-    (layer): layer is Extract<typeof layer, { kind: 'filter' }> => layer.kind === 'filter'
-  )
-  if (filterLayer && filterLayer.filterId !== 'none') {
-    items.push({
-      kind: 'scene_effect',
-      id: 'visual-filter',
-      effectId: `visual_filter.${filterLayer.filterId}`,
-    })
+  for (const sceneEffect of resolvePlanSceneEffects(plan)) {
+    items.push(sceneEffect)
   }
 
   return {
@@ -314,8 +285,8 @@ export function buildFrameDescriptor(
     items,
     audio,
     transition: {
-      inDissolve: Boolean(dissolve),
-      progress: dissolve?.progress ?? null,
+      inDissolve: transitionResult.inDissolve,
+      progress: transitionResult.progress,
     },
   }
 }

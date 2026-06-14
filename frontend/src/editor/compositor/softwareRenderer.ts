@@ -1,4 +1,4 @@
-import { resolveCanvasFilter } from '../../services/composition'
+import { applyRegisteredSceneEffect, resolveVisualFilterCss } from '../effects'
 import { renderTextOverlayToContext } from '../opencut-text/render'
 import type { OpenCutTextOverlay } from '../opencut-text/params'
 import type {
@@ -90,9 +90,13 @@ const applySceneEffectToContext = (
   height: number,
   effectId: string
 ): void => {
+  if (applyRegisteredSceneEffect({ ctx, width, height, effectId })) {
+    return
+  }
+  // 未注册 effect 的兜底（历史 descriptor）
   if (!effectId.startsWith('visual_filter.')) return
   const filterId = effectId.replace('visual_filter.', '')
-  const css = resolveCanvasFilter(filterId as never)
+  const css = resolveVisualFilterCss(filterId as never)
   if (!css) return
   const imageData = ctx.getImageData(0, 0, width, height)
   ctx.save()
