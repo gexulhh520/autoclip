@@ -34,7 +34,8 @@ export function mapTrackIdToStoreKey(trackId: string): TimelineTrackId | null {
 
 const blockHasCaption = (block: EditBlock): boolean =>
   Boolean(
-    block.overlay.outline.trim() ||
+    block.title.trim() ||
+      block.overlay.outline.trim() ||
       block.overlay.content.some((line) => line.trim())
   )
 
@@ -85,7 +86,7 @@ export function buildAdaptedTracks(params: {
     .map((segment) => ({
     id: `cap-${segment.block.id}`,
     elementType: 'text',
-    name: '字幕',
+    name: segment.block.title || '字幕',
     startTime: segment.startSec,
     duration: segment.duration,
     trimStart: 0,
@@ -93,7 +94,12 @@ export function buildAdaptedTracks(params: {
     source: {
       kind: 'caption',
       blockId: segment.block.id,
-      content: segment.block.overlay.content.join(' ') || segment.block.title,
+      content:
+        [segment.block.title, segment.block.overlay.outline]
+          .filter((line) => line.trim())
+          .join(' · ') ||
+        segment.block.overlay.content.join(' ') ||
+        segment.block.title,
     },
   }))
 

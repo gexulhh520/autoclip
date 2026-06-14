@@ -47,7 +47,7 @@ DEFAULT_QUOTE_CINEMA_CONFIG: Dict[str, Any] = {
     "quote_mark_size_scale": 0.55,
     "emphasis_size_scale": 0.82,
     "caps_label": "THE MOMENT",
-    "content_priority": ["content", "outline", "recommend_reason"],
+    "content_priority": ["generated_title", "outline", "content", "recommend_reason"],
     "alignment": "bottom-left",
     "margin_right": 44,
     "margin_right_ratio": 0.055,

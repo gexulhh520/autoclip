@@ -32,7 +32,7 @@
       "layout": "cinema",
       "alignment": "bottom-left",
       "color_preset": "golden_cinema",
-      "content_priority": ["content", "outline", "recommend_reason"],
+      "content_priority": ["generated_title", "outline", "content", "recommend_reason"],
       "base_font_size": 32,
       "margin_left": 44,
       "margin_right": 44,

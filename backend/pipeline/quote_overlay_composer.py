@@ -52,7 +52,7 @@ def _body_size_scale(config: Dict[str, Any], index: int) -> float:
     return float(scales[min(index, len(scales) - 1)])
 
 
-DEFAULT_CONTENT_PRIORITY = ["content", "outline", "recommend_reason"]
+DEFAULT_CONTENT_PRIORITY = ["generated_title", "outline", "content", "recommend_reason"]
 _VALID_CONTENT_SOURCES = frozenset(DEFAULT_CONTENT_PRIORITY)
 
 
@@ -113,9 +113,20 @@ def _compose_headline_and_body(
     headline = ""
     body_lines: List[str] = []
     seen: set[str] = set()
+    headline_from_generated = False
 
     for source in priority:
-        if source == "content" and content:
+        if source == "generated_title":
+            generated = str(clip_data.get("generated_title") or "").strip()
+            if generated and not headline:
+                headline = _truncate(generated, max_headline)
+                if headline:
+                    seen.add(_normalize_for_compare(headline))
+                    headline_from_generated = True
+
+        elif source == "content" and content:
+            if headline_from_generated:
+                continue
             if not headline:
                 headline = _truncate(content[0], max_headline)
                 seen.add(_normalize_for_compare(headline))
@@ -153,16 +164,20 @@ def _compose_headline_and_body(
                         headline=headline,
                     )
             elif len(body_lines) < max_body_points:
-                _sub = _split_outline(outline)[1]
-                if _sub:
-                    _append_body_lines(
-                        body_lines,
-                        seen,
-                        [_sub],
-                        max_body=max_body,
-                        max_body_points=max_body_points,
-                        headline=headline,
-                    )
+                main, sub = _split_outline(outline)
+                candidates: List[str] = []
+                if main:
+                    candidates.append(main)
+                if sub:
+                    candidates.append(sub)
+                _append_body_lines(
+                    body_lines,
+                    seen,
+                    candidates,
+                    max_body=max_body,
+                    max_body_points=max_body_points,
+                    headline=headline,
+                )
 
         elif source == "recommend_reason" and reason:
             if headline and len(body_lines) < max_body_points:

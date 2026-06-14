@@ -81,6 +81,7 @@ def block_to_clip_data(block: EditBlock) -> Dict[str, Any]:
         "outline": block.overlay.outline,
         "content": block.overlay.content,
         "recommend_reason": block.overlay.recommend_reason,
+        "generated_title": block.title,
     }
 
 

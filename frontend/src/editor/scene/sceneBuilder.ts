@@ -1,4 +1,4 @@
-import type { EditBlockOverlay, EditSession } from '../../types/editSession'
+import type { EditBlock, EditBlockOverlay, EditSession } from '../../types/editSession'
 import type { OpenCutTextOverlay } from '../opencut-text/params'
 import { readStringParam } from '../opencut-text/params'
 import {
@@ -29,6 +29,11 @@ const blockOverlayHasCaption = (overlay: EditBlockOverlay): boolean =>
     overlay.outline.trim() ||
       overlay.content.some((line) => line.trim())
   )
+
+const blockHasTemplateCaption = (block: EditBlock): boolean =>
+  Boolean(block.title.trim() || blockOverlayHasCaption(block.overlay))
+
+export function resolveFreeTextLayers(
 
 const overlayHasContent = (element: OpenCutTextOverlay): boolean =>
   readStringParam(element.params, 'content', '').trim().length > 0
@@ -196,14 +201,14 @@ export function resolveSceneAt(
     })
 
     if (options.burnSubtitles) {
-      if (blockOverlayHasCaption(outgoing.block.overlay)) {
+      if (blockHasTemplateCaption(outgoing.block)) {
         templateCaptions.push({
           blockId: outgoing.block.id,
           overlay: outgoing.block.overlay,
           opacity: 1 - progress,
         })
       }
-      if (blockOverlayHasCaption(incoming.block.overlay)) {
+      if (blockHasTemplateCaption(incoming.block)) {
         templateCaptions.push({
           blockId: incoming.block.id,
           overlay: incoming.block.overlay,
@@ -236,7 +241,7 @@ export function resolveSceneAt(
         zIndex: 0,
       })
 
-      if (options.burnSubtitles && blockOverlayHasCaption(active.block.overlay)) {
+      if (options.burnSubtitles && blockHasTemplateCaption(active.block)) {
         templateCaptions.push({
           blockId: active.block.id,
           overlay: active.block.overlay,

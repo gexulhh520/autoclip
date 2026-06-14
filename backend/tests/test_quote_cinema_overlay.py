@@ -22,8 +22,8 @@ def test_compose_quote_cinema_layers_are_compact():
     assert roles[0] == "headline"
     assert "quote_mark" not in roles
     assert "emphasis" not in roles
-    assert layers[roles.index("headline")].text.startswith("宁爱本江一年头")
-    assert any("强调知足与守己" in t for t in texts)
+    assert layers[roles.index("headline")].text.startswith("莫恋虚妄的宏大")
+    assert any("宁爱本江一年头" in t for t in texts)
 
 
 def test_compose_optional_decorative_layers():
@@ -44,7 +44,8 @@ def test_compose_prefers_timeline_content_over_outline():
                 "天生我才必有用",
                 "千金散尽还复来",
             ],
-        }
+        },
+        {"content_priority": ["content", "outline", "recommend_reason"]},
     )
     roles = [layer.role for layer in layers]
     texts = [layer.text for layer in layers]
@@ -94,6 +95,21 @@ def test_ass_builder_writes_multiline_events(tmp_path):
     assert "真爱相守" in content
     assert "PlayResX: 720" in content
     assert content.count("Dialogue:") == len(layers)
+
+
+def test_generated_title_headline_with_outline_body():
+    layers = compose_quote_cinema_layers(
+        {
+            "outline": "原始话题摘要",
+            "content": ["不应抢 headline 的要点"],
+            "generated_title": "Step5 生成标题",
+        }
+    )
+    roles = [layer.role for layer in layers]
+    texts = [layer.text for layer in layers]
+    assert texts[roles.index("headline")] == "Step5 生成标题"
+    assert "原始话题摘要" in texts
+    assert "不应抢 headline 的要点" not in texts
 
 
 def test_content_priority_outline_before_content():
