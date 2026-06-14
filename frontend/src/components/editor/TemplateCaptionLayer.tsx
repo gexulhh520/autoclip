@@ -58,16 +58,21 @@ const TemplateCaptionLayer: React.FC<TemplateCaptionLayerProps> = ({
     origins: Map<string, { x: number; y: number }>
   } | null>(null)
 
+  const offsetX = block?.overlay.position_offset_x_pct ?? 0
+  const offsetY = block?.overlay.position_offset_y_pct ?? 0
+  const dragDeltaX = dragVisual?.blockIds.includes(blockId) ? (dragVisual?.deltaXPct ?? 0) : 0
+  const dragDeltaY = dragVisual?.blockIds.includes(blockId) ? (dragVisual?.deltaYPct ?? 0) : 0
+
   const mergedConfig: OverlayPreviewConfig = {
     ...(config ?? {}),
-    position_offset_x_pct: block?.overlay.position_offset_x_pct ?? 0,
-    position_offset_y_pct: block?.overlay.position_offset_y_pct ?? 0,
+    // 偏移在 editor-preview-caption-layer（全画幅）上应用，与拖动计算一致
+    position_offset_x_pct: 0,
+    position_offset_y_pct: 0,
   }
 
-  const isDragVisualActive = dragVisual?.blockIds.includes(blockId) ?? false
-  const dragTransform =
-    isDragVisualActive && dragVisual
-      ? `translate3d(${dragVisual.deltaXPct}%, ${-dragVisual.deltaYPct}%, 0)`
+  const layerTransform =
+    offsetX || offsetY || dragDeltaX || dragDeltaY
+      ? `translate3d(${offsetX + dragDeltaX}%, ${-(offsetY + dragDeltaY)}%, 0)`
       : undefined
 
   const commitDrag = (
@@ -150,7 +155,7 @@ const TemplateCaptionLayer: React.FC<TemplateCaptionLayerProps> = ({
         commitDrag(drag, upEvent.clientX, upEvent.clientY)
       }
       dragRef.current = null
-      onDragVisualChange?.(null)
+      window.requestAnimationFrame(() => onDragVisualChange?.(null))
     }
 
     window.addEventListener('pointermove', onMove)
@@ -169,8 +174,8 @@ const TemplateCaptionLayer: React.FC<TemplateCaptionLayerProps> = ({
       className="editor-preview-caption-layer"
       style={{
         opacity,
-        transform: dragTransform,
-        willChange: isDragVisualActive ? 'transform' : undefined,
+        transform: layerTransform,
+        willChange: dragDeltaX || dragDeltaY ? 'transform' : undefined,
       }}
       data-preview-caption-id={blockId}
     >
