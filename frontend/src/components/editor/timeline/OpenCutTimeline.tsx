@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Eye, EyeOff, Volume2, VolumeX } from 'lucide-react'
 import { useEditSessionStore } from '../../../stores/useEditSessionStore'
 import {
@@ -24,6 +24,7 @@ import { useTimelineZoom } from './hooks/useTimelineZoom'
 import { useScrollSync } from './hooks/useScrollSync'
 import { usePlayheadDrag, useTimelineSeek } from './hooks/useTimelineSeek'
 import { useTimelineBoxSelect } from './hooks/useTimelineBoxSelect'
+import { resolveContextMenuPosition } from './contextMenuPosition'
 import { collectSequenceSnapPoints, snapTime } from '../../../utils/editTimeline'
 import type { AdaptedElement, SnapPoint } from './types'
 import { EditorShortcutsHost } from './useEditorKeyboardShortcuts'
@@ -113,6 +114,10 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const [bgmDurationSec, setBgmDurationSec] = useState(0)
   const [waveforms, setWaveforms] = useState<WaveformMap>({})
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(
+    null
+  )
+  const contextMenuRef = useRef<HTMLDivElement>(null)
   const [snapPoint, setSnapPoint] = useState<SnapPoint | null>(null)
   const tracksCanvasRef = useRef<HTMLDivElement>(null)
   const [tracksViewportWidth, setTracksViewportWidth] = useState(0)
@@ -275,6 +280,19 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     const close = () => setContextMenu(null)
     window.addEventListener('click', close)
     return () => window.removeEventListener('click', close)
+  }, [contextMenu])
+
+  useLayoutEffect(() => {
+    if (!contextMenu) {
+      setContextMenuPosition(null)
+      return
+    }
+    const menu = contextMenuRef.current
+    if (!menu) return
+    const rect = menu.getBoundingClientRect()
+    setContextMenuPosition(
+      resolveContextMenuPosition(contextMenu.x, contextMenu.y, rect.width, rect.height)
+    )
   }, [contextMenu])
 
   const isSelected = (_trackId: string, element: AdaptedElement): boolean => {
@@ -872,8 +890,13 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
 
       {contextMenu ? (
         <div
+          ref={contextMenuRef}
           className="oc-timeline__context-menu"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
+          style={{
+            left: contextMenuPosition?.x ?? contextMenu.x,
+            top: contextMenuPosition?.y ?? contextMenu.y - 4,
+            visibility: contextMenuPosition ? 'visible' : 'hidden',
+          }}
           onClick={(event) => event.stopPropagation()}
         >
           {contextMenu.elementId.startsWith('cap-') ? null : (
