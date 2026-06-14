@@ -3,8 +3,10 @@ import type { OpenCutTextOverlay } from '../../editor/opencut-text/params'
 import { renderTextOverlayToContext } from '../../editor/opencut-text/render'
 import {
   buildTransformFromParams,
+  normalizedToPosition,
+  positionToNormalized,
 } from '../../editor/opencut-text/transform'
-import { getTextMeasurementContext, measureTextOverlay } from '../../editor/opencut-text/measure'
+import { measureTextOverlay } from '../../editor/opencut-text/measure'
 
 interface OpenCutTextCanvasProps {
   elements: Array<{ element: OpenCutTextOverlay; opacity: number }>
@@ -12,15 +14,13 @@ interface OpenCutTextCanvasProps {
   canvasHeight: number
   selectedId?: string | null
   interactive?: boolean
-  onSelect?: (id: string | null) => void
+  onSelect?: (id: string) => void
   onParamsChange?: (
     id: string,
     patch: Record<string, string | number | boolean>,
     options?: { recordHistory?: boolean }
   ) => void
 }
-
-const HIT_PADDING_PX = 14
 
 const OpenCutTextCanvas: React.FC<OpenCutTextCanvasProps> = ({
   elements,
@@ -117,24 +117,20 @@ const OpenCutTextCanvas: React.FC<OpenCutTextCanvasProps> = ({
         const transform = buildTransformFromParams(element.params)
         const cx = transform.position.x + canvasWidth / 2
         const cy = transform.position.y + canvasHeight / 2
-        const measured = measureTextOverlay({
-          element,
-          canvasHeight,
-          ctx: getTextMeasurementContext(),
-        })
+        const ctx = canvasRef.current?.getContext('2d')
+        if (!ctx) continue
+        const measured = measureTextOverlay({ element, canvasHeight, ctx })
         const r = measured.visualRect
-        const pad =
-          HIT_PADDING_PX / Math.max(0.25, Math.min(transform.scaleX, transform.scaleY))
         const dx = canvasX - cx
         const dy = canvasY - cy
         const rad = (-transform.rotate * Math.PI) / 180
         const localX = (dx * Math.cos(rad) - dy * Math.sin(rad)) / transform.scaleX
         const localY = (dx * Math.sin(rad) + dy * Math.cos(rad)) / transform.scaleY
         if (
-          localX >= r.left - pad &&
-          localX <= r.left + r.width + pad &&
-          localY >= r.top - pad &&
-          localY <= r.top + r.height + pad
+          localX >= r.left &&
+          localX <= r.left + r.width &&
+          localY >= r.top &&
+          localY <= r.top + r.height
         ) {
           return element
         }
@@ -146,13 +142,9 @@ const OpenCutTextCanvas: React.FC<OpenCutTextCanvasProps> = ({
 
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (!interactive) return
-    event.stopPropagation()
-    event.preventDefault()
     const hit = hitTest(event.clientX, event.clientY)
-    if (!hit) {
-      onSelect?.(null)
-      return
-    }
+    if (!hit) return
+    event.stopPropagation()
     onSelect?.(hit.id)
     const transform = buildTransformFromParams(hit.params)
     const container = containerRef.current

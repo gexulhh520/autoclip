@@ -26,7 +26,6 @@ import type { OverlayPreviewLayer } from '../QuoteOverlayPreview'
 import EditorAspectRatioPicker from './EditorAspectRatioPicker'
 import OpenCutTextCanvas from './OpenCutTextCanvas'
 import PreviewVideoLayer from './EditorPreviewVideoLayer'
-import { readStringParam } from '../../editor/opencut-text/params'
 import { resolveCanvasDimensions } from '../../editor/scene/canvas'
 import type { EditBlock } from '../../types/editSession'
 
@@ -111,36 +110,6 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     if (!renderScene) return null
     return renderSceneToPreviewViewModel(renderScene, blocks)
   }, [renderScene, blocks])
-
-  const previewTextElements = useMemo(() => {
-    const visible = previewVm?.freeOverlays ?? []
-    const overlays = session?.overlay_elements ?? []
-    const hasContent = (element: (typeof overlays)[number]) =>
-      readStringParam(element.params, 'content', '').trim().length > 0
-
-    if (!isPlaying && overlays.length > 0) {
-      const activeIds = new Set(visible.map((item) => item.element.id))
-      return overlays
-        .filter((element) => !element.hidden && hasContent(element))
-        .map((element) => ({
-          element,
-          opacity: activeIds.has(element.id) ? 1 : 0.42,
-        }))
-    }
-
-    if (!selectedOverlayId) return visible
-    if (visible.some((item) => item.element.id === selectedOverlayId)) return visible
-    const selected = overlays.find(
-      (item) => item.id === selectedOverlayId && !item.hidden && hasContent(item)
-    )
-    if (!selected) return visible
-    return [...visible, { element: selected, opacity: 0.72 }]
-  }, [
-    previewVm?.freeOverlays,
-    selectedOverlayId,
-    session?.overlay_elements,
-    isPlaying,
-  ])
 
   const previewFps = session?.export_settings?.fps ?? 30
   const exportSettings = session?.export_settings
@@ -442,14 +411,17 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                 })
               : null}
 
-            {!isAssetPreview && !freeOverlayMuted && previewTextElements.length > 0 ? (
+            {!isAssetPreview && !freeOverlayMuted && previewVm?.freeOverlays.length ? (
               <OpenCutTextCanvas
-                elements={previewTextElements}
+                elements={previewVm.freeOverlays}
                 canvasWidth={canvasDims.width}
                 canvasHeight={canvasDims.height}
                 selectedId={selectedOverlayId}
                 interactive
-                onSelect={(id) => setSelectedOverlayId(id)}
+                onSelect={(id) => {
+                  setSelectedOverlayId(id)
+                  useEditSessionStore.getState().setInspectorTab('text')
+                }}
                 onParamsChange={(id, patch, options) =>
                   updateOverlayParams(id, patch, options)
                 }
