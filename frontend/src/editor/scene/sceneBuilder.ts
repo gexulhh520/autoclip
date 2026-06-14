@@ -33,8 +33,6 @@ const blockOverlayHasCaption = (overlay: EditBlockOverlay): boolean =>
 const blockHasTemplateCaption = (block: EditBlock): boolean =>
   Boolean(block.title.trim() || blockOverlayHasCaption(block.overlay))
 
-export function resolveFreeTextLayers(
-
 const overlayHasContent = (element: OpenCutTextOverlay): boolean =>
   readStringParam(element.params, 'content', '').trim().length > 0
 
