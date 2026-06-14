@@ -1,0 +1,99 @@
+import { useCallback, useRef } from 'react'
+import { TIMELINE_CONSTANTS } from '../constants'
+import { pxToTime } from '../zoomUtils'
+
+export function useTimelineSeek(options: {
+  tracksScrollRef: React.RefObject<HTMLDivElement | null>
+  zoomLevel: number
+  duration: number
+  paddingPx: number
+  onSeek: (timeSec: number) => void
+  onClearSelection: () => void
+}) {
+  const { tracksScrollRef, zoomLevel, duration, paddingPx, onSeek, onClearSelection } = options
+  const mouseTrackingRef = useRef({ isMouseDown: false, downX: 0, downY: 0, downTime: 0 })
+
+  const seekFromClientX = useCallback(
+    (clientX: number, scrollLeftOverride?: number) => {
+      const scrollElement = tracksScrollRef.current
+      if (!scrollElement) return
+      const rect = scrollElement.getBoundingClientRect()
+      const scrollLeft = scrollLeftOverride ?? scrollElement.scrollLeft
+      const xInContent = clientX - rect.left + scrollLeft - paddingPx
+      const time = Math.max(0, Math.min(duration, pxToTime(xInContent, zoomLevel)))
+      onSeek(time)
+    },
+    [tracksScrollRef, zoomLevel, duration, paddingPx, onSeek]
+  )
+
+  const handlePointerDown = useCallback((event: React.MouseEvent) => {
+    if (event.button !== 0) return
+    mouseTrackingRef.current = {
+      isMouseDown: true,
+      downX: event.clientX,
+      downY: event.clientY,
+      downTime: event.timeStamp,
+    }
+  }, [])
+
+  const handlePointerClick = useCallback(
+    (event: React.MouseEvent) => {
+      const target = event.target as HTMLElement
+      if (target.closest('.oc-timeline__element, .oc-timeline__playhead, .oc-timeline__bookmark')) {
+        return
+      }
+      const { isMouseDown, downX, downY, downTime } = mouseTrackingRef.current
+      if (!isMouseDown) return
+      const deltaX = Math.abs(event.clientX - downX)
+      const deltaY = Math.abs(event.clientY - downY)
+      if (deltaX > 5 || deltaY > 5 || event.timeStamp - downTime > 500) return
+      onClearSelection()
+      seekFromClientX(event.clientX)
+    },
+    [onClearSelection, seekFromClientX]
+  )
+
+  return { seekFromClientX, handlePointerDown, handlePointerClick }
+}
+
+export function usePlayheadDrag(options: {
+  playheadSec: number
+  zoomLevel: number
+  duration: number
+  paddingPx: number
+  tracksScrollRef: React.RefObject<HTMLDivElement | null>
+  onSeek: (timeSec: number) => void
+}) {
+  const { playheadSec, zoomLevel, duration, paddingPx, tracksScrollRef, onSeek } = options
+
+  const startDrag = useCallback(
+    (event: React.PointerEvent) => {
+      event.stopPropagation()
+      event.preventDefault()
+      const startX = event.clientX
+      const startTime = playheadSec
+
+      const onMove = (moveEvent: PointerEvent) => {
+        const scrollElement = tracksScrollRef.current
+        if (!scrollElement) return
+        const deltaSec =
+          (moveEvent.clientX - startX) /
+          (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
+        onSeek(Math.max(0, Math.min(duration, startTime + deltaSec)))
+      }
+
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+      }
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
+    },
+    [playheadSec, zoomLevel, duration, tracksScrollRef, onSeek]
+  )
+
+  const playheadLeft =
+    paddingPx + playheadSec * TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel
+
+  return { startDrag, playheadLeft }
+}

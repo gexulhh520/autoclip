@@ -1,0 +1,432 @@
+.oc-timeline {
+  --oc-bg: #141414;
+  --oc-panel: #1f1f1f;
+  --oc-panel-2: #252525;
+  --oc-border: #2f2f2f;
+  --oc-text: #f5f5f5;
+  --oc-muted: #666666;
+  --oc-sub: #9b9b9b;
+  --oc-accent: #ececec;
+  --oc-primary: #ececec;
+  --oc-destructive: #ef4444;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--oc-bg);
+  color: var(--oc-text);
+  border-top: 1px solid var(--oc-border);
+}
+
+.oc-timeline__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 40px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--oc-border);
+  background: var(--oc-panel);
+  overflow-x: auto;
+}
+
+.oc-timeline__toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.oc-timeline__toolbar-session {
+  font-size: 12px;
+  color: var(--oc-sub);
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--oc-border) 80%, transparent);
+  border-radius: 6px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.oc-timeline__toolbar-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--oc-border);
+  margin: 0 4px;
+}
+
+.oc-timeline__tool-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--oc-sub);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.oc-timeline__tool-btn:hover:not(:disabled),
+.oc-timeline__tool-btn.is-active {
+  background: var(--oc-panel-2);
+  color: var(--oc-text);
+}
+
+.oc-timeline__tool-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.oc-timeline__zoom-slider {
+  width: 112px;
+}
+
+.oc-timeline__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.oc-timeline__labels {
+  width: 112px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--oc-border);
+  background: var(--oc-panel);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.oc-timeline__labels-spacer {
+  height: 32px;
+  flex-shrink: 0;
+}
+
+.oc-timeline__label-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 12px;
+}
+
+.oc-timeline__label-toggle {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--oc-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.oc-timeline__label-toggle:hover,
+.oc-timeline__label-toggle.is-off {
+  color: var(--oc-destructive);
+}
+
+.oc-timeline__track-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--oc-muted);
+  flex-shrink: 0;
+}
+
+.oc-timeline__scroll {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+  background: var(--oc-bg);
+}
+
+.oc-timeline__content {
+  position: relative;
+  min-height: 100%;
+}
+
+.oc-timeline__header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: var(--oc-panel);
+}
+
+.oc-timeline__ruler {
+  position: relative;
+  height: 16px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--oc-border);
+}
+
+.oc-timeline__tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid color-mix(in srgb, var(--oc-border) 90%, white);
+  pointer-events: none;
+}
+
+.oc-timeline__tick.has-label .oc-timeline__tick-label {
+  position: absolute;
+  top: 1px;
+  left: 4px;
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+  color: var(--oc-muted);
+}
+
+.oc-timeline__bookmarks {
+  position: relative;
+  height: 16px;
+  border-bottom: 1px solid var(--oc-border);
+}
+
+.oc-timeline__bookmark {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #00cae0;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.oc-timeline__bookmark:hover {
+  background: color-mix(in srgb, #00cae0 12%, transparent);
+}
+
+.oc-timeline__tracks {
+  position: relative;
+}
+
+.oc-timeline__track-lane {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--oc-panel-2) 85%, black);
+  overflow: hidden;
+}
+
+.oc-timeline__track-lane.is-empty {
+  border: 2px dashed color-mix(in srgb, var(--oc-border) 80%, white);
+  background: transparent;
+}
+
+.oc-timeline__track-hit {
+  position: absolute;
+  inset: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.oc-timeline__playhead {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  z-index: 60;
+  pointer-events: none;
+}
+
+.oc-timeline__playhead-line {
+  position: absolute;
+  inset: 0;
+  width: 2px;
+  background: var(--oc-accent);
+  pointer-events: auto;
+  cursor: col-resize;
+}
+
+.oc-timeline__playhead-head {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--oc-accent) 50%, transparent);
+  background: var(--oc-accent);
+  pointer-events: auto;
+  cursor: col-resize;
+}
+
+.oc-timeline__snap-indicator {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #00cae0;
+  z-index: 55;
+  pointer-events: none;
+}
+
+.oc-timeline__selection-box {
+  position: absolute;
+  border: 1px solid #00cae0;
+  background: color-mix(in srgb, #00cae0 12%, transparent);
+  z-index: 50;
+  pointer-events: none;
+}
+
+.oc-timeline__element {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  border-radius: 8px;
+  overflow: hidden;
+  z-index: 10;
+}
+
+.oc-timeline__element.is-selected {
+  z-index: 20;
+  box-shadow: inset 0 0 0 2px var(--oc-primary);
+}
+
+.oc-timeline__element.is-hidden {
+  opacity: 0.45;
+}
+
+.oc-timeline__element--video {
+  background: #2a2a2a;
+}
+
+.oc-timeline__element-body {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border: none;
+  padding: 0;
+  background: transparent;
+  cursor: grab;
+  text-align: left;
+}
+
+.oc-timeline__element-body:active {
+  cursor: grabbing;
+}
+
+.oc-timeline__video-fill {
+  position: absolute;
+  inset: 0;
+  background-size: auto 100%;
+  background-repeat: repeat-x;
+  background-position: left center;
+  opacity: 0.85;
+}
+
+.oc-timeline__waveform-inline {
+  position: absolute;
+  inset: auto 0 0;
+  height: 40%;
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  padding: 0 2px 2px;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.oc-timeline__waveform-bar {
+  flex: 1;
+  min-width: 1px;
+  background: #00cae0;
+  border-radius: 1px;
+}
+
+.oc-timeline__element-label {
+  position: relative;
+  z-index: 1;
+  display: block;
+  padding: 0 8px;
+  font-size: 11px;
+  line-height: 1.2;
+  color: white;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.oc-timeline__resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  z-index: 30;
+  cursor: ew-resize;
+  background: var(--oc-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.oc-timeline__resize::after {
+  content: '';
+  width: 2px;
+  height: 18px;
+  border-radius: 999px;
+  background: #141414;
+}
+
+.oc-timeline__resize--left {
+  left: 0;
+}
+
+.oc-timeline__resize--right {
+  right: 0;
+}
+
+.oc-timeline__context-menu {
+  position: fixed;
+  z-index: 200;
+  min-width: 160px;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--oc-border);
+  background: var(--oc-panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.oc-timeline__context-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--oc-text);
+  font-size: 12px;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.oc-timeline__context-item:hover {
+  background: var(--oc-panel-2);
+}
+
+.oc-timeline__context-item.is-danger {
+  color: var(--oc-destructive);
+}
+
+.oc-timeline__empty-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--oc-muted);
+  pointer-events: none;
+}
