@@ -26,6 +26,13 @@ interface OpenCutTextCanvasProps {
   ) => void
 }
 
+interface DragVisualState {
+  ids: string[]
+  dx: number
+  dy: number
+  origins: Map<string, { x: number; y: number }>
+}
+
 const OpenCutTextCanvas = forwardRef<OpenCutTextCanvasHandle, OpenCutTextCanvasProps>(
   (
     {
@@ -42,15 +49,9 @@ const OpenCutTextCanvas = forwardRef<OpenCutTextCanvasHandle, OpenCutTextCanvasP
   ) => {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
-    const dragRef = useRef<{
-      ids: string[]
-      pointerId: number
-      startX: number
-      startY: number
-      origins: Map<string, { x: number; y: number }>
-      frameW: number
-      frameH: number
-    } | null>(null)
+    const dragVisualRef = useRef<DragVisualState | null>(null)
+    const paintRafRef = useRef<number | null>(null)
+    const canvasSizeRef = useRef({ width: 0, height: 0 })
 
     const resolvedSelectedIds =
       selectedIds.length > 0 ? selectedIds : selectedId ? [selectedId] : []
@@ -64,10 +65,16 @@ const OpenCutTextCanvas = forwardRef<OpenCutTextCanvasHandle, OpenCutTextCanvasP
         const displayH = container.clientHeight
         if (displayW <= 0 || displayH <= 0) return null
 
+        const drag = dragVisualRef.current
+        const dragOffset =
+          drag?.ids.includes(element.id) ? { x: drag.dx, y: drag.dy } : undefined
+
         const measured = measureTextOverlay({ element, canvasHeight, ctx })
         const transform = buildTransformFromParams(element.params)
-        const cx = transform.position.x + canvasWidth / 2
-        const cy = transform.position.y + canvasHeight / 2
+        const cx =
+          transform.position.x + (dragOffset?.x ?? 0) + canvasWidth / 2
+        const cy =
+          transform.position.y + (dragOffset?.y ?? 0) + canvasHeight / 2
         const rect = measured.visualRect
         const scaleX = (displayW / canvasWidth) * transform.scaleX
         const scaleY = (displayH / canvasHeight) * transform.scaleY
@@ -107,10 +114,15 @@ const OpenCutTextCanvas = forwardRef<OpenCutTextCanvasHandle, OpenCutTextCanvasP
       if (displayW <= 0 || displayH <= 0) return
 
       const dpr = window.devicePixelRatio || 1
-      canvas.width = Math.max(1, Math.round(displayW * dpr))
-      canvas.height = Math.max(1, Math.round(displayH * dpr))
-      canvas.style.width = `${displayW}px`
-      canvas.style.height = `${displayH}px`
+      const targetW = Math.max(1, Math.round(displayW * dpr))
+      const targetH = Math.max(1, Math.round(displayH * dpr))
+      if (canvasSizeRef.current.width !== targetW || canvasSizeRef.current.height !== targetH) {
+        canvas.width = targetW
+        canvas.height = targetH
+        canvas.style.width = `${displayW}px`
+        canvas.style.height = `${displayH}px`
+        canvasSizeRef.current = { width: targetW, height: targetH }
+      }
 
       const ctx = canvas.getContext('2d')
       if (!ctx) return
@@ -119,21 +131,29 @@ const OpenCutTextCanvas = forwardRef<OpenCutTextCanvasHandle, OpenCutTextCanvasP
       ctx.setTransform(scale, 0, 0, scale, 0, 0)
       ctx.clearRect(0, 0, canvasWidth, canvasHeight)
 
+      const drag = dragVisualRef.current
+
       for (const { element, opacity } of elements) {
         if (element.hidden) continue
+        const positionOffset =
+          drag?.ids.includes(element.id) ? { x: drag.dx, y: drag.dy } : undefined
+
         renderTextOverlayToContext({
           element,
           ctx,
           canvasWidth,
           canvasHeight,
           layerOpacity: opacity,
+          positionOffset,
         })
 
         if (resolvedSelectedIds.includes(element.id)) {
           const measured = measureTextOverlay({ element, canvasHeight, ctx })
           const transform = buildTransformFromParams(element.params)
-          const cx = transform.position.x + canvasWidth / 2
-          const cy = transform.position.y + canvasHeight / 2
+          const cx =
+            transform.position.x + (positionOffset?.x ?? 0) + canvasWidth / 2
+          const cy =
+            transform.position.y + (positionOffset?.y ?? 0) + canvasHeight / 2
           const rect = measured.visualRect
           ctx.save()
           ctx.translate(cx, cy)
@@ -147,19 +167,34 @@ const OpenCutTextCanvas = forwardRef<OpenCutTextCanvasHandle, OpenCutTextCanvasP
       }
     }, [canvasWidth, canvasHeight, elements, resolvedSelectedIds])
 
-    useEffect(() => {
-      paint()
-      const frame = window.requestAnimationFrame(() => paint())
-      return () => window.cancelAnimationFrame(frame)
+    const schedulePaint = useCallback(() => {
+      if (paintRafRef.current != null) return
+      paintRafRef.current = window.requestAnimationFrame(() => {
+        paintRafRef.current = null
+        paint()
+      })
     }, [paint])
+
+    useEffect(() => {
+      schedulePaint()
+    }, [schedulePaint])
 
     useEffect(() => {
       const container = containerRef.current
       if (!container) return
-      const observer = new ResizeObserver(() => paint())
+      const observer = new ResizeObserver(() => schedulePaint())
       observer.observe(container)
       return () => observer.disconnect()
-    }, [paint])
+    }, [schedulePaint])
+
+    useEffect(
+      () => () => {
+        if (paintRafRef.current != null) {
+          window.cancelAnimationFrame(paintRafRef.current)
+        }
+      },
+      []
+    )
 
     const hitTest = useCallback(
       (clientX: number, clientY: number): OpenCutTextOverlay | null => {
@@ -174,8 +209,11 @@ const OpenCutTextCanvas = forwardRef<OpenCutTextCanvasHandle, OpenCutTextCanvasP
         for (let i = elements.length - 1; i >= 0; i--) {
           const { element } = elements[i]
           const transform = buildTransformFromParams(element.params)
-          const cx = transform.position.x + canvasWidth / 2
-          const cy = transform.position.y + canvasHeight / 2
+          const drag = dragVisualRef.current
+          const offsetX = drag?.ids.includes(element.id) ? drag.dx : 0
+          const offsetY = drag?.ids.includes(element.id) ? drag.dy : 0
+          const cx = transform.position.x + offsetX + canvasWidth / 2
+          const cy = transform.position.y + offsetY + canvasHeight / 2
           const ctx = canvasRef.current?.getContext('2d')
           if (!ctx) continue
           const measured = measureTextOverlay({ element, canvasHeight, ctx })
@@ -198,6 +236,25 @@ const OpenCutTextCanvas = forwardRef<OpenCutTextCanvasHandle, OpenCutTextCanvasP
       },
       [canvasHeight, canvasWidth, elements]
     )
+
+    const commitDrag = useCallback(() => {
+      const drag = dragVisualRef.current
+      if (!drag) return
+      for (const id of drag.ids) {
+        const origin = drag.origins.get(id)
+        if (!origin) continue
+        onParamsChange?.(
+          id,
+          {
+            'transform.positionX': origin.x + drag.dx,
+            'transform.positionY': origin.y + drag.dy,
+          },
+          { recordHistory: true }
+        )
+      }
+      dragVisualRef.current = null
+      schedulePaint()
+    }, [onParamsChange, schedulePaint])
 
     const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
       if (!interactive) return
@@ -225,46 +282,42 @@ const OpenCutTextCanvas = forwardRef<OpenCutTextCanvasHandle, OpenCutTextCanvasP
 
       const container = containerRef.current
       if (!container) return
-      dragRef.current = {
+
+      const startX = event.clientX
+      const startY = event.clientY
+      const frameW = container.clientWidth
+      const frameH = container.clientHeight
+
+      dragVisualRef.current = {
         ids: dragIds,
-        pointerId: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
+        dx: 0,
+        dy: 0,
         origins,
-        frameW: container.clientWidth,
-        frameH: container.clientHeight,
       }
+
+      const onMove = (moveEvent: PointerEvent) => {
+        const drag = dragVisualRef.current
+        if (!drag) return
+        drag.dx = ((moveEvent.clientX - startX) / frameW) * canvasWidth
+        drag.dy = ((moveEvent.clientY - startY) / frameH) * canvasHeight
+        schedulePaint()
+      }
+
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+        window.removeEventListener('pointercancel', onUp)
+        commitDrag()
+      }
+
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
+      window.addEventListener('pointercancel', onUp)
       event.currentTarget.setPointerCapture(event.pointerId)
     }
 
-    const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
-      const drag = dragRef.current
-      if (!drag || drag.pointerId !== event.pointerId) return
-      const dx = ((event.clientX - drag.startX) / drag.frameW) * canvasWidth
-      const dy = ((event.clientY - drag.startY) / drag.frameH) * canvasHeight
-      for (const id of drag.ids) {
-        const origin = drag.origins.get(id)
-        if (!origin) continue
-        onParamsChange?.(
-          id,
-          {
-            'transform.positionX': origin.x + dx,
-            'transform.positionY': origin.y + dy,
-          },
-          { recordHistory: false }
-        )
-      }
-    }
-
     const handlePointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
-      const drag = dragRef.current
-      if (!drag || drag.pointerId !== event.pointerId) return
-      const ids = drag.ids
-      dragRef.current = null
       event.currentTarget.releasePointerCapture(event.pointerId)
-      for (const id of ids) {
-        onParamsChange?.(id, {}, { recordHistory: true })
-      }
     }
 
     return (
@@ -276,7 +329,6 @@ const OpenCutTextCanvas = forwardRef<OpenCutTextCanvasHandle, OpenCutTextCanvasP
           ref={canvasRef}
           className="editor-opencut-text-canvas__surface"
           onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
         />

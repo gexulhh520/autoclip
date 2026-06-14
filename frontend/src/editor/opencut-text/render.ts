@@ -11,12 +11,14 @@ export const renderTextOverlayToContext = ({
   canvasWidth,
   canvasHeight,
   layerOpacity = 1,
+  positionOffset,
 }: {
   element: OpenCutTextOverlay
   ctx: CanvasRenderingContext2D
   canvasWidth: number
   canvasHeight: number
   layerOpacity?: number
+  positionOffset?: { x: number; y: number }
 }): void => {
   const measured = measureTextOverlay({ element, canvasHeight, ctx })
   const transform = buildTransformFromParams(element.params)
@@ -24,8 +26,8 @@ export const renderTextOverlayToContext = ({
   const textColor = readStringParam(element.params, 'color', '#ffffff')
   const bg = buildTextBackground(element.params)
 
-  const x = transform.position.x + canvasWidth / 2
-  const y = transform.position.y + canvasHeight / 2
+  const x = transform.position.x + (positionOffset?.x ?? 0) + canvasWidth / 2
+  const y = transform.position.y + (positionOffset?.y ?? 0) + canvasHeight / 2
 
   ctx.save()
   ctx.globalAlpha = opacity

@@ -22,7 +22,9 @@ import {
 } from '../../utils/editPreviewFit'
 import { resolveVisualFilterStyle } from '../../utils/editVisualFilter'
 import type { OverlayPreviewLayer, OverlayPreviewConfig } from '../QuoteOverlayPreview'
-import TemplateCaptionLayer from './TemplateCaptionLayer'
+import TemplateCaptionLayer, {
+  type CaptionDragVisual,
+} from './TemplateCaptionLayer'
 import EditorAspectRatioPicker from './EditorAspectRatioPicker'
 import OpenCutTextCanvas, { type OpenCutTextCanvasHandle } from './OpenCutTextCanvas'
 import PreviewVideoLayer from './EditorPreviewVideoLayer'
@@ -46,6 +48,9 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const frameRef = useRef<HTMLDivElement>(null)
   const textCanvasRef = useRef<OpenCutTextCanvasHandle>(null)
   const captionLayerRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+  const captionDragVisualRef = useRef<CaptionDragVisual | null>(null)
+  const captionDragRafRef = useRef<number | null>(null)
+  const [captionDragVisual, setCaptionDragVisual] = useState<CaptionDragVisual | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [assetPreviewTimeSec, setAssetPreviewTimeSec] = useState(0)
   const [assetPreviewDurationSec, setAssetPreviewDurationSec] = useState(0)
@@ -344,6 +349,24 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     }
   }
 
+  const handleCaptionDragVisualChange = useCallback((visual: CaptionDragVisual | null) => {
+    captionDragVisualRef.current = visual
+    if (captionDragRafRef.current != null) return
+    captionDragRafRef.current = window.requestAnimationFrame(() => {
+      captionDragRafRef.current = null
+      setCaptionDragVisual(captionDragVisualRef.current)
+    })
+  }, [])
+
+  useEffect(
+    () => () => {
+      if (captionDragRafRef.current != null) {
+        window.cancelAnimationFrame(captionDragRafRef.current)
+      }
+    },
+    []
+  )
+
   const getPreviewTargets = useCallback(() => {
     const targets = textCanvasRef.current?.getSelectableTargets() ?? []
     for (const { blockId } of previewVm?.captionLayers ?? []) {
@@ -465,6 +488,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                         selectedBlockId === blockId
                       }
                       selectedBlockIds={selectedCaptionBlockIds}
+                      dragVisual={captionDragVisual}
                       getCaptionOffset={(id) => {
                         const target = blocks.find((item) => item.id === id)
                         return {
@@ -482,6 +506,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                       onPositionChange={(id, patch, options) => {
                         updateBlockOverlay(id, patch, options)
                       }}
+                      onDragVisualChange={handleCaptionDragVisualChange}
                       onLayerRef={(el) => {
                         if (el) captionLayerRefs.current.set(blockId, el)
                         else captionLayerRefs.current.delete(blockId)

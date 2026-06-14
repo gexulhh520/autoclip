@@ -5,6 +5,12 @@ import QuoteOverlayPreview, {
 } from '../QuoteOverlayPreview'
 import type { EditBlock } from '../../types/editSession'
 
+export interface CaptionDragVisual {
+  blockIds: string[]
+  deltaXPct: number
+  deltaYPct: number
+}
+
 interface TemplateCaptionLayerProps {
   blockId: string
   block?: EditBlock
@@ -14,17 +20,14 @@ interface TemplateCaptionLayerProps {
   config?: OverlayPreviewConfig
   selected: boolean
   selectedBlockIds?: string[]
+  dragVisual?: CaptionDragVisual | null
   onSelect: (blockId: string, options?: { additive?: boolean }) => void
   onPositionChange: (
     blockId: string,
     patch: { position_offset_x_pct: number; position_offset_y_pct: number },
     options?: { recordHistory?: boolean }
   ) => void
-  onGroupPositionChange?: (
-    blockIds: string[],
-    delta: { position_offset_x_pct: number; position_offset_y_pct: number },
-    options?: { recordHistory?: boolean }
-  ) => void
+  onDragVisualChange?: (visual: CaptionDragVisual | null) => void
   getCaptionOffset?: (blockId: string) => { x: number; y: number }
   onLayerRef?: (element: HTMLDivElement | null) => void
 }
@@ -38,9 +41,10 @@ const TemplateCaptionLayer: React.FC<TemplateCaptionLayerProps> = ({
   config,
   selected,
   selectedBlockIds = [],
+  dragVisual,
   onSelect,
   onPositionChange,
-  onGroupPositionChange,
+  onDragVisualChange,
   getCaptionOffset,
   onLayerRef,
 }) => {
@@ -48,8 +52,6 @@ const TemplateCaptionLayer: React.FC<TemplateCaptionLayerProps> = ({
     pointerId: number
     startX: number
     startY: number
-    originX: number
-    originY: number
     frameW: number
     frameH: number
     groupIds: string[]
@@ -60,6 +62,34 @@ const TemplateCaptionLayer: React.FC<TemplateCaptionLayerProps> = ({
     ...(config ?? {}),
     position_offset_x_pct: block?.overlay.position_offset_x_pct ?? 0,
     position_offset_y_pct: block?.overlay.position_offset_y_pct ?? 0,
+  }
+
+  const isDragVisualActive = dragVisual?.blockIds.includes(blockId) ?? false
+  const dragTransform =
+    isDragVisualActive && dragVisual
+      ? `translate3d(${dragVisual.deltaXPct}%, ${-dragVisual.deltaYPct}%, 0)`
+      : undefined
+
+  const commitDrag = (
+    drag: NonNullable<typeof dragRef.current>,
+    clientX: number,
+    clientY: number
+  ) => {
+    const deltaXPct = ((clientX - drag.startX) / drag.frameW) * 100
+    const deltaYPct = -((clientY - drag.startY) / drag.frameH) * 100
+
+    for (const id of drag.groupIds) {
+      const origin = drag.origins.get(id)
+      if (!origin) continue
+      onPositionChange(
+        id,
+        {
+          position_offset_x_pct: origin.x + deltaXPct,
+          position_offset_y_pct: origin.y + deltaYPct,
+        },
+        { recordHistory: true }
+      )
+    }
   }
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -86,75 +116,50 @@ const TemplateCaptionLayer: React.FC<TemplateCaptionLayerProps> = ({
       origins.set(id, offset)
     }
 
+    const startX = event.clientX
+    const startY = event.clientY
+    const frameW = frame.clientWidth
+    const frameH = frame.clientHeight
+
     dragRef.current = {
       pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      originX: block?.overlay.position_offset_x_pct ?? 0,
-      originY: block?.overlay.position_offset_y_pct ?? 0,
-      frameW: frame.clientWidth,
-      frameH: frame.clientHeight,
+      startX,
+      startY,
+      frameW,
+      frameH,
       groupIds,
       origins,
     }
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const drag = dragRef.current
+      if (!drag) return
+      onDragVisualChange?.({
+        blockIds: drag.groupIds,
+        deltaXPct: ((moveEvent.clientX - drag.startX) / drag.frameW) * 100,
+        deltaYPct: -((moveEvent.clientY - drag.startY) / drag.frameH) * 100,
+      })
+    }
+
+    const onUp = (upEvent: PointerEvent) => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+      const drag = dragRef.current
+      if (drag) {
+        commitDrag(drag, upEvent.clientX, upEvent.clientY)
+      }
+      dragRef.current = null
+      onDragVisualChange?.(null)
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
     event.currentTarget.setPointerCapture(event.pointerId)
   }
 
-  const applyDragDelta = (
-    drag: NonNullable<typeof dragRef.current>,
-    clientX: number,
-    clientY: number,
-    options?: { recordHistory?: boolean }
-  ) => {
-    const deltaXPct = ((clientX - drag.startX) / drag.frameW) * 100
-    const deltaYPct = -((clientY - drag.startY) / drag.frameH) * 100
-
-    if (drag.groupIds.length > 1 && onGroupPositionChange) {
-      onGroupPositionChange(
-        drag.groupIds,
-        { position_offset_x_pct: deltaXPct, position_offset_y_pct: deltaYPct },
-        options
-      )
-      return
-    }
-
-    if (drag.groupIds.length > 1) {
-      for (const id of drag.groupIds) {
-        const origin = drag.origins.get(id)
-        if (!origin) continue
-        onPositionChange(
-          id,
-          {
-            position_offset_x_pct: origin.x + deltaXPct,
-            position_offset_y_pct: origin.y + deltaYPct,
-          },
-          options
-        )
-      }
-      return
-    }
-
-    onPositionChange(
-      blockId,
-      {
-        position_offset_x_pct: drag.originX + deltaXPct,
-        position_offset_y_pct: drag.originY + deltaYPct,
-      },
-      options
-    )
-  }
-
-  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current
-    if (!drag || drag.pointerId !== event.pointerId) return
-    applyDragDelta(drag, event.clientX, event.clientY, { recordHistory: false })
-  }
-
   const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current
-    if (!drag || drag.pointerId !== event.pointerId) return
-    applyDragDelta(drag, event.clientX, event.clientY, { recordHistory: true })
-    dragRef.current = null
     event.currentTarget.releasePointerCapture(event.pointerId)
   }
 
@@ -162,7 +167,11 @@ const TemplateCaptionLayer: React.FC<TemplateCaptionLayerProps> = ({
     <div
       ref={onLayerRef}
       className="editor-preview-caption-layer"
-      style={{ opacity }}
+      style={{
+        opacity,
+        transform: dragTransform,
+        willChange: isDragVisualActive ? 'transform' : undefined,
+      }}
       data-preview-caption-id={blockId}
     >
       <QuoteOverlayPreview
@@ -172,7 +181,6 @@ const TemplateCaptionLayer: React.FC<TemplateCaptionLayerProps> = ({
         interactive
         selected={selected}
         onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
       />
