@@ -90,6 +90,47 @@ def block_to_clip_data(block: EditBlock) -> Dict[str, Any]:
     return payload
 
 
+def _build_caption_style_config(
+    overlay_config: Dict[str, Any],
+    clip_data: Dict[str, Any],
+    *,
+    ref_width: int,
+    ref_height: int,
+) -> Dict[str, Any]:
+    from backend.pipeline.overlay_pipeline import apply_overlay_position_offsets, build_overlay_layout_config
+
+    layout_config = build_overlay_layout_config(
+        overlay_config,
+        ref_width=ref_width,
+        ref_height=ref_height,
+    )
+    return apply_overlay_position_offsets(
+        layout_config,
+        clip_data,
+        ref_width=ref_width,
+        ref_height=ref_height,
+    )
+
+
+def _resolve_caption_overlay_dimensions(
+    export_settings: Optional[Any],
+    input_video: Path,
+) -> Tuple[int, int, Optional[Tuple[int, int]], Optional[str]]:
+    """返回 (ref_w, ref_h, canvas_size, frame_vf)。"""
+    if export_settings is None:
+        probed_w, probed_h = VideoProcessor._probe_video_dimensions(input_video)
+        return probed_w, probed_h, None, None
+
+    settings = normalize_fit_mode(export_settings)
+    if settings.aspect == "original":
+        probed_w, probed_h = VideoProcessor._probe_video_dimensions(input_video)
+        return probed_w, probed_h, None, None
+
+    canvas_size = target_dimensions(settings)
+    frame_vf = build_frame_filter(export_settings)
+    return canvas_size[0], canvas_size[1], canvas_size, frame_vf
+
+
 def _block_playback_rate(block: EditBlock) -> float:
     rate = float(block.playback_rate or 1.0)
     return max(0.25, min(4.0, rate))
@@ -221,45 +262,27 @@ def render_block_segment(
     ffmpeg_bin = get_ffmpeg_path()
 
     clip_data = block_to_clip_data(block)
-    style_config = dict(overlay_config or {})
-
-    canvas_size: Optional[Tuple[int, int]] = None
-    frame_vf: Optional[str] = None
-    if export_settings is not None and should_apply_canvas_per_segment(export_settings):
-        canvas_size = target_dimensions(export_settings)
-        frame_vf = build_frame_filter(export_settings)
-
-    overlay_w, overlay_h = canvas_size if canvas_size else (None, None)
-    if overlay_w and overlay_h:
-        from backend.pipeline.overlay_pipeline import apply_overlay_position_offsets
-
-        style_config = apply_overlay_position_offsets(
-            style_config,
-            clip_data,
-            ref_width=int(overlay_w),
-            ref_height=int(overlay_h),
-        )
-    elif style_config:
-        from backend.pipeline.overlay_pipeline import apply_overlay_position_offsets
-
-        style_config = apply_overlay_position_offsets(
-            style_config,
-            clip_data,
-            ref_width=720,
-            ref_height=1280,
-        )
+    ref_w, ref_h, canvas_size, frame_vf = _resolve_caption_overlay_dimensions(
+        export_settings,
+        input_video,
+    )
+    style_config = _build_caption_style_config(
+        overlay_config or {},
+        clip_data,
+        ref_width=ref_w,
+        ref_height=ref_h,
+    )
 
     vf: Optional[str] = None
     if burn_subtitles:
-        overlay_w, overlay_h = canvas_size if canvas_size else (None, None)
         vf = VideoProcessor._build_cinema_subtitles_filter(
             clip_data,
             output_path,
             input_video,
             duration,
             style_config,
-            canvas_width=overlay_w,
-            canvas_height=overlay_h,
+            canvas_width=ref_w,
+            canvas_height=ref_h,
         )
 
     if frame_vf and vf:

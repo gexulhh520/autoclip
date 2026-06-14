@@ -47,8 +47,11 @@ def test_should_apply_canvas_per_segment():
     assert should_apply_canvas_per_segment(
         EditExportSettings(aspect="9:16", height=1080, fit_mode="contain")
     )
-    assert not should_apply_canvas_per_segment(
+    assert should_apply_canvas_per_segment(
         EditExportSettings(aspect="9:16", height=1080, fit_mode="contain_blur")
+    )
+    assert should_apply_canvas_per_segment(
+        EditExportSettings(aspect="9:16", height=1080, fit_mode="cover")
     )
     assert not should_apply_canvas_per_segment(EditExportSettings(aspect="original"))
 

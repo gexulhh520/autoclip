@@ -9,7 +9,9 @@ export function resolvePreviewVideoFitClass(
     return 'is-contain'
   }
   const mode = fitMode ?? 'contain'
-  if (mode === 'cover') return 'is-cover'
+  // 导出将 cover 规范为 contain，预览与之对齐以免字幕位置偏差
+  if (mode === 'cover' || mode === 'contain') return 'is-contain'
+  if (mode === 'contain_blur') return 'is-contain-blur'
   return 'is-contain'
 }
 

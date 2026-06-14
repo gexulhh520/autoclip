@@ -221,12 +221,12 @@ def build_frame_ffmpeg_filter(settings: EditExportSettings) -> Optional[str]:
 
 def should_apply_canvas_per_segment(settings: EditExportSettings) -> bool:
     normalized = normalize_fit_mode(settings)
-    return normalized.aspect != "original" and normalized.fit_mode == "contain"
+    return normalized.aspect != "original"
 
 
 def should_apply_canvas_in_final_pass(settings: EditExportSettings) -> bool:
     normalized = normalize_fit_mode(settings)
-    return normalized.aspect != "original" and normalized.fit_mode == "contain_blur"
+    return normalized.aspect != "original" and not should_apply_canvas_per_segment(normalized)
 
 
 def canvas_size_tuple(settings: EditExportSettings) -> Tuple[int, int]:
