@@ -29,6 +29,7 @@ import type { OverlayPreviewLayer, OverlayPreviewConfig } from '../QuoteOverlayP
 import TemplateCaptionLayer, {
   type CaptionDragVisual,
 } from './TemplateCaptionLayer'
+import CompositorPreview from './preview/CompositorPreview'
 import EditorAspectRatioPicker from './EditorAspectRatioPicker'
 import OpenCutTextCanvas, { type OpenCutTextCanvasHandle } from './OpenCutTextCanvas'
 import PreviewVideoLayer from './EditorPreviewVideoLayer'
@@ -69,6 +70,8 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const previewZoom = useEditSessionStore((state) => state.previewZoom)
   const setPreviewZoom = useEditSessionStore((state) => state.setPreviewZoom)
   const previewBurnSubtitles = useEditSessionStore((state) => state.previewBurnSubtitles)
+  const useCompositorPreview = useEditSessionStore((state) => state.useCompositorPreview)
+  const setUseCompositorPreview = useEditSessionStore((state) => state.setUseCompositorPreview)
   const setPreviewBurnSubtitles = useEditSessionStore((state) => state.setPreviewBurnSubtitles)
   const sequencePlayheadSec = useEditSessionStore((state) => state.sequencePlayheadSec)
   const isPlaying = useEditSessionStore((state) => state.isPlaying)
@@ -218,7 +221,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   }, [videoNaturalSize, setPreviewVideoNaturalSize])
 
   useEffect(() => {
-    if (isAssetPreview || !renderScene || !session) {
+    if (isAssetPreview || !renderScene || !session || useCompositorPreview) {
       return
     }
     const blockIds = new Set(renderScene.templateCaptions.map((item) => item.blockId))
@@ -244,6 +247,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     previewBurnSubtitles,
     renderScene,
     session,
+    useCompositorPreview,
   ])
 
   useEffect(() => {
@@ -443,7 +447,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
         >
           <div
             ref={frameRef}
-            className={`editor-preview-frame editor-preview-frame--canvas${isFullscreen ? ' is-fullscreen' : ''}`}
+            className={`editor-preview-frame editor-preview-frame--canvas${useCompositorPreview && !isAssetPreview ? ' editor-preview-frame--compositor' : ''}${isFullscreen ? ' is-fullscreen' : ''}`}
             style={isFullscreen ? videoFilterStyle : { ...frameStyle, ...videoFilterStyle }}
             onPointerDown={handlePreviewBoxSelectDown}
           >
@@ -461,6 +465,29 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                 targetTimeSec={assetPreviewTimeSec}
                 onMetadata={handleVideoMetadata}
                 onTimeUpdate={(video) => setAssetPreviewTimeSec(video.currentTime)}
+                onEnded={handleVideoEnded}
+              />
+            ) : primaryVideoLayer && useCompositorPreview && session && previewVm ? (
+              <CompositorPreview
+                session={session}
+                previewVm={previewVm}
+                sequencePlayheadSec={sequencePlayheadSec}
+                isPlaying={isPlaying}
+                videoNaturalSize={videoNaturalSize}
+                canvasWidth={canvasDims.width}
+                canvasHeight={canvasDims.height}
+                videoFitClass={videoFitClass}
+                clipAudioMuted={clipAudioMuted}
+                previewBurnSubtitles={previewBurnSubtitles}
+                captionsHidden={captionsHidden}
+                captionsMuted={captionsMuted}
+                selectedOverlayId={selectedOverlayId}
+                selectedOverlayIds={selectedOverlayIds}
+                mutedTextTrackIds={mutedTextTrackIds}
+                getVideoUrlForBlock={getVideoUrlForBlock}
+                getSourceTimeForBlock={getSourceTimeForBlock}
+                onMetadata={handleVideoMetadata}
+                onTimeUpdate={handleOutgoingTimeUpdate}
                 onEnded={handleVideoEnded}
               />
             ) : primaryVideoLayer ? (
@@ -506,7 +533,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
               <audio ref={bgmRef} src={bgmUrl} preload="auto" loop />
             ) : null}
 
-            {!isAssetPreview && !captionsHidden && !captionsMuted && previewBurnSubtitles && previewVm?.showTemplateCaptions
+            {!isAssetPreview && !useCompositorPreview && !captionsHidden && !captionsMuted && previewBurnSubtitles && previewVm?.showTemplateCaptions
               ? previewVm.captionLayers.map(({ blockId, opacity }) => {
                   const overlayData = overlayByBlockId[blockId]
                   if (!overlayData?.layers.length) return null
@@ -554,7 +581,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                 })
               : null}
 
-            {!isAssetPreview && previewVm && previewVm.freeOverlays.length > 0 ? (
+            {!isAssetPreview && !useCompositorPreview && previewVm && previewVm.freeOverlays.length > 0 ? (
               <OpenCutTextCanvas
                 ref={textCanvasRef}
                 elements={previewVm.freeOverlays}
@@ -630,6 +657,16 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
           >
             {isFullscreen ? '退出' : '全屏'}
           </button>
+          {!isAssetPreview ? (
+            <label className="editor-preview-burn-toggle" title="Compositor 单画布预览（FrameDescriptor 驱动）">
+              <input
+                type="checkbox"
+                checked={useCompositorPreview}
+                onChange={(event) => setUseCompositorPreview(event.target.checked)}
+              />
+              Compositor
+            </label>
+          ) : null}
           {!isAssetPreview ? (
             <label className="editor-preview-burn-toggle" title="与导出烧录字幕开关同步">
               <input

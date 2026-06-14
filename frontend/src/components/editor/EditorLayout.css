@@ -1187,7 +1187,30 @@
   z-index: -1;
 }
 
-.editor-preview-canvas {
+.compositor-preview {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.compositor-preview__decoders {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.compositor-preview__decoder {
+  width: 1px;
+  height: 1px;
+}
+
+.editor-preview-canvas,
+.compositor-preview__canvas {
   position: relative;
   z-index: 1;
   display: block;

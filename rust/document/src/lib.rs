@@ -141,6 +141,35 @@ pub struct CompositionPlan {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FrameTextLine {
+    pub role: String,
+    pub text: String,
+    pub color: String,
+    pub size_scale: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FrameTextAnchor {
+    pub bottom_pct: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub left_pct: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub right_pct: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub center_x: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alignment: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FrameOffsetPct {
+    pub x: f64,
+    pub y: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum FrameItem {
     #[serde(rename_all = "camelCase")]
@@ -163,6 +192,18 @@ pub enum FrameItem {
         block_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         element_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        layout: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        lines: Option<Vec<FrameTextLine>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        anchor: Option<FrameTextAnchor>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        offset_pct: Option<FrameOffsetPct>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        transform: Option<VisualTransform>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        params: Option<serde_json::Value>,
         opacity: f64,
         z_index: i32,
     },

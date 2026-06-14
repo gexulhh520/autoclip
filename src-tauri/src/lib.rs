@@ -5,6 +5,7 @@ use tauri::Manager;
 
 mod backend_manager;
 mod commands;
+mod compositor;
 mod tray;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -27,7 +28,8 @@ pub fn run() {
             disable_autostart,
             is_autostart_enabled,
             pick_export_directory,
-            reveal_export_directory
+            reveal_export_directory,
+            compositor::render_frame_png
         ])
         .manage(BackendManager::new())
         .setup(|app| {

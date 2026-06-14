@@ -137,4 +137,18 @@ describe('compositor Phase 0', () => {
       true
     )
   })
+
+  it('frame descriptor layer items include video transform for software render', () => {
+    const plan = compileCompositionPlan(session([block('a', 4)]), {
+      burnSubtitles: true,
+      useSourceVideo: false,
+    })
+    const frame = buildFrameDescriptor(plan, 0)
+    const layer = frame.items.find((item) => item.kind === 'layer')
+    expect(layer?.kind).toBe('layer')
+    if (layer?.kind === 'layer') {
+      expect(layer.transform.width).toBeGreaterThan(0)
+      expect(layer.transform.height).toBeGreaterThan(0)
+    }
+  })
 })

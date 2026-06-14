@@ -84,6 +84,7 @@ interface EditSessionState {
   timelineZoom: number
   previewZoom: number
   previewBurnSubtitles: boolean
+  useCompositorPreview: boolean
   snapEnabled: boolean
   rippleTrimEnabled: boolean
   inspectorTab: 'video' | 'audio' | 'text' | 'transition'
@@ -145,6 +146,7 @@ interface EditSessionState {
   previewZoom: number
   setPreviewZoom: (zoom: number) => void
   setPreviewBurnSubtitles: (enabled: boolean) => void
+  setUseCompositorPreview: (enabled: boolean) => void
   setInspectorTab: (tab: 'video' | 'audio' | 'text' | 'transition') => void
   updateExportSettings: (settings: Partial<EditExportSettings>) => void
   updateAudioSettings: (settings: Partial<EditSessionAudioSettings>) => void
@@ -338,6 +340,7 @@ export const useEditSessionStore = create<EditSessionState>()(
       timelineZoom: 100,
       previewZoom: 100,
       previewBurnSubtitles: true,
+      useCompositorPreview: true,
       snapEnabled: true,
       rippleTrimEnabled: true,
       inspectorTab: 'video',
@@ -642,6 +645,7 @@ export const useEditSessionStore = create<EditSessionState>()(
         const preset = loadExportPreset()
         saveExportPreset({ ...preset, burn_subtitles: enabled })
       },
+      setUseCompositorPreview: (enabled) => set({ useCompositorPreview: enabled }),
       setInspectorTab: (tab) => set({ inspectorTab: tab }),
 
       appendClips: async (projectId, clipIds, sourceId) => {

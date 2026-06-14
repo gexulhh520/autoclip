@@ -1,0 +1,14 @@
+[package]
+name = "autoclip-compositor"
+version = "0.1.0"
+description = "CPU compositor MVP — renders FrameDescriptor to RGBA/PNG"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+autoclip-document = { path = "../document" }
+image = { version = "0.25", default-features = false, features = ["png"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]

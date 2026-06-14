@@ -1,5 +1,5 @@
 [workspace]
-members = ["document"]
+members = ["document", "compositor"]
 resolver = "2"
 
 [workspace.package]

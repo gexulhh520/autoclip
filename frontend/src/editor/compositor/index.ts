@@ -16,3 +16,15 @@ export {
 export * from './templateCaption'
 export * from './compilePlan'
 export * from './buildFrameDescriptor'
+export {
+  isTauriRuntime,
+  renderFrameNative,
+  renderFramePngBase64,
+  blitPngBase64ToCanvas,
+  blitRgbaToCanvas,
+} from './compositorClient'
+export {
+  renderFrameDescriptorToCanvas,
+  renderFrameDescriptorToDataUrl,
+  type SoftwareRendererOptions,
+} from './softwareRenderer'
