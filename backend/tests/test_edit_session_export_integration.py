@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
+
+# Legacy 布局导出仅用于本集成套件回归
+os.environ.setdefault("AUTOCLIP_EXPORT_LEGACY", "1")
 
 from backend.pipeline.edit_renderer import export_edit_session, preview_block_overlay
 from backend.services.edit_session_service import EditSessionService

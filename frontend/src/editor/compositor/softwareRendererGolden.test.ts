@@ -6,7 +6,7 @@ import {
   loadFixtureSession,
 } from './goldenFixtures'
 import { buildFrameDescriptor, compileCompositionPlan } from './index'
-import { hashRgbaBuffer, renderLayerPlaceholderRgba } from './softwareRendererNode'
+import { hashRgbaBuffer, renderFrameDescriptorToRgba } from './softwareRendererNode'
 
 const UPDATE_GOLDEN = process.env.UPDATE_GOLDEN === '1'
 const COMPILE_OPTS = { burnSubtitles: true, useSourceVideo: false }
@@ -27,7 +27,16 @@ describe('softwareRenderer layer placeholder golden', () => {
     const session = loadFixtureSession('session-minimal.json')
     const plan = compileCompositionPlan(session, COMPILE_OPTS)
     const frame = buildFrameDescriptor(plan, 0)
-    const hash = hashRgbaBuffer(renderLayerPlaceholderRgba(frame))
+    const layerOnly = {
+      ...frame,
+      items: frame.items.filter((item) => item.kind === 'layer'),
+    }
+    const hash = hashRgbaBuffer(
+      renderFrameDescriptorToRgba(layerOnly, {
+        showTemplateCaptions: false,
+        showFreeText: false,
+      })
+    )
     assertOrWriteHash('minimal-frame-t0-layers.sha256', hash)
   })
 
@@ -35,7 +44,36 @@ describe('softwareRenderer layer placeholder golden', () => {
     const session = loadFixtureSession('session-dissolve.json')
     const plan = compileCompositionPlan(session, COMPILE_OPTS)
     const frame = buildFrameDescriptor(plan, 3.8)
-    const hash = hashRgbaBuffer(renderLayerPlaceholderRgba(frame))
+    const layerOnly = {
+      ...frame,
+      items: frame.items.filter((item) => item.kind === 'layer'),
+    }
+    const hash = hashRgbaBuffer(
+      renderFrameDescriptorToRgba(layerOnly, {
+        showTemplateCaptions: false,
+        showFreeText: false,
+      })
+    )
     assertOrWriteHash('dissolve-frame-t-mid-layers.sha256', hash)
+  })
+
+  it('minimal session mono_soft filter pixels (scene_effect path)', () => {
+    const session = loadFixtureSession('session-minimal.json')
+    session.export_settings = { ...session.export_settings, visual_filter: 'mono_soft' }
+    const plan = compileCompositionPlan(session, COMPILE_OPTS)
+    const frame = buildFrameDescriptor(plan, 0)
+    const layerOnly = {
+      ...frame,
+      items: frame.items.filter(
+        (item) => item.kind === 'layer' || item.kind === 'scene_effect'
+      ),
+    }
+    const hash = hashRgbaBuffer(
+      renderFrameDescriptorToRgba(layerOnly, {
+        showTemplateCaptions: false,
+        showFreeText: false,
+      })
+    )
+    assertOrWriteHash('minimal-frame-t0-mono-soft.sha256', hash)
   })
 })

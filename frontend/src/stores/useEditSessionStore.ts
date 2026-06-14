@@ -37,7 +37,7 @@ import {
   normalizeExportDirectory,
   resolveInitialExportDirectory,
 } from '../utils/editorExportLocal'
-import { projectApi } from '../services/api'
+import { assertCompositorExportAvailable } from '../utils/compositorExportGate'
 import { loadExportPreset, saveExportPreset } from '../utils/editExportPresets'
 import {
   BASE_PX_PER_SEC,
@@ -483,7 +483,8 @@ export const useEditSessionStore = create<EditSessionState>()(
             await get().saveSession(projectId)
           }
 
-          const useCompositorExport = get().useCompositorExport && isTauriApp()
+          assertCompositorExportAvailable(get().useCompositorExport)
+
           const burnSubtitles = options?.burn_subtitles ?? true
           const useSourceVideo =
             options?.use_source_video ?? session.audio_settings.use_source_video ?? false
@@ -497,68 +498,33 @@ export const useEditSessionStore = create<EditSessionState>()(
             throw new Error('请选择有效的导出目录')
           }
 
-          if (useCompositorExport) {
-            const result = await runCompositorExportAndMux(
-              buildCompositorRuntimeParams(projectId, session, useSourceVideo),
-              {
-                burnSubtitles,
-                useSourceVideo,
-                filename,
-                outputDir,
-                exportSrt: options?.export_srt ?? false,
-                onProgress: (percent, message) => {
-                  set({ exportProgress: percent, exportMessage: message })
-                },
+          const result = await runCompositorExportAndMux(
+            buildCompositorRuntimeParams(projectId, session, useSourceVideo),
+            {
+              burnSubtitles,
+              useSourceVideo,
+              filename,
+              outputDir,
+              exportSrt: options?.export_srt ?? false,
+              onProgress: (percent, message) => {
+                set({ exportProgress: percent, exportMessage: message })
               },
-              {
-                filename,
-                exportSrt: options?.export_srt ?? false,
-                useSourceVideo,
-                writeBackToProject: options?.write_back_to_project ?? false,
-                outputDir,
-              }
-            )
-            set({ exporting: false, exportProgress: 100, exportMessage: '导出完成' })
-            return {
-              videoUrl: result.videoUrl,
-              srtUrl: result.srtUrl,
-              projectClipPath: result.projectClipPath,
-              localOutputPath: result.localOutputPath,
-              localSrtPath: result.localSrtPath,
+            },
+            {
+              filename,
+              exportSrt: options?.export_srt ?? false,
+              useSourceVideo,
+              writeBackToProject: options?.write_back_to_project ?? false,
+              outputDir,
             }
-          }
-
-          const result = await editApi.exportSession(projectId, session.id, {
-            burn_subtitles: burnSubtitles,
-            filename,
-            export_srt: options?.export_srt ?? false,
-            use_source_video: useSourceVideo,
-            async_export: true,
-            write_back_to_project: options?.write_back_to_project ?? false,
-            output_dir: outputDir,
-            use_compositor_export: false,
-          })
-          if (result.job_id) {
-            const urls = await pollExportJob(projectId, session.id, result.job_id)
-            set({ exporting: false, exportProgress: 100, exportMessage: '导出完成' })
-            if (!urls.videoUrl) {
-              throw new Error('导出完成但未返回下载地址')
-            }
-            return {
-              videoUrl: urls.videoUrl,
-              srtUrl: urls.srtUrl,
-              projectClipPath: urls.projectClipPath,
-              localOutputPath: urls.localOutputPath,
-              localSrtPath: urls.localSrtPath,
-            }
-          }
+          )
           set({ exporting: false, exportProgress: 100, exportMessage: '导出完成' })
           return {
-            videoUrl: result.download_url,
-            srtUrl: result.srt_download_url,
-            projectClipPath: result.project_clip_path,
-            localOutputPath: result.local_output_path,
-            localSrtPath: result.local_srt_path,
+            videoUrl: result.videoUrl,
+            srtUrl: result.srtUrl,
+            projectClipPath: result.projectClipPath,
+            localOutputPath: result.localOutputPath,
+            localSrtPath: result.localSrtPath,
           }
         } catch (error: unknown) {
           set({
@@ -580,7 +546,8 @@ export const useEditSessionStore = create<EditSessionState>()(
             await get().saveSession(projectId)
           }
 
-          const useCompositorExport = get().useCompositorExport && isTauriApp()
+          assertCompositorExportAvailable(get().useCompositorExport)
+
           const burnSubtitles = options?.burn_subtitles ?? true
           const useSourceVideo =
             options?.use_source_video ?? session.audio_settings.use_source_video ?? false
@@ -591,89 +558,67 @@ export const useEditSessionStore = create<EditSessionState>()(
             ''
           const exportSrt = options?.export_srt ?? false
 
-          if (useCompositorExport) {
-            if (!outputDir.trim()) {
-              throw new Error('请选择有效的导出目录')
+          if (!outputDir.trim()) {
+            throw new Error('请选择有效的导出目录')
+          }
+
+          const blocks = session.sequence
+          const files: Array<{
+            title: string
+            videoUrl?: string
+            srtUrl?: string | null
+            localOutputPath?: string | null
+            localSrtPath?: string | null
+          }> = []
+
+          for (let index = 0; index < blocks.length; index += 1) {
+            const block = blocks[index]
+            const blockSession: EditSession = {
+              ...session,
+              sequence: [block],
+              name: block.title,
             }
-            const blocks = session.sequence
-            const files: Array<{
-              title: string
-              videoUrl?: string
-              srtUrl?: string | null
-              localOutputPath?: string | null
-              localSrtPath?: string | null
-            }> = []
+            const baseProgress = (index / blocks.length) * 90
+            set({
+              exportMessage: `批量导出 ${index + 1}/${blocks.length}: ${block.title}`,
+            })
 
-            for (let index = 0; index < blocks.length; index += 1) {
-              const block = blocks[index]
-              const blockSession: EditSession = {
-                ...session,
-                sequence: [block],
-                name: block.title,
-              }
-              const baseProgress = (index / blocks.length) * 90
-              set({
-                exportMessage: `批量导出 ${index + 1}/${blocks.length}: ${block.title}`,
-              })
-
-              const result = await runCompositorExportAndMux(
-                buildCompositorRuntimeParams(projectId, blockSession, useSourceVideo),
-                {
-                  burnSubtitles,
-                  useSourceVideo,
-                  filename: block.title,
-                  outputDir,
-                  exportSrt,
-                  onProgress: (percent, message) => {
-                    const scaled = baseProgress + (percent / blocks.length) * 0.9
-                    set({
-                      exportProgress: Math.round(scaled),
-                      exportMessage: message,
-                    })
-                  },
+            const result = await runCompositorExportAndMux(
+              buildCompositorRuntimeParams(projectId, blockSession, useSourceVideo),
+              {
+                burnSubtitles,
+                useSourceVideo,
+                filename: block.title,
+                outputDir,
+                exportSrt,
+                onProgress: (percent, message) => {
+                  const scaled = baseProgress + (percent / blocks.length) * 0.9
+                  set({
+                    exportProgress: Math.round(scaled),
+                    exportMessage: message,
+                  })
                 },
-                {
-                  filename: block.title,
-                  exportSrt,
-                  useSourceVideo,
-                  outputDir,
-                  blockId: block.id,
-                }
-              )
+              },
+              {
+                filename: block.title,
+                exportSrt,
+                useSourceVideo,
+                outputDir,
+                blockId: block.id,
+              }
+            )
 
-              files.push({
-                title: block.title,
-                videoUrl: result.videoUrl,
-                srtUrl: result.srtUrl,
-                localOutputPath: result.localOutputPath,
-                localSrtPath: result.localSrtPath,
-              })
-            }
-
-            set({ exporting: false, exportProgress: 100, exportMessage: '批量导出完成' })
-            return files
+            files.push({
+              title: block.title,
+              videoUrl: result.videoUrl,
+              srtUrl: result.srtUrl,
+              localOutputPath: result.localOutputPath,
+              localSrtPath: result.localSrtPath,
+            })
           }
 
-          const result = await editApi.batchExport(projectId, session.id, {
-            burn_subtitles: burnSubtitles,
-            export_srt: exportSrt,
-            use_source_video: useSourceVideo,
-            async_export: true,
-            output_dir: outputDir || undefined,
-          })
-          if (result.job_id) {
-            const urls = await pollExportJob(projectId, session.id, result.job_id)
-            set({ exporting: false, exportProgress: 100, exportMessage: '批量导出完成' })
-            return urls.files ?? []
-          }
           set({ exporting: false, exportProgress: 100, exportMessage: '批量导出完成' })
-          return result.files.map((file) => ({
-            title: file.title,
-            videoUrl: file.download_url,
-            srtUrl: file.srt_download_url,
-            localOutputPath: file.local_output_path,
-            localSrtPath: file.local_srt_path,
-          }))
+          return files
         } catch (error: unknown) {
           set({
             exporting: false,

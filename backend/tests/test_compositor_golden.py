@@ -62,3 +62,33 @@ def test_mux_compositor_export_accepts_block_id_kwarg():
     sig = inspect.signature(mux_compositor_export)
     assert "block_id" in sig.parameters
 
+
+def test_legacy_export_disabled_without_env(monkeypatch):
+    import pytest
+
+    from backend.pipeline.edit_renderer import export_edit_session
+    from backend.schemas.edit_session import EditBlock, EditBlockTrim, EditSession, EditSessionAudioSettings, EditExportSettings
+
+    monkeypatch.delenv("AUTOCLIP_EXPORT_LEGACY", raising=False)
+    session = EditSession(
+        id="s1",
+        project_id="p1",
+        name="test",
+        sequence=[
+            EditBlock(
+                id="a",
+                source_clip_id="a",
+                title="a",
+                media={"type": "step6_clip", "path": "a.mp4"},
+                trim=EditBlockTrim(in_sec=0.0, out_sec=1.0),
+                duration_sec=1.0,
+            )
+        ],
+        export_settings=EditExportSettings(),
+        audio_settings=EditSessionAudioSettings(),
+        created_at="",
+        updated_at="",
+    )
+    with pytest.raises(RuntimeError, match="Legacy FFmpeg layout export is disabled"):
+        export_edit_session(session)
+

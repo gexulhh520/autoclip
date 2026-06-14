@@ -6,7 +6,6 @@ import {
   type CompositionPlan,
 } from '../../../editor/compositor'
 import { renderFrameDescriptorToCanvas } from '../../../editor/compositor/softwareRenderer'
-import { resolveVisualFilterStyle } from '../../../utils/editVisualFilter'
 import type { PreviewSceneViewModel } from '../../../editor/scene/adapters/previewAdapter'
 
 export interface CompositorPreviewProps {
@@ -92,7 +91,6 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
   const primaryLayer = previewVm.videoLayers[0] ?? null
   const secondaryLayer = previewVm.videoLayers[1] ?? null
-  const visualFilterStyle = resolveVisualFilterStyle(session.export_settings?.visual_filter)
 
   const syncVideo = useCallback(
     (
@@ -178,7 +176,6 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         className={`compositor-preview__canvas editor-preview-canvas ${videoFitClass}`}
         width={canvasWidth}
         height={canvasHeight}
-        style={visualFilterStyle}
       />
 
       <div className="compositor-preview__decoders" aria-hidden>

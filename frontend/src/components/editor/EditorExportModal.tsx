@@ -173,6 +173,13 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
     }
   }
 
+  const exportBlocked = !isTauriApp() || !useCompositorExport
+  const exportBlockedReason = !isTauriApp()
+    ? '成片导出需使用桌面客户端，以确保与预览效果一致'
+    : !useCompositorExport
+      ? '请开启 Compositor 导出'
+      : null
+
   const hasExportResult = Boolean(exportDone || batchExportDone.length > 0)
 
   return (
@@ -273,12 +280,17 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
         ) : null}
         {isTauriApp() && mode === 'batch' && !useCompositorExport ? (
           <p className="editor-export-preview-summary__hint">
-            批量分轨仍使用传统后端导出路径；开启 Compositor 导出可逐片段走 Compositor。
+            批量分轨需开启 Compositor 导出。
           </p>
         ) : null}
         {!isTauriApp() ? (
           <p className="editor-export-preview-summary__hint">
-            浏览器模式使用后端传统导出；Compositor 导出需桌面客户端。
+            浏览器内仅支持编辑与预览；导出成片请使用 AutoClip 桌面客户端。
+          </p>
+        ) : null}
+        {isTauriApp() && !useCompositorExport ? (
+          <p className="editor-export-preview-summary__hint">
+            请开启 Compositor 导出。传统布局导出已停用，避免成片与预览不一致。
           </p>
         ) : null}
         <label className="editor-modal__check">
@@ -336,7 +348,8 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
           <button
             type="button"
             className="editor-header__export"
-            disabled={exporting || session.sequence.length === 0}
+            disabled={exporting || session.sequence.length === 0 || exportBlocked}
+            title={exportBlockedReason ?? undefined}
             onClick={() => void handleExport()}
           >
             {exporting ? '导出中…' : '开始导出'}

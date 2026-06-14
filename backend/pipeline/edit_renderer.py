@@ -862,8 +862,9 @@ def export_edit_session(
     import os
 
     if os.getenv("AUTOCLIP_EXPORT_LEGACY", "").lower() not in {"1", "true", "yes"}:
-        logger.warning(
-            "export_edit_session: legacy FFmpeg layout path invoked; prefer Compositor export (AUTOCLIP_EXPORT_LEGACY=1 to silence)"
+        raise RuntimeError(
+            "Legacy FFmpeg layout export is disabled. "
+            "Use the desktop app Compositor export, or set AUTOCLIP_EXPORT_LEGACY=1 for regression tests."
         )
 
     def report(progress: int, message: str) -> None:

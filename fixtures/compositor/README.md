@@ -19,6 +19,7 @@ Phase 0–2 回归用固定输入/输出，供 TS 与 Rust Compositor 对齐测�
 | `minimal-descriptor-t1.json` | FrameDescriptor @ t=1s |
 | `minimal-descriptor-t-end.json` | FrameDescriptor @ 末尾 |
 | `minimal-frame-t0-layers.sha256` | 视频层占位 RGBA SHA256（TS Canvas2D） |
+| `minimal-frame-t0-mono-soft.sha256` | mono_soft 滤镜 scene_effect 像素 SHA256 |
 | `dissolve-plan.json` | dissolve session → `CompositionPlan` |
 | `dissolve-descriptor-t0.json` | FrameDescriptor @ t=0 |
 | `dissolve-descriptor-t-mid.json` | FrameDescriptor @ 叠化中点 (3.8s) |
@@ -55,4 +56,4 @@ pytest backend/tests/test_compositor_golden.py
 
 桌面默认：`exportTimelineViaCompositor`（逐帧 Compositor + FFmpeg stdin 编码）→ `POST .../export/compositor-mux`（timeline 音频 + BGM，`-c:v copy`）。
 
-导出弹窗 **Compositor 导出** 适用于 Tauri「合成一条」与「批量分轨」；Legacy FFmpeg 布局导出需设置 `AUTOCLIP_EXPORT_LEGACY=1` 或关闭该开关。
+导出弹窗 **Compositor 导出** 为桌面唯一成片路径；Legacy FFmpeg 布局导出默认已关闭（`AUTOCLIP_EXPORT_LEGACY=1` 仅供回归测试）。
