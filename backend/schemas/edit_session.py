@@ -318,6 +318,22 @@ class EditSessionCompositorMuxRequest(BaseModel):
     )
 
 
+class EditSessionHeadlessExportRequest(BaseModel):
+    """Headless Compositor 导出 — 生成 Plan 任务，由桌面工作进程消费。"""
+
+    burn_subtitles: bool = True
+    filename: Optional[str] = None
+    export_srt: bool = False
+    use_source_video: Optional[bool] = None
+    output_dir: Optional[str] = None
+
+
+class EditSessionCompositorPlanResponse(BaseModel):
+    project_id: str
+    session_id: str
+    plan: Dict[str, Any]
+
+
 class EditSessionExportResponse(BaseModel):
     success: bool
     output_path: str
@@ -335,7 +351,7 @@ class EditSessionExportJobStatusResponse(BaseModel):
     status: Literal["pending", "running", "completed", "failed"]
     progress: int
     message: str
-    job_type: Literal["single", "batch"] = "single"
+    job_type: Literal["single", "batch", "headless_compositor"] = "single"
     download_url: Optional[str] = None
     srt_download_url: Optional[str] = None
     output_path: Optional[str] = None

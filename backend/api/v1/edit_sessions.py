@@ -20,6 +20,8 @@ from backend.schemas.edit_session import (
     EditSessionBilibiliUploadResponse,
     EditSessionExportRequest,
     EditSessionCompositorMuxRequest,
+    EditSessionCompositorPlanResponse,
+    EditSessionHeadlessExportRequest,
     EditSessionExportJobStatusResponse,
     EditSessionExportResponse,
     EditSessionImportMediaResponse,
@@ -459,6 +461,75 @@ async def mux_compositor_export_video(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Compositor 混音导出失败: %s/%s", project_id, session_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get(
+    "/{project_id}/edit-sessions/{session_id}/export/compositor-plan",
+    response_model=EditSessionCompositorPlanResponse,
+)
+async def get_compositor_export_plan(
+    project_id: str,
+    session_id: str,
+    burn_subtitles: bool = True,
+    use_source_video: Optional[bool] = None,
+    service: EditSessionService = Depends(get_edit_session_service),
+):
+    from backend.pipeline.scene_builder import compile_export_plan, serialize_export_plan
+
+    try:
+        session = service.get_session(project_id, session_id)
+        plan = compile_export_plan(
+            session,
+            burn_subtitles=burn_subtitles,
+            use_source_video=use_source_video,
+        )
+        return EditSessionCompositorPlanResponse(
+            project_id=project_id,
+            session_id=session_id,
+            plan=serialize_export_plan(plan),
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except Exception as exc:
+        logger.exception("编译 Compositor Plan 失败: %s/%s", project_id, session_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/export/headless",
+    response_model=EditSessionExportResponse,
+)
+async def start_headless_compositor_export(
+    project_id: str,
+    session_id: str,
+    body: EditSessionHeadlessExportRequest,
+    service: EditSessionService = Depends(get_edit_session_service),
+):
+    from backend.services.edit_export_job_service import edit_export_job_service
+
+    try:
+        session = service.get_session(project_id, session_id)
+        job = edit_export_job_service.start_headless_compositor_export(
+            project_id=project_id,
+            session_id=session_id,
+            session_payload=session.model_dump(),
+            burn_subtitles=body.burn_subtitles,
+            export_srt=body.export_srt,
+            use_source_video=body.use_source_video,
+            output_dir=body.output_dir,
+            filename=body.filename,
+        )
+        return EditSessionExportResponse(
+            success=True,
+            output_path=job.output_path or "",
+            download_url="",
+            job_id=job.id,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except Exception as exc:
+        logger.exception("创建 Headless Compositor 任务失败: %s/%s", project_id, session_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

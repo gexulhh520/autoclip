@@ -6,6 +6,8 @@ export interface CompositorExportStartParams {
   height: number
   fps: number
   totalFrames: number
+  /** 默认 true：优先 h264 硬件编码 */
+  preferHardware?: boolean
 }
 
 export interface CompositorExportFinishParams {

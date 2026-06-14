@@ -1,6 +1,7 @@
 """剪辑导出异步任务（内存 job 队列）。"""
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import uuid
@@ -140,6 +141,60 @@ class EditExportJobService:
             daemon=True,
         )
         thread.start()
+        return job
+
+    def start_headless_compositor_export(
+        self,
+        *,
+        project_id: str,
+        session_id: str,
+        session_payload: dict,
+        burn_subtitles: bool,
+        export_srt: bool,
+        use_source_video: Optional[bool],
+        output_dir: Optional[str] = None,
+        filename: Optional[str] = None,
+    ) -> EditExportJob:
+        from backend.core.path_utils import get_project_directory
+        from backend.pipeline.scene_builder import compile_export_plan, serialize_export_plan
+        from backend.schemas.edit_session import EditSession
+
+        session = EditSession.model_validate(session_payload)
+        plan = compile_export_plan(
+            session,
+            burn_subtitles=burn_subtitles,
+            use_source_video=use_source_video,
+        )
+        job_id = str(uuid.uuid4())
+        project_dir = get_project_directory(project_id)
+        headless_dir = project_dir / "edit_sessions" / session_id / "headless"
+        headless_dir.mkdir(parents=True, exist_ok=True)
+        plan_path = headless_dir / f"{job_id}.plan.json"
+        payload = {
+            "job_id": job_id,
+            "project_id": project_id,
+            "session_id": session_id,
+            "filename": filename or session.name,
+            "burn_subtitles": burn_subtitles,
+            "export_srt": export_srt,
+            "use_source_video": use_source_video,
+            "output_dir": output_dir,
+            "plan": serialize_export_plan(plan),
+        }
+        plan_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        rel = plan_path.relative_to(project_dir).as_posix()
+        job = EditExportJob(
+            id=job_id,
+            project_id=project_id,
+            session_id=session_id,
+            job_type="headless_compositor",
+            status="pending",
+            progress=0,
+            message="等待 Compositor 工作进程",
+            output_path=rel,
+        )
+        with self._lock:
+            self._jobs[job_id] = job
         return job
 
     def _run_export(

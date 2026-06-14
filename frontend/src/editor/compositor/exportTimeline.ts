@@ -96,20 +96,39 @@ export async function exportTimelineViaCompositor(
       height: plan.canvas.height,
       fps,
       totalFrames,
+      preferHardware: true,
     })
+
+    let prefetchVideos: Promise<Map<string, HTMLVideoElement>> | null = null
 
     for (let frameIndex = 0; frameIndex < totalFrames; frameIndex += 1) {
       if (options.signal?.aborted) {
         throw new Error('导出已取消')
       }
       const timeSec = frameIndex / fps
-      const activeVideos = await syncExportVideosAtTime(
-        plan,
-        timeSec,
-        videos,
-        params.getSourceTimeForBlock,
-        blocksById
-      )
+      const activeVideos = prefetchVideos
+        ? await prefetchVideos
+        : await syncExportVideosAtTime(
+            plan,
+            timeSec,
+            videos,
+            params.getSourceTimeForBlock,
+            blocksById
+          )
+
+      const nextFrameIndex = frameIndex + 1
+      if (nextFrameIndex < totalFrames) {
+        const nextTimeSec = nextFrameIndex / fps
+        prefetchVideos = syncExportVideosAtTime(
+          plan,
+          nextTimeSec,
+          videos,
+          params.getSourceTimeForBlock,
+          blocksById
+        )
+      } else {
+        prefetchVideos = null
+      }
 
       const descriptor = buildFrameDescriptor(plan, timeSec, {
         session,
@@ -121,6 +140,7 @@ export async function exportTimelineViaCompositor(
         videos: activeVideos,
         showTemplateCaptions: burnSubtitles,
         showFreeText: true,
+        preferGpuEffects: false,
       })
 
       const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height).data

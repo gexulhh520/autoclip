@@ -41,6 +41,15 @@ def test_fixture_minimal_export_plan_canvas():
     assert plan.timeline.total_duration_sec == 4
 
 
+def test_serialize_export_plan_json():
+    from backend.pipeline.scene_builder import serialize_export_plan
+
+    session = _load_fixture("session-minimal.json")
+    payload = serialize_export_plan(compile_export_plan(session, burn_subtitles=True))
+    assert payload["schema_version"] == "export-scene-1"
+    assert payload["canvas"]["width"] == 608
+
+
 def test_fixture_dissolve_export_plan_duration():
     session = _load_fixture("session-dissolve.json")
     plan = compile_export_plan(session, burn_subtitles=True)

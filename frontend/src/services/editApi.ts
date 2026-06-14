@@ -4,6 +4,8 @@ import type {
   EditSessionCreateRequest,
   EditSessionExportRequest,
   EditSessionCompositorMuxRequest,
+  EditSessionCompositorPlanResponse,
+  EditSessionHeadlessExportRequest,
   EditSessionExportResponse,
   EditSessionExportJobStatus,
   EditSessionBatchExportResponse,
@@ -256,6 +258,35 @@ export const editApi = {
     return (await api.get(
       `/projects/${projectId}/edit-sessions/${sessionId}/export-jobs/${jobId}`
     )) as EditSessionExportJobStatus
+  },
+
+  getCompositorExportPlan: async (
+    projectId: string,
+    sessionId: string,
+    options?: { burn_subtitles?: boolean; use_source_video?: boolean }
+  ): Promise<EditSessionCompositorPlanResponse> => {
+    const params = new URLSearchParams()
+    if (options?.burn_subtitles != null) {
+      params.set('burn_subtitles', String(options.burn_subtitles))
+    }
+    if (options?.use_source_video != null) {
+      params.set('use_source_video', String(options.use_source_video))
+    }
+    const query = params.toString()
+    return (await api.get(
+      `/projects/${projectId}/edit-sessions/${sessionId}/export/compositor-plan${query ? `?${query}` : ''}`
+    )) as EditSessionCompositorPlanResponse
+  },
+
+  startHeadlessCompositorExport: async (
+    projectId: string,
+    sessionId: string,
+    payload: EditSessionHeadlessExportRequest
+  ): Promise<EditSessionExportResponse> => {
+    return (await api.post(
+      `/projects/${projectId}/edit-sessions/${sessionId}/export/headless`,
+      payload
+    )) as EditSessionExportResponse
   },
 
   getExportDownloadUrl: (downloadPath: string): string => {

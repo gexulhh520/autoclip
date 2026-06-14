@@ -1,4 +1,4 @@
-use autoclip_encoder::FfmpegStdinEncoder;
+use autoclip_encoder::{EncoderStartOptions, FfmpegStdinEncoder};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -34,6 +34,12 @@ pub struct ExportStartOptions {
     pub height: u32,
     pub fps: f64,
     pub total_frames: u32,
+    #[serde(default = "default_prefer_hardware")]
+    pub prefer_hardware: bool,
+}
+
+fn default_prefer_hardware() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,11 +79,14 @@ impl Default for ExportSessionManager {
 
 impl ExportSessionManager {
     pub fn start(&self, options: ExportStartOptions) -> Result<(String, ExportProgress), ExportError> {
-        let encoder = FfmpegStdinEncoder::start(
+        let encoder = FfmpegStdinEncoder::start_with_options(
             &options.output_path,
             options.width,
             options.height,
             options.fps,
+            EncoderStartOptions {
+                prefer_hardware: options.prefer_hardware,
+            },
         )
         .map_err(|error| ExportError::Encoder(error.to_string()))?;
 

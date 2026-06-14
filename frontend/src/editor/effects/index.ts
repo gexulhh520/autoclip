@@ -34,6 +34,12 @@ export {
 } from './effectPass'
 export type { EffectPassDefinition, EffectPassUniforms } from './effectPass'
 export {
+  registerEffectPlugin,
+  listEffectPlugins,
+  loadRuntimeEffectPlugins,
+} from './plugins'
+export type { EffectPluginManifest } from './plugins'
+export {
   toFilterEffectId,
   toFilterFrameEffectId,
   frameLayerFromTransitionSpec,

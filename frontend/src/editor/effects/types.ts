@@ -47,6 +47,8 @@ export interface CompositorEffectDefinition {
   id: string
   category: EffectCategory
   label: string
+  /** 第三方插件 id（Effect Plugin API） */
+  pluginId?: string
   /** FrameDescriptor `scene_effect.effectId`；缺省与 id 相同 */
   frameEffectId?: string
   /** 从 Plan 解析是否应注入 scene_effect */

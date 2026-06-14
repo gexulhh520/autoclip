@@ -189,6 +189,31 @@ def compile_export_plan(
     )
 
 
+def serialize_export_plan(plan: ExportScenePlan) -> dict:
+    """JSON 可序列化的 export plan（Headless / HTTP 批量出片）。"""
+    return {
+        "schema_version": "export-scene-1",
+        "burn_subtitles": plan.burn_subtitles,
+        "use_source_video": plan.use_source_video,
+        "canvas": {
+            "width": plan.canvas.width,
+            "height": plan.canvas.height,
+            "aspect": plan.canvas.aspect,
+            "fit_mode": plan.canvas.fit_mode,
+            "visual_filter": plan.canvas.visual_filter,
+            "fps": plan.canvas.fps,
+        },
+        "timeline": {
+            "total_duration_sec": plan.timeline.total_duration_sec,
+            "transition_duration_sec": plan.timeline.transition_duration_sec,
+            "segment_count": len(plan.timeline.segments),
+        },
+        "session_id": plan.session.id,
+        "project_id": plan.session.project_id,
+        "free_overlay_count": len(plan.free_overlays),
+    }
+
+
 def _find_dissolve(
     timeline: CompositionTimeline,
     time_sec: float,

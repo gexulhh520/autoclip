@@ -2,6 +2,21 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
+use crate::codec::resolve_video_codec;
+
+#[derive(Debug, Clone)]
+pub struct EncoderStartOptions {
+    pub prefer_hardware: bool,
+}
+
+impl Default for EncoderStartOptions {
+    fn default() -> Self {
+        Self {
+            prefer_hardware: true,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum EncoderError {
     Io(String),
@@ -41,6 +56,16 @@ impl FfmpegStdinEncoder {
         height: u32,
         fps: f64,
     ) -> Result<Self, EncoderError> {
+        Self::start_with_options(output_path, width, height, fps, EncoderStartOptions::default())
+    }
+
+    pub fn start_with_options(
+        output_path: impl AsRef<Path>,
+        width: u32,
+        height: u32,
+        fps: f64,
+        options: EncoderStartOptions,
+    ) -> Result<Self, EncoderError> {
         if width == 0 || height == 0 {
             return Err(EncoderError::InvalidSize);
         }
@@ -52,32 +77,41 @@ impl FfmpegStdinEncoder {
         let fps_text = format!("{fps:.3}");
         let size = format!("{width}x{height}");
         let ffmpeg = resolve_ffmpeg_path();
+        let codec = resolve_video_codec(options.prefer_hardware);
+        let mut args = vec![
+            "-y".to_string(),
+            "-f".to_string(),
+            "rawvideo".to_string(),
+            "-pix_fmt".to_string(),
+            "rgba".to_string(),
+            "-s".to_string(),
+            size,
+            "-r".to_string(),
+            fps_text,
+            "-i".to_string(),
+            "pipe:0".to_string(),
+            "-an".to_string(),
+            "-c:v".to_string(),
+            codec.clone(),
+            "-pix_fmt".to_string(),
+            "yuv420p".to_string(),
+        ];
+        if codec == "libx264" {
+            args.extend([
+                "-preset".to_string(),
+                "veryfast".to_string(),
+                "-crf".to_string(),
+                "23".to_string(),
+            ]);
+        } else {
+            args.extend(["-b:v".to_string(), "8M".to_string()]);
+        }
+        args.push("-movflags".to_string());
+        args.push("+faststart".to_string());
+        args.push(output_path.to_string_lossy().into_owned());
+
         let child = Command::new(ffmpeg)
-            .args([
-                "-y",
-                "-f",
-                "rawvideo",
-                "-pix_fmt",
-                "rgba",
-                "-s",
-                &size,
-                "-r",
-                &fps_text,
-                "-i",
-                "pipe:0",
-                "-an",
-                "-c:v",
-                "libx264",
-                "-pix_fmt",
-                "yuv420p",
-                "-preset",
-                "veryfast",
-                "-crf",
-                "23",
-                "-movflags",
-                "+faststart",
-            ])
-            .arg(&output_path)
+            .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())

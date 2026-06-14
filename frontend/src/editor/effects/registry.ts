@@ -3,6 +3,7 @@ import { VISUAL_FILTER_EFFECTS } from './filters'
 import { applyRegisteredEffectPass } from './effectPass'
 import { TEXT_PRESET_EFFECTS } from './textPresets'
 import { TRANSITION_CUT_EFFECT, TRANSITION_DISSOLVE_EFFECT } from './transitions'
+import { loadRuntimeEffectPlugins } from './plugins'
 import type { CompositorEffectDefinition, SceneEffectApplyContext } from './types'
 
 const effects = new Map<string, CompositorEffectDefinition>()
@@ -87,6 +88,8 @@ export function registerBuiltinEffects(): void {
   alias('visual_filter.mono_contrast', 'filter.mono_contrast')
   alias('visual_filter.mono_cool', 'filter.mono_cool')
   alias('visual_filter.mono_warm', 'filter.mono_warm')
+
+  loadRuntimeEffectPlugins()
 }
 
 registerBuiltinEffects()

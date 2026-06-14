@@ -203,6 +203,37 @@ export interface EditSessionCompositorMuxRequest {
   block_id?: string
 }
 
+export interface EditSessionHeadlessExportRequest {
+  burn_subtitles?: boolean
+  filename?: string
+  export_srt?: boolean
+  use_source_video?: boolean
+  output_dir?: string | null
+}
+
+export interface EditSessionCompositorPlanResponse {
+  project_id: string
+  session_id: string
+  plan: Record<string, unknown>
+}
+
+export interface EditSessionExportJobStatus {
+  job_id: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  progress: number
+  message: string
+  job_type?: 'single' | 'batch' | 'headless_compositor'
+  download_url?: string | null
+  srt_download_url?: string | null
+  output_path?: string | null
+  srt_path?: string | null
+  project_clip_path?: string | null
+  local_output_path?: string | null
+  local_srt_path?: string | null
+  files?: EditSessionBatchExportFile[] | null
+  error?: string | null
+}
+
 export interface EditSessionBatchExportRequest {
   burn_subtitles?: boolean
   export_srt?: boolean
