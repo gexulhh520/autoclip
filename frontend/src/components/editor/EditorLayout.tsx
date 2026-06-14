@@ -6,6 +6,7 @@ import EditorInspector from './EditorInspector'
 import EditorPreview from './EditorPreview'
 import OpenCutTimeline from './timeline/OpenCutTimeline'
 import './EditorLayout.css'
+import './panels/opencut-panels.css'
 
 interface EditorLayoutProps {
   projectId: string
@@ -17,7 +18,7 @@ const EditorLayout: React.FC<EditorLayoutProps> = ({ projectId, sessionId }) => 
     <div className="editor-shell">
       <EditorHeader projectId={projectId} />
       <div className="editor-workspace">
-        <div className="editor-left-column">
+        <div className="editor-left-column oc-panel">
           <EditorCategoryBar />
           <EditorAssetPanel projectId={projectId} />
         </div>

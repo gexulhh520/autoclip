@@ -1,22 +1,26 @@
 import React from 'react'
 import {
-  AppstoreOutlined,
-  CustomerServiceOutlined,
-  FontSizeOutlined,
-  SwapOutlined,
-  ControlOutlined,
-  FileTextOutlined,
-} from '@ant-design/icons'
+  Clapperboard,
+  FileText,
+  Music2,
+  SlidersHorizontal,
+  Type,
+  Workflow,
+} from 'lucide-react'
 import { useEditSessionStore } from '../../stores/useEditSessionStore'
 import type { EditorPanelMode } from '../../types/editSession'
 
-const CATEGORIES: Array<{ key: EditorPanelMode; label: string; icon: React.ReactNode }> = [
-  { key: 'media', label: '素材', icon: <AppstoreOutlined /> },
-  { key: 'audio', label: '音频', icon: <CustomerServiceOutlined /> },
-  { key: 'text', label: '文本', icon: <FontSizeOutlined /> },
-  { key: 'transition', label: '转场', icon: <SwapOutlined /> },
-  { key: 'adjust', label: '调节', icon: <ControlOutlined /> },
-  { key: 'draft', label: '草稿', icon: <FileTextOutlined /> },
+const CATEGORIES: Array<{
+  key: EditorPanelMode
+  label: string
+  icon: React.ReactNode
+}> = [
+  { key: 'media', label: '素材', icon: <Clapperboard size={16} strokeWidth={1.75} /> },
+  { key: 'audio', label: '音频', icon: <Music2 size={16} strokeWidth={1.75} /> },
+  { key: 'text', label: '文本', icon: <Type size={16} strokeWidth={1.75} /> },
+  { key: 'transition', label: '转场', icon: <Workflow size={16} strokeWidth={1.75} /> },
+  { key: 'adjust', label: '调节', icon: <SlidersHorizontal size={16} strokeWidth={1.75} /> },
+  { key: 'draft', label: '草稿', icon: <FileText size={16} strokeWidth={1.75} /> },
 ]
 
 const EditorCategoryBar: React.FC = () => {
@@ -24,20 +28,20 @@ const EditorCategoryBar: React.FC = () => {
   const setEditorPanelMode = useEditSessionStore((state) => state.setEditorPanelMode)
 
   return (
-    <div className="editor-category-bar">
+    <nav className="editor-category-bar oc-panel-tabbar" aria-label="素材分类">
       {CATEGORIES.map((item) => (
         <button
           key={item.key}
           type="button"
-          className={`editor-category-btn ${editorPanelMode === item.key ? 'is-active' : ''}`}
+          className={`oc-panel-tab editor-category-btn ${editorPanelMode === item.key ? 'is-active' : ''}`}
           onClick={() => setEditorPanelMode(item.key)}
           title={item.label}
+          aria-label={item.label}
         >
-          <span className="editor-category-btn__icon">{item.icon}</span>
-          <span className="editor-category-btn__label">{item.label}</span>
+          {item.icon}
         </button>
       ))}
-    </div>
+    </nav>
   )
 }
 

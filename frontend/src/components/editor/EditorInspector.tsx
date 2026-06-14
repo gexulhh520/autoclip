@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { message } from 'antd'
+import { FileText, Film, Music2, Type, Workflow } from 'lucide-react'
 import { blockDuration, useEditSessionStore } from '../../stores/useEditSessionStore'
 import { FIT_MODE_OPTIONS } from '../../utils/editExportPresets'
 import EditorAspectSelect from './EditorAspectSelect'
@@ -16,12 +17,16 @@ interface EditorInspectorProps {
 
 type InspectorTab = 'draft' | 'video' | 'audio' | 'text' | 'transition'
 
-const INSPECTOR_TABS: Array<{ key: InspectorTab; label: string }> = [
-  { key: 'draft', label: '草稿' },
-  { key: 'video', label: '画面' },
-  { key: 'audio', label: '音频' },
-  { key: 'text', label: '文本' },
-  { key: 'transition', label: '转场' },
+const INSPECTOR_TABS: Array<{
+  key: InspectorTab
+  label: string
+  icon: React.ReactNode
+}> = [
+  { key: 'draft', label: '草稿', icon: <FileText size={16} strokeWidth={1.75} /> },
+  { key: 'video', label: '画面', icon: <Film size={16} strokeWidth={1.75} /> },
+  { key: 'audio', label: '音频', icon: <Music2 size={16} strokeWidth={1.75} /> },
+  { key: 'text', label: '文本', icon: <Type size={16} strokeWidth={1.75} /> },
+  { key: 'transition', label: '转场', icon: <Workflow size={16} strokeWidth={1.75} /> },
 ]
 
 const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
@@ -91,8 +96,8 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
 
   if (!session) {
     return (
-      <aside className="editor-inspector-panel">
-        <div className="editor-empty-hint">加载中…</div>
+      <aside className="editor-inspector-panel oc-panel">
+        <div className="oc-panel-empty">加载中…</div>
       </aside>
     )
   }
@@ -545,28 +550,38 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   }
 
   return (
-    <aside className="editor-inspector-panel">
-      <div className="editor-inspector-tabs">
-        {INSPECTOR_TABS.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            className={`editor-inspector-tab ${inspectorTab === tab.key ? 'is-active' : ''}`}
-            onClick={() => setInspectorTab(tab.key)}
-          >
-            {tab.label}
-          </button>
-        ))}
+    <aside className="editor-inspector-panel oc-panel">
+      <div className="editor-inspector-body oc-panel__body">
+        <nav className="editor-inspector-tabbar oc-panel-tabbar" aria-label="属性面板">
+          {INSPECTOR_TABS.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              className={`oc-panel-tab editor-inspector-tab-icon ${
+                inspectorTab === tab.key ? 'is-active' : ''
+              }`}
+              onClick={() => setInspectorTab(tab.key)}
+              title={tab.label}
+              aria-label={tab.label}
+            >
+              {tab.icon}
+            </button>
+          ))}
+        </nav>
+        <div className="oc-panel__content">
+          {selectedOverlay ? (
+            <EditorInspectorSelectionBanner
+              label="自由文本层"
+              subLabel={`${selectedOverlay.start_sec.toFixed(1)}s · ${selectedOverlay.duration_sec.toFixed(1)}s`}
+            />
+          ) : selectedBlock ? (
+            <EditorInspectorSelectionBanner label="视频片段" subLabel={selectedBlock.title} />
+          ) : null}
+          <div className="oc-panel__scroll editor-inspector-content">
+            {tabContent[inspectorTab]}
+          </div>
+        </div>
       </div>
-      {selectedOverlay ? (
-        <EditorInspectorSelectionBanner
-          label="自由文本层"
-          subLabel={`${selectedOverlay.start_sec.toFixed(1)}s · ${selectedOverlay.duration_sec.toFixed(1)}s`}
-        />
-      ) : selectedBlock ? (
-        <EditorInspectorSelectionBanner label="视频片段" subLabel={selectedBlock.title} />
-      ) : null}
-      <div className="editor-inspector-content">{tabContent[inspectorTab]}</div>
     </aside>
   )
 }

@@ -14,6 +14,7 @@ interface UseTimelineZoomOptions {
   containerRef: RefObject<HTMLDivElement | null>
   minZoom: number
   playheadSec: number
+  paddingPx: number
   tracksScrollRef: RefObject<HTMLDivElement | null>
   initialZoom?: number
 }
@@ -22,6 +23,7 @@ export function useTimelineZoom({
   containerRef,
   minZoom,
   playheadSec,
+  paddingPx,
   tracksScrollRef,
   initialZoom,
 }: UseTimelineZoomOptions) {
@@ -83,16 +85,16 @@ export function useTimelineZoom({
     const sliderPercent = zoomToSlider(zoomLevel, minZoom)
     if (sliderPercent >= TIMELINE_CONSTANTS.ZOOM_ANCHOR_PLAYHEAD_THRESHOLD) {
       const playheadPixelsBefore =
-        playheadSec * TIMELINE_CONSTANTS.PIXELS_PER_SECOND * previousZoom
+        paddingPx + playheadSec * TIMELINE_CONSTANTS.PIXELS_PER_SECOND * previousZoom
       const playheadPixelsAfter =
-        playheadSec * TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel
+        paddingPx + playheadSec * TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel
       const viewportOffset = playheadPixelsBefore - currentScrollLeft
       const newScrollLeft = playheadPixelsAfter - viewportOffset
       const maxScrollLeft = scrollElement.scrollWidth - scrollElement.clientWidth
       scrollElement.scrollLeft = Math.max(0, Math.min(maxScrollLeft, newScrollLeft))
     }
     previousZoomRef.current = zoomLevel
-  }, [zoomLevel, minZoom, playheadSec, tracksScrollRef])
+  }, [zoomLevel, minZoom, playheadSec, paddingPx, tracksScrollRef])
 
   useEffect(() => {
     const preventZoom = (event: WheelEvent) => {

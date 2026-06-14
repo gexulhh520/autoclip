@@ -94,6 +94,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const [waveforms, setWaveforms] = useState<WaveformMap>({})
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [snapPoint, setSnapPoint] = useState<SnapPoint | null>(null)
+  const [tracksViewportWidth, setTracksViewportWidth] = useState(0)
 
   const segments = useMemo(
     () => buildCompositionTimelineSegments(blocks, 50, transitionDurationSec),
@@ -124,20 +125,35 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     [segments, bookmarks]
   )
 
-  const minZoom = getTimelineZoomMin(
-    totalDuration,
-    tracksScrollRef.current?.clientWidth
-  )
+  useEffect(() => {
+    const scrollEl = tracksScrollRef.current
+    if (!scrollEl) return
+    const updateWidth = () => setTracksViewportWidth(scrollEl.clientWidth)
+    updateWidth()
+    const observer = new ResizeObserver(updateWidth)
+    observer.observe(scrollEl)
+    return () => observer.disconnect()
+  }, [session?.id])
+
+  useEffect(() => {
+    const scrollEl = tracksScrollRef.current
+    if (!scrollEl) return
+    scrollEl.scrollLeft = 0
+  }, [session?.id])
+
+  const containerWidth = tracksViewportWidth || 1000
+  const paddingPx = getTimelinePaddingPx(containerWidth, 1, 1)
+
+  const minZoom = getTimelineZoomMin(totalDuration, containerWidth)
 
   const { zoomLevel, setZoomLevel, handleWheel } = useTimelineZoom({
     containerRef: timelineRef,
     minZoom,
     playheadSec: sequencePlayheadSec,
+    paddingPx,
     tracksScrollRef,
   })
 
-  const containerWidth = tracksScrollRef.current?.clientWidth || 1000
-  const paddingPx = getTimelinePaddingPx(containerWidth, zoomLevel, minZoom)
   const contentWidth = totalDuration * TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel
   const dynamicTimelineWidth = Math.max(contentWidth + paddingPx, containerWidth)
 
@@ -245,11 +261,13 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       setSelectedBlockId(element.source.blockId, {
         additive: event.ctrlKey || event.metaKey,
       })
+      setInspectorTab('video')
       return
     }
     if (element.source.kind === 'caption') {
       setSelectedOverlayId(null)
       setSelectedBlockId(element.source.blockId)
+      setInspectorTab('text')
       return
     }
     if (element.source.kind === 'overlay') {

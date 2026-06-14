@@ -86,7 +86,7 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
 
   if (editorPanelMode === 'media') {
     return (
-      <aside className="editor-asset-panel">
+      <aside className="editor-asset-panel oc-panel__content">
         <div className="editor-asset-toolbar">
           <input
             ref={videoInputRef}
@@ -206,8 +206,8 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
 
   if (editorPanelMode === 'adjust' && session) {
     return (
-      <aside className="editor-asset-panel">
-        <div className="editor-panel-body">
+      <aside className="editor-asset-panel oc-panel__content">
+        <div className="oc-panel__scroll editor-panel-body">
           <div className="editor-adjust-panel">
             <label className="editor-modal__field">
               <span>画幅</span>
@@ -267,8 +267,8 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
 
   if (editorPanelMode === 'audio' && session && audioSettings) {
     return (
-      <aside className="editor-asset-panel">
-        <div className="editor-panel-body">
+      <aside className="editor-asset-panel oc-panel__content">
+        <div className="oc-panel__scroll editor-panel-body">
           <div className="editor-audio-panel">
             <input
               ref={fileInputRef}
@@ -386,8 +386,8 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
 
   if (editorPanelMode === 'text') {
     return (
-      <aside className="editor-asset-panel">
-        <div className="editor-panel-body">
+      <aside className="editor-asset-panel oc-panel__content">
+        <div className="oc-panel__scroll editor-panel-body">
           <div className="editor-inspector-section">
             <div className="editor-inspector-label">文本层</div>
             <button
@@ -461,14 +461,14 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
   }
 
   return (
-    <aside className="editor-asset-panel">
-      <div className="editor-panel-body">
+    <aside className="editor-asset-panel oc-panel__content">
+      <div className="oc-panel__scroll editor-panel-body">
         <div className="editor-empty-hint">
           {editorPanelMode === 'transition'
-            ? '在右侧「转场」面板设置片段衔接'
+            ? '在右侧属性栏选择转场图标'
             : editorPanelMode === 'draft'
-              ? '在右侧「草稿参数」查看画幅与导出设置'
-              : '选择上方分类开始编辑'}
+              ? '在右侧属性栏选择草稿图标'
+              : '选择左侧分类开始编辑'}
         </div>
       </div>
     </aside>
