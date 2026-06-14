@@ -32,6 +32,12 @@ export function mapTrackIdToStoreKey(trackId: string): TimelineTrackId | null {
   }
 }
 
+const blockHasCaption = (block: EditBlock): boolean =>
+  Boolean(
+    block.overlay.outline.trim() ||
+      block.overlay.content.some((line) => line.trim())
+  )
+
 export function isUserTextAdaptedTrack(track: AdaptedTrack): boolean {
   return Boolean(track.textTrackId)
 }
@@ -43,6 +49,7 @@ export function buildAdaptedTracks(params: {
   sessionId: string
   getBlockVideoUrl: (block: EditBlock) => string
   trackMuted: Record<TimelineTrackId, boolean>
+  trackHidden: Record<TimelineTrackId, boolean>
   textTrackMuted: Record<string, boolean>
   bgmLabel: string | null
   bgmDurationSec: number
@@ -51,6 +58,7 @@ export function buildAdaptedTracks(params: {
     session,
     segments,
     trackMuted,
+    trackHidden,
     textTrackMuted,
     bgmLabel,
     bgmDurationSec,
@@ -72,7 +80,9 @@ export function buildAdaptedTracks(params: {
     },
   }))
 
-  const captionElements: AdaptedElement[] = segments.map((segment) => ({
+  const captionElements: AdaptedElement[] = segments
+    .filter((segment) => blockHasCaption(segment.block))
+    .map((segment) => ({
     id: `cap-${segment.block.id}`,
     elementType: 'text',
     name: '字幕',
@@ -139,8 +149,8 @@ export function buildAdaptedTracks(params: {
       name: 'Captions',
       isMain: false,
       muted: trackMuted.overlayCaption,
-      hidden: false,
-      elements: captionElements,
+      hidden: trackHidden.overlayCaption,
+      elements: trackHidden.overlayCaption ? [] : captionElements,
     },
   ]
 

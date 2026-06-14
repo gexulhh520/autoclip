@@ -12,6 +12,7 @@ import type {
 } from '../types/editSession'
 import {
   DEFAULT_TRACK_COLLAPSED,
+  DEFAULT_TRACK_HIDDEN,
   DEFAULT_TRACK_MUTED,
   type TimelineTrackId,
 } from '../types/timelineTracks'
@@ -66,8 +67,10 @@ interface EditSessionState {
   selectedBlockId: string | null
   selectedBlockIds: string[]
   selectedOverlayId: string | null
+  selectedCaptionBlockId: string | null
   timelineTrackCollapsed: Record<TimelineTrackId, boolean>
   timelineTrackMuted: Record<TimelineTrackId, boolean>
+  timelineTrackHidden: Record<TimelineTrackId, boolean>
   textTrackMuted: Record<string, boolean>
   activeTextTrackId: string | null
   assetPreviewClip: AssetPreviewClip | null
@@ -146,8 +149,10 @@ interface EditSessionState {
   uploadBgm: (projectId: string, file: File) => Promise<void>
   setSelectedBlockId: (blockId: string | null, options?: { additive?: boolean }) => void
   setSelectedOverlayId: (overlayId: string | null) => void
+  setSelectedCaptionBlockId: (blockId: string | null) => void
   toggleTimelineTrackCollapsed: (trackId: TimelineTrackId) => void
   toggleTimelineTrackMuted: (trackId: TimelineTrackId) => void
+  toggleTimelineTrackHidden: (trackId: TimelineTrackId) => void
   toggleTextTrackMuted: (textTrackId: string) => void
   toggleTextTrackHidden: (textTrackId: string) => void
   setActiveTextTrackId: (textTrackId: string | null) => void
@@ -167,6 +172,8 @@ interface EditSessionState {
     options?: { recordHistory?: boolean }
   ) => void
   removeOverlayElement: (elementId: string) => void
+  clearBlockCaption: (blockId: string) => void
+  deleteSelectedCaption: () => void
   addBookmark: (timeSec: number, label?: string) => void
   removeBookmark: (bookmarkId: string) => void
   setAssetPreviewClip: (clip: AssetPreviewClip | null) => void
@@ -293,8 +300,10 @@ export const useEditSessionStore = create<EditSessionState>()(
       selectedBlockId: null,
       selectedBlockIds: [],
       selectedOverlayId: null,
+      selectedCaptionBlockId: null,
       timelineTrackCollapsed: { ...DEFAULT_TRACK_COLLAPSED },
       timelineTrackMuted: { ...DEFAULT_TRACK_MUTED },
+      timelineTrackHidden: { ...DEFAULT_TRACK_HIDDEN },
       textTrackMuted: {},
       activeTextTrackId: DEFAULT_TEXT_TRACK_ID,
       assetPreviewClip: null,
@@ -379,8 +388,10 @@ export const useEditSessionStore = create<EditSessionState>()(
             selectedBlockId: session.sequence[0]?.id ?? null,
             selectedBlockIds: session.sequence[0]?.id ? [session.sequence[0].id] : [],
             selectedOverlayId: null,
+            selectedCaptionBlockId: null,
             timelineTrackCollapsed: { ...DEFAULT_TRACK_COLLAPSED },
             timelineTrackMuted: { ...DEFAULT_TRACK_MUTED },
+            timelineTrackHidden: { ...DEFAULT_TRACK_HIDDEN },
             textTrackMuted: {},
             activeTextTrackId: DEFAULT_TEXT_TRACK_ID,
             historyPast: [],
@@ -705,6 +716,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             selectedBlockId: blockId,
             selectedBlockIds: [],
             selectedOverlayId: null,
+            selectedCaptionBlockId: null,
             assetPreviewClip: null,
             isPlaying: false,
           })
@@ -729,6 +741,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             state.selectedBlockIds = [blockId]
           }
           state.selectedOverlayId = null
+          state.selectedCaptionBlockId = null
           state.assetPreviewClip = null
           state.sequencePlayheadSec = segment?.startSec ?? 0
           state.isPlaying = false
@@ -738,6 +751,7 @@ export const useEditSessionStore = create<EditSessionState>()(
       setSelectedOverlayId: (overlayId) => {
         set((state) => {
           state.selectedOverlayId = overlayId
+          state.selectedCaptionBlockId = null
           state.isPlaying = false
           if (!overlayId || !state.session?.overlay_elements) return
           const overlay = state.session.overlay_elements.find((item) => item.id === overlayId)
@@ -745,6 +759,10 @@ export const useEditSessionStore = create<EditSessionState>()(
             state.sequencePlayheadSec = overlay.start_sec
           }
         })
+      },
+
+      setSelectedCaptionBlockId: (blockId) => {
+        set({ selectedCaptionBlockId: blockId, isPlaying: false })
       },
 
       toggleTimelineTrackCollapsed: (trackId) => {
@@ -756,6 +774,12 @@ export const useEditSessionStore = create<EditSessionState>()(
       toggleTimelineTrackMuted: (trackId) => {
         set((state) => {
           state.timelineTrackMuted[trackId] = !state.timelineTrackMuted[trackId]
+        })
+      },
+
+      toggleTimelineTrackHidden: (trackId) => {
+        set((state) => {
+          state.timelineTrackHidden[trackId] = !state.timelineTrackHidden[trackId]
         })
       },
 
@@ -932,6 +956,26 @@ export const useEditSessionStore = create<EditSessionState>()(
           }
           state.dirty = true
         })
+      },
+
+      clearBlockCaption: (blockId) => {
+        pushHistory()
+        set((state) => {
+          if (!state.session) return
+          const block = state.session.sequence.find((item) => item.id === blockId)
+          if (!block) return
+          block.overlay = { ...block.overlay, content: [], outline: '' }
+          if (state.selectedCaptionBlockId === blockId) {
+            state.selectedCaptionBlockId = null
+          }
+          state.dirty = true
+        })
+      },
+
+      deleteSelectedCaption: () => {
+        const { selectedCaptionBlockId } = get()
+        if (!selectedCaptionBlockId) return
+        get().clearBlockCaption(selectedCaptionBlockId)
       },
 
       addBookmark: (timeSec, label = '') => {
@@ -1204,8 +1248,10 @@ export const useEditSessionStore = create<EditSessionState>()(
           selectedBlockId: null,
           selectedBlockIds: [],
           selectedOverlayId: null,
+          selectedCaptionBlockId: null,
           timelineTrackCollapsed: { ...DEFAULT_TRACK_COLLAPSED },
           timelineTrackMuted: { ...DEFAULT_TRACK_MUTED },
+          timelineTrackHidden: { ...DEFAULT_TRACK_HIDDEN },
           textTrackMuted: {},
           activeTextTrackId: DEFAULT_TEXT_TRACK_ID,
           assetPreviewClip: null,

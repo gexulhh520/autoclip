@@ -1,4 +1,4 @@
-import type { EditSession } from '../../types/editSession'
+import type { EditBlockOverlay, EditSession } from '../../types/editSession'
 import type { OpenCutTextOverlay } from '../opencut-text/params'
 import { readStringParam } from '../opencut-text/params'
 import {
@@ -23,6 +23,12 @@ import type {
 } from './types'
 
 const clamp01 = (value: number): number => Math.min(1, Math.max(0, value))
+
+const blockOverlayHasCaption = (overlay: EditBlockOverlay): boolean =>
+  Boolean(
+    overlay.outline.trim() ||
+      overlay.content.some((line) => line.trim())
+  )
 
 const overlayHasContent = (element: OpenCutTextOverlay): boolean =>
   readStringParam(element.params, 'content', '').trim().length > 0
@@ -190,16 +196,20 @@ export function resolveSceneAt(
     })
 
     if (options.burnSubtitles) {
-      templateCaptions.push({
-        blockId: outgoing.block.id,
-        overlay: outgoing.block.overlay,
-        opacity: 1 - progress,
-      })
-      templateCaptions.push({
-        blockId: incoming.block.id,
-        overlay: incoming.block.overlay,
-        opacity: progress,
-      })
+      if (blockOverlayHasCaption(outgoing.block.overlay)) {
+        templateCaptions.push({
+          blockId: outgoing.block.id,
+          overlay: outgoing.block.overlay,
+          opacity: 1 - progress,
+        })
+      }
+      if (blockOverlayHasCaption(incoming.block.overlay)) {
+        templateCaptions.push({
+          blockId: incoming.block.id,
+          overlay: incoming.block.overlay,
+          opacity: progress,
+        })
+      }
     }
   } else {
     const active = timeline.segments.find(
@@ -226,7 +236,7 @@ export function resolveSceneAt(
         zIndex: 0,
       })
 
-      if (options.burnSubtitles) {
+      if (options.burnSubtitles && blockOverlayHasCaption(active.block.overlay)) {
         templateCaptions.push({
           blockId: active.block.id,
           overlay: active.block.overlay,

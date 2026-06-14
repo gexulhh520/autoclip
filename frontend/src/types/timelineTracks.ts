@@ -29,6 +29,14 @@ export const DEFAULT_TRACK_MUTED: Record<TimelineTrackId, boolean> = {
   audioWave: false,
 }
 
+export const DEFAULT_TRACK_HIDDEN: Record<TimelineTrackId, boolean> = {
+  mainVideo: false,
+  overlayCaption: false,
+  overlayText: false,
+  audioBgm: false,
+  audioWave: false,
+}
+
 export interface TimelineTrackMeta {
   id: TimelineTrackId
   label: string

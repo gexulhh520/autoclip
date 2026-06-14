@@ -63,7 +63,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const setPlaying = useEditSessionStore((state) => state.setPlaying)
   const advanceSequencePlayhead = useEditSessionStore((state) => state.advanceSequencePlayhead)
   const timelineTrackMuted = useEditSessionStore((state) => state.timelineTrackMuted)
-  const textTrackMuted = useEditSessionStore((state) => state.textTrackMuted)
+  const timelineTrackHidden = useEditSessionStore((state) => state.timelineTrackHidden)
   const overlayElements = useEditSessionStore((state) => state.session?.overlay_elements)
   const selectedOverlayId = useEditSessionStore((state) => state.selectedOverlayId)
   const setSelectedOverlayId = useEditSessionStore((state) => state.setSelectedOverlayId)
@@ -72,7 +72,9 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const isAssetPreview = Boolean(assetPreviewClip)
   const clipAudioMuted = timelineTrackMuted.mainVideo || timelineTrackMuted.audioWave
   const captionsMuted = timelineTrackMuted.overlayCaption
+  const captionsHidden = timelineTrackHidden.overlayCaption
   const bgmMuted = timelineTrackMuted.audioBgm
+  const textTrackMuted = useEditSessionStore((state) => state.textTrackMuted)
   const mutedTextTrackIds = useMemo(
     () => Object.entries(textTrackMuted).filter(([, muted]) => muted).map(([id]) => id),
     [textTrackMuted]
@@ -398,7 +400,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
               <audio ref={bgmRef} src={bgmUrl} preload="auto" loop />
             ) : null}
 
-            {!isAssetPreview && !captionsMuted && previewBurnSubtitles && previewVm?.showTemplateCaptions
+            {!isAssetPreview && !captionsHidden && !captionsMuted && previewBurnSubtitles && previewVm?.showTemplateCaptions
               ? previewVm.captionLayers.map(({ blockId, opacity }) => {
                   const overlayData = overlayByBlockId[blockId]
                   if (!overlayData?.layers.length) return null

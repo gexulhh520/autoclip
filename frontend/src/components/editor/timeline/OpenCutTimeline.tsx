@@ -15,7 +15,6 @@ import TimelineElementView from './TimelineElementView'
 import { TIMELINE_CONSTANTS, TRACK_HEIGHTS, TRACK_ICONS } from './constants'
 import {
   calculateTotalDuration,
-  canTrackBeHidden,
   canTrackHaveAudio,
   getCumulativeHeightBefore,
   getTotalTracksHeight,
@@ -55,10 +54,12 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const selectedBlockId = useEditSessionStore((state) => state.selectedBlockId)
   const selectedBlockIds = useEditSessionStore((state) => state.selectedBlockIds)
   const selectedOverlayId = useEditSessionStore((state) => state.selectedOverlayId)
+  const selectedCaptionBlockId = useEditSessionStore((state) => state.selectedCaptionBlockId)
   const sequencePlayheadSec = useEditSessionStore((state) => state.sequencePlayheadSec)
   const snapEnabled = useEditSessionStore((state) => state.snapEnabled)
   const rippleTrimEnabled = useEditSessionStore((state) => state.rippleTrimEnabled)
   const timelineTrackMuted = useEditSessionStore((state) => state.timelineTrackMuted)
+  const timelineTrackHidden = useEditSessionStore((state) => state.timelineTrackHidden)
   const textTrackMuted = useEditSessionStore((state) => state.textTrackMuted)
   const activeTextTrackId = useEditSessionStore((state) => state.activeTextTrackId)
   const historyPast = useEditSessionStore((state) => state.historyPast)
@@ -71,6 +72,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const setSnapEnabled = useEditSessionStore((state) => state.setSnapEnabled)
   const setRippleTrimEnabled = useEditSessionStore((state) => state.setRippleTrimEnabled)
   const toggleTimelineTrackMuted = useEditSessionStore((state) => state.toggleTimelineTrackMuted)
+  const toggleTimelineTrackHidden = useEditSessionStore((state) => state.toggleTimelineTrackHidden)
   const toggleTextTrackMuted = useEditSessionStore((state) => state.toggleTextTrackMuted)
   const toggleTextTrackHidden = useEditSessionStore((state) => state.toggleTextTrackHidden)
   const setActiveTextTrackId = useEditSessionStore((state) => state.setActiveTextTrackId)
@@ -81,6 +83,9 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const updateAudioSettings = useEditSessionStore((state) => state.updateAudioSettings)
   const reorderBlocks = useEditSessionStore((state) => state.reorderBlocks)
   const removeOverlayElement = useEditSessionStore((state) => state.removeOverlayElement)
+  const clearBlockCaption = useEditSessionStore((state) => state.clearBlockCaption)
+  const setSelectedCaptionBlockId = useEditSessionStore((state) => state.setSelectedCaptionBlockId)
+  const deleteSelectedCaption = useEditSessionStore((state) => state.deleteSelectedCaption)
   const deleteSelectedBlock = useEditSessionStore((state) => state.deleteSelectedBlock)
   const splitSelectedBlockAtPlayhead = useEditSessionStore(
     (state) => state.splitSelectedBlockAtPlayhead
@@ -123,11 +128,12 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       sessionId,
       getBlockVideoUrl: (block) => getBlockVideoUrl(projectId, sessionId, block),
       trackMuted: timelineTrackMuted,
+      trackHidden: timelineTrackHidden,
       textTrackMuted,
       bgmLabel: session.audio_settings?.bgm_path?.split('/').pop() ?? null,
       bgmDurationSec,
     })
-  }, [session, segments, projectId, sessionId, timelineTrackMuted, textTrackMuted, bgmDurationSec])
+  }, [session, segments, projectId, sessionId, timelineTrackMuted, timelineTrackHidden, textTrackMuted, bgmDurationSec])
 
   const totalDuration = Math.max(compositionDuration, calculateTotalDuration(tracks), 1)
   const sequenceSnapPoints = useMemo(
@@ -176,7 +182,8 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const clearSelection = useCallback(() => {
     setSelectedBlockId(null)
     setSelectedOverlayId(null)
-  }, [setSelectedBlockId, setSelectedOverlayId])
+    setSelectedCaptionBlockId(null)
+  }, [setSelectedBlockId, setSelectedOverlayId, setSelectedCaptionBlockId])
 
   const { handlePointerDown, handlePointerClick } = useTimelineSeek({
     tracksScrollRef,
@@ -252,7 +259,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       )
     }
     if (element.source.kind === 'caption') {
-      return selectedBlockId === element.source.blockId
+      return selectedCaptionBlockId === element.source.blockId
     }
     if (element.source.kind === 'overlay') {
       return selectedOverlayId === element.source.overlayId
@@ -264,6 +271,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     event.stopPropagation()
     if (element.source.kind === 'block') {
       setSelectedOverlayId(null)
+      setSelectedCaptionBlockId(null)
       setSelectedBlockId(element.source.blockId, {
         additive: event.ctrlKey || event.metaKey,
       })
@@ -273,11 +281,13 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     if (element.source.kind === 'caption') {
       setSelectedOverlayId(null)
       setSelectedBlockId(element.source.blockId)
+      setSelectedCaptionBlockId(element.source.blockId)
       setInspectorTab('text')
       return
     }
     if (element.source.kind === 'overlay') {
       setSelectedBlockId(null)
+      setSelectedCaptionBlockId(null)
       setSelectedOverlayId(element.source.overlayId)
       setInspectorTab('text')
       setSequencePlayheadSec(element.startTime)
@@ -452,6 +462,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     if (action === 'split') splitSelectedBlockAtPlayhead()
     if (action === 'delete') {
       if (element.source.kind === 'overlay') removeOverlayElement(element.source.overlayId)
+      else if (element.source.kind === 'caption') clearBlockCaption(element.source.blockId)
       else if (element.source.kind === 'block') {
         setSelectedBlockId(element.source.blockId)
         deleteSelectedBlock()
@@ -493,7 +504,10 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         onToggleSnap={() => setSnapEnabled(!snapEnabled)}
         onToggleRipple={() => setRippleTrimEnabled(!rippleTrimEnabled)}
         onSplit={splitSelectedBlockAtPlayhead}
-        onDelete={deleteSelectedBlock}
+        onDelete={() => {
+          if (selectedCaptionBlockId) deleteSelectedCaption()
+          else deleteSelectedBlock()
+        }}
         onCopy={copySelectedBlock}
         onPaste={pasteBlock}
         onUndo={undo}
@@ -510,7 +524,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         }}
         bookmarkActive={bookmarkAtPlayhead}
         canSplit={!!selectedBlockId}
-        canDelete={!!selectedBlockId || !!selectedOverlayId}
+        canDelete={!!selectedBlockId || !!selectedOverlayId || !!selectedCaptionBlockId}
         canCopy={!!selectedBlockId}
         canPaste={clipboardHasBlock()}
         canUndo={historyPast.length > 0}
@@ -576,8 +590,16 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                     >
                       {track.hidden ? <EyeOff size={14} /> : <Eye size={14} />}
                     </button>
-                  ) : canTrackBeHidden(track) ? (
-                    <button type="button" className="oc-timeline__label-toggle" title="可见性">
+                  ) : track.id === ADAPTED_TRACK_IDS.caption ? (
+                    <button
+                      type="button"
+                      className={`oc-timeline__label-toggle${track.hidden ? ' is-off' : ''}`}
+                      title={track.hidden ? '显示字幕' : '隐藏字幕'}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        toggleTimelineTrackHidden('overlayCaption')
+                      }}
+                    >
                       {track.hidden ? <EyeOff size={14} /> : <Eye size={14} />}
                     </button>
                   ) : null}

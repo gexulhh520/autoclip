@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { message } from 'antd'
 import { useEditSessionStore } from '../../../stores/useEditSessionStore'
-import EditorShortcutsModal from '../EditorShortcutsModal'
 
 export function useEditorKeyboardShortcuts(projectId: string) {
   const undo = useEditSessionStore((state) => state.undo)
@@ -14,11 +13,13 @@ export function useEditorKeyboardShortcuts(projectId: string) {
   const pasteBlock = useEditSessionStore((state) => state.pasteBlock)
   const selectedBlockId = useEditSessionStore((state) => state.selectedBlockId)
   const selectedOverlayId = useEditSessionStore((state) => state.selectedOverlayId)
+  const selectedCaptionBlockId = useEditSessionStore((state) => state.selectedCaptionBlockId)
   const isPlaying = useEditSessionStore((state) => state.isPlaying)
   const setPlaying = useEditSessionStore((state) => state.setPlaying)
   const saveSession = useEditSessionStore((state) => state.saveSession)
   const addOverlayElement = useEditSessionStore((state) => state.addOverlayElement)
   const removeOverlayElement = useEditSessionStore((state) => state.removeOverlayElement)
+  const deleteSelectedCaption = useEditSessionStore((state) => state.deleteSelectedCaption)
   const sequencePlayheadSec = useEditSessionStore((state) => state.sequencePlayheadSec)
   const setInspectorTab = useEditSessionStore((state) => state.setInspectorTab)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
@@ -69,9 +70,10 @@ export function useEditorKeyboardShortcuts(projectId: string) {
         return
       }
       if (event.key === 'Delete' || event.key === 'Backspace') {
-        if (!selectedBlockId && !selectedOverlayId) return
+        if (!selectedBlockId && !selectedOverlayId && !selectedCaptionBlockId) return
         event.preventDefault()
         if (selectedOverlayId) removeOverlayElement(selectedOverlayId)
+        else if (selectedCaptionBlockId) deleteSelectedCaption()
         else deleteSelectedBlock()
         return
       }
@@ -96,6 +98,7 @@ export function useEditorKeyboardShortcuts(projectId: string) {
   }, [
     addOverlayElement,
     copySelectedBlock,
+    deleteSelectedCaption,
     deleteSelectedBlock,
     isPlaying,
     pasteBlock,
@@ -104,6 +107,7 @@ export function useEditorKeyboardShortcuts(projectId: string) {
     removeOverlayElement,
     saveSession,
     selectedBlockId,
+    selectedCaptionBlockId,
     selectedOverlayId,
     sequencePlayheadSec,
     setInspectorTab,
