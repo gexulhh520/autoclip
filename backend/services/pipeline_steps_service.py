@@ -1119,16 +1119,24 @@ def get_pipeline_step_result(
         data = _load_json_file(output_path)
         if not isinstance(data, list):
             raise ValueError("标题数据格式无效")
-        items = [
-            {
+        items = []
+        for item in data:
+            content = item.get("content")
+            overlay_lines: List[str] = []
+            if isinstance(content, list):
+                overlay_lines = [str(line).strip() for line in content if str(line).strip()]
+            entry = {
                 "id": item.get("id"),
                 "original_title": _outline_title(item.get("outline")),
                 "generated_title": item.get("generated_title") or _outline_title(item.get("outline")),
                 "score": item.get("final_score"),
                 "recommend_reason": item.get("recommend_reason") or "",
+                "overlay_copy": bool(item.get("overlay_copy")),
             }
-            for item in data
-        ]
+            if item.get("overlay_copy") and overlay_lines:
+                entry["overlay_headline"] = overlay_lines[0]
+                entry["overlay_body"] = overlay_lines[1:]
+            items.append(entry)
         return {
             "step_id": step_id,
             "step_name": defn.name,

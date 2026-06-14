@@ -97,6 +97,23 @@ def test_ass_builder_writes_multiline_events(tmp_path):
     assert content.count("Dialogue:") == len(layers)
 
 
+def test_overlay_copy_uses_content_not_generated_title():
+    layers = compose_quote_cinema_layers(
+        {
+            "outline": "原始话题摘要",
+            "content": ["主句上屏", "副句补充"],
+            "generated_title": "列表标题不应上屏",
+            "overlay_copy": True,
+        },
+        {"content_priority": ["content", "outline", "recommend_reason"]},
+    )
+    roles = [layer.role for layer in layers]
+    texts = [layer.text for layer in layers]
+    assert texts[roles.index("headline")] == "主句上屏"
+    assert "副句补充" in texts
+    assert "列表标题不应上屏" not in texts
+
+
 def test_generated_title_headline_with_outline_body():
     layers = compose_quote_cinema_layers(
         {

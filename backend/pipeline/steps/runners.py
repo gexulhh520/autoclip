@@ -71,6 +71,7 @@ def run_title(ctx: PipelineContext) -> List[Dict]:
         ctx.artifact("scored"),
         metadata_dir=str(ctx.metadata_dir),
         prompt_files=pf if pf else None,
+        settings=ctx.settings,
     )
 
 

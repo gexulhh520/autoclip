@@ -684,6 +684,21 @@ const TitleListView: React.FC<{ result: PipelineStepResultResponse }> = ({ resul
         <div style={{ fontSize: 14, color: 'var(--ac-ink)', fontWeight: 500, marginTop: 2, lineHeight: 1.5 }}>
           {String(item.generated_title ?? '')}
         </div>
+        {item.overlay_copy && item.overlay_headline ? (
+          <>
+            <div style={{ fontSize: 12, color: 'var(--ac-muted)', marginTop: 10 }}>叠加旁白</div>
+            <div style={{ fontSize: 14, color: 'var(--ac-ink)', fontWeight: 500, marginTop: 2, lineHeight: 1.5 }}>
+              {String(item.overlay_headline)}
+            </div>
+            {(item.overlay_body as string[] | undefined)?.length ? (
+              <div style={{ fontSize: 13, color: 'var(--ac-sub)', marginTop: 6, lineHeight: 1.55 }}>
+                {(item.overlay_body as string[]).map((line, j) => (
+                  <div key={j}>{line}</div>
+                ))}
+              </div>
+            ) : null}
+          </>
+        ) : null}
         {item.recommend_reason ? (
           <div style={{ fontSize: 12, color: 'var(--ac-muted)', marginTop: 8, lineHeight: 1.55 }}>
             {String(item.recommend_reason)}

@@ -39,6 +39,14 @@ const blockHasCaption = (block: EditBlock): boolean =>
       block.overlay.content.some((line) => line.trim())
   )
 
+function formatCaptionLabel(block: EditBlock): string {
+  const lines = block.overlay.content.filter((line) => line.trim())
+  if (lines.length >= 1) {
+    return lines.slice(0, 2).join(' · ')
+  }
+  return block.title || block.overlay.outline || '字幕'
+}
+
 export function isUserTextAdaptedTrack(track: AdaptedTrack): boolean {
   return Boolean(track.textTrackId)
 }
@@ -86,7 +94,7 @@ export function buildAdaptedTracks(params: {
     .map((segment) => ({
     id: `cap-${segment.block.id}`,
     elementType: 'text',
-    name: segment.block.title || '字幕',
+    name: formatCaptionLabel(segment.block),
     startTime: segment.startSec,
     duration: segment.duration,
     trimStart: 0,
@@ -94,12 +102,7 @@ export function buildAdaptedTracks(params: {
     source: {
       kind: 'caption',
       blockId: segment.block.id,
-      content:
-        [segment.block.title, segment.block.overlay.outline]
-          .filter((line) => line.trim())
-          .join(' · ') ||
-        segment.block.overlay.content.join(' ') ||
-        segment.block.title,
+      content: formatCaptionLabel(segment.block),
     },
   }))
 

@@ -115,6 +115,20 @@ def _compose_headline_and_body(
     seen: set[str] = set()
     headline_from_generated = False
 
+    if clip_data.get("overlay_copy") and content:
+        headline = _truncate(content[0], max_headline)
+        if headline:
+            seen.add(_normalize_for_compare(headline))
+        _append_body_lines(
+            body_lines,
+            seen,
+            content[1 : 1 + max_body_points],
+            max_body=max_body,
+            max_body_points=max_body_points,
+            headline=headline,
+        )
+        return headline, body_lines
+
     for source in priority:
         if source == "generated_title":
             generated = str(clip_data.get("generated_title") or "").strip()
