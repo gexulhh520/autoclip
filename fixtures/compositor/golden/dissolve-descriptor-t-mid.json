@@ -1,0 +1,116 @@
+{
+  "schema_version": "compositor-1",
+  "timeSec": 3.8,
+  "width": 608,
+  "height": 1080,
+  "clear": {
+    "r": 0,
+    "g": 0,
+    "b": 0,
+    "a": 1
+  },
+  "items": [
+    {
+      "kind": "layer",
+      "id": "video:a",
+      "source": "video",
+      "blockId": "a",
+      "relativeSourceSec": 3.8,
+      "transform": {
+        "x": 0,
+        "y": 0,
+        "width": 608,
+        "height": 1080
+      },
+      "opacity": 0.5714285714285716,
+      "zIndex": 0
+    },
+    {
+      "kind": "layer",
+      "id": "video:b",
+      "source": "video",
+      "blockId": "b",
+      "relativeSourceSec": 0.1499999999999999,
+      "transform": {
+        "x": 0,
+        "y": 0,
+        "width": 608,
+        "height": 1080
+      },
+      "opacity": 0.4285714285714283,
+      "zIndex": 1
+    },
+    {
+      "kind": "text",
+      "id": "template:a",
+      "source": "template_caption",
+      "blockId": "a",
+      "layout": "cinema",
+      "lines": [
+        {
+          "role": "headline",
+          "text": "caption-a",
+          "color": "#E8C872",
+          "sizeScale": 1
+        }
+      ],
+      "anchor": {
+        "bottomPct": 11,
+        "leftPct": 6.58,
+        "centerX": false,
+        "alignment": "bottom-left"
+      },
+      "offsetPct": {
+        "x": 0,
+        "y": 0
+      },
+      "opacity": 0.5714285714285716,
+      "zIndex": 2
+    },
+    {
+      "kind": "text",
+      "id": "template:b",
+      "source": "template_caption",
+      "blockId": "b",
+      "layout": "cinema",
+      "lines": [
+        {
+          "role": "headline",
+          "text": "caption-b",
+          "color": "#E8C872",
+          "sizeScale": 1
+        }
+      ],
+      "anchor": {
+        "bottomPct": 11,
+        "leftPct": 6.58,
+        "centerX": false,
+        "alignment": "bottom-left"
+      },
+      "offsetPct": {
+        "x": 0,
+        "y": 0
+      },
+      "opacity": 0.4285714285714283,
+      "zIndex": 3
+    }
+  ],
+  "audio": [
+    {
+      "kind": "clip",
+      "blockId": "a",
+      "timelineSec": 3.8,
+      "volume": 1
+    },
+    {
+      "kind": "clip",
+      "blockId": "b",
+      "timelineSec": 3.8,
+      "volume": 1
+    }
+  ],
+  "transition": {
+    "inDissolve": true,
+    "progress": 0.4285714285714283
+  }
+}

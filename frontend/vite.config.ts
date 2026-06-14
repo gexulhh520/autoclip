@@ -46,6 +46,10 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true
         }
       }
-    }
+    },
+    test: {
+      environment: 'node',
+      include: ['src/**/*.test.ts'],
+    },
   }
 })

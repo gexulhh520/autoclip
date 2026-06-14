@@ -1,0 +1,200 @@
+{
+  "schema_version": "compositor-1",
+  "sessionId": "fixture-dissolve",
+  "projectId": "fixture-project",
+  "canvas": {
+    "width": 608,
+    "height": 1080,
+    "aspect": "9:16",
+    "fitMode": "contain",
+    "visualFilter": "none",
+    "fps": 30
+  },
+  "timeline": {
+    "segments": [
+      {
+        "block": {
+          "id": "a",
+          "source_clip_id": "a",
+          "title": "Title a",
+          "media": {
+            "type": "step6_clip",
+            "path": "a.mp4"
+          },
+          "trim": {
+            "in_sec": 0,
+            "out_sec": 4
+          },
+          "overlay": {
+            "outline": "",
+            "content": [
+              "caption-a"
+            ],
+            "recommend_reason": ""
+          },
+          "audio": {
+            "volume": 1
+          },
+          "transition_out": "dissolve",
+          "duration_sec": 4
+        },
+        "index": 0,
+        "compositionStartSec": 0,
+        "sourceDurationSec": 4,
+        "transitionOut": "dissolve",
+        "dissolveOutSec": 0.35
+      },
+      {
+        "block": {
+          "id": "b",
+          "source_clip_id": "b",
+          "title": "Title b",
+          "media": {
+            "type": "step6_clip",
+            "path": "b.mp4"
+          },
+          "trim": {
+            "in_sec": 0,
+            "out_sec": 3
+          },
+          "overlay": {
+            "outline": "",
+            "content": [
+              "caption-b"
+            ],
+            "recommend_reason": ""
+          },
+          "audio": {
+            "volume": 1
+          },
+          "transition_out": "cut",
+          "duration_sec": 3
+        },
+        "index": 1,
+        "compositionStartSec": 3.65,
+        "sourceDurationSec": 3,
+        "transitionOut": "cut",
+        "dissolveOutSec": 0
+      }
+    ],
+    "totalDurationSec": 6.65,
+    "transitionDurationSec": 0.35
+  },
+  "totalDurationSec": 6.65,
+  "transitionDurationSec": 0.35,
+  "layers": [
+    {
+      "kind": "video_clip",
+      "blockId": "a",
+      "blockIndex": 0,
+      "mediaPath": "a.mp4",
+      "trimInSec": 0,
+      "trimOutSec": 4,
+      "playbackRate": 1,
+      "compositionStartSec": 0,
+      "sourceDurationSec": 4,
+      "transitionOut": "dissolve",
+      "dissolveOutSec": 0.35,
+      "volume": 1,
+      "fadeInSec": 0,
+      "fadeOutSec": 0
+    },
+    {
+      "kind": "template_caption",
+      "blockId": "a",
+      "blockIndex": 0,
+      "compositionStartSec": 0,
+      "sourceDurationSec": 4,
+      "layout": "cinema",
+      "applicable": true,
+      "layers": [
+        {
+          "role": "headline",
+          "text": "caption-a",
+          "color": "#E8C872",
+          "size_scale": 1
+        }
+      ],
+      "config": {
+        "margin_left": 40,
+        "margin_right": 40,
+        "margin_bottom": 118.8,
+        "base_font_size": 36,
+        "margin_left_pct": 6.58,
+        "margin_right_pct": 6.58,
+        "margin_bottom_pct": 11,
+        "alignment": "bottom-left",
+        "ref_width": 608,
+        "ref_height": 1080,
+        "position_offset_x": 0,
+        "position_offset_y": 0,
+        "position_offset_x_pct": 0,
+        "position_offset_y_pct": 0
+      }
+    },
+    {
+      "kind": "video_clip",
+      "blockId": "b",
+      "blockIndex": 1,
+      "mediaPath": "b.mp4",
+      "trimInSec": 0,
+      "trimOutSec": 3,
+      "playbackRate": 1,
+      "compositionStartSec": 3.65,
+      "sourceDurationSec": 3,
+      "transitionOut": "cut",
+      "dissolveOutSec": 0,
+      "volume": 1,
+      "fadeInSec": 0,
+      "fadeOutSec": 0
+    },
+    {
+      "kind": "template_caption",
+      "blockId": "b",
+      "blockIndex": 1,
+      "compositionStartSec": 3.65,
+      "sourceDurationSec": 3,
+      "layout": "cinema",
+      "applicable": true,
+      "layers": [
+        {
+          "role": "headline",
+          "text": "caption-b",
+          "color": "#E8C872",
+          "size_scale": 1
+        }
+      ],
+      "config": {
+        "margin_left": 40,
+        "margin_right": 40,
+        "margin_bottom": 118.8,
+        "base_font_size": 36,
+        "margin_left_pct": 6.58,
+        "margin_right_pct": 6.58,
+        "margin_bottom_pct": 11,
+        "alignment": "bottom-left",
+        "ref_width": 608,
+        "ref_height": 1080,
+        "position_offset_x": 0,
+        "position_offset_y": 0,
+        "position_offset_x_pct": 0,
+        "position_offset_y_pct": 0
+      }
+    },
+    {
+      "kind": "filter",
+      "filterId": "none"
+    },
+    {
+      "kind": "transition",
+      "transitionDurationSec": 0.35
+    }
+  ],
+  "compile": {
+    "burnSubtitles": true,
+    "useSourceVideo": false
+  },
+  "metadata": {
+    "compiledAt": "fixture-compiled-at"
+  }
+}

@@ -6,7 +6,6 @@ import {
   loadExportPreset,
   saveExportPreset,
 } from '../../utils/editExportPresets'
-import type { EditExportPreset } from '../../types/editSession'
 import { formatExportSettingsSummary } from '../../utils/editExportSummary'
 import {
   pickExportDirectory,
@@ -43,6 +42,8 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
   const exportMessage = useEditSessionStore((state) => state.exportMessage)
   const dirty = useEditSessionStore((state) => state.dirty)
   const saveSession = useEditSessionStore((state) => state.saveSession)
+  const useCompositorExport = useEditSessionStore((state) => state.useCompositorExport)
+  const setUseCompositorExport = useEditSessionStore((state) => state.setUseCompositorExport)
 
   const [mode, setMode] = useState<'single' | 'batch'>('single')
   const [burnSubtitles, setBurnSubtitles] = useState(true)
@@ -64,8 +65,9 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
     setBurnSubtitles(preset.burn_subtitles)
     setExportSrt(preset.export_srt)
     setUseSourceVideo(preset.use_source_video)
+    setUseCompositorExport(preset.use_compositor_export ?? isTauriApp())
     void resolveInitialExportDirectory().then(setExportDir)
-  }, [open])
+  }, [open, setUseCompositorExport])
 
   if (!open || !session) return null
 
@@ -83,6 +85,7 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
       burn_subtitles: burnSubtitles,
       export_srt: exportSrt,
       use_source_video: useSourceVideo,
+      use_compositor_export: useCompositorExport,
     })
   }
 
@@ -258,6 +261,26 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
           />
           使用原片重切（与预览「原片」一致）
         </label>
+        {isTauriApp() && mode === 'single' ? (
+          <label className="editor-modal__check" title="Compositor 逐帧合成 + FFmpeg 编码，无 ASS/drawtext 布局">
+            <input
+              type="checkbox"
+              checked={useCompositorExport}
+              onChange={(event) => setUseCompositorExport(event.target.checked)}
+            />
+            Compositor 导出（与预览 Compositor 路径一致）
+          </label>
+        ) : null}
+        {isTauriApp() && mode === 'batch' ? (
+          <p className="editor-export-preview-summary__hint">
+            批量分轨仍使用传统后端导出路径；Compositor 导出仅适用于「合成一条」。
+          </p>
+        ) : null}
+        {!isTauriApp() ? (
+          <p className="editor-export-preview-summary__hint">
+            浏览器模式使用后端传统导出；Compositor 导出需桌面客户端。
+          </p>
+        ) : null}
         <label className="editor-modal__check">
           <input
             type="checkbox"

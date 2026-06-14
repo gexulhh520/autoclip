@@ -11,6 +11,7 @@ export const DEFAULT_EXPORT_PRESET: EditExportPreset = {
   burn_subtitles: true,
   export_srt: false,
   use_source_video: true,
+  use_compositor_export: true,
 }
 
 export const loadExportPreset = (): EditExportPreset => {

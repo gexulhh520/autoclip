@@ -1,0 +1,68 @@
+{
+  "schema_version": "compositor-1",
+  "timeSec": 6.65,
+  "width": 608,
+  "height": 1080,
+  "clear": {
+    "r": 0,
+    "g": 0,
+    "b": 0,
+    "a": 1
+  },
+  "items": [
+    {
+      "kind": "layer",
+      "id": "video:b",
+      "source": "video",
+      "blockId": "b",
+      "relativeSourceSec": 3,
+      "transform": {
+        "x": 0,
+        "y": 0,
+        "width": 608,
+        "height": 1080
+      },
+      "opacity": 1,
+      "zIndex": 0
+    },
+    {
+      "kind": "text",
+      "id": "template:b",
+      "source": "template_caption",
+      "blockId": "b",
+      "layout": "cinema",
+      "lines": [
+        {
+          "role": "headline",
+          "text": "caption-b",
+          "color": "#E8C872",
+          "sizeScale": 1
+        }
+      ],
+      "anchor": {
+        "bottomPct": 11,
+        "leftPct": 6.58,
+        "centerX": false,
+        "alignment": "bottom-left"
+      },
+      "offsetPct": {
+        "x": 0,
+        "y": 0
+      },
+      "opacity": 1,
+      "zIndex": 1
+    }
+  ],
+  "audio": [
+    {
+      "kind": "clip",
+      "blockId": "b",
+      "timelineSec": 6.65,
+      "volume": 1
+    }
+  ],
+  "transition": {
+    "inDissolve": false,
+    "progress": null
+  }
+}

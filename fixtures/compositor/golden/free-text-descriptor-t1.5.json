@@ -1,0 +1,55 @@
+{
+  "schema_version": "compositor-1",
+  "timeSec": 1.5,
+  "width": 608,
+  "height": 1080,
+  "clear": {
+    "r": 0,
+    "g": 0,
+    "b": 0,
+    "a": 1
+  },
+  "items": [
+    {
+      "kind": "layer",
+      "id": "video:a",
+      "source": "video",
+      "blockId": "a",
+      "relativeSourceSec": 1.5,
+      "transform": {
+        "x": 0,
+        "y": 0,
+        "width": 608,
+        "height": 1080
+      },
+      "opacity": 1,
+      "zIndex": 0
+    },
+    {
+      "kind": "text",
+      "id": "free:txt-1",
+      "source": "free_text",
+      "elementId": "txt-1",
+      "params": {
+        "content": "自由文本",
+        "fontSize": 15,
+        "transform.positionX": 12,
+        "transform.positionY": -8
+      },
+      "opacity": 1,
+      "zIndex": 11
+    }
+  ],
+  "audio": [
+    {
+      "kind": "clip",
+      "blockId": "a",
+      "timelineSec": 1.5,
+      "volume": 1
+    }
+  ],
+  "transition": {
+    "inDissolve": false,
+    "progress": null
+  }
+}

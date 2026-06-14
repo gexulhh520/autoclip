@@ -1,0 +1,55 @@
+{
+  "schema_version": 2,
+  "id": "fixture-free-text",
+  "project_id": "fixture-project",
+  "name": "compositor-free-text",
+  "overlay_snapshot": {},
+  "sequence": [
+    {
+      "id": "a",
+      "source_clip_id": "a",
+      "title": "Title a",
+      "media": { "type": "step6_clip", "path": "a.mp4" },
+      "trim": { "in_sec": 0, "out_sec": 4 },
+      "overlay": {
+        "outline": "",
+        "content": ["caption-a"],
+        "recommend_reason": ""
+      },
+      "audio": { "volume": 1 },
+      "transition_out": "cut",
+      "duration_sec": 4
+    }
+  ],
+  "overlay_elements": [
+    {
+      "id": "txt-1",
+      "type": "text",
+      "start_sec": 1,
+      "duration_sec": 2,
+      "hidden": false,
+      "params": {
+        "content": "自由文本",
+        "fontSize": 15,
+        "transform.positionX": 12,
+        "transform.positionY": -8
+      }
+    }
+  ],
+  "export_settings": {
+    "aspect": "9:16",
+    "height": 1080,
+    "fps": 30,
+    "visual_filter": "none",
+    "fit_mode": "contain"
+  },
+  "audio_settings": {
+    "bgm_volume": 0.28,
+    "fade_in_sec": 0.3,
+    "fade_out_sec": 0.3,
+    "use_source_video": false,
+    "transition_duration_sec": 0.35
+  },
+  "created_at": "",
+  "updated_at": ""
+}

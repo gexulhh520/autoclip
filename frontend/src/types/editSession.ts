@@ -164,6 +164,19 @@ export interface EditSessionPreviewOverlayRequest {
   block_id: string
 }
 
+export interface EditExportPreset {
+  aspect: EditExportSettings['aspect']
+  height: number
+  fps: number
+  visual_filter: EditExportSettings['visual_filter']
+  fit_mode: EditExportSettings['fit_mode']
+  burn_subtitles: boolean
+  export_srt: boolean
+  use_source_video: boolean
+  /** 桌面 Compositor 逐帧导出（仅 Tauri 有效） */
+  use_compositor_export?: boolean
+}
+
 export interface EditSessionExportRequest {
   burn_subtitles?: boolean
   filename?: string
