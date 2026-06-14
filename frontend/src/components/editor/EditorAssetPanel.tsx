@@ -565,21 +565,42 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
     </OpenCutPanelView>
   )
 
-  const viewMap: Record<string, React.ReactNode> = {
-    media: renderMedia(),
-    sounds: renderSounds(),
-    text: <TextAssetsView />,
-    stickers: <StickersAssetsView />,
-    effects: <EffectsAssetsView />,
-    transitions: renderTransitions(),
-    captions: renderCaptions(),
-    adjustment: renderAdjustment(),
-    settings: renderSettings(),
+  const renderPanelShell = (title: string, body: React.ReactNode) => (
+    <OpenCutPanelView title={title}>
+      <div className="oc-panel-empty">{body}</div>
+    </OpenCutPanelView>
+  )
+
+  const resolveActiveView = (): React.ReactNode => {
+    if (loading && !session) {
+      return renderPanelShell('加载中', '正在加载剪辑工程…')
+    }
+    if (!session) {
+      return renderPanelShell('素材', '剪辑工程未就绪，请刷新页面重试')
+    }
+
+    const viewMap: Record<string, React.ReactNode> = {
+      media: renderMedia(),
+      sounds: renderSounds(),
+      text: <TextAssetsView />,
+      stickers: <StickersAssetsView />,
+      effects: <EffectsAssetsView />,
+      transitions: renderTransitions(),
+      captions: renderCaptions(),
+      adjustment: renderAdjustment(),
+      settings: renderSettings(),
+    }
+
+    const view = viewMap[activeTab] ?? renderMedia()
+    if (view == null) {
+      return renderPanelShell('加载中', '正在加载…')
+    }
+    return view
   }
 
   return (
     <aside className="editor-asset-panel oc-panel__content">
-      {viewMap[activeTab] ?? renderMedia()}
+      {resolveActiveView()}
     </aside>
   )
 }

@@ -10,9 +10,11 @@ interface EditorAssetsPanelProps {
 const EditorAssetsPanel: React.FC<EditorAssetsPanelProps> = ({ projectId }) => {
   return (
     <div className="editor-assets-panel oc-panel">
-      <EditorCategoryBar />
-      <div className="oc-panel__separator" aria-hidden="true" />
-      <EditorAssetPanel projectId={projectId} />
+      <div className="editor-assets-body oc-panel__body">
+        <EditorCategoryBar />
+        <div className="oc-panel__separator" aria-hidden="true" />
+        <EditorAssetPanel projectId={projectId} />
+      </div>
     </div>
   )
 }
