@@ -1,5 +1,6 @@
 import React from 'react'
 import type { EditOverlayElement } from '../../types/editSession'
+import { readStringParam } from '../../editor/opencut-text/params'
 import { snapTime } from '../../utils/editTimeline'
 
 interface EditorTimelineOverlayClipProps {
@@ -91,7 +92,7 @@ const EditorTimelineOverlayClip: React.FC<EditorTimelineOverlayClipProps> = ({
         onClick={onSelect}
         onPointerDown={startMoveDrag}
       >
-        {element.content.slice(0, 16) || (element.type === 'text' ? '文本' : '贴纸')}
+        {readStringParam(element.params, 'content', '').slice(0, 16) || '文本'}
       </button>
       <div
         className="editor-block-trim editor-block-trim--right"

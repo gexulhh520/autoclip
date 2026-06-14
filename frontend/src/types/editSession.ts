@@ -1,3 +1,7 @@
+import type { OpenCutTextOverlay } from '../editor/opencut-text/params'
+
+export type EditOverlayElement = OpenCutTextOverlay
+
 export interface EditBlockMedia {
   type: 'step6_clip' | 'source_range' | 'imported_clip'
   path: string
@@ -6,21 +10,10 @@ export interface EditBlockMedia {
   source_end_sec?: number | null
 }
 
-import type {
-  EditTextBackground,
-  EditTextStyleFields,
-  TextAlign,
-  TextAnimation,
-  TextDecoration,
-} from './editTextStyle'
-
-export interface EditBlockOverlay extends EditTextStyleFields {
+export interface EditBlockOverlay {
   outline: string
   content: string[]
   recommend_reason: string
-  font_family?: string
-  /** 使用 OpenCut 自由文本样式预览，而非模板 cinema 布局 */
-  use_custom_style?: boolean
 }
 
 export interface EditBlockAudio {
@@ -59,32 +52,6 @@ export interface EditExportSettings {
   visual_filter: 'none' | 'mono_soft' | 'mono_contrast' | 'mono_cool' | 'mono_warm'
   fit_mode: 'contain' | 'cover' | 'contain_blur'
 }
-
-export interface EditOverlayTransform {
-  x: number
-  y: number
-  scale: number
-  rotation: number
-}
-
-export interface EditOverlayElement extends EditTextStyleFields {
-  id: string
-  type: 'text' | 'sticker'
-  start_sec: number
-  duration_sec: number
-  content: string
-  font_family?: string
-  transform: EditOverlayTransform
-  hidden: boolean
-}
-
-export type {
-  EditTextBackground,
-  EditTextStyleFields,
-  TextAlign,
-  TextAnimation,
-  TextDecoration,
-} from './editTextStyle'
 
 export interface TimelineBookmark {
   id: string
@@ -139,77 +106,9 @@ export interface EditSessionUpdateRequest {
   audio_settings?: EditSessionAudioSettings
 }
 
-export interface EditSessionExportRequest {
-  burn_subtitles?: boolean
-  filename?: string
-  export_srt?: boolean
-  use_source_video?: boolean
-  async_export?: boolean
-  write_back_to_project?: boolean
-  output_dir?: string | null
-}
-
-export interface EditSessionExportResponse {
-  success: boolean
-  output_path: string
-  download_url: string
-  srt_path?: string | null
-  srt_download_url?: string | null
-  job_id?: string | null
-  project_clip_path?: string | null
-  local_output_path?: string | null
-  local_srt_path?: string | null
-}
-
-export interface EditSessionExportJobStatus {
-  job_id: string
-  status: 'pending' | 'running' | 'completed' | 'failed'
-  progress: number
-  message: string
-  job_type?: 'single' | 'batch'
-  download_url?: string | null
-  srt_download_url?: string | null
-  output_path?: string | null
-  srt_path?: string | null
-  project_clip_path?: string | null
-  local_output_path?: string | null
-  local_srt_path?: string | null
-  files?: EditSessionBatchExportItem[] | null
-  error?: string | null
-}
-
-export interface EditSessionAppendRequest {
-  clip_ids: string[]
-  source_id?: string | null
-}
-
-export interface EditSessionAppendResponse {
-  session: EditSession
-  added_count: number
-}
-
-export interface EditSessionImportMediaResponse {
-  session: EditSession
+export interface EditSessionRegenerateRequest {
   block_id: string
-  title: string
-  duration_sec: number
-}
-
-export interface EditSessionBatchExportItem {
-  block_id: string
-  title: string
-  output_path: string
-  download_url: string
-  srt_path?: string | null
-  srt_download_url?: string | null
-  local_output_path?: string | null
-  local_srt_path?: string | null
-}
-
-export interface EditSessionBatchExportResponse {
-  success: boolean
-  files: EditSessionBatchExportItem[]
-  job_id?: string | null
+  mode?: 'outline' | 'content' | 'both'
 }
 
 export interface EditSessionRegenerateResponse {
@@ -219,13 +118,65 @@ export interface EditSessionRegenerateResponse {
   mode: string
 }
 
-export interface EditExportPreset {
-  aspect: EditExportSettings['aspect']
-  height: number
-  fps: number
-  visual_filter: EditExportSettings['visual_filter']
-  fit_mode: EditExportSettings['fit_mode']
-  burn_subtitles: boolean
-  export_srt: boolean
-  use_source_video: boolean
+export interface EditSessionSilenceDetectRequest {
+  block_id: string
+  noise_db?: number
+  min_silence_sec?: number
+}
+
+export interface EditSessionSilenceRegion {
+  start_sec: number
+  end_sec: number
+}
+
+export interface EditSessionSilenceDetectResponse {
+  success: boolean
+  silence_regions: EditSessionSilenceRegion[]
+  suggested_trim: { in_sec: number; out_sec: number }
+}
+
+export interface EditSessionPreviewOverlayRequest {
+  block_id: string
+}
+
+export interface EditSessionExportRequest {
+  burn_subtitles?: boolean
+  filename?: string
+  export_srt?: boolean
+  use_source_video?: boolean
+  write_back_to_project?: boolean
+  output_dir?: string | null
+  async_export?: boolean
+}
+
+export interface EditSessionBatchExportRequest {
+  burn_subtitles?: boolean
+  export_srt?: boolean
+  use_source_video?: boolean
+  output_dir?: string | null
+  async_export?: boolean
+}
+
+export interface EditSessionExportResponse {
+  success: boolean
+  video_url: string
+  srt_url?: string | null
+  project_clip_path?: string | null
+  local_output_path?: string | null
+  local_srt_path?: string | null
+  job_id?: string | null
+}
+
+export interface EditSessionBatchExportFile {
+  video_url: string
+  srt_url?: string | null
+  title: string
+  local_output_path?: string | null
+  local_srt_path?: string | null
+}
+
+export interface EditSessionBatchExportResponse {
+  success: boolean
+  files: EditSessionBatchExportFile[]
+  job_id?: string | null
 }

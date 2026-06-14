@@ -4,7 +4,8 @@ import { PlusOutlined } from '@ant-design/icons'
 import { projectApi } from '../../services/api'
 import { blockDuration, useEditSessionStore } from '../../stores/useEditSessionStore'
 import { FIT_MODE_OPTIONS, VISUAL_FILTER_OPTIONS } from '../../utils/editExportPresets'
-import { captionsToOverlayElements, parseSrt } from '../../utils/srtImport'
+import { captionsToOpenCutOverlays, parseOpenCutSrt } from '../../editor/opencut-text/subtitles'
+import { resolveCanvasDimensions } from '../../editor/scene/canvas'
 import EditorAspectSelect from './EditorAspectSelect'
 import type { EditAspectPresetId } from '../../utils/editAspectRatios'
 
@@ -416,12 +417,23 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
                 if (!file) return
                 try {
                   const text = await file.text()
-                  const result = parseSrt(text)
+                  const dims = resolveCanvasDimensions(
+                    session?.export_settings ?? {
+                      aspect: '9:16',
+                      height: 1080,
+                      fps: 30,
+                      visual_filter: 'none',
+                      fit_mode: 'contain',
+                    }
+                  )
+                  const result = parseOpenCutSrt(text)
                   if (!result.captions.length) {
                     message.warning('未解析到有效字幕条目')
                     return
                   }
-                  importSrtCaptions(captionsToOverlayElements(result.captions))
+                  importSrtCaptions(
+                    captionsToOpenCutOverlays(result.captions, dims.width, dims.height)
+                  )
                   setInspectorTab('text')
                   message.success(
                     `已导入 ${result.captions.length} 条字幕` +

@@ -16,9 +16,10 @@ import {
   DEFAULT_TRACK_MUTED,
   type TimelineTrackId,
 } from '../types/timelineTracks'
-import { createTextOverlayElement } from '../utils/editTextOverlay'
+import { createOpenCutTextOverlay } from '../editor/opencut-text/build'
+import { migrateToOpenCutText } from '../editor/opencut-text/migrate'
+import { resolveCanvasDimensions } from '../editor/scene/canvas'
 import { loadExportPreset, saveExportPreset } from '../utils/editExportPresets'
-import { normalizeBlockOverlay, normalizeOverlayElement } from '../utils/textStyle'
 import {
   BASE_PX_PER_SEC,
   blockDuration,
@@ -145,6 +146,11 @@ interface EditSessionState {
   updateOverlayElement: (
     elementId: string,
     patch: Partial<EditOverlayElement>,
+    options?: { recordHistory?: boolean }
+  ) => void
+  updateOverlayParams: (
+    elementId: string,
+    patch: Record<string, string | number | boolean>,
     options?: { recordHistory?: boolean }
   ) => void
   removeOverlayElement: (elementId: string) => void
@@ -328,9 +334,21 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (!session.overlay_elements) {
             session.overlay_elements = []
           }
-          session.overlay_elements = session.overlay_elements.map(normalizeOverlayElement)
+          const canvasDims = resolveCanvasDimensions(session.export_settings)
+          session.overlay_elements = session.overlay_elements.map((element) =>
+            migrateToOpenCutText(
+              element as unknown as Record<string, unknown>,
+              canvasDims.width,
+              canvasDims.height
+            )
+          )
           for (const block of session.sequence) {
-            block.overlay = normalizeBlockOverlay(block.overlay)
+            const raw = block.overlay as Record<string, unknown>
+            block.overlay = {
+              outline: String(raw.outline ?? ''),
+              content: Array.isArray(raw.content) ? raw.content : [],
+              recommend_reason: String(raw.recommend_reason ?? ''),
+            }
           }
           if (!session.bookmarks) {
             session.bookmarks = []
@@ -724,7 +742,7 @@ export const useEditSessionStore = create<EditSessionState>()(
         })
       },
 
-      addOverlayElement: (element) => {
+      addOverlayElement: (partial) => {
         pushHistory()
         const id = nanoid()
         set((state) => {
@@ -732,10 +750,23 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (!state.session.overlay_elements) {
             state.session.overlay_elements = []
           }
+          const dims = resolveCanvasDimensions(state.session.export_settings)
+          const startSec = partial?.start_sec ?? state.sequencePlayheadSec
+          const content =
+            typeof partial?.params?.content === 'string'
+              ? partial.params.content
+              : undefined
+          const base = createOpenCutTextOverlay(
+            startSec,
+            dims.width,
+            dims.height,
+            content
+          )
           state.session.overlay_elements.push({
-            ...createTextOverlayElement(element.start_sec, element.content),
-            ...element,
+            ...base,
+            ...partial,
             id,
+            params: { ...base.params, ...(partial?.params ?? {}) },
           })
           state.selectedOverlayId = id
           state.selectedBlockId = null
@@ -769,6 +800,19 @@ export const useEditSessionStore = create<EditSessionState>()(
           const element = state.session.overlay_elements.find((item) => item.id === elementId)
           if (!element) return
           Object.assign(element, patch)
+          state.dirty = true
+        })
+      },
+
+      updateOverlayParams: (elementId, patch, options) => {
+        if (options?.recordHistory !== false && Object.keys(patch).length > 0) {
+          pushHistory()
+        }
+        set((state) => {
+          if (!state.session?.overlay_elements) return
+          const element = state.session.overlay_elements.find((item) => item.id === elementId)
+          if (!element) return
+          element.params = { ...element.params, ...patch }
           state.dirty = true
         })
       },

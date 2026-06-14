@@ -442,18 +442,7 @@ const EditorTimeline: React.FC<EditorTimelineProps> = ({ projectId }) => {
               title="在播放头添加文本层"
               onClick={(event) => {
                 event.stopPropagation()
-                addOverlayElement({
-                  type: 'text',
-                  start_sec: sequencePlayheadSec,
-                  duration_sec: 3,
-                  content: '新文本',
-                  font_size: 24,
-                  color: '#FFFFFF',
-                  bold: false,
-                  italic: false,
-                  transform: { x: 0.5, y: 0.82, scale: 1, rotation: 0 },
-                  hidden: false,
-                })
+                addOverlayElement({ start_sec: sequencePlayheadSec })
               }}
             >
               +

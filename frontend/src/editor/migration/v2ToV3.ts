@@ -1,4 +1,6 @@
 import type { EditBlock, EditBlockMedia, EditSession } from '../types/editSession'
+import { migrateToOpenCutText } from '../opencut-text/migrate'
+import { resolveCanvasDimensions } from '../scene/canvas'
 
 export type MediaAssetSource = 'ai_clip' | 'imported' | 'ai_generated' | 'extracted' | 'source_range'
 
@@ -162,14 +164,7 @@ export const migrateSessionToV3 = (session: EditSession): EditProjectV3 => {
       duration: element.duration_sec,
       trim_start: 0,
       trim_end: element.duration_sec,
-      transform: element.transform,
-      properties: {
-        content: element.content,
-        font_size: element.font_size,
-        color: element.color,
-        bold: element.bold,
-        italic: element.italic,
-      },
+      properties: { params: element.params },
       hidden: element.hidden,
     })
   }
@@ -260,10 +255,6 @@ export const flattenV3ToSession = (project: EditProjectV3): EditSession => {
           outline: overlayProps.outline ?? '',
           content: overlayProps.content ?? [],
           recommend_reason: overlayProps.recommend_reason ?? '',
-          font_size: overlayProps.font_size,
-          bold: overlayProps.bold,
-          underline: overlayProps.underline,
-          italic: overlayProps.italic,
         },
         audio: {
           volume: Number(element.properties.volume ?? 1),
@@ -275,21 +266,29 @@ export const flattenV3ToSession = (project: EditProjectV3): EditSession => {
       }
     })
 
+  const canvasDims = resolveCanvasDimensions(project.export_settings)
   const overlay_elements = scene.tracks.overlay
     .filter((item) => item.type === 'text' || item.type === 'sticker')
-    .map((item) => ({
-      id: item.id,
-      type: item.type === 'sticker' ? ('sticker' as const) : ('text' as const),
-      start_sec: item.start_time,
-      duration_sec: item.duration,
-      content: String(item.properties.content ?? ''),
-      font_size: Number(item.properties.font_size ?? 24),
-      color: String(item.properties.color ?? '#FFFFFF'),
-      bold: Boolean(item.properties.bold),
-      italic: Boolean(item.properties.italic),
-      transform: item.transform ?? { x: 0.5, y: 0.82, scale: 1, rotation: 0 },
-      hidden: Boolean(item.hidden),
-    }))
+    .map((item) =>
+      migrateToOpenCutText(
+        {
+          id: item.id,
+          type: item.type === 'sticker' ? 'sticker' : 'text',
+          start_sec: item.start_time,
+          duration_sec: item.duration,
+          hidden: Boolean(item.hidden),
+          content: String(item.properties.content ?? item.properties.params?.content ?? ''),
+          font_size: Number(item.properties.font_size ?? item.properties.params?.fontSize ?? 24),
+          color: String(item.properties.color ?? item.properties.params?.color ?? '#FFFFFF'),
+          bold: Boolean(item.properties.bold ?? item.properties.params?.fontWeight === 'bold'),
+          italic: Boolean(item.properties.italic ?? item.properties.params?.fontStyle === 'italic'),
+          transform: item.transform ?? { x: 0.5, y: 0.82, scale: 1, rotation: 0 },
+          params: item.properties.params,
+        },
+        canvasDims.width,
+        canvasDims.height
+      )
+    )
 
   return {
     schema_version: 3,

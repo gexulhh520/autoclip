@@ -144,14 +144,7 @@ def migrate_session_to_v3(session: EditSession) -> EditProjectV3:
                 type=element.type,
                 start_time=element.start_sec,
                 duration=element.duration_sec,
-                transform=element.transform,
-                properties={
-                    "content": element.content,
-                    "font_size": element.font_size,
-                    "color": element.color,
-                    "bold": element.bold,
-                    "italic": element.italic,
-                },
+                properties={"params": element.params},
                 hidden=element.hidden,
             )
         )

@@ -1,4 +1,5 @@
 import type { EditSession } from '../../types/editSession'
+import { readStringParam } from '../opencut-text/params'
 import { blockPlaybackRate } from '../../utils/editTimeline'
 import { resolveCanvasDimensions } from './canvas'
 import {
@@ -171,7 +172,10 @@ export function resolveSceneAt(
   }
 
   const freeTextLayers = (session.overlay_elements ?? [])
-    .filter((element) => !element.hidden && element.content.trim())
+    .filter(
+      (element) =>
+        !element.hidden && readStringParam(element.params, 'content', '').trim().length > 0
+    )
     .filter((element) => {
       const start = element.start_sec
       const end = start + element.duration_sec

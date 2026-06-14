@@ -77,13 +77,10 @@ def build_final_video_filter(
 
 
 def block_to_clip_data(block: EditBlock) -> Dict[str, Any]:
-    overlay = block.overlay.model_dump()
     return {
         "outline": block.overlay.outline,
         "content": block.overlay.content,
         "recommend_reason": block.overlay.recommend_reason,
-        "text_style": overlay,
-        "use_custom_style": block.overlay.use_custom_style,
     }
 
 
@@ -557,6 +554,11 @@ def _overlay_scaled_font_size(font_size: int, canvas_height: int) -> int:
     return max(10, int(font_size * (canvas_height / FONT_SIZE_SCALE_REFERENCE)))
 
 
+def _overlay_param(overlay: EditOverlayElement, key: str, default: Any = None) -> Any:
+    params = overlay.params or {}
+    return params.get(key, default)
+
+
 def _build_free_overlay_drawtext(
     overlay: EditOverlayElement,
     temp_dir: Path,
@@ -570,20 +572,23 @@ def _build_free_overlay_drawtext(
     if not font_path:
         return None
 
-    text_file = temp_dir / f"free_overlay_{index}.txt"
-    text_file.write_text(overlay.content.replace("\r\n", "\n"), encoding="utf-8")
+    content = str(_overlay_param(overlay, "content", "") or "").replace("\r\n", "\n")
+    if not content.strip():
+        return None
 
-    font_size = _overlay_scaled_font_size(int(overlay.font_size or 15), canvas_height)
-    font_color = VideoProcessor._normalize_ffmpeg_color(overlay.color, "white")
-    alpha = max(0.0, min(float(overlay.opacity or 1.0), 1.0))
+    text_file = temp_dir / f"free_overlay_{index}.txt"
+    text_file.write_text(content, encoding="utf-8")
+
+    font_size = _overlay_scaled_font_size(int(_overlay_param(overlay, "fontSize", 15) or 15), canvas_height)
+    font_color = VideoProcessor._normalize_ffmpeg_color(str(_overlay_param(overlay, "color", "#ffffff")), "white")
+    alpha = max(0.0, min(float(_overlay_param(overlay, "opacity", 1.0) or 1.0), 1.0))
     if alpha < 0.999:
         font_color = f"{font_color}@{alpha:.2f}"
 
-    transform = overlay.transform
-    pos_x = float(transform.x if transform else 0.5)
-    pos_y = float(transform.y if transform else 0.82)
-    x_expr = f"(w-text_w)*{pos_x:.4f}"
-    y_expr = f"(h-text_h)*{pos_y:.4f}"
+    position_x = float(_overlay_param(overlay, "transform.positionX", 0.0) or 0.0)
+    position_y = float(_overlay_param(overlay, "transform.positionY", 0.0) or 0.0)
+    x_expr = f"(w/2)+{position_x:.2f}-text_w/2"
+    y_expr = f"(h/2)+{position_y:.2f}-text_h/2"
 
     parts = [
         "drawtext="
@@ -596,17 +601,20 @@ def _build_free_overlay_drawtext(
         f"enable='between(t,{overlay.start_sec:.3f},{overlay.start_sec + overlay.duration_sec:.3f})'",
     ]
 
-    if overlay.bold:
+    if str(_overlay_param(overlay, "fontWeight", "normal")) == "bold":
         parts.append("borderw=2")
         parts.append(f"bordercolor={font_color}")
 
-    bg = overlay.background
-    if bg and bg.enabled:
-        box_color = VideoProcessor._normalize_ffmpeg_color(bg.color, "black@0.55")
-        pad = max(4, int((bg.padding_y or 12) * (font_size / 15)))
+    if bool(_overlay_param(overlay, "background.enabled", False)):
+        box_color = VideoProcessor._normalize_ffmpeg_color(
+            str(_overlay_param(overlay, "background.color", "#000000")),
+            "black@0.55",
+        )
+        pad = max(4, int(float(_overlay_param(overlay, "background.paddingY", 42) or 42) * (font_size / 15)))
         parts.extend(["box=1", f"boxcolor={box_color}", f"boxborderw={pad}"])
 
-    line_spacing = max(0, int((overlay.line_height - 1) * font_size))
+    line_height = float(_overlay_param(overlay, "lineHeight", 1.2) or 1.2)
+    line_spacing = max(0, int((line_height - 1) * font_size))
     if line_spacing:
         parts.append(f"line_spacing={line_spacing}")
 
@@ -621,7 +629,7 @@ def apply_free_text_overlays(
     overlays = [
         item
         for item in (session.overlay_elements or [])
-        if not item.hidden and str(item.content).strip()
+        if not item.hidden and str(_overlay_param(item, "content", "") or "").strip()
     ]
     if not overlays:
         shutil.copy2(input_path, output_path)

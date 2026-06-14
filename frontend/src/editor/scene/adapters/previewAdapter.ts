@@ -1,4 +1,4 @@
-import type { EditBlock } from '../../../types/editSession'
+import type { EditBlock, EditBlockOverlay } from '../../../types/editSession'
 import type { RenderScene, VideoLayer } from '../types'
 
 /** Preview 组件所需的视频层 props */
@@ -15,6 +15,7 @@ export interface PreviewSceneViewModel {
   showTemplateCaptions: boolean
   captionLayers: Array<{
     blockId: string
+    overlay: EditBlockOverlay
     opacity: number
   }>
   freeOverlays: RenderScene['freeTextLayers']
@@ -51,6 +52,7 @@ export function renderSceneToPreviewViewModel(
     showTemplateCaptions: scene.templateCaptions.length > 0,
     captionLayers: scene.templateCaptions.map((item) => ({
       blockId: item.blockId,
+      overlay: item.overlay,
       opacity: item.opacity,
     })),
     freeOverlays: scene.freeTextLayers,

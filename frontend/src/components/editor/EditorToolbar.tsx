@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { message } from 'antd'
 import { useEditSessionStore } from '../../stores/useEditSessionStore'
-import { createTextOverlayElement } from '../../utils/editTextOverlay'
 import EditorShortcutsModal from './EditorShortcutsModal'
 
 interface EditorToolbarProps {
@@ -95,7 +94,7 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({ projectId }) => {
       }
       if (event.key.toLowerCase() === 't' && !mod) {
         event.preventDefault()
-        addOverlayElement(createTextOverlayElement(sequencePlayheadSec))
+        addOverlayElement({ start_sec: sequencePlayheadSec })
         setInspectorTab('text')
         return
       }
@@ -200,7 +199,7 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({ projectId }) => {
         className="editor-tool-btn"
         title="在播放头添加自由文本层 (T)"
         onClick={() => {
-          addOverlayElement(createTextOverlayElement(sequencePlayheadSec))
+          addOverlayElement({ start_sec: sequencePlayheadSec })
           setInspectorTab('text')
         }}
       >

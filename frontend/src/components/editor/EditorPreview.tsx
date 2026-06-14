@@ -21,13 +21,13 @@ import {
   shouldShowBlurBackground,
 } from '../../utils/editPreviewFit'
 import { resolveVisualFilterStyle } from '../../utils/editVisualFilter'
-import { extractTextStyle } from '../../utils/textStyle'
 import QuoteOverlayPreview from '../QuoteOverlayPreview'
 import type { OverlayPreviewLayer } from '../QuoteOverlayPreview'
 import EditorAspectRatioPicker from './EditorAspectRatioPicker'
-import EditorTextOverlayLayer from './EditorTextOverlayLayer'
+import OpenCutTextCanvas from './OpenCutTextCanvas'
 import PreviewVideoLayer from './EditorPreviewVideoLayer'
-import type { EditBlock, EditOverlayElement } from '../../types/editSession'
+import { resolveCanvasDimensions } from '../../editor/scene/canvas'
+import type { EditBlock } from '../../types/editSession'
 
 interface EditorPreviewProps {
   projectId: string
@@ -65,7 +65,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const timelineTrackMuted = useEditSessionStore((state) => state.timelineTrackMuted)
   const selectedOverlayId = useEditSessionStore((state) => state.selectedOverlayId)
   const setSelectedOverlayId = useEditSessionStore((state) => state.setSelectedOverlayId)
-  const updateOverlayElement = useEditSessionStore((state) => state.updateOverlayElement)
+  const updateOverlayParams = useEditSessionStore((state) => state.updateOverlayParams)
 
   const isAssetPreview = Boolean(assetPreviewClip)
   const clipAudioMuted = timelineTrackMuted.mainVideo || timelineTrackMuted.audioWave
@@ -309,22 +309,10 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const videoFitClass = resolvePreviewVideoFitClass(fitMode, canvasAspect)
   const videoFilterStyle = resolveVisualFilterStyle(exportSettings?.visual_filter)
   const exportSummary = formatExportSettingsSummary(exportSettings, videoNaturalSize)
-  const canvasHeight = exportSettings?.height ?? 1080
-
-  const blockOverlayToElement = (
-    blockId: string,
-    overlay: EditBlock['overlay']
-  ): EditOverlayElement => ({
-    id: `caption-${blockId}`,
-    type: 'text',
-    start_sec: 0,
-    duration_sec: 999,
-    content: overlay.content.join('\n') || overlay.outline,
-    font_family: overlay.font_family,
-    transform: { x: 0.5, y: 0.88, scale: 1, rotation: 0 },
-    hidden: false,
-    ...extractTextStyle(overlay),
-  })
+  const canvasDims = useMemo(
+    () => resolveCanvasDimensions(exportSettings ?? { aspect: '9:16', height: 1080, fps: 30, visual_filter: 'none', fit_mode: 'contain' }, videoNaturalSize),
+    [exportSettings, videoNaturalSize]
+  )
 
   const handleVideoMetadata = (video: HTMLVideoElement) => {
     if (video.videoWidth > 0 && video.videoHeight > 0) {
@@ -404,17 +392,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
             ) : null}
 
             {!isAssetPreview && !captionsMuted && previewBurnSubtitles && previewVm?.showTemplateCaptions
-              ? previewVm.captionLayers.map(({ blockId, overlay, opacity }) => {
-                  if (overlay.use_custom_style) {
-                    return (
-                      <EditorTextOverlayLayer
-                        key={blockId}
-                        element={blockOverlayToElement(blockId, overlay)}
-                        canvasHeight={canvasHeight}
-                        layerOpacity={opacity}
-                      />
-                    )
-                  }
+              ? previewVm.captionLayers.map(({ blockId, opacity }) => {
                   const overlayData = overlayByBlockId[blockId]
                   if (!overlayData?.layers.length) return null
                   return (
@@ -433,25 +411,22 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                 })
               : null}
 
-            {!isAssetPreview && !freeOverlayMuted && previewVm?.freeOverlays.length
-              ? previewVm.freeOverlays.map(({ element, opacity }) => (
-                  <EditorTextOverlayLayer
-                    key={element.id}
-                    element={element}
-                    canvasHeight={canvasHeight}
-                    layerOpacity={opacity}
-                    isSelected={selectedOverlayId === element.id}
-                    interactive
-                    onSelect={(id) => {
-                      setSelectedOverlayId(id)
-                      useEditSessionStore.getState().setInspectorTab('text')
-                    }}
-                    onTransformChange={(id, transform, options) =>
-                      updateOverlayElement(id, { transform }, options)
-                    }
-                  />
-                ))
-              : null}
+            {!isAssetPreview && !freeOverlayMuted && previewVm?.freeOverlays.length ? (
+              <OpenCutTextCanvas
+                elements={previewVm.freeOverlays}
+                canvasWidth={canvasDims.width}
+                canvasHeight={canvasDims.height}
+                selectedId={selectedOverlayId}
+                interactive
+                onSelect={(id) => {
+                  setSelectedOverlayId(id)
+                  useEditSessionStore.getState().setInspectorTab('text')
+                }}
+                onParamsChange={(id, patch, options) =>
+                  updateOverlayParams(id, patch, options)
+                }
+              />
+            ) : null}
 
             {previewVm?.inDissolve ? (
               <div className="editor-preview-dissolve-badge">叠化</div>

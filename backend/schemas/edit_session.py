@@ -14,32 +14,10 @@ class EditBlockMedia(BaseModel):
     source_end_sec: Optional[float] = None
 
 
-class EditTextBackground(BaseModel):
-    enabled: bool = False
-    color: str = "#000000"
-    corner_radius: int = 0
-    padding_x: int = 30
-    padding_y: int = 42
-
-
 class EditBlockOverlay(BaseModel):
     outline: str = ""
     content: List[str] = Field(default_factory=list)
     recommend_reason: str = ""
-    font_size: int = 15
-    color: str = "#ffffff"
-    bold: bool = False
-    underline: bool = False
-    italic: bool = False
-    text_align: Literal["left", "center", "right"] = "center"
-    text_decoration: Literal["none", "underline", "line-through"] = "none"
-    letter_spacing: float = 0.0
-    line_height: float = 1.2
-    opacity: float = 1.0
-    background: EditTextBackground = Field(default_factory=EditTextBackground)
-    animation: Literal["none", "fadeIn", "bounceIn", "typewriter"] = "none"
-    font_family: Optional[str] = "noto-sc"
-    use_custom_style: bool = False
 
 
 class EditBlockAudio(BaseModel):
@@ -71,34 +49,81 @@ class EditBlock(BaseModel):
         return self
 
 
-class EditOverlayTransform(BaseModel):
-    x: float = 0.5
-    y: float = 0.82
-    scale: float = 1.0
-    rotation: float = 0.0
-
-
 class EditOverlayElement(BaseModel):
     id: str
     type: Literal["text", "sticker"] = "text"
     start_sec: float = 0.0
     duration_sec: float = 3.0
-    content: str = ""
-    font_size: int = 15
-    color: str = "#ffffff"
-    bold: bool = False
-    italic: bool = False
-    underline: bool = False
-    text_align: Literal["left", "center", "right"] = "center"
-    text_decoration: Literal["none", "underline", "line-through"] = "none"
-    letter_spacing: float = 0.0
-    line_height: float = 1.2
-    opacity: float = 1.0
-    background: EditTextBackground = Field(default_factory=EditTextBackground)
-    animation: Literal["none", "fadeIn", "bounceIn", "typewriter"] = "none"
-    font_family: Optional[str] = "noto-sc"
-    transform: EditOverlayTransform = Field(default_factory=EditOverlayTransform)
     hidden: bool = False
+    params: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_overlay(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        if data.get("params"):
+            return data
+        if "content" not in data and "font_size" not in data:
+            return {**data, "params": data.get("params") or {}}
+
+        transform = data.get("transform") or {}
+        if isinstance(transform, dict):
+            pos_x = float(transform.get("x", 0.5))
+            pos_y = float(transform.get("y", 0.82))
+            scale = float(transform.get("scale", 1.0))
+            rotate = float(transform.get("rotation", 0.0))
+        else:
+            pos_x, pos_y, scale, rotate = 0.5, 0.82, 1.0, 0.0
+
+        font_size = int(data.get("font_size") or 15)
+        if font_size >= 18:
+            font_size = max(5, round((font_size * 90) / 1080))
+
+        font_map = {
+            "pingfang": "PingFang SC",
+            "microsoft-yahei": "Microsoft YaHei",
+            "noto-sc": "Noto Sans SC",
+        }
+        font_family = font_map.get(str(data.get("font_family") or "noto-sc"), "Noto Sans SC")
+        background = data.get("background") or {}
+        canvas_width = 608.0
+        canvas_height = 1080.0
+
+        params: Dict[str, Any] = {
+            "content": str(data.get("content") or "新文本"),
+            "fontSize": font_size,
+            "fontFamily": font_family,
+            "color": str(data.get("color") or "#ffffff"),
+            "fontWeight": "bold" if data.get("bold") else "normal",
+            "fontStyle": "italic" if data.get("italic") else "normal",
+            "textDecoration": "underline" if data.get("underline") else str(data.get("text_decoration") or "none"),
+            "textAlign": str(data.get("text_align") or "center"),
+            "letterSpacing": float(data.get("letter_spacing") or 0.0),
+            "lineHeight": float(data.get("line_height") or 1.2),
+            "opacity": float(data.get("opacity") or 1.0),
+            "background.enabled": bool(background.get("enabled") if isinstance(background, dict) else False),
+            "background.color": str(background.get("color") if isinstance(background, dict) else "#000000"),
+            "background.cornerRadius": int(background.get("corner_radius") if isinstance(background, dict) else 0),
+            "background.paddingX": int(background.get("padding_x") if isinstance(background, dict) else 30),
+            "background.paddingY": int(background.get("padding_y") if isinstance(background, dict) else 42),
+            "background.offsetX": 0,
+            "background.offsetY": 0,
+            "transform.positionX": pos_x * canvas_width - canvas_width / 2,
+            "transform.positionY": pos_y * canvas_height - canvas_height / 2,
+            "transform.scaleX": scale,
+            "transform.scaleY": scale,
+            "transform.rotate": rotate,
+        }
+
+        return {
+            "id": data.get("id"),
+            "type": data.get("type", "text"),
+            "start_sec": data.get("start_sec", 0.0),
+            "duration_sec": data.get("duration_sec", 3.0),
+            "hidden": data.get("hidden", False),
+            "params": params,
+        }
 
 
 class TimelineBookmark(BaseModel):

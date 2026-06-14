@@ -177,7 +177,7 @@ def compile_export_plan(
     free_overlays = [
         item
         for item in (session.overlay_elements or [])
-        if not item.hidden and str(item.content).strip()
+        if not item.hidden and str((item.params or {}).get("content", "") or "").strip()
     ]
     return ExportScenePlan(
         session=session,
