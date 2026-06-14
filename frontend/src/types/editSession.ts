@@ -195,6 +195,8 @@ export interface EditSessionCompositorMuxRequest {
   use_source_video?: boolean
   write_back_to_project?: boolean
   output_dir?: string | null
+  /** 仅混流指定片段音频（批量分轨 Compositor 导出） */
+  block_id?: string
 }
 
 export interface EditSessionBatchExportRequest {

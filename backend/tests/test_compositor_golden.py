@@ -46,3 +46,19 @@ def test_fixture_dissolve_export_plan_duration():
     plan = compile_export_plan(session, burn_subtitles=True)
     assert abs(plan.timeline.total_duration_sec - 6.65) < 0.01
 
+
+def test_fixture_free_text_overlay_elements():
+    session = _load_fixture("session-free-text.json")
+    assert len(session.overlay_elements or []) == 1
+    assert session.overlay_elements[0].id == "txt-1"
+
+
+def test_mux_compositor_export_accepts_block_id_kwarg():
+    """Regression: batch compositor mux must filter audio by block_id."""
+    import inspect
+
+    from backend.pipeline.edit_renderer import mux_compositor_export
+
+    sig = inspect.signature(mux_compositor_export)
+    assert "block_id" in sig.parameters
+

@@ -261,19 +261,19 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
           />
           使用原片重切（与预览「原片」一致）
         </label>
-        {isTauriApp() && mode === 'single' ? (
+        {isTauriApp() ? (
           <label className="editor-modal__check" title="Compositor 逐帧合成 + FFmpeg 编码，无 ASS/drawtext 布局">
             <input
               type="checkbox"
               checked={useCompositorExport}
               onChange={(event) => setUseCompositorExport(event.target.checked)}
             />
-            Compositor 导出（与预览 Compositor 路径一致）
+            Compositor 导出（{mode === 'batch' ? '批量分轨逐片段' : '与预览 Compositor 路径一致'}）
           </label>
         ) : null}
-        {isTauriApp() && mode === 'batch' ? (
+        {isTauriApp() && mode === 'batch' && !useCompositorExport ? (
           <p className="editor-export-preview-summary__hint">
-            批量分轨仍使用传统后端导出路径；Compositor 导出仅适用于「合成一条」。
+            批量分轨仍使用传统后端导出路径；开启 Compositor 导出可逐片段走 Compositor。
           </p>
         ) : null}
         {!isTauriApp() ? (

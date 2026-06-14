@@ -1031,8 +1031,12 @@ def mux_compositor_export(
     output_filename: Optional[str] = None,
     export_srt: bool = False,
     use_source_video: Optional[bool] = None,
+    block_id: Optional[str] = None,
 ) -> Tuple[Path, Optional[Path]]:
-    """Compositor 像素 + timeline 音频/BGM → 成片（无 ASS/drawtext 布局）。"""
+    """Compositor 像素 + timeline 音频/BGM → 成片（无 ASS/drawtext 布局）。
+
+    ``block_id`` 仅混流单片段音频（批量分轨 Compositor 导出）。
+    """
     if not compositor_video.is_file():
         raise FileNotFoundError(str(compositor_video))
 
@@ -1052,6 +1056,8 @@ def mux_compositor_export(
     audio_segments: List[Path] = []
 
     for index, block in enumerate(session.sequence):
+        if block_id is not None and block.id != block_id:
+            continue
         seg_audio = export_dir / f"compositor_audio_{index:03d}.aac"
         if extract_block_audio_segment(
             project_dir, block, seg_audio, use_source_video=prefer_source
@@ -1138,7 +1144,11 @@ def mux_compositor_export(
 
     srt_path: Optional[Path] = None
     if export_srt:
-        srt_path = write_export_srt(session, export_dir / f"{safe_name}.srt")
+        srt_session = session
+        if block_id is not None:
+            srt_session = session.model_copy(deep=True)
+            srt_session.sequence = [b for b in session.sequence if b.id == block_id]
+        srt_path = write_export_srt(srt_session, export_dir / f"{safe_name}.srt")
 
     return output_path, srt_path
 

@@ -1,0 +1,98 @@
+import { projectApi } from '../../services/api'
+import editApi from '../../services/editApi'
+import type { EditBlock, EditSession } from '../../types/editSession'
+import { getBlockVideoUrl } from '../../utils/editBlockMedia'
+import { exportTimelineViaCompositor, type ExportTimelineOptions } from './exportTimeline'
+
+export interface CompositorExportRuntimeParams {
+  projectId: string
+  sessionId: string
+  session: EditSession
+  getVideoUrlForBlock: (block: EditBlock) => string
+  getSourceTimeForBlock: (block: EditBlock, relativeSec: number) => number
+}
+
+export interface CompositorMuxOptions {
+  filename?: string
+  exportSrt?: boolean
+  useSourceVideo?: boolean
+  writeBackToProject?: boolean
+  outputDir?: string
+  blockId?: string
+}
+
+export function buildCompositorRuntimeParams(
+  projectId: string,
+  session: EditSession,
+  useSourceVideo: boolean
+): CompositorExportRuntimeParams {
+  return {
+    projectId,
+    sessionId: session.id,
+    session,
+    getVideoUrlForBlock: (block) => {
+      if (
+        useSourceVideo &&
+        block.media.source_video_path &&
+        block.media.source_start_sec != null
+      ) {
+        const sourceId = block.media.source_video_path.includes('sources/')
+          ? block.media.source_video_path.split('/').find((_, i, arr) => arr[i - 1] === 'sources')
+          : null
+        return projectApi.getSourceVideoUrl(projectId, sourceId)
+      }
+      return getBlockVideoUrl(projectId, session.id, block)
+    },
+    getSourceTimeForBlock: (block, relativeSec) => {
+      const sourceOffset =
+        useSourceVideo && block.media.source_start_sec != null
+          ? block.media.source_start_sec
+          : 0
+      return sourceOffset + block.trim.in_sec + relativeSec
+    },
+  }
+}
+
+/** 单条 session 逐帧合成 + 后端 mux（timeline 音频 / BGM） */
+export async function runCompositorExportAndMux(
+  runtime: CompositorExportRuntimeParams,
+  timelineOptions: ExportTimelineOptions,
+  muxOptions: CompositorMuxOptions = {}
+): Promise<{
+  compositorVideoPath: string
+  videoUrl?: string
+  srtUrl?: string | null
+  projectClipPath?: string | null
+  localOutputPath?: string | null
+  localSrtPath?: string | null
+}> {
+  const compositorResult = await exportTimelineViaCompositor(
+    runtime.session,
+    {
+      projectId: runtime.projectId,
+      sessionId: runtime.sessionId,
+      getVideoUrlForBlock: runtime.getVideoUrlForBlock,
+      getSourceTimeForBlock: runtime.getSourceTimeForBlock,
+    },
+    timelineOptions
+  )
+
+  const muxResult = await editApi.muxCompositorExport(runtime.projectId, runtime.sessionId, {
+    compositor_video_path: compositorResult.compositorVideoPath,
+    filename: muxOptions.filename ?? timelineOptions.filename ?? runtime.session.name,
+    export_srt: muxOptions.exportSrt ?? timelineOptions.exportSrt ?? false,
+    use_source_video: muxOptions.useSourceVideo ?? timelineOptions.useSourceVideo,
+    write_back_to_project: muxOptions.writeBackToProject ?? false,
+    output_dir: muxOptions.outputDir ?? timelineOptions.outputDir,
+    block_id: muxOptions.blockId,
+  })
+
+  return {
+    compositorVideoPath: compositorResult.compositorVideoPath,
+    videoUrl: muxResult.download_url,
+    srtUrl: muxResult.srt_download_url,
+    projectClipPath: muxResult.project_clip_path,
+    localOutputPath: muxResult.local_output_path,
+    localSrtPath: muxResult.local_srt_path,
+  }
+}

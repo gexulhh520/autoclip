@@ -30,6 +30,12 @@ export {
 } from './softwareRenderer'
 export { exportTimelineViaCompositor, type ExportTimelineOptions } from './exportTimeline'
 export {
+  buildCompositorRuntimeParams,
+  runCompositorExportAndMux,
+  type CompositorExportRuntimeParams,
+  type CompositorMuxOptions,
+} from './runCompositorExport'
+export {
   loadExportVideoSources,
   syncExportVideosAtTime,
   disposeExportVideoSources,

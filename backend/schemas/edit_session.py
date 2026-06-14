@@ -290,6 +290,10 @@ class EditSessionCompositorMuxRequest(BaseModel):
     export_srt: bool = False
     write_back_to_project: bool = False
     output_dir: Optional[str] = None
+    block_id: Optional[str] = Field(
+        default=None,
+        description="仅混流指定片段音频（批量分轨 Compositor 导出）",
+    )
 
 
 class EditSessionExportResponse(BaseModel):
