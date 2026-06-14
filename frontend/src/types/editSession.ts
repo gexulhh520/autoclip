@@ -89,7 +89,19 @@ export interface EditSession {
   updated_at: string
 }
 
-export type EditorPanelMode = 'media' | 'audio' | 'text' | 'transition' | 'adjust' | 'draft'
+export type AssetsPanelTab =
+  | 'media'
+  | 'sounds'
+  | 'text'
+  | 'stickers'
+  | 'effects'
+  | 'transitions'
+  | 'captions'
+  | 'adjustment'
+  | 'settings'
+
+/** @deprecated 使用 AssetsPanelTab */
+export type EditorPanelMode = AssetsPanelTab
 
 export interface EditSessionCreateRequest {
   clip_ids: string[]

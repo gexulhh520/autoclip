@@ -1,10 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { message } from 'antd'
-import { FileText, Film, Music2, Type, Workflow } from 'lucide-react'
+import { Film, Music2, Type, Workflow } from 'lucide-react'
+import OpenCutPropertiesEmpty from './opencut/OpenCutPropertiesEmpty'
 import { blockDuration, useEditSessionStore } from '../../stores/useEditSessionStore'
-import { FIT_MODE_OPTIONS } from '../../utils/editExportPresets'
-import EditorAspectSelect from './EditorAspectSelect'
-import type { EditAspectPresetId } from '../../utils/editAspectRatios'
 import { collectTrimSnapPoints, snapTime } from '../../utils/editTimeline'
 import { srtTimeToSeconds, secondsToSrtTime } from '../../utils/srtTime'
 import { projectApi } from '../../services/api'
@@ -15,19 +13,17 @@ interface EditorInspectorProps {
   projectId: string
 }
 
-type InspectorTab = 'draft' | 'video' | 'audio' | 'text' | 'transition'
+type InspectorTab = 'video' | 'audio' | 'text' | 'transition'
 
-const INSPECTOR_TABS: Array<{
-  key: InspectorTab
-  label: string
-  icon: React.ReactNode
-}> = [
-  { key: 'draft', label: '草稿', icon: <FileText size={16} strokeWidth={1.75} /> },
-  { key: 'video', label: '画面', icon: <Film size={16} strokeWidth={1.75} /> },
-  { key: 'audio', label: '音频', icon: <Music2 size={16} strokeWidth={1.75} /> },
-  { key: 'text', label: '文本', icon: <Type size={16} strokeWidth={1.75} /> },
-  { key: 'transition', label: '转场', icon: <Workflow size={16} strokeWidth={1.75} /> },
-]
+const INSPECTOR_TAB_META: Record<
+  InspectorTab,
+  { label: string; icon: React.ReactNode }
+> = {
+  video: { label: '画面', icon: <Film size={16} strokeWidth={1.75} /> },
+  audio: { label: '音频', icon: <Music2 size={16} strokeWidth={1.75} /> },
+  text: { label: '文本', icon: <Type size={16} strokeWidth={1.75} /> },
+  transition: { label: '转场', icon: <Workflow size={16} strokeWidth={1.75} /> },
+}
 
 const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   const session = useEditSessionStore((state) => state.session)
@@ -36,20 +32,14 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   const selectedOverlayId = useEditSessionStore((state) => state.selectedOverlayId)
   const inspectorTab = useEditSessionStore((state) => state.inspectorTab)
   const setInspectorTab = useEditSessionStore((state) => state.setInspectorTab)
-  const updateSessionName = useEditSessionStore((state) => state.updateSessionName)
   const updateBlockOverlay = useEditSessionStore((state) => state.updateBlockOverlay)
   const updateBlockTrim = useEditSessionStore((state) => state.updateBlockTrim)
   const updateBlockAudio = useEditSessionStore((state) => state.updateBlockAudio)
   const updateBlockPlaybackRate = useEditSessionStore((state) => state.updateBlockPlaybackRate)
   const updateBlockTransition = useEditSessionStore((state) => state.updateBlockTransition)
-  const updateExportSettings = useEditSessionStore((state) => state.updateExportSettings)
   const updateAudioSettings = useEditSessionStore((state) => state.updateAudioSettings)
   const regenerateBlockContent = useEditSessionStore((state) => state.regenerateBlockContent)
   const snapEnabled = useEditSessionStore((state) => state.snapEnabled)
-  const previewZoom = useEditSessionStore((state) => state.previewZoom)
-  const setPreviewZoom = useEditSessionStore((state) => state.setPreviewZoom)
-  const previewBurnSubtitles = useEditSessionStore((state) => state.previewBurnSubtitles)
-  const setPreviewBurnSubtitles = useEditSessionStore((state) => state.setPreviewBurnSubtitles)
   const updateOverlayElement = useEditSessionStore((state) => state.updateOverlayElement)
   const updateOverlayParams = useEditSessionStore((state) => state.updateOverlayParams)
   const removeOverlayElement = useEditSessionStore((state) => state.removeOverlayElement)
@@ -114,130 +104,6 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
     0
   )
 
-  const renderDraftTab = () => (
-    <>
-      <div className="editor-inspector-section">
-        <div className="editor-inspector-label">草稿参数</div>
-        <label className="editor-modal__field">
-          <span>草稿名称</span>
-          <input
-            className="editor-select"
-            value={session.name}
-            onChange={(event) => updateSessionName(event.target.value)}
-          />
-        </label>
-        <div className="editor-inspector-muted">色彩空间 Rec.709 SDR</div>
-      </div>
-      <div className="editor-inspector-section">
-        <div className="editor-inspector-label">画幅与适配</div>
-        <label className="editor-modal__field" style={{ marginBottom: 10 }}>
-          <span>比例</span>
-          <EditorAspectSelect
-            value={session.export_settings.aspect}
-            onChange={(aspect: EditAspectPresetId) => {
-              const patch: Parameters<typeof updateExportSettings>[0] = { aspect }
-              if (aspect === 'custom' && !session.export_settings.custom_width) {
-                patch.custom_width = 1080
-                patch.custom_height = 1920
-              }
-              updateExportSettings(patch)
-            }}
-          />
-        </label>
-        {session.export_settings.aspect === 'custom' ? (
-          <div className="editor-modal__grid" style={{ marginBottom: 10 }}>
-            <label className="editor-modal__field">
-              <span>宽</span>
-              <input
-                className="editor-select"
-                type="number"
-                min={64}
-                max={7680}
-                step={2}
-                value={session.export_settings.custom_width ?? 1080}
-                onChange={(event) =>
-                  updateExportSettings({ custom_width: Number(event.target.value) || 1080 })
-                }
-              />
-            </label>
-            <label className="editor-modal__field">
-              <span>高</span>
-              <input
-                className="editor-select"
-                type="number"
-                min={64}
-                max={7680}
-                step={2}
-                value={session.export_settings.custom_height ?? 1920}
-                onChange={(event) =>
-                  updateExportSettings({ custom_height: Number(event.target.value) || 1920 })
-                }
-              />
-            </label>
-          </div>
-        ) : session.export_settings.aspect !== 'original' ? (
-          <label className="editor-modal__field" style={{ marginBottom: 10 }}>
-            <span>分辨率</span>
-            <select
-              className="editor-select"
-              value={session.export_settings.height}
-              onChange={(event) => updateExportSettings({ height: Number(event.target.value) })}
-            >
-              <option value={720}>720p</option>
-              <option value={1080}>1080p</option>
-            </select>
-          </label>
-        ) : null}
-        <label className="editor-modal__field">
-          <span>适配</span>
-          <select
-            className="editor-select"
-                value={session.export_settings.fit_mode ?? 'contain'}
-            onChange={(event) =>
-              updateExportSettings({
-                fit_mode: event.target.value as 'contain' | 'cover' | 'contain_blur',
-              })
-            }
-          >
-            {FIT_MODE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-      <div className="editor-inspector-section">
-        <div className="editor-inspector-label">时间线</div>
-        <div className="editor-inspector-value">
-          {session.export_settings.aspect} · {session.export_settings.height}p ·{' '}
-          {session.export_settings.fps}fps · {session.sequence.length} 片段
-        </div>
-      </div>
-      <div className="editor-inspector-section">
-        <div className="editor-inspector-label">预览</div>
-        <label className="editor-modal__check">
-          <input
-            type="checkbox"
-            checked={previewBurnSubtitles}
-            onChange={(event) => setPreviewBurnSubtitles(event.target.checked)}
-          />
-          预览模板字幕（与导出烧录开关同步）
-        </label>
-      </div>
-      <div className="editor-inspector-section">
-        <div className="editor-inspector-label">预览缩放 ({previewZoom}%)</div>
-        <input
-          className="editor-range"
-          type="range"
-          min={50}
-          max={150}
-          value={previewZoom}
-          onChange={(event) => setPreviewZoom(Number(event.target.value))}
-        />
-      </div>
-    </>
-  )
 
   const renderVideoTab = () => {
     if (!selectedBlock) {
@@ -541,32 +407,54 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
     )
   }
 
+
+  const visibleTabs: InspectorTab[] = selectedOverlay
+    ? ['text']
+    : selectedBlock
+      ? ['video', 'audio', 'text', 'transition']
+      : []
+
+  const activeInspectorTab: InspectorTab =
+    visibleTabs.includes(inspectorTab as InspectorTab)
+      ? (inspectorTab as InspectorTab)
+      : visibleTabs[0] ?? 'video'
+
   const tabContent: Record<InspectorTab, React.ReactNode> = {
-    draft: renderDraftTab(),
     video: renderVideoTab(),
     audio: renderAudioTab(),
     text: renderTextTab(),
     transition: renderTransitionTab(),
   }
 
+  if (!selectedBlock && !selectedOverlay) {
+    return (
+      <aside className="editor-inspector-panel oc-panel">
+        <OpenCutPropertiesEmpty />
+      </aside>
+    )
+  }
+
   return (
     <aside className="editor-inspector-panel oc-panel">
       <div className="editor-inspector-body oc-panel__body">
         <nav className="editor-inspector-tabbar oc-panel-tabbar" aria-label="属性面板">
-          {INSPECTOR_TABS.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              className={`oc-panel-tab editor-inspector-tab-icon ${
-                inspectorTab === tab.key ? 'is-active' : ''
-              }`}
-              onClick={() => setInspectorTab(tab.key)}
-              title={tab.label}
-              aria-label={tab.label}
-            >
-              {tab.icon}
-            </button>
-          ))}
+          {visibleTabs.map((key) => {
+            const tab = INSPECTOR_TAB_META[key]
+            return (
+              <button
+                key={key}
+                type="button"
+                className={`oc-panel-tab editor-inspector-tab-icon ${
+                  activeInspectorTab === key ? 'is-active' : ''
+                }`}
+                onClick={() => setInspectorTab(key)}
+                title={tab.label}
+                aria-label={tab.label}
+              >
+                {tab.icon}
+              </button>
+            )
+          })}
         </nav>
         <div className="oc-panel__content">
           {selectedOverlay ? (
@@ -578,7 +466,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
             <EditorInspectorSelectionBanner label="视频片段" subLabel={selectedBlock.title} />
           ) : null}
           <div className="oc-panel__scroll editor-inspector-content">
-            {tabContent[inspectorTab]}
+            {tabContent[activeInspectorTab]}
           </div>
         </div>
       </div>

@@ -8,7 +8,6 @@ import type {
   EditSession,
   EditSessionAudioSettings,
   EditExportSettings,
-  EditorPanelMode,
   TimelineBookmark,
 } from '../types/editSession'
 import {
@@ -69,8 +68,7 @@ interface EditSessionState {
   previewBurnSubtitles: boolean
   snapEnabled: boolean
   rippleTrimEnabled: boolean
-  editorPanelMode: EditorPanelMode
-  inspectorTab: 'draft' | 'video' | 'audio' | 'text' | 'transition'
+  inspectorTab: 'video' | 'audio' | 'text' | 'transition'
   clipboardBlock: EditBlock | null
   historyPast: EditBlock[][]
   historyFuture: EditBlock[][]
@@ -129,8 +127,7 @@ interface EditSessionState {
   previewZoom: number
   setPreviewZoom: (zoom: number) => void
   setPreviewBurnSubtitles: (enabled: boolean) => void
-  setEditorPanelMode: (mode: EditorPanelMode) => void
-  setInspectorTab: (tab: 'draft' | 'video' | 'audio' | 'text' | 'transition') => void
+  setInspectorTab: (tab: 'video' | 'audio' | 'text' | 'transition') => void
   updateExportSettings: (settings: Partial<EditExportSettings>) => void
   updateAudioSettings: (settings: Partial<EditSessionAudioSettings>) => void
   updateBlockAudio: (blockId: string, audio: Partial<EditBlock['audio']>) => void
@@ -290,8 +287,7 @@ export const useEditSessionStore = create<EditSessionState>()(
       previewBurnSubtitles: true,
       snapEnabled: true,
       rippleTrimEnabled: true,
-      editorPanelMode: 'media',
-      inspectorTab: 'draft',
+      inspectorTab: 'video',
       clipboardBlock: null,
       historyPast: [],
       historyFuture: [],
@@ -581,17 +577,6 @@ export const useEditSessionStore = create<EditSessionState>()(
         set({ previewBurnSubtitles: enabled })
         const preset = loadExportPreset()
         saveExportPreset({ ...preset, burn_subtitles: enabled })
-      },
-      setEditorPanelMode: (mode) => {
-        const tabMap: Record<EditorPanelMode, 'draft' | 'video' | 'audio' | 'text' | 'transition'> = {
-          media: 'video',
-          audio: 'audio',
-          text: 'text',
-          transition: 'transition',
-          adjust: 'draft',
-          draft: 'draft',
-        }
-        set({ editorPanelMode: mode, inspectorTab: tabMap[mode] })
       },
       setInspectorTab: (tab) => set({ inspectorTab: tab }),
 
