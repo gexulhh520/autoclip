@@ -3,6 +3,9 @@ import { OPENCUT_TEXT_DEFAULTS } from './defaults'
 import { normalizedToPosition } from './transform'
 import type { OpenCutTextOverlay } from './params'
 
+/** 时间轴新建文本的默认时长（秒） */
+export const DEFAULT_TEXT_DURATION_SEC = 3
+
 export const createOpenCutTextOverlay = (
   startSec: number,
   canvasWidth: number,
@@ -14,7 +17,7 @@ export const createOpenCutTextOverlay = (
     id: nanoid(),
     type: 'text',
     start_sec: startSec,
-    duration_sec: 8,
+    duration_sec: DEFAULT_TEXT_DURATION_SEC,
     hidden: false,
     params: {
       ...OPENCUT_TEXT_DEFAULTS.params,
