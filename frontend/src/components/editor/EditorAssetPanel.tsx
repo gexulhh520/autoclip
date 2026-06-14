@@ -3,6 +3,7 @@ import { message } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { projectApi } from '../../services/api'
 import { blockDuration, useEditSessionStore } from '../../stores/useEditSessionStore'
+import { getBlockVideoUrl } from '../../utils/editBlockMedia'
 import { FIT_MODE_OPTIONS, VISUAL_FILTER_OPTIONS } from '../../utils/editExportPresets'
 import { captionsToOpenCutOverlays, parseOpenCutSrt } from '../../editor/opencut-text/subtitles'
 import { resolveCanvasDimensions } from '../../editor/scene/canvas'
@@ -29,6 +30,8 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
 
   const session = useEditSessionStore((state) => state.session)
   const saving = useEditSessionStore((state) => state.saving)
+  const loading = useEditSessionStore((state) => state.loading)
+  const storeError = useEditSessionStore((state) => state.error)
   const selectedBlockId = useEditSessionStore((state) => state.selectedBlockId)
   const selectedBlock =
     session?.sequence.find((block) => block.id === selectedBlockId) ?? session?.sequence[0]
@@ -48,8 +51,10 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
 
   const [projectClips, setProjectClips] = useState<ProjectClip[]>([])
   const [loadingClips, setLoadingClips] = useState(false)
+  const [importingVideo, setImportingVideo] = useState(false)
 
   const blocks = session?.sequence ?? []
+  const sessionId = session?.id ?? ''
   const audioSettings = session?.audio_settings
   const addedClipIds = useMemo(
     () => new Set(blocks.map((block) => block.source_clip_id)),
@@ -93,6 +98,22 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
     }
   }
 
+  const handleImportVideo = async (file: File) => {
+    if (!session) {
+      message.error('剪辑工程尚未加载，请稍候再试')
+      return
+    }
+    setImportingVideo(true)
+    try {
+      await importMedia(projectId, file)
+      message.success(`「${file.name}」已导入并加入时间线`)
+    } catch (error: unknown) {
+      message.error(error instanceof Error ? error.message : '视频导入失败')
+    } finally {
+      setImportingVideo(false)
+    }
+  }
+
   const renderMedia = () => (
     <OpenCutPanelView
       title="素材"
@@ -107,28 +128,66 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
               const file = event.target.files?.[0]
               event.target.value = ''
               if (!file) return
-              try {
-                await importMedia(projectId, file)
-                message.success(`已导入「${file.name}」并添加到时间线`)
-              } catch (error: unknown) {
-                message.error(error instanceof Error ? error.message : '视频导入失败')
-              }
+              await handleImportVideo(file)
             }}
           />
           <button
             type="button"
             className="editor-import-btn"
-            disabled={loadingClips || saving || !session}
+            disabled={importingVideo || saving || loading || !session}
             onClick={() => videoInputRef.current?.click()}
           >
-            <PlusOutlined /> 导入
+            <PlusOutlined /> {importingVideo ? '导入中…' : '导入'}
           </button>
         </>
       }
     >
-      {projectClips.length === 0 ? (
+      {storeError ? (
+        <div className="editor-asset-error" role="alert">
+          {storeError}
+        </div>
+      ) : null}
+
+      {blocks.length > 0 ? (
+        <div className="editor-timeline-clips editor-timeline-clips--first">
+          <div className="editor-inspector-label">时间线片段 ({blocks.length})</div>
+          <div className="editor-clip-list">
+            {blocks.map((block) => (
+              <button
+                key={block.id}
+                type="button"
+                className={`editor-clip-item ${selectedBlockId === block.id ? 'is-selected' : ''}`}
+                onClick={() => setSelectedBlockId(block.id)}
+              >
+                <video
+                  className="editor-clip-thumb"
+                  src={
+                    sessionId
+                      ? getBlockVideoUrl(projectId, sessionId, block)
+                      : undefined
+                  }
+                  muted
+                  playsInline
+                  preload="metadata"
+                />
+                <div className="editor-clip-meta">
+                  <div className="editor-clip-title">{block.title}</div>
+                  <div className="editor-clip-sub">{blockDuration(block).toFixed(1)}s</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="editor-inspector-label" style={{ marginTop: blocks.length > 0 ? 16 : 0 }}>
+        项目 AI 切片
+      </div>
+      {loadingClips ? (
+        <div className="editor-empty-hint">加载切片…</div>
+      ) : projectClips.length === 0 ? (
         <div className="editor-empty-hint">
-          暂无 AI 切片。可导入视频，或从项目详情勾选切片进入剪辑。
+          暂无 AI 切片。「导入」会把视频<strong>直接加入下方时间线</strong>，不必先出现在此列表。
         </div>
       ) : (
         <div className="editor-media-grid">
@@ -180,33 +239,6 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
           })}
         </div>
       )}
-      {blocks.length > 0 ? (
-        <div className="editor-timeline-clips">
-          <div className="editor-inspector-label">时间线片段</div>
-          <div className="editor-clip-list">
-            {blocks.map((block) => (
-              <button
-                key={block.id}
-                type="button"
-                className={`editor-clip-item ${selectedBlockId === block.id ? 'is-selected' : ''}`}
-                onClick={() => setSelectedBlockId(block.id)}
-              >
-                <video
-                  className="editor-clip-thumb"
-                  src={projectApi.getClipVideoUrl(projectId, block.source_clip_id, block.title)}
-                  muted
-                  playsInline
-                  preload="metadata"
-                />
-                <div className="editor-clip-meta">
-                  <div className="editor-clip-title">{block.title}</div>
-                  <div className="editor-clip-sub">{blockDuration(block).toFixed(1)}s</div>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
     </OpenCutPanelView>
   )
 

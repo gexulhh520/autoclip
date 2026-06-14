@@ -3,6 +3,7 @@ import { FIT_MODE_OPTIONS } from '../../../utils/editExportPresets'
 import EditorAspectSelect from '../EditorAspectSelect'
 import type { EditAspectPresetId } from '../../../utils/editAspectRatios'
 import { useEditSessionStore } from '../../../stores/useEditSessionStore'
+import { useEditorPanelStore } from '../../../stores/useEditorPanelStore'
 
 /** OpenCut settings view — 草稿/项目级参数（导出仍走 AutoClip 后端） */
 const EditorSessionSettingsPanel: React.FC = () => {
@@ -13,6 +14,7 @@ const EditorSessionSettingsPanel: React.FC = () => {
   const setPreviewBurnSubtitles = useEditSessionStore((state) => state.setPreviewBurnSubtitles)
   const previewZoom = useEditSessionStore((state) => state.previewZoom)
   const setPreviewZoom = useEditSessionStore((state) => state.setPreviewZoom)
+  const resetPanels = useEditorPanelStore((state) => state.resetPanels)
 
   if (!session) return null
 
@@ -130,6 +132,22 @@ const EditorSessionSettingsPanel: React.FC = () => {
           value={previewZoom}
           onChange={(event) => setPreviewZoom(Number(event.target.value))}
         />
+      </div>
+      <div className="editor-inspector-section">
+        <div className="editor-inspector-label">工作区</div>
+        <button
+          type="button"
+          className="editor-import-btn"
+          onClick={() => {
+            resetPanels()
+            window.location.reload()
+          }}
+        >
+          重置面板布局
+        </button>
+        <div className="editor-empty-hint" style={{ marginTop: 8 }}>
+          若左侧素材区或时间线被压得太小，点此恢复默认分栏比例。
+        </div>
       </div>
     </>
   )

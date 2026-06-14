@@ -32,8 +32,8 @@ const EditorLayout: React.FC<EditorLayoutProps> = ({ projectId, sessionId }) => 
         >
           <ResizablePanel
             defaultSize={panels.mainContent}
-            minSize={30}
-            maxSize={85}
+            minSize={38}
+            maxSize={78}
             className="editor-workspace-main-host"
           >
             <ResizablePanelGroup
@@ -47,9 +47,9 @@ const EditorLayout: React.FC<EditorLayoutProps> = ({ projectId, sessionId }) => 
             >
               <ResizablePanel
                 defaultSize={panels.tools}
-                minSize={15}
+                minSize={22}
                 maxSize={40}
-                className="editor-workspace-panel-host"
+                className="editor-workspace-panel-host editor-workspace-panel-host--tools"
               >
                 <EditorAssetsPanel projectId={projectId} />
               </ResizablePanel>

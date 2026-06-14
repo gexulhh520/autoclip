@@ -124,8 +124,7 @@ export const editApi = {
     formData.append('file', file)
     return (await api.post(
       `/projects/${projectId}/edit-sessions/${sessionId}/import-media`,
-      formData,
-      { headers: { 'Content-Type': 'multipart/form-data' } }
+      formData
     )) as EditSessionImportMediaResponse
   },
 
@@ -170,8 +169,7 @@ export const editApi = {
     formData.append('file', file)
     return (await api.post(
       `/projects/${projectId}/edit-sessions/${sessionId}/bgm`,
-      formData,
-      { headers: { 'Content-Type': 'multipart/form-data' } }
+      formData
     )) as EditSession
   },
 
