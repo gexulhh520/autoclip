@@ -8,7 +8,7 @@ import {
 import { getBlockVideoUrl } from '../../../utils/editBlockMedia'
 import { extractWaveformPeaks } from '../../../utils/audioWaveform'
 import editApi from '../../../services/editApi'
-import { buildAdaptedTracks, findElementInTracks, mapTrackIdToStoreKey, ADAPTED_TRACK_IDS } from './adapter'
+import { buildAdaptedTracks, findElementInTracks, findTrackAtY, isUserTextAdaptedTrack, mapTrackIdToStoreKey, ADAPTED_TRACK_IDS } from './adapter'
 import TimelineToolbar from './TimelineToolbar'
 import TimelineRuler from './TimelineRuler'
 import TimelineElementView from './TimelineElementView'
@@ -59,6 +59,8 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const snapEnabled = useEditSessionStore((state) => state.snapEnabled)
   const rippleTrimEnabled = useEditSessionStore((state) => state.rippleTrimEnabled)
   const timelineTrackMuted = useEditSessionStore((state) => state.timelineTrackMuted)
+  const textTrackMuted = useEditSessionStore((state) => state.textTrackMuted)
+  const activeTextTrackId = useEditSessionStore((state) => state.activeTextTrackId)
   const historyPast = useEditSessionStore((state) => state.historyPast)
   const historyFuture = useEditSessionStore((state) => state.historyFuture)
 
@@ -69,6 +71,11 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const setSnapEnabled = useEditSessionStore((state) => state.setSnapEnabled)
   const setRippleTrimEnabled = useEditSessionStore((state) => state.setRippleTrimEnabled)
   const toggleTimelineTrackMuted = useEditSessionStore((state) => state.toggleTimelineTrackMuted)
+  const toggleTextTrackMuted = useEditSessionStore((state) => state.toggleTextTrackMuted)
+  const toggleTextTrackHidden = useEditSessionStore((state) => state.toggleTextTrackHidden)
+  const setActiveTextTrackId = useEditSessionStore((state) => state.setActiveTextTrackId)
+  const addTextTrack = useEditSessionStore((state) => state.addTextTrack)
+  const moveOverlayToTrack = useEditSessionStore((state) => state.moveOverlayToTrack)
   const updateBlockTrim = useEditSessionStore((state) => state.updateBlockTrim)
   const updateOverlayElement = useEditSessionStore((state) => state.updateOverlayElement)
   const updateAudioSettings = useEditSessionStore((state) => state.updateAudioSettings)
@@ -94,7 +101,9 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const [waveforms, setWaveforms] = useState<WaveformMap>({})
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [snapPoint, setSnapPoint] = useState<SnapPoint | null>(null)
+  const tracksCanvasRef = useRef<HTMLDivElement>(null)
   const [tracksViewportWidth, setTracksViewportWidth] = useState(0)
+  const [dragTargetTrackId, setDragTargetTrackId] = useState<string | null>(null)
 
   const segments = useMemo(
     () => buildCompositionTimelineSegments(blocks, 50, transitionDurationSec),
@@ -114,10 +123,11 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       sessionId,
       getBlockVideoUrl: (block) => getBlockVideoUrl(projectId, sessionId, block),
       trackMuted: timelineTrackMuted,
+      textTrackMuted,
       bgmLabel: session.audio_settings?.bgm_path?.split('/').pop() ?? null,
       bgmDurationSec,
     })
-  }, [session, segments, projectId, sessionId, timelineTrackMuted, bgmDurationSec])
+  }, [session, segments, projectId, sessionId, timelineTrackMuted, textTrackMuted, bgmDurationSec])
 
   const totalDuration = Math.max(compositionDuration, calculateTotalDuration(tracks), 1)
   const sequenceSnapPoints = useMemo(
@@ -271,11 +281,15 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       setSelectedOverlayId(element.source.overlayId)
       setInspectorTab('text')
       setSequencePlayheadSec(element.startTime)
+      const track = tracks.find((item) => item.id === _trackId)
+      if (track?.textTrackId) {
+        setActiveTextTrackId(track.textTrackId)
+      }
     }
   }
 
   const startElementDrag = (
-    _trackId: string,
+    trackId: string,
     element: AdaptedElement,
     event: React.PointerEvent
   ) => {
@@ -283,6 +297,8 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     event.stopPropagation()
     const startX = event.clientX
     const initialStart = element.startTime
+    const sourceTrack = tracks.find((item) => item.id === trackId)
+    let pendingTargetTextTrackId: string | null = null
 
     const onMove = (moveEvent: PointerEvent) => {
       const deltaSec = (moveEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
@@ -292,6 +308,19 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
 
       if (element.source.kind === 'overlay') {
         updateOverlayElement(element.source.overlayId, { start_sec: snapped }, { recordHistory: false })
+
+        const canvasEl = tracksCanvasRef.current
+        if (canvasEl) {
+          const y = moveEvent.clientY - canvasEl.getBoundingClientRect().top
+          const targetTrack = findTrackAtY(tracks, y)
+          if (targetTrack?.textTrackId && isUserTextAdaptedTrack(targetTrack)) {
+            pendingTargetTextTrackId = targetTrack.textTrackId
+            setDragTargetTrackId(targetTrack.id)
+          } else {
+            pendingTargetTextTrackId = null
+            setDragTargetTrackId(null)
+          }
+        }
       } else if (element.source.kind === 'bgm') {
         updateAudioSettings({ bgm_start_sec: snapped })
       } else if (element.source.kind === 'block') {
@@ -308,6 +337,15 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
 
     const onUp = () => {
       setSnapPoint(null)
+      setDragTargetTrackId(null)
+      if (
+        element.source.kind === 'overlay' &&
+        pendingTargetTextTrackId &&
+        sourceTrack?.textTrackId &&
+        pendingTargetTextTrackId !== sourceTrack.textTrackId
+      ) {
+        moveOverlayToTrack(element.source.overlayId, pendingTargetTextTrackId)
+      }
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
     }
@@ -425,6 +463,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       if (sourceOverlay) {
         addOverlayElement({
           start_sec: element.startTime + element.duration + 0.1,
+          track_id: sourceOverlay.track_id,
           params: { ...sourceOverlay.params },
         } as never)
       }
@@ -485,33 +524,85 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
             style={{ height: TIMELINE_CONSTANTS.HEADER_HEIGHT_PX }}
           />
           <div className="oc-timeline__labels-tracks">
-            {tracks.map((track) => (
-              <div
-                key={track.id}
-                className="oc-timeline__label-row"
-                style={{ height: TRACK_HEIGHTS[track.type] }}
-              >
-                {canTrackHaveAudio(track) ? (
-                  <button
-                    type="button"
-                    className={`oc-timeline__label-toggle${track.muted ? ' is-off' : ''}`}
-                    title={track.muted ? '取消静音' : '静音'}
-                    onClick={() => {
-                      const key = mapTrackIdToStoreKey(track.id)
-                      if (key) toggleTimelineTrackMuted(key)
-                    }}
-                  >
-                    {track.muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
-                  </button>
-                ) : null}
-                {canTrackBeHidden(track) ? (
-                  <button type="button" className="oc-timeline__label-toggle" title="可见性">
-                    {track.hidden ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                ) : null}
-                {TRACK_ICONS[track.type]}
-              </div>
-            ))}
+            {tracks.map((track, index) => {
+              const isUserText = isUserTextAdaptedTrack(track)
+              const isLastUserText =
+                isUserText &&
+                !tracks.slice(index + 1).some((item) => isUserTextAdaptedTrack(item))
+              return (
+                <div
+                  key={track.id}
+                  className={`oc-timeline__label-row${activeTextTrackId === track.textTrackId ? ' is-active' : ''}`}
+                  style={{ height: TRACK_HEIGHTS[track.type] }}
+                  onClick={() => {
+                    if (track.textTrackId) setActiveTextTrackId(track.textTrackId)
+                  }}
+                >
+                  {canTrackHaveAudio(track) ? (
+                    <button
+                      type="button"
+                      className={`oc-timeline__label-toggle${track.muted ? ' is-off' : ''}`}
+                      title={track.muted ? '取消静音' : '静音'}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        const key = mapTrackIdToStoreKey(track.id)
+                        if (key) toggleTimelineTrackMuted(key)
+                      }}
+                    >
+                      {track.muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                    </button>
+                  ) : isUserText ? (
+                    <button
+                      type="button"
+                      className={`oc-timeline__label-toggle${track.muted ? ' is-off' : ''}`}
+                      title={track.muted ? '取消静音' : '静音'}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        if (track.textTrackId) toggleTextTrackMuted(track.textTrackId)
+                      }}
+                    >
+                      {track.muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                    </button>
+                  ) : null}
+                  {isUserText ? (
+                    <button
+                      type="button"
+                      className={`oc-timeline__label-toggle${track.hidden ? ' is-off' : ''}`}
+                      title={track.hidden ? '显示轨道' : '隐藏轨道'}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        if (track.textTrackId) toggleTextTrackHidden(track.textTrackId)
+                      }}
+                    >
+                      {track.hidden ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  ) : canTrackBeHidden(track) ? (
+                    <button type="button" className="oc-timeline__label-toggle" title="可见性">
+                      {track.hidden ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  ) : null}
+                  {TRACK_ICONS[track.type]}
+                  {isUserText ? (
+                    <span className="oc-timeline__label-name" title={track.name}>
+                      {track.name}
+                    </span>
+                  ) : null}
+                  {isLastUserText ? (
+                    <button
+                      type="button"
+                      className="oc-timeline__add-track-btn"
+                      title="新建文本轨"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        addTextTrack()
+                      }}
+                    >
+                      +
+                    </button>
+                  ) : null}
+                </div>
+              )
+            })}
           </div>
         </div>
 
@@ -581,74 +672,82 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                 <div className="oc-timeline__playhead-head" onPointerDown={startPlayheadDrag} />
               </div>
 
-              <div className="oc-timeline__tracks" style={{ height: tracksHeight }}>
+              <div className="oc-timeline__tracks" ref={tracksCanvasRef} style={{ height: tracksHeight }}>
                 {tracks.map((track, index) => (
                   <div
                     key={track.id}
-                    className={`oc-timeline__track-lane${track.elements.length === 0 ? ' is-empty' : ''}`}
+                    className={`oc-timeline__track-lane${track.elements.length === 0 ? ' is-empty' : ''}${dragTargetTrackId === track.id ? ' is-drop-target' : ''}${track.hidden ? ' is-hidden-track' : ''}`}
                     style={{
                       top: getCumulativeHeightBefore(tracks, index),
                       height: TRACK_HEIGHTS[track.type],
                     }}
+                    onClick={() => {
+                      if (track.textTrackId) setActiveTextTrackId(track.textTrackId)
+                    }}
                   >
-                  <button
-                    type="button"
-                    className="oc-timeline__track-hit"
-                    onMouseDown={handlePointerDown}
-                    onClick={handlePointerClick}
-                  />
-                  {track.id === ADAPTED_TRACK_IDS.overlay ? (
                     <button
                       type="button"
-                      className="oc-timeline__add-text"
-                      style={{
-                        left: timeToPx(sequencePlayheadSec, zoomLevel) - 10,
-                      }}
-                      title="在播放头添加文本"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        addOverlayElement({ start_sec: sequencePlayheadSec } as never)
-                        setInspectorTab('text')
-                      }}
-                    >
-                      +
-                    </button>
-                  ) : null}
-                  {track.elements.length === 0 ? (
-                    <div className="oc-timeline__empty-hint">
-                      {track.id === ADAPTED_TRACK_IDS.main
-                        ? '拖入素材或从左侧添加'
-                        : track.id === ADAPTED_TRACK_IDS.overlay
-                          ? '按 T 或在播放头点击 + 添加文本'
-                          : '暂无内容'}
-                    </div>
-                  ) : (
-                    track.elements.map((element) => (
-                      <TimelineElementView
-                        key={element.id}
-                        element={element}
-                        track={track}
-                        zoomLevel={zoomLevel}
-                        selected={isSelected(track.id, element)}
-                        onSelect={(event) => selectElement(track.id, element, event)}
-                        onPointerDown={(event) => startElementDrag(track.id, element, event)}
-                        onContextMenu={(event) => {
-                          event.preventDefault()
-                          selectElement(track.id, element, event)
-                          setContextMenu({
-                            x: event.clientX,
-                            y: event.clientY,
-                            trackId: track.id,
-                            elementId: element.id,
-                          })
+                      className="oc-timeline__track-hit"
+                      onMouseDown={handlePointerDown}
+                      onClick={handlePointerClick}
+                    />
+                    {isUserTextAdaptedTrack(track) && !track.hidden ? (
+                      <button
+                        type="button"
+                        className="oc-timeline__add-text"
+                        style={{
+                          left: timeToPx(sequencePlayheadSec, zoomLevel) - 10,
                         }}
-                        onResizeStart={(side, event) => startElementResize(element, side, event)}
-                        waveformPeaks={
-                          element.source.kind === 'block' ? waveforms[element.source.blockId] : undefined
-                        }
-                      />
-                    ))
-                  )}
+                        title="在播放头添加文本"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          addOverlayElement({
+                            start_sec: sequencePlayheadSec,
+                            track_id: track.textTrackId,
+                          } as never)
+                          setInspectorTab('text')
+                        }}
+                      >
+                        +
+                      </button>
+                    ) : null}
+                    {track.elements.length === 0 ? (
+                      <div className="oc-timeline__empty-hint">
+                        {track.id === ADAPTED_TRACK_IDS.main
+                          ? '拖入素材或从左侧添加'
+                          : isUserTextAdaptedTrack(track)
+                            ? '按 T 或在播放头点击 + 添加文本'
+                            : '暂无内容'}
+                      </div>
+                    ) : (
+                      track.elements.map((element) => (
+                        <TimelineElementView
+                          key={element.id}
+                          element={element}
+                          track={track}
+                          zoomLevel={zoomLevel}
+                          selected={isSelected(track.id, element)}
+                          onSelect={(event) => selectElement(track.id, element, event)}
+                          onPointerDown={(event) => startElementDrag(track.id, element, event)}
+                          onContextMenu={(event) => {
+                            event.preventDefault()
+                            selectElement(track.id, element, event)
+                            setContextMenu({
+                              x: event.clientX,
+                              y: event.clientY,
+                              trackId: track.id,
+                              elementId: element.id,
+                            })
+                          }}
+                          onResizeStart={(side, event) => startElementResize(element, side, event)}
+                          waveformPeaks={
+                            element.source.kind === 'block'
+                              ? waveforms[element.source.blockId]
+                              : undefined
+                          }
+                        />
+                      ))
+                    )}
                   </div>
                 ))}
               </div>

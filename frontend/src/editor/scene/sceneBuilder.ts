@@ -1,6 +1,11 @@
 import type { EditSession } from '../../types/editSession'
 import type { OpenCutTextOverlay } from '../opencut-text/params'
 import { readStringParam } from '../opencut-text/params'
+import {
+  getOverlayTrackId,
+  resolveTextTracks,
+  sortOverlaysByTrackOrder,
+} from '../textTracks'
 import { blockPlaybackRate } from '../../utils/editTimeline'
 import { resolveCanvasDimensions } from './canvas'
 import {
@@ -32,12 +37,29 @@ const isOverlayActiveAt = (element: OpenCutTextOverlay, timeSec: number): boolea
 export function resolveFreeTextLayers(
   session: EditSession,
   timeSec: number,
-  options?: { selectedOverlayId?: string | null }
+  options?: {
+    selectedOverlayId?: string | null
+    mutedTrackIds?: Set<string>
+  }
 ): Array<{ element: OpenCutTextOverlay; opacity: number }> {
   const selectedId = options?.selectedOverlayId ?? null
-  const candidates = (session.overlay_elements ?? []).filter(
-    (element) => !element.hidden && overlayHasContent(element)
+  const mutedTrackIds = options?.mutedTrackIds
+  const hiddenTrackIds = new Set(
+    resolveTextTracks(session).filter((track) => track.hidden).map((track) => track.id)
   )
+
+  const sorted = sortOverlaysByTrackOrder(
+    session.overlay_elements ?? [],
+    resolveTextTracks(session)
+  )
+
+  const candidates = sorted.filter((element) => {
+    if (element.hidden || !overlayHasContent(element)) return false
+    const trackId = getOverlayTrackId(element)
+    if (mutedTrackIds?.has(trackId)) return false
+    if (hiddenTrackIds.has(trackId)) return false
+    return true
+  })
 
   const active = candidates
     .filter((element) => isOverlayActiveAt(element, timeSec))
@@ -101,9 +123,17 @@ export function compileExportPlan(
     canvas: buildCanvas(session),
     burnSubtitles: options.burnSubtitles,
     useSourceVideo: options.useSourceVideo,
-    freeOverlays: (session.overlay_elements ?? []).filter(
-      (item) => !item.hidden && overlayHasContent(item)
-    ),
+    freeOverlays: sortOverlaysByTrackOrder(
+      (session.overlay_elements ?? []).filter(
+        (item) => !item.hidden && overlayHasContent(item)
+      ),
+      resolveTextTracks(session)
+    ).filter((item) => {
+      const hiddenTrackIds = new Set(
+        resolveTextTracks(session).filter((track) => track.hidden).map((track) => track.id)
+      )
+      return !hiddenTrackIds.has(getOverlayTrackId(item))
+    }),
     bgm,
   }
 }
@@ -208,6 +238,9 @@ export function resolveSceneAt(
 
   const freeTextLayers = resolveFreeTextLayers(session, clampedTime, {
     selectedOverlayId: options.selectedOverlayId,
+    mutedTrackIds: options.mutedTextTrackIds
+      ? new Set(options.mutedTextTrackIds)
+      : undefined,
   })
 
   const audioLayers: RenderScene['audioLayers'] = []

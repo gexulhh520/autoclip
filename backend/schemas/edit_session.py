@@ -55,6 +55,7 @@ class EditOverlayElement(BaseModel):
     start_sec: float = 0.0
     duration_sec: float = 3.0
     hidden: bool = False
+    track_id: Optional[str] = None
     params: Dict[str, Any] = Field(default_factory=dict)
 
     @staticmethod
@@ -150,6 +151,13 @@ class TimelineBookmark(BaseModel):
     label: str = ""
 
 
+class TextTrackMeta(BaseModel):
+    id: str
+    name: str = "Text"
+    hidden: bool = False
+    order: int = 0
+
+
 EditAspectPreset = Literal[
     "original",
     "custom",
@@ -206,6 +214,7 @@ class EditSession(BaseModel):
     overlay_snapshot: Dict[str, Any] = Field(default_factory=dict)
     sequence: List[EditBlock] = Field(default_factory=list)
     overlay_elements: List[EditOverlayElement] = Field(default_factory=list)
+    text_tracks: List[TextTrackMeta] = Field(default_factory=list)
     bookmarks: List[TimelineBookmark] = Field(default_factory=list)
     export_settings: EditExportSettings = Field(default_factory=EditExportSettings)
     audio_settings: EditSessionAudioSettings = Field(default_factory=EditSessionAudioSettings)
@@ -240,6 +249,7 @@ class EditSessionUpdateRequest(BaseModel):
     name: Optional[str] = None
     sequence: Optional[List[EditBlock]] = None
     overlay_elements: Optional[List[EditOverlayElement]] = None
+    text_tracks: Optional[List[TextTrackMeta]] = None
     bookmarks: Optional[List[TimelineBookmark]] = None
     export_settings: Optional[EditExportSettings] = None
     audio_settings: Optional[EditSessionAudioSettings] = None

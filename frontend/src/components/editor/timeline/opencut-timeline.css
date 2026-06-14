@@ -461,3 +461,45 @@
 .oc-timeline__add-text:hover {
   background: color-mix(in srgb, var(--oc-accent) 12%, var(--oc-panel-2));
 }
+
+.oc-timeline__label-row.is-active {
+  background: color-mix(in srgb, var(--oc-accent) 8%, var(--oc-panel-2));
+}
+
+.oc-timeline__label-name {
+  margin-left: 4px;
+  max-width: 52px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--oc-muted);
+}
+
+.oc-timeline__add-track-btn {
+  margin-left: auto;
+  width: 18px;
+  height: 18px;
+  border: 1px dashed color-mix(in srgb, var(--oc-accent) 45%, var(--oc-border));
+  border-radius: 4px;
+  background: transparent;
+  color: var(--oc-accent);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.oc-timeline__add-track-btn:hover {
+  background: color-mix(in srgb, var(--oc-accent) 10%, transparent);
+}
+
+.oc-timeline__track-lane.is-drop-target {
+  outline: 1px solid color-mix(in srgb, var(--oc-accent) 65%, transparent);
+  outline-offset: -1px;
+  background: color-mix(in srgb, var(--oc-accent) 6%, var(--oc-panel));
+}
+
+.oc-timeline__track-lane.is-hidden-track {
+  opacity: 0.45;
+}

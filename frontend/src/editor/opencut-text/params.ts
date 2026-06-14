@@ -7,6 +7,8 @@ export interface OpenCutTextOverlay {
   start_sec: number
   duration_sec: number
   hidden: boolean
+  /** 所属用户文本轨 id，缺省为 default-text */
+  track_id?: string
   params: TextElementParams
 }
 

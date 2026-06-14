@@ -2,6 +2,13 @@ import type { OpenCutTextOverlay } from '../editor/opencut-text/params'
 
 export type EditOverlayElement = OpenCutTextOverlay
 
+export interface TextTrackMeta {
+  id: string
+  name: string
+  hidden?: boolean
+  order: number
+}
+
 export interface EditBlockMedia {
   type: 'step6_clip' | 'source_range' | 'imported_clip'
   path: string
@@ -82,6 +89,7 @@ export interface EditSession {
   overlay_snapshot: Record<string, unknown>
   sequence: EditBlock[]
   overlay_elements?: EditOverlayElement[]
+  text_tracks?: TextTrackMeta[]
   bookmarks?: TimelineBookmark[]
   export_settings: EditExportSettings
   audio_settings: EditSessionAudioSettings
@@ -113,6 +121,7 @@ export interface EditSessionUpdateRequest {
   name?: string
   sequence?: EditBlock[]
   overlay_elements?: EditOverlayElement[]
+  text_tracks?: TextTrackMeta[]
   bookmarks?: TimelineBookmark[]
   export_settings?: EditExportSettings
   audio_settings?: EditSessionAudioSettings

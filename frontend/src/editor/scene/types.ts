@@ -88,6 +88,8 @@ export interface SceneCompileOptions {
   useSourceVideo: boolean
   /** 预览：选中的自由文本层在播放头外仍显示（半透明） */
   selectedOverlayId?: string | null
+  /** 预览/导出：静音的用户文本轨 id */
+  mutedTextTrackIds?: string[]
 }
 
 export interface SceneBuilderInput {

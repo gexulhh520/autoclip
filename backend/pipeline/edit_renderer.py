@@ -621,16 +621,34 @@ def _build_free_overlay_drawtext(
     return ":".join(parts)
 
 
-def apply_free_text_overlays(
-    input_path: Path,
-    output_path: Path,
-    session: EditSession,
-) -> bool:
+def _overlay_track_id(overlay: EditOverlayElement) -> str:
+    return overlay.track_id or "default-text"
+
+
+def _sort_free_text_overlays(session: EditSession) -> List[EditOverlayElement]:
     overlays = [
         item
         for item in (session.overlay_elements or [])
         if not item.hidden and str(_overlay_param(item, "content", "") or "").strip()
     ]
+    tracks = session.text_tracks or []
+    hidden_ids = {track.id for track in tracks if track.hidden}
+    overlays = [item for item in overlays if _overlay_track_id(item) not in hidden_ids]
+    if not tracks:
+        return overlays
+    order_map = {track.id: track.order for track in tracks}
+    return sorted(
+        overlays,
+        key=lambda item: (order_map.get(_overlay_track_id(item), 0), item.start_sec),
+    )
+
+
+def apply_free_text_overlays(
+    input_path: Path,
+    output_path: Path,
+    session: EditSession,
+) -> bool:
+    overlays = _sort_free_text_overlays(session)
     if not overlays:
         shutil.copy2(input_path, output_path)
         return output_path.exists()

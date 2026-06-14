@@ -447,6 +447,8 @@ class EditSessionService:
             data["sequence"] = [block.model_dump() for block in payload.sequence]
         if payload.overlay_elements is not None:
             data["overlay_elements"] = [item.model_dump() for item in payload.overlay_elements]
+        if payload.text_tracks is not None:
+            data["text_tracks"] = [item.model_dump() for item in payload.text_tracks]
         if payload.bookmarks is not None:
             data["bookmarks"] = [item.model_dump() for item in payload.bookmarks]
         if payload.export_settings is not None:

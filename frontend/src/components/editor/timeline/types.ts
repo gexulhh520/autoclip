@@ -25,6 +25,8 @@ export interface AdaptedTrack {
   isMain: boolean
   muted: boolean
   hidden: boolean
+  /** 用户文本轨 meta id，字幕/视频轨为空 */
+  textTrackId?: string
   elements: AdaptedElement[]
 }
 

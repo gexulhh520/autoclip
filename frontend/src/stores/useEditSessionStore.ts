@@ -17,6 +17,14 @@ import {
 } from '../types/timelineTracks'
 import { createOpenCutTextOverlay } from '../editor/opencut-text/build'
 import { migrateToOpenCutText } from '../editor/opencut-text/migrate'
+import {
+  DEFAULT_TEXT_TRACK_ID,
+  createTextTrack,
+  defaultTextTrackName,
+  ensureTextTracks,
+  getOverlayTrackId,
+  nextTextTrackOrder,
+} from '../editor/textTracks'
 import { resolveCanvasDimensions } from '../editor/scene/canvas'
 import { loadExportPreset, saveExportPreset } from '../utils/editExportPresets'
 import {
@@ -60,6 +68,8 @@ interface EditSessionState {
   selectedOverlayId: string | null
   timelineTrackCollapsed: Record<TimelineTrackId, boolean>
   timelineTrackMuted: Record<TimelineTrackId, boolean>
+  textTrackMuted: Record<string, boolean>
+  activeTextTrackId: string | null
   assetPreviewClip: AssetPreviewClip | null
   isPlaying: boolean
   sequencePlayheadSec: number
@@ -138,6 +148,12 @@ interface EditSessionState {
   setSelectedOverlayId: (overlayId: string | null) => void
   toggleTimelineTrackCollapsed: (trackId: TimelineTrackId) => void
   toggleTimelineTrackMuted: (trackId: TimelineTrackId) => void
+  toggleTextTrackMuted: (textTrackId: string) => void
+  toggleTextTrackHidden: (textTrackId: string) => void
+  setActiveTextTrackId: (textTrackId: string | null) => void
+  addTextTrack: (name?: string) => string
+  removeTextTrack: (textTrackId: string) => void
+  moveOverlayToTrack: (overlayId: string, textTrackId: string) => void
   addOverlayElement: (element: Omit<EditOverlayElement, 'id'>) => void
   importSrtCaptions: (elements: EditOverlayElement[]) => void
   updateOverlayElement: (
@@ -279,6 +295,8 @@ export const useEditSessionStore = create<EditSessionState>()(
       selectedOverlayId: null,
       timelineTrackCollapsed: { ...DEFAULT_TRACK_COLLAPSED },
       timelineTrackMuted: { ...DEFAULT_TRACK_MUTED },
+      textTrackMuted: {},
+      activeTextTrackId: DEFAULT_TEXT_TRACK_ID,
       assetPreviewClip: null,
       isPlaying: false,
       sequencePlayheadSec: 0,
@@ -338,6 +356,9 @@ export const useEditSessionStore = create<EditSessionState>()(
               canvasDims.height
             )
           )
+          if (ensureTextTracks(session)) {
+            migrated = true
+          }
           for (const block of session.sequence) {
             const raw = block.overlay as Record<string, unknown>
             block.overlay = {
@@ -360,6 +381,8 @@ export const useEditSessionStore = create<EditSessionState>()(
             selectedOverlayId: null,
             timelineTrackCollapsed: { ...DEFAULT_TRACK_COLLAPSED },
             timelineTrackMuted: { ...DEFAULT_TRACK_MUTED },
+            textTrackMuted: {},
+            activeTextTrackId: DEFAULT_TEXT_TRACK_ID,
             historyPast: [],
             historyFuture: [],
             sequencePlayheadSec: 0,
@@ -381,6 +404,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             name: session.name,
             sequence: session.sequence,
             overlay_elements: session.overlay_elements,
+            text_tracks: session.text_tracks,
             bookmarks: session.bookmarks,
             export_settings: session.export_settings,
             audio_settings: session.audio_settings,
@@ -735,6 +759,80 @@ export const useEditSessionStore = create<EditSessionState>()(
         })
       },
 
+      toggleTextTrackMuted: (textTrackId) => {
+        set((state) => {
+          state.textTrackMuted[textTrackId] = !state.textTrackMuted[textTrackId]
+        })
+      },
+
+      toggleTextTrackHidden: (textTrackId) => {
+        pushHistory()
+        set((state) => {
+          if (!state.session?.text_tracks) return
+          const track = state.session.text_tracks.find((item) => item.id === textTrackId)
+          if (!track) return
+          track.hidden = !track.hidden
+          state.dirty = true
+        })
+      },
+
+      setActiveTextTrackId: (textTrackId) => {
+        set({ activeTextTrackId: textTrackId })
+      },
+
+      addTextTrack: (name) => {
+        pushHistory()
+        let newTrackId = DEFAULT_TEXT_TRACK_ID
+        set((state) => {
+          if (!state.session) return
+          if (!state.session.text_tracks) {
+            state.session.text_tracks = []
+          }
+          const order = nextTextTrackOrder(state.session.text_tracks)
+          const trackName =
+            name ?? defaultTextTrackName(state.session.text_tracks.length)
+          const track = createTextTrack(trackName, order)
+          newTrackId = track.id
+          state.session.text_tracks.push(track)
+          state.activeTextTrackId = track.id
+          state.dirty = true
+        })
+        return newTrackId
+      },
+
+      removeTextTrack: (textTrackId) => {
+        pushHistory()
+        set((state) => {
+          if (!state.session?.text_tracks) return
+          if (state.session.text_tracks.length <= 1) return
+          const hasElements = (state.session.overlay_elements ?? []).some(
+            (item) => getOverlayTrackId(item) === textTrackId
+          )
+          if (hasElements) return
+          state.session.text_tracks = state.session.text_tracks.filter(
+            (item) => item.id !== textTrackId
+          )
+          delete state.textTrackMuted[textTrackId]
+          if (state.activeTextTrackId === textTrackId) {
+            state.activeTextTrackId = state.session.text_tracks[0]?.id ?? DEFAULT_TEXT_TRACK_ID
+          }
+          state.dirty = true
+        })
+      },
+
+      moveOverlayToTrack: (overlayId, textTrackId) => {
+        pushHistory()
+        set((state) => {
+          if (!state.session?.overlay_elements || !state.session.text_tracks) return
+          const trackExists = state.session.text_tracks.some((item) => item.id === textTrackId)
+          if (!trackExists) return
+          const element = state.session.overlay_elements.find((item) => item.id === overlayId)
+          if (!element) return
+          element.track_id = textTrackId
+          state.dirty = true
+        })
+      },
+
       addOverlayElement: (partial) => {
         pushHistory()
         const id = nanoid()
@@ -743,6 +841,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (!state.session.overlay_elements) {
             state.session.overlay_elements = []
           }
+          ensureTextTracks(state.session)
           const dims = resolveCanvasDimensions(state.session.export_settings)
           const startSec = partial?.start_sec ?? state.sequencePlayheadSec
           const content =
@@ -755,16 +854,22 @@ export const useEditSessionStore = create<EditSessionState>()(
             dims.height,
             content
           )
+          const trackId =
+            partial?.track_id ??
+            state.activeTextTrackId ??
+            DEFAULT_TEXT_TRACK_ID
           state.session.overlay_elements.push({
             ...base,
             ...partial,
             id,
+            track_id: trackId,
             params: { ...base.params, ...(partial?.params ?? {}) },
           })
           state.selectedOverlayId = id
           state.selectedBlockId = null
           state.selectedBlockIds = []
           state.sequencePlayheadSec = startSec
+          state.activeTextTrackId = trackId
           state.dirty = true
         })
       },
@@ -777,7 +882,11 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (!state.session.overlay_elements) {
             state.session.overlay_elements = []
           }
-          state.session.overlay_elements.push(...elements)
+          ensureTextTracks(state.session)
+          const trackId = state.activeTextTrackId ?? DEFAULT_TEXT_TRACK_ID
+          state.session.overlay_elements.push(
+            ...elements.map((element) => ({ ...element, track_id: element.track_id ?? trackId }))
+          )
           state.selectedOverlayId = elements[elements.length - 1]?.id ?? null
           state.selectedBlockId = null
           state.selectedBlockIds = []
@@ -1097,6 +1206,8 @@ export const useEditSessionStore = create<EditSessionState>()(
           selectedOverlayId: null,
           timelineTrackCollapsed: { ...DEFAULT_TRACK_COLLAPSED },
           timelineTrackMuted: { ...DEFAULT_TRACK_MUTED },
+          textTrackMuted: {},
+          activeTextTrackId: DEFAULT_TEXT_TRACK_ID,
           assetPreviewClip: null,
           isPlaying: false,
           sequencePlayheadSec: 0,

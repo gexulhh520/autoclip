@@ -63,6 +63,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const setPlaying = useEditSessionStore((state) => state.setPlaying)
   const advanceSequencePlayhead = useEditSessionStore((state) => state.advanceSequencePlayhead)
   const timelineTrackMuted = useEditSessionStore((state) => state.timelineTrackMuted)
+  const textTrackMuted = useEditSessionStore((state) => state.textTrackMuted)
   const overlayElements = useEditSessionStore((state) => state.session?.overlay_elements)
   const selectedOverlayId = useEditSessionStore((state) => state.selectedOverlayId)
   const setSelectedOverlayId = useEditSessionStore((state) => state.setSelectedOverlayId)
@@ -71,8 +72,11 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const isAssetPreview = Boolean(assetPreviewClip)
   const clipAudioMuted = timelineTrackMuted.mainVideo || timelineTrackMuted.audioWave
   const captionsMuted = timelineTrackMuted.overlayCaption
-  const freeOverlayMuted = timelineTrackMuted.overlayText
   const bgmMuted = timelineTrackMuted.audioBgm
+  const mutedTextTrackIds = useMemo(
+    () => Object.entries(textTrackMuted).filter(([, muted]) => muted).map(([id]) => id),
+    [textTrackMuted]
+  )
   const pxPerSec = BASE_PX_PER_SEC * (timelineZoom / 100)
   const blocks = session?.sequence ?? []
   const transitionDurationSec = session?.audio_settings?.transition_duration_sec ?? 0.35
@@ -97,10 +101,11 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
               burnSubtitles: previewBurnSubtitles,
               useSourceVideo: useSourcePreview,
               selectedOverlayId,
+              mutedTextTrackIds,
             },
           }
         : null,
-    [session, useSourcePreview, previewBurnSubtitles, selectedOverlayId, overlayElements]
+    [session, useSourcePreview, previewBurnSubtitles, selectedOverlayId, overlayElements, mutedTextTrackIds]
   )
 
   const renderScene = useMemo(() => {
@@ -413,7 +418,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                 })
               : null}
 
-            {!isAssetPreview && !freeOverlayMuted && previewVm && previewVm.freeOverlays.length > 0 ? (
+            {!isAssetPreview && previewVm && previewVm.freeOverlays.length > 0 ? (
               <OpenCutTextCanvas
                 elements={previewVm.freeOverlays}
                 canvasWidth={canvasDims.width}
@@ -509,7 +514,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                 BGM
               </span>
             ) : null}
-            {!isAssetPreview && !freeOverlayMuted && previewVm && previewVm.freeOverlays.length > 0 ? (
+            {!isAssetPreview && previewVm && previewVm.freeOverlays.length > 0 ? (
               <span className="editor-preview-badge" title="预览含自由文本层">
                 文本
               </span>
