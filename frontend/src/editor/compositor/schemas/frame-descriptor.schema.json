@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autoclip.dev/schemas/frame-descriptor.json",
+  "title": "FrameDescriptor",
+  "type": "object",
+  "required": ["schema_version", "timeSec", "width", "height", "clear", "items"],
+  "properties": {
+    "schema_version": { "const": "compositor-1" },
+    "timeSec": { "type": "number", "minimum": 0 },
+    "width": { "type": "integer", "minimum": 2 },
+    "height": { "type": "integer", "minimum": 2 },
+    "clear": {
+      "type": "object",
+      "required": ["r", "g", "b", "a"],
+      "properties": {
+        "r": { "type": "number" },
+        "g": { "type": "number" },
+        "b": { "type": "number" },
+        "a": { "type": "number" }
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind"],
+        "properties": {
+          "kind": { "enum": ["layer", "text", "effect_group", "scene_effect"] }
+        }
+      }
+    },
+    "audio": { "type": "array" },
+    "transition": { "type": "object" }
+  },
+  "additionalProperties": false
+}

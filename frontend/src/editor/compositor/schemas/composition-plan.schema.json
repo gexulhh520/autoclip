@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autoclip.dev/schemas/composition-plan.json",
+  "title": "CompositionPlan",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "sessionId",
+    "projectId",
+    "canvas",
+    "timeline",
+    "totalDurationSec",
+    "layers",
+    "compile",
+    "metadata"
+  ],
+  "properties": {
+    "schema_version": { "const": "compositor-1" },
+    "sessionId": { "type": "string" },
+    "projectId": { "type": "string" },
+    "canvas": {
+      "type": "object",
+      "required": ["width", "height", "aspect", "fitMode", "visualFilter", "fps"],
+      "properties": {
+        "width": { "type": "integer", "minimum": 2 },
+        "height": { "type": "integer", "minimum": 2 },
+        "aspect": { "type": "string" },
+        "fitMode": { "enum": ["contain", "cover", "contain_blur"] },
+        "visualFilter": { "type": "string" },
+        "fps": { "type": "number", "minimum": 1 }
+      }
+    },
+    "timeline": { "type": "object" },
+    "totalDurationSec": { "type": "number", "minimum": 0 },
+    "transitionDurationSec": { "type": "number", "minimum": 0 },
+    "layers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind"],
+        "properties": {
+          "kind": {
+            "enum": [
+              "video_clip",
+              "template_caption",
+              "free_text",
+              "audio_bgm",
+              "filter",
+              "transition"
+            ]
+          }
+        }
+      }
+    },
+    "compile": {
+      "type": "object",
+      "required": ["burnSubtitles", "useSourceVideo"],
+      "properties": {
+        "burnSubtitles": { "type": "boolean" },
+        "useSourceVideo": { "type": "boolean" }
+      }
+    },
+    "metadata": { "type": "object" }
+  },
+  "additionalProperties": false
+}

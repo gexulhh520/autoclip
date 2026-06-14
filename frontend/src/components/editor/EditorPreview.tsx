@@ -2,6 +2,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { projectApi } from '../../services/api'
 import editApi from '../../services/editApi'
 import {
+  compileCompositionPlan,
+  resolveTemplateCaptionPreviewFromPlan,
+} from '../../editor/compositor'
+import {
   buildCompositionTimelineSegments,
   renderSceneToPreviewViewModel,
   resolveCompositionPlayhead,
@@ -214,34 +218,32 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   }, [videoNaturalSize, setPreviewVideoNaturalSize])
 
   useEffect(() => {
-    if (isAssetPreview || !renderScene) {
+    if (isAssetPreview || !renderScene || !session) {
       return
     }
     const blockIds = new Set(renderScene.templateCaptions.map((item) => item.blockId))
+    const plan = compileCompositionPlan(session, {
+      burnSubtitles: previewBurnSubtitles,
+      useSourceVideo: session.audio_settings.use_source_video ?? false,
+    })
 
-    let cancelled = false
-    for (const blockId of blockIds) {
-      void editApi.previewOverlay(projectId, sessionId, blockId).then((result) => {
-        if (cancelled) return
-        setOverlayByBlockId((prev) => ({
-          ...prev,
-          [blockId]: {
-            layout: (result.layout as 'cinema' | 'highlight' | 'none') || 'none',
-            layers: (result.layers as OverlayPreviewLayer[]) || [],
-            config: (result.config as Record<string, unknown>) || {},
-          },
-        }))
-      })
-    }
-    return () => {
-      cancelled = true
-    }
+    setOverlayByBlockId((prev) => {
+      const next = { ...prev }
+      for (const blockId of blockIds) {
+        const result = resolveTemplateCaptionPreviewFromPlan(plan, blockId)
+        next[blockId] = {
+          layout: result.layout,
+          layers: result.layers as OverlayPreviewLayer[],
+          config: result.config as OverlayPreviewConfig,
+        }
+      }
+      return next
+    })
   }, [
     isAssetPreview,
-    projectId,
+    previewBurnSubtitles,
     renderScene,
-    sessionId,
-    session?.export_settings,
+    session,
   ])
 
   useEffect(() => {

@@ -24,6 +24,8 @@ export interface OverlayPreviewConfig {
   body_color?: string
   position_offset_x_pct?: number
   position_offset_y_pct?: number
+  position_offset_x?: number
+  position_offset_y?: number
 }
 
 interface QuoteOverlayPreviewProps {

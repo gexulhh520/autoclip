@@ -1,5 +1,5 @@
 import type { EditExportSettings } from '../../types/editSession'
-import { normalizeAspectPresetId, resolveExportDimensions } from '../editAspectRatios'
+import { normalizeAspectPresetId, resolveExportDimensions } from '../../utils/editAspectRatios'
 
 export type CompositionBackground = 'color' | 'blur'
 
