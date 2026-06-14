@@ -18,6 +18,7 @@ import {
 } from '../types/timelineTracks'
 import { createTextOverlayElement } from '../utils/editTextOverlay'
 import { loadExportPreset, saveExportPreset } from '../utils/editExportPresets'
+import { normalizeBlockOverlay, normalizeOverlayElement } from '../utils/textStyle'
 import {
   BASE_PX_PER_SEC,
   blockDuration,
@@ -140,6 +141,7 @@ interface EditSessionState {
   toggleTimelineTrackCollapsed: (trackId: TimelineTrackId) => void
   toggleTimelineTrackMuted: (trackId: TimelineTrackId) => void
   addOverlayElement: (element: Omit<EditOverlayElement, 'id'>) => void
+  importSrtCaptions: (elements: EditOverlayElement[]) => void
   updateOverlayElement: (
     elementId: string,
     patch: Partial<EditOverlayElement>,
@@ -325,6 +327,10 @@ export const useEditSessionStore = create<EditSessionState>()(
           }
           if (!session.overlay_elements) {
             session.overlay_elements = []
+          }
+          session.overlay_elements = session.overlay_elements.map(normalizeOverlayElement)
+          for (const block of session.sequence) {
+            block.overlay = normalizeBlockOverlay(block.overlay)
           }
           if (!session.bookmarks) {
             session.bookmarks = []
@@ -732,6 +738,22 @@ export const useEditSessionStore = create<EditSessionState>()(
             id,
           })
           state.selectedOverlayId = id
+          state.selectedBlockId = null
+          state.selectedBlockIds = []
+          state.dirty = true
+        })
+      },
+
+      importSrtCaptions: (elements) => {
+        if (!elements.length) return
+        pushHistory()
+        set((state) => {
+          if (!state.session) return
+          if (!state.session.overlay_elements) {
+            state.session.overlay_elements = []
+          }
+          state.session.overlay_elements.push(...elements)
+          state.selectedOverlayId = elements[elements.length - 1]?.id ?? null
           state.selectedBlockId = null
           state.selectedBlockIds = []
           state.dirty = true

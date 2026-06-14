@@ -14,14 +14,32 @@ class EditBlockMedia(BaseModel):
     source_end_sec: Optional[float] = None
 
 
+class EditTextBackground(BaseModel):
+    enabled: bool = False
+    color: str = "#000000"
+    corner_radius: int = 0
+    padding_x: int = 30
+    padding_y: int = 42
+
+
 class EditBlockOverlay(BaseModel):
     outline: str = ""
     content: List[str] = Field(default_factory=list)
     recommend_reason: str = ""
     font_size: int = 15
+    color: str = "#ffffff"
     bold: bool = False
     underline: bool = False
     italic: bool = False
+    text_align: Literal["left", "center", "right"] = "center"
+    text_decoration: Literal["none", "underline", "line-through"] = "none"
+    letter_spacing: float = 0.0
+    line_height: float = 1.2
+    opacity: float = 1.0
+    background: EditTextBackground = Field(default_factory=EditTextBackground)
+    animation: Literal["none", "fadeIn", "bounceIn", "typewriter"] = "none"
+    font_family: Optional[str] = "noto-sc"
+    use_custom_style: bool = False
 
 
 class EditBlockAudio(BaseModel):
@@ -66,10 +84,18 @@ class EditOverlayElement(BaseModel):
     start_sec: float = 0.0
     duration_sec: float = 3.0
     content: str = ""
-    font_size: int = 24
-    color: str = "#FFFFFF"
+    font_size: int = 15
+    color: str = "#ffffff"
     bold: bool = False
     italic: bool = False
+    underline: bool = False
+    text_align: Literal["left", "center", "right"] = "center"
+    text_decoration: Literal["none", "underline", "line-through"] = "none"
+    letter_spacing: float = 0.0
+    line_height: float = 1.2
+    opacity: float = 1.0
+    background: EditTextBackground = Field(default_factory=EditTextBackground)
+    animation: Literal["none", "fadeIn", "bounceIn", "typewriter"] = "none"
     font_family: Optional[str] = "noto-sc"
     transform: EditOverlayTransform = Field(default_factory=EditOverlayTransform)
     hidden: bool = False

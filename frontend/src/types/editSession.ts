@@ -6,14 +6,21 @@ export interface EditBlockMedia {
   source_end_sec?: number | null
 }
 
-export interface EditBlockOverlay {
+import type {
+  EditTextBackground,
+  EditTextStyleFields,
+  TextAlign,
+  TextAnimation,
+  TextDecoration,
+} from './editTextStyle'
+
+export interface EditBlockOverlay extends EditTextStyleFields {
   outline: string
   content: string[]
   recommend_reason: string
-  font_size?: number
-  bold?: boolean
-  underline?: boolean
-  italic?: boolean
+  font_family?: string
+  /** 使用 OpenCut 自由文本样式预览，而非模板 cinema 布局 */
+  use_custom_style?: boolean
 }
 
 export interface EditBlockAudio {
@@ -60,20 +67,24 @@ export interface EditOverlayTransform {
   rotation: number
 }
 
-export interface EditOverlayElement {
+export interface EditOverlayElement extends EditTextStyleFields {
   id: string
   type: 'text' | 'sticker'
   start_sec: number
   duration_sec: number
   content: string
-  font_size: number
-  color: string
-  bold: boolean
-  italic: boolean
   font_family?: string
   transform: EditOverlayTransform
   hidden: boolean
 }
+
+export type {
+  EditTextBackground,
+  EditTextStyleFields,
+  TextAlign,
+  TextAnimation,
+  TextDecoration,
+} from './editTextStyle'
 
 export interface TimelineBookmark {
   id: string

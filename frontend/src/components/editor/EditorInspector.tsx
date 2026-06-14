@@ -8,14 +8,15 @@ import { collectTrimSnapPoints, snapTime } from '../../utils/editTimeline'
 import { srtTimeToSeconds, secondsToSrtTime } from '../../utils/srtTime'
 import { projectApi } from '../../services/api'
 import EditorInspectorSelectionBanner from './EditorInspectorSelectionBanner'
-import { DEFAULT_OVERLAY_FONT_FAMILY, OVERLAY_FONT_FAMILIES } from '../../utils/editOverlayFonts'
+import EditorTextStyleControls from './EditorTextStyleControls'
+import { DEFAULT_OVERLAY_FONT_FAMILY } from '../../utils/editOverlayFonts'
+import { extractTextStyle } from '../../utils/textStyle'
 
 interface EditorInspectorProps {
   projectId: string
 }
 
 type InspectorTab = 'draft' | 'video' | 'audio' | 'text' | 'transition'
-type TextSubTab = 'basic' | 'bubble' | 'fancy'
 
 const INSPECTOR_TABS: Array<{ key: InspectorTab; label: string }> = [
   { key: 'draft', label: '草稿' },
@@ -51,7 +52,6 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   const setSelectedOverlayId = useEditSessionStore((state) => state.setSelectedOverlayId)
 
   const [regenerating, setRegenerating] = useState(false)
-  const [textSubTab, setTextSubTab] = useState<TextSubTab>('basic')
   const [srtBoundaries, setSrtBoundaries] = useState<number[]>([])
 
   const selectedBlock =
@@ -373,9 +373,64 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
     )
   }
 
+  const renderTransformControls = (
+    transform: typeof selectedOverlay extends null ? never : NonNullable<typeof selectedOverlay>['transform'],
+    onTransform: (next: typeof transform) => void
+  ) => (
+    <div className="editor-inspector-section">
+      <div className="editor-inspector-label">水平位置 ({Math.round(transform.x * 100)}%)</div>
+      <input
+        className="editor-range"
+        type="range"
+        min={0}
+        max={1}
+        step={0.01}
+        value={transform.x}
+        onChange={(event) => onTransform({ ...transform, x: Number(event.target.value) })}
+      />
+      <div className="editor-inspector-label" style={{ marginTop: 12 }}>
+        垂直位置 ({Math.round(transform.y * 100)}%)
+      </div>
+      <input
+        className="editor-range"
+        type="range"
+        min={0}
+        max={1}
+        step={0.01}
+        value={transform.y}
+        onChange={(event) => onTransform({ ...transform, y: Number(event.target.value) })}
+      />
+      <div className="editor-inspector-label" style={{ marginTop: 12 }}>
+        缩放 ({transform.scale.toFixed(2)}×)
+      </div>
+      <input
+        className="editor-range"
+        type="range"
+        min={0.25}
+        max={3}
+        step={0.05}
+        value={transform.scale}
+        onChange={(event) => onTransform({ ...transform, scale: Number(event.target.value) })}
+      />
+      <div className="editor-inspector-label" style={{ marginTop: 12 }}>
+        旋转 ({Math.round(transform.rotation)}°)
+      </div>
+      <input
+        className="editor-range"
+        type="range"
+        min={-180}
+        max={180}
+        step={1}
+        value={transform.rotation}
+        onChange={(event) => onTransform({ ...transform, rotation: Number(event.target.value) })}
+      />
+    </div>
+  )
+
   const renderTextTab = () => {
     if (selectedOverlay) {
       const transform = selectedOverlay.transform
+      const textStyle = extractTextStyle(selectedOverlay)
       return (
         <>
           <div className="editor-inspector-section">
@@ -389,138 +444,17 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
               placeholder="输入自由文本…"
             />
           </div>
-          <div className="editor-inspector-section">
-            <div className="editor-inspector-label">字号 ({selectedOverlay.font_size})</div>
-            <input
-              className="editor-range"
-              type="range"
-              min={12}
-              max={72}
-              value={selectedOverlay.font_size}
-              onChange={(event) =>
-                updateOverlayElement(selectedOverlay.id, {
-                  font_size: Number(event.target.value),
-                })
-              }
-            />
-          </div>
-          <div className="editor-inspector-section">
-            <label className="editor-modal__field">
-              <span>字体</span>
-              <select
-                className="editor-select"
-                value={selectedOverlay.font_family ?? DEFAULT_OVERLAY_FONT_FAMILY}
-                onChange={(event) =>
-                  updateOverlayElement(selectedOverlay.id, { font_family: event.target.value })
-                }
-              >
-                {OVERLAY_FONT_FAMILIES.map((font) => (
-                  <option key={font.id} value={font.id}>
-                    {font.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="editor-modal__field" style={{ marginTop: 10 }}>
-              <span>颜色</span>
-              <input
-                className="editor-select"
-                type="color"
-                value={selectedOverlay.color}
-                onChange={(event) =>
-                  updateOverlayElement(selectedOverlay.id, { color: event.target.value })
-                }
-              />
-            </label>
-          </div>
-          <div className="editor-inspector-section">
-            <div className="editor-inspector-label">
-              水平位置 ({Math.round(transform.x * 100)}%)
-            </div>
-            <input
-              className="editor-range"
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={transform.x}
-              onChange={(event) =>
-                updateOverlayElement(selectedOverlay.id, {
-                  transform: { ...transform, x: Number(event.target.value) },
-                })
-              }
-            />
-            <div className="editor-inspector-label" style={{ marginTop: 12 }}>
-              垂直位置 ({Math.round(transform.y * 100)}%)
-            </div>
-            <input
-              className="editor-range"
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={transform.y}
-              onChange={(event) =>
-                updateOverlayElement(selectedOverlay.id, {
-                  transform: { ...transform, y: Number(event.target.value) },
-                })
-              }
-            />
-            <div className="editor-inspector-label" style={{ marginTop: 12 }}>
-              缩放 ({transform.scale.toFixed(2)}×)
-            </div>
-            <input
-              className="editor-range"
-              type="range"
-              min={0.5}
-              max={2}
-              step={0.05}
-              value={transform.scale}
-              onChange={(event) =>
-                updateOverlayElement(selectedOverlay.id, {
-                  transform: { ...transform, scale: Number(event.target.value) },
-                })
-              }
-            />
-            <div className="editor-inspector-label" style={{ marginTop: 12 }}>
-              旋转 ({Math.round(transform.rotation)}°)
-            </div>
-            <input
-              className="editor-range"
-              type="range"
-              min={-180}
-              max={180}
-              step={1}
-              value={transform.rotation}
-              onChange={(event) =>
-                updateOverlayElement(selectedOverlay.id, {
-                  transform: { ...transform, rotation: Number(event.target.value) },
-                })
-              }
-            />
-          </div>
-          <div className="editor-inspector-section">
-            <div className="editor-text-style-row">
-              <button
-                type="button"
-                className={`editor-style-toggle ${selectedOverlay.bold ? 'is-active' : ''}`}
-                onClick={() =>
-                  updateOverlayElement(selectedOverlay.id, { bold: !selectedOverlay.bold })
-                }
-              >
-                B
-              </button>
-              <button
-                type="button"
-                className={`editor-style-toggle ${selectedOverlay.italic ? 'is-active' : ''}`}
-                onClick={() =>
-                  updateOverlayElement(selectedOverlay.id, { italic: !selectedOverlay.italic })
-                }
-              >
-                I
-              </button>
-            </div>
-          </div>
+          <EditorTextStyleControls
+            value={textStyle}
+            fontFamily={selectedOverlay.font_family ?? DEFAULT_OVERLAY_FONT_FAMILY}
+            onChange={(patch) => updateOverlayElement(selectedOverlay.id, patch)}
+            onFontFamilyChange={(fontFamily) =>
+              updateOverlayElement(selectedOverlay.id, { font_family: fontFamily })
+            }
+          />
+          {renderTransformControls(transform, (next) =>
+            updateOverlayElement(selectedOverlay.id, { transform: next })
+          )}
           <div className="editor-inspector-section">
             <div className="editor-inspector-label">
               起始 ({selectedOverlay.start_sec.toFixed(1)}s)
@@ -578,31 +512,28 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
         </div>
       )
     }
+
+    const blockTextStyle = extractTextStyle(overlay)
+
     return (
       <>
-        <div className="editor-inspector-subtabs">
-          {(
-            [
-              ['basic', '基础'],
-              ['bubble', '气泡'],
-              ['fancy', '花字'],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              className={`editor-inspector-subtab ${textSubTab === key ? 'is-active' : ''}`}
-              onClick={() => setTextSubTab(key)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        {textSubTab !== 'basic' ? (
-          <div className="editor-inspector-muted" style={{ marginBottom: 12 }}>
-            {textSubTab === 'bubble' ? '气泡样式即将支持' : '花字样式即将支持'}
+        <div className="editor-inspector-section">
+          <label className="editor-modal__field">
+            <span>使用 OpenCut 自由文本样式</span>
+            <input
+              type="checkbox"
+              checked={overlay.use_custom_style ?? false}
+              onChange={(event) =>
+                updateBlockOverlay(selectedBlock.id, {
+                  use_custom_style: event.target.checked,
+                })
+              }
+            />
+          </label>
+          <div className="editor-inspector-muted">
+            开启后预览与导出使用完整文本样式，关闭则沿用模板 cinema 布局
           </div>
-        ) : null}
+        </div>
         <div className="editor-inspector-section">
           <textarea
             className="editor-textarea"
@@ -618,44 +549,22 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
             placeholder="输入字幕文案…"
           />
         </div>
-        <div className="editor-inspector-section">
-          <div className="editor-inspector-label">字号 ({overlay.font_size ?? 15})</div>
-          <input
-            className="editor-range"
-            type="range"
-            min={10}
-            max={32}
-            value={overlay.font_size ?? 15}
-            onChange={(event) =>
-              updateBlockOverlay(selectedBlock.id, { font_size: Number(event.target.value) })
+        {(overlay.use_custom_style ?? false) ? (
+          <EditorTextStyleControls
+            value={blockTextStyle}
+            fontFamily={overlay.font_family ?? DEFAULT_OVERLAY_FONT_FAMILY}
+            onChange={(patch) => updateBlockOverlay(selectedBlock.id, patch)}
+            onFontFamilyChange={(fontFamily) =>
+              updateBlockOverlay(selectedBlock.id, { font_family: fontFamily })
             }
           />
-          <div className="editor-text-style-row">
-            <button
-              type="button"
-              className={`editor-style-toggle ${overlay.bold ? 'is-active' : ''}`}
-              onClick={() => updateBlockOverlay(selectedBlock.id, { bold: !overlay.bold })}
-            >
-              B
-            </button>
-            <button
-              type="button"
-              className={`editor-style-toggle ${overlay.underline ? 'is-active' : ''}`}
-              onClick={() =>
-                updateBlockOverlay(selectedBlock.id, { underline: !overlay.underline })
-              }
-            >
-              U
-            </button>
-            <button
-              type="button"
-              className={`editor-style-toggle ${overlay.italic ? 'is-active' : ''}`}
-              onClick={() => updateBlockOverlay(selectedBlock.id, { italic: !overlay.italic })}
-            >
-              I
-            </button>
-          </div>
-        </div>
+        ) : (
+          <EditorTextStyleControls
+            value={blockTextStyle}
+            showFontFamily={false}
+            onChange={(patch) => updateBlockOverlay(selectedBlock.id, patch)}
+          />
+        )}
         <div className="editor-inspector-section">
           <button
             type="button"

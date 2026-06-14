@@ -17,7 +17,7 @@ from backend.pipeline.composition import (
     should_apply_canvas_in_final_pass,
     should_apply_canvas_per_segment,
 )
-from backend.schemas.edit_session import EditBlock, EditSession
+from backend.schemas.edit_session import EditBlock, EditOverlayElement, EditSession
 from backend.utils.ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path
 from backend.utils.video_processor import VideoProcessor
 
@@ -77,10 +77,13 @@ def build_final_video_filter(
 
 
 def block_to_clip_data(block: EditBlock) -> Dict[str, Any]:
+    overlay = block.overlay.model_dump()
     return {
         "outline": block.overlay.outline,
         "content": block.overlay.content,
         "recommend_reason": block.overlay.recommend_reason,
+        "text_style": overlay,
+        "use_custom_style": block.overlay.use_custom_style,
     }
 
 
@@ -547,6 +550,130 @@ def apply_final_video_pass(
     return output_path.exists()
 
 
+FONT_SIZE_SCALE_REFERENCE = 90
+
+
+def _overlay_scaled_font_size(font_size: int, canvas_height: int) -> int:
+    return max(10, int(font_size * (canvas_height / FONT_SIZE_SCALE_REFERENCE)))
+
+
+def _build_free_overlay_drawtext(
+    overlay: EditOverlayElement,
+    temp_dir: Path,
+    canvas_width: int,
+    canvas_height: int,
+    index: int,
+    style_config: Optional[Dict[str, Any]] = None,
+) -> Optional[str]:
+    style_config = style_config or {}
+    font_path = VideoProcessor._resolve_subtitle_font(style_config)
+    if not font_path:
+        return None
+
+    text_file = temp_dir / f"free_overlay_{index}.txt"
+    text_file.write_text(overlay.content.replace("\r\n", "\n"), encoding="utf-8")
+
+    font_size = _overlay_scaled_font_size(int(overlay.font_size or 15), canvas_height)
+    font_color = VideoProcessor._normalize_ffmpeg_color(overlay.color, "white")
+    alpha = max(0.0, min(float(overlay.opacity or 1.0), 1.0))
+    if alpha < 0.999:
+        font_color = f"{font_color}@{alpha:.2f}"
+
+    transform = overlay.transform
+    pos_x = float(transform.x if transform else 0.5)
+    pos_y = float(transform.y if transform else 0.82)
+    x_expr = f"(w-text_w)*{pos_x:.4f}"
+    y_expr = f"(h-text_h)*{pos_y:.4f}"
+
+    parts = [
+        "drawtext="
+        f"fontfile='{VideoProcessor._escape_filter_value(font_path.as_posix())}'"
+        f":textfile='{VideoProcessor._escape_filter_value(text_file.as_posix())}'",
+        f"fontsize={font_size}",
+        f"fontcolor={font_color}",
+        f"x={x_expr}",
+        f"y={y_expr}",
+        f"enable='between(t,{overlay.start_sec:.3f},{overlay.start_sec + overlay.duration_sec:.3f})'",
+    ]
+
+    if overlay.bold:
+        parts.append("borderw=2")
+        parts.append(f"bordercolor={font_color}")
+
+    bg = overlay.background
+    if bg and bg.enabled:
+        box_color = VideoProcessor._normalize_ffmpeg_color(bg.color, "black@0.55")
+        pad = max(4, int((bg.padding_y or 12) * (font_size / 15)))
+        parts.extend(["box=1", f"boxcolor={box_color}", f"boxborderw={pad}"])
+
+    line_spacing = max(0, int((overlay.line_height - 1) * font_size))
+    if line_spacing:
+        parts.append(f"line_spacing={line_spacing}")
+
+    return ":".join(parts)
+
+
+def apply_free_text_overlays(
+    input_path: Path,
+    output_path: Path,
+    session: EditSession,
+) -> bool:
+    overlays = [
+        item
+        for item in (session.overlay_elements or [])
+        if not item.hidden and str(item.content).strip()
+    ]
+    if not overlays:
+        shutil.copy2(input_path, output_path)
+        return output_path.exists()
+
+    width, height = target_dimensions(session.export_settings)
+    temp_dir = output_path.parent / "_overlay_txt"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    filters: List[str] = []
+    for index, overlay in enumerate(overlays):
+        drawtext = _build_free_overlay_drawtext(
+            overlay,
+            temp_dir,
+            width,
+            height,
+            index,
+        )
+        if drawtext:
+            filters.append(drawtext)
+
+    if not filters:
+        shutil.copy2(input_path, output_path)
+        return output_path.exists()
+
+    vf = ",".join(filters)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        get_ffmpeg_path(),
+        "-i",
+        str(input_path.resolve()),
+        "-vf",
+        vf,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "fast",
+        "-crf",
+        "20",
+        "-c:a",
+        "copy",
+        "-y",
+        str(output_path.resolve()),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore")
+    if result.returncode != 0:
+        logger.error("自由文本层导出失败: %s", result.stderr[:400])
+        shutil.copy2(input_path, output_path)
+        return output_path.exists()
+    return output_path.exists()
+
+
 def mix_bgm_track(
     video_path: Path,
     bgm_path: Path,
@@ -718,6 +845,13 @@ def export_edit_session(
         shutil.copy2(merged_path, framed_path)
     merged_path.unlink(missing_ok=True)
     merged_path = framed_path
+
+    overlay_path = export_dir / f"{safe_name}_overlay.mp4"
+    report(86, "烧录自由文本层")
+    if not apply_free_text_overlays(merged_path, overlay_path, session):
+        raise RuntimeError("自由文本层处理失败")
+    merged_path.unlink(missing_ok=True)
+    merged_path = overlay_path
 
     bgm_rel = session.audio_settings.bgm_path
     if bgm_rel:

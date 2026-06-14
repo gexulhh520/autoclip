@@ -21,12 +21,13 @@ import {
   shouldShowBlurBackground,
 } from '../../utils/editPreviewFit'
 import { resolveVisualFilterStyle } from '../../utils/editVisualFilter'
-import { overlayFontFamilyCss } from '../../utils/editOverlayFonts'
+import { extractTextStyle } from '../../utils/textStyle'
 import QuoteOverlayPreview from '../QuoteOverlayPreview'
 import type { OverlayPreviewLayer } from '../QuoteOverlayPreview'
 import EditorAspectRatioPicker from './EditorAspectRatioPicker'
+import EditorTextOverlayLayer from './EditorTextOverlayLayer'
 import PreviewVideoLayer from './EditorPreviewVideoLayer'
-import type { EditBlock } from '../../types/editSession'
+import type { EditBlock, EditOverlayElement } from '../../types/editSession'
 
 interface EditorPreviewProps {
   projectId: string
@@ -62,6 +63,9 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const setPlaying = useEditSessionStore((state) => state.setPlaying)
   const advanceSequencePlayhead = useEditSessionStore((state) => state.advanceSequencePlayhead)
   const timelineTrackMuted = useEditSessionStore((state) => state.timelineTrackMuted)
+  const selectedOverlayId = useEditSessionStore((state) => state.selectedOverlayId)
+  const setSelectedOverlayId = useEditSessionStore((state) => state.setSelectedOverlayId)
+  const updateOverlayElement = useEditSessionStore((state) => state.updateOverlayElement)
 
   const isAssetPreview = Boolean(assetPreviewClip)
   const clipAudioMuted = timelineTrackMuted.mainVideo || timelineTrackMuted.audioWave
@@ -305,6 +309,22 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const videoFitClass = resolvePreviewVideoFitClass(fitMode, canvasAspect)
   const videoFilterStyle = resolveVisualFilterStyle(exportSettings?.visual_filter)
   const exportSummary = formatExportSettingsSummary(exportSettings, videoNaturalSize)
+  const canvasHeight = exportSettings?.height ?? 1080
+
+  const blockOverlayToElement = (
+    blockId: string,
+    overlay: EditBlock['overlay']
+  ): EditOverlayElement => ({
+    id: `caption-${blockId}`,
+    type: 'text',
+    start_sec: 0,
+    duration_sec: 999,
+    content: overlay.content.join('\n') || overlay.outline,
+    font_family: overlay.font_family,
+    transform: { x: 0.5, y: 0.88, scale: 1, rotation: 0 },
+    hidden: false,
+    ...extractTextStyle(overlay),
+  })
 
   const handleVideoMetadata = (video: HTMLVideoElement) => {
     if (video.videoWidth > 0 && video.videoHeight > 0) {
@@ -384,7 +404,17 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
             ) : null}
 
             {!isAssetPreview && !captionsMuted && previewBurnSubtitles && previewVm?.showTemplateCaptions
-              ? previewVm.captionLayers.map(({ blockId, opacity }) => {
+              ? previewVm.captionLayers.map(({ blockId, overlay, opacity }) => {
+                  if (overlay.use_custom_style) {
+                    return (
+                      <EditorTextOverlayLayer
+                        key={blockId}
+                        element={blockOverlayToElement(blockId, overlay)}
+                        canvasHeight={canvasHeight}
+                        layerOpacity={opacity}
+                      />
+                    )
+                  }
                   const overlayData = overlayByBlockId[blockId]
                   if (!overlayData?.layers.length) return null
                   return (
@@ -405,23 +435,21 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
 
             {!isAssetPreview && !freeOverlayMuted && previewVm?.freeOverlays.length
               ? previewVm.freeOverlays.map(({ element, opacity }) => (
-                  <div
+                  <EditorTextOverlayLayer
                     key={element.id}
-                    className="editor-free-overlay"
-                    style={{
-                      left: `${element.transform.x * 100}%`,
-                      top: `${element.transform.y * 100}%`,
-                      transform: `translate(-50%, -50%) scale(${element.transform.scale}) rotate(${element.transform.rotation}deg)`,
-                      fontSize: element.font_size,
-                      color: element.color,
-                      fontWeight: element.bold ? 700 : 400,
-                      fontStyle: element.italic ? 'italic' : 'normal',
-                      fontFamily: overlayFontFamilyCss(element.font_family),
-                      opacity,
+                    element={element}
+                    canvasHeight={canvasHeight}
+                    layerOpacity={opacity}
+                    isSelected={selectedOverlayId === element.id}
+                    interactive
+                    onSelect={(id) => {
+                      setSelectedOverlayId(id)
+                      useEditSessionStore.getState().setInspectorTab('text')
                     }}
-                  >
-                    {element.content}
-                  </div>
+                    onTransformChange={(id, transform, options) =>
+                      updateOverlayElement(id, { transform }, options)
+                    }
+                  />
                 ))
               : null}
 

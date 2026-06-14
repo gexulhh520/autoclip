@@ -4,6 +4,7 @@ import { PlusOutlined } from '@ant-design/icons'
 import { projectApi } from '../../services/api'
 import { blockDuration, useEditSessionStore } from '../../stores/useEditSessionStore'
 import { FIT_MODE_OPTIONS, VISUAL_FILTER_OPTIONS } from '../../utils/editExportPresets'
+import { captionsToOverlayElements, parseSrt } from '../../utils/srtImport'
 import EditorAspectSelect from './EditorAspectSelect'
 import type { EditAspectPresetId } from '../../utils/editAspectRatios'
 
@@ -26,8 +27,14 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
   const uploadBgm = useEditSessionStore((state) => state.uploadBgm)
   const appendClips = useEditSessionStore((state) => state.appendClips)
   const importMedia = useEditSessionStore((state) => state.importMedia)
+  const importSrtCaptions = useEditSessionStore((state) => state.importSrtCaptions)
+  const addOverlayElement = useEditSessionStore((state) => state.addOverlayElement)
+  const sequencePlayheadSec = useEditSessionStore((state) => state.sequencePlayheadSec)
+  const setInspectorTab = useEditSessionStore((state) => state.setInspectorTab)
   const assetPreviewClip = useEditSessionStore((state) => state.assetPreviewClip)
   const setAssetPreviewClip = useEditSessionStore((state) => state.setAssetPreviewClip)
+
+  const srtInputRef = useRef<HTMLInputElement>(null)
 
   const [projectClips, setProjectClips] = useState<ProjectClip[]>([])
   const [loadingClips, setLoadingClips] = useState(false)
@@ -376,17 +383,80 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
     )
   }
 
+  if (editorPanelMode === 'text') {
+    return (
+      <aside className="editor-asset-panel">
+        <div className="editor-panel-body">
+          <div className="editor-inspector-section">
+            <div className="editor-inspector-label">文本层</div>
+            <button
+              type="button"
+              className="editor-tool-btn"
+              onClick={() => {
+                addOverlayElement({ start_sec: sequencePlayheadSec })
+                setInspectorTab('text')
+              }}
+            >
+              在播放头添加文本
+            </button>
+          </div>
+          <div className="editor-inspector-section">
+            <div className="editor-inspector-label">导入字幕</div>
+            <div className="editor-inspector-muted" style={{ marginBottom: 10 }}>
+              支持 .srt 文件，导入为自由文本轨
+            </div>
+            <input
+              ref={srtInputRef}
+              type="file"
+              accept=".srt,text/plain"
+              hidden
+              onChange={async (event) => {
+                const file = event.target.files?.[0]
+                event.target.value = ''
+                if (!file) return
+                try {
+                  const text = await file.text()
+                  const result = parseSrt(text)
+                  if (!result.captions.length) {
+                    message.warning('未解析到有效字幕条目')
+                    return
+                  }
+                  importSrtCaptions(captionsToOverlayElements(result.captions))
+                  setInspectorTab('text')
+                  message.success(
+                    `已导入 ${result.captions.length} 条字幕` +
+                      (result.skippedCueCount ? `，跳过 ${result.skippedCueCount} 条` : '')
+                  )
+                } catch (error: unknown) {
+                  message.error(error instanceof Error ? error.message : '导入失败')
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="editor-tool-btn"
+              onClick={() => srtInputRef.current?.click()}
+            >
+              选择 SRT 文件
+            </button>
+          </div>
+          <div className="editor-empty-hint" style={{ marginTop: 16 }}>
+            在预览区拖拽文本定位，右侧调整样式
+          </div>
+        </div>
+      </aside>
+    )
+  }
+
   return (
     <aside className="editor-asset-panel">
       <div className="editor-panel-body">
         <div className="editor-empty-hint">
-          {editorPanelMode === 'text'
-            ? '在右侧「文本」面板编辑字幕样式与内容'
-            : editorPanelMode === 'transition'
-              ? '在右侧「转场」面板设置片段衔接'
-              : editorPanelMode === 'draft'
-                ? '在右侧「草稿参数」查看画幅与导出设置'
-                : '选择上方分类开始编辑'}
+          {editorPanelMode === 'transition'
+            ? '在右侧「转场」面板设置片段衔接'
+            : editorPanelMode === 'draft'
+              ? '在右侧「草稿参数」查看画幅与导出设置'
+              : '选择上方分类开始编辑'}
         </div>
       </div>
     </aside>
