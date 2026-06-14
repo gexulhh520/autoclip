@@ -206,6 +206,25 @@ class EditSessionAudioSettings(BaseModel):
     transition_duration_sec: float = 0.35
 
 
+class EditProjectV3Payload(BaseModel):
+    """EditProject v3 文档快照（与 frontend migration/v2ToV3 对齐）。"""
+
+    schema_version: int = 3
+    id: str
+    project_id: str
+    name: str
+    fps: float = 30
+    media_pool: List[Dict[str, Any]] = Field(default_factory=list)
+    scenes: List[Dict[str, Any]] = Field(default_factory=list)
+    export_settings: EditExportSettings = Field(default_factory=EditExportSettings)
+    audio_settings: EditSessionAudioSettings = Field(default_factory=EditSessionAudioSettings)
+    template_id: Optional[str] = None
+    template_version: Optional[str] = None
+    overlay_snapshot: Dict[str, Any] = Field(default_factory=dict)
+    created_at: str = ""
+    updated_at: str = ""
+
+
 class EditSession(BaseModel):
     schema_version: int = 1
     id: str
@@ -220,6 +239,7 @@ class EditSession(BaseModel):
     bookmarks: List[TimelineBookmark] = Field(default_factory=list)
     export_settings: EditExportSettings = Field(default_factory=EditExportSettings)
     audio_settings: EditSessionAudioSettings = Field(default_factory=EditSessionAudioSettings)
+    project_v3: Optional[EditProjectV3Payload] = None
     created_at: str
     updated_at: str
 
@@ -255,6 +275,8 @@ class EditSessionUpdateRequest(BaseModel):
     bookmarks: Optional[List[TimelineBookmark]] = None
     export_settings: Optional[EditExportSettings] = None
     audio_settings: Optional[EditSessionAudioSettings] = None
+    schema_version: Optional[int] = None
+    project_v3: Optional[EditProjectV3Payload] = None
 
 
 class EditSessionListResponse(BaseModel):

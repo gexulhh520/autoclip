@@ -514,7 +514,7 @@ EditSession → edit_renderer.export_edit_session
 Phase 0  [x] M0  Schema + Plan + Descriptor + 几何单源
 Phase 1  [x] M1  Rust Compositor + CompositorPreview 单路径
 Phase 2  [x] M2  Compositor 导出 + mux + E2E/perf 冒烟（无 UI driver）
-Phase 3  [~] M3  Effect Registry + EditProjectV3（进行中）
+Phase 3  [~] M3  Effect Registry + EditProjectV3（store/project_v3、转场/花字 Inspector、预览 hit-test）
 Phase 4  [ ]     性能 / 插件 / Headless
 ```
 

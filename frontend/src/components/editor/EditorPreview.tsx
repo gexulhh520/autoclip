@@ -57,6 +57,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const overlayElements = useEditSessionStore((state) => state.session?.overlay_elements)
   const selectedOverlayId = useEditSessionStore((state) => state.selectedOverlayId)
   const selectedOverlayIds = useEditSessionStore((state) => state.selectedOverlayIds)
+  const setSelectedOverlayId = useEditSessionStore((state) => state.setSelectedOverlayId)
   const textTrackMuted = useEditSessionStore((state) => state.textTrackMuted)
   const setPreviewVideoNaturalSize = useEditSessionStore((state) => state.setPreviewVideoNaturalSize)
 
@@ -380,6 +381,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                 onMetadata={handleVideoMetadata}
                 onTimeUpdate={handleOutgoingTimeUpdate}
                 onEnded={handleVideoEnded}
+                onSelectOverlay={setSelectedOverlayId}
               />
             ) : (
               <div className="editor-empty-hint">点击左侧素材预览，或选择时间线片段</div>

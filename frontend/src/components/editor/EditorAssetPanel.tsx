@@ -4,7 +4,8 @@ import { PlusOutlined } from '@ant-design/icons'
 import { projectApi } from '../../services/api'
 import { blockDuration, useEditSessionStore } from '../../stores/useEditSessionStore'
 import { getBlockVideoUrl } from '../../utils/editBlockMedia'
-import { FIT_MODE_OPTIONS, VISUAL_FILTER_OPTIONS } from '../../utils/editExportPresets'
+import { FIT_MODE_OPTIONS } from '../../utils/editExportPresets'
+import { listVisualFilterUiOptions } from '../../editor/effects'
 import { captionsToOpenCutOverlays, parseOpenCutSrt } from '../../editor/opencut-text/subtitles'
 import { resolveCanvasDimensions } from '../../editor/scene/canvas'
 import EditorAspectSelect from './EditorAspectSelect'
@@ -15,6 +16,7 @@ import EditorSessionSettingsPanel from './panels/EditorSessionSettingsPanel'
 import TextAssetsView from './panels/assets/views/TextAssetsView'
 import StickersAssetsView from './panels/assets/views/StickersAssetsView'
 import EffectsAssetsView from './panels/assets/views/EffectsAssetsView'
+import TransitionTypePicker from './TransitionTypePicker'
 
 interface ProjectClip {
   id: string
@@ -487,7 +489,7 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
               })
             }
           >
-            {VISUAL_FILTER_OPTIONS.map((option) => (
+            {listVisualFilterUiOptions().map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
@@ -545,22 +547,10 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
         {selectedBlock && !isLast ? (
           <div className="editor-inspector-section">
             <div className="editor-inspector-label">当前片段 → 下一段</div>
-            <div className="editor-transition-type-row">
-              <button
-                type="button"
-                className={`editor-transition-type ${transition === 'cut' ? 'is-active' : ''}`}
-                onClick={() => updateBlockTransition(selectedBlock.id, 'cut')}
-              >
-                硬切
-              </button>
-              <button
-                type="button"
-                className={`editor-transition-type ${transition === 'dissolve' ? 'is-active' : ''}`}
-                onClick={() => updateBlockTransition(selectedBlock.id, 'dissolve')}
-              >
-                叠化
-              </button>
-            </div>
+            <TransitionTypePicker
+              value={transition}
+              onChange={(value) => updateBlockTransition(selectedBlock.id, value)}
+            />
             <p className="editor-inspector-muted" style={{ marginTop: 8 }}>
               也可点击时间线片段衔接处快速切换
             </p>

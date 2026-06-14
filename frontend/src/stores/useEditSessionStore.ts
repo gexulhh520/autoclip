@@ -40,6 +40,11 @@ import {
 import { assertCompositorExportAvailable } from '../utils/compositorExportGate'
 import { loadExportPreset, saveExportPreset } from '../utils/editExportPresets'
 import {
+  normalizeEditDocument,
+  type EditDocument,
+} from '../editor/migration/v2ToV3'
+import { applyTextPresetToParams } from '../editor/effects'
+import {
   BASE_PX_PER_SEC,
   blockDuration,
   buildCompositionTimelineSegments,
@@ -104,6 +109,7 @@ interface EditSessionState {
 
   loadSession: (projectId: string, sessionId: string) => Promise<void>
   saveSession: (projectId: string) => Promise<void>
+  getEditDocument: () => EditDocument | null
   exportSession: (
     projectId: string,
     options?: {
@@ -198,6 +204,7 @@ interface EditSessionState {
     patch: Record<string, string | number | boolean>,
     options?: { recordHistory?: boolean }
   ) => void
+  applyTextPreset: (elementId: string, presetId: string) => void
   removeOverlayElement: (elementId: string) => void
   removeOverlayElements: (elementIds: string[]) => void
   clearBlockCaption: (blockId: string) => void
@@ -453,6 +460,7 @@ export const useEditSessionStore = create<EditSessionState>()(
         if (!session) return
         set({ saving: true })
         try {
+          const document = normalizeEditDocument(session)
           const updated = await editApi.updateSession(projectId, session.id, {
             name: session.name,
             sequence: session.sequence,
@@ -461,6 +469,8 @@ export const useEditSessionStore = create<EditSessionState>()(
             bookmarks: session.bookmarks,
             export_settings: session.export_settings,
             audio_settings: session.audio_settings,
+            schema_version: 3,
+            project_v3: document.project,
           })
           set({ session: updated, saving: false, dirty: false })
         } catch (error: unknown) {
@@ -469,6 +479,12 @@ export const useEditSessionStore = create<EditSessionState>()(
             error: error instanceof Error ? error.message : '保存失败',
           })
         }
+      },
+
+      getEditDocument: () => {
+        const { session } = get()
+        if (!session) return null
+        return normalizeEditDocument(session)
       },
 
       exportSession: async (projectId, options) => {
@@ -1191,6 +1207,15 @@ export const useEditSessionStore = create<EditSessionState>()(
           element.params = { ...element.params, ...patch }
           state.dirty = true
         })
+      },
+
+      applyTextPreset: (elementId, presetId) => {
+        const { session } = get()
+        if (!session?.overlay_elements) return
+        const element = session.overlay_elements.find((item) => item.id === elementId)
+        if (!element?.params) return
+        const nextParams = applyTextPresetToParams(element.params, presetId)
+        get().updateOverlayParams(elementId, nextParams)
       },
 
       removeOverlayElement: (elementId) => {

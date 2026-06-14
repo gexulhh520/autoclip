@@ -8,6 +8,9 @@ import { srtTimeToSeconds, secondsToSrtTime } from '../../utils/srtTime'
 import { projectApi } from '../../services/api'
 import EditorInspectorSelectionBanner from './EditorInspectorSelectionBanner'
 import OpenCutTextParamsPanel from './OpenCutTextParamsPanel'
+import TransitionTypePicker from './TransitionTypePicker'
+import TextPresetPicker from './TextPresetPicker'
+import { readTextPresetId } from '../../editor/effects'
 
 interface EditorInspectorProps {
   projectId: string
@@ -48,6 +51,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   const removeOverlayElement = useEditSessionStore((state) => state.removeOverlayElement)
   const deleteSelectedOverlays = useEditSessionStore((state) => state.deleteSelectedOverlays)
   const setSelectedOverlayId = useEditSessionStore((state) => state.setSelectedOverlayId)
+  const applyTextPreset = useEditSessionStore((state) => state.applyTextPreset)
 
   const [regenerating, setRegenerating] = useState(false)
   const [srtBoundaries, setSrtBoundaries] = useState<number[]>([])
@@ -284,8 +288,16 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
     }
 
     if (selectedOverlay) {
+      const activePresetId = readTextPresetId(selectedOverlay.params ?? {})
       return (
         <>
+          <div className="editor-inspector-section">
+            <div className="editor-inspector-label">花字预设</div>
+            <TextPresetPicker
+              activePresetId={activePresetId}
+              onSelect={(presetId) => applyTextPreset(selectedOverlay.id, presetId)}
+            />
+          </div>
           <OpenCutTextParamsPanel
             element={selectedOverlay}
             onChange={(key, value) => updateOverlayParams(selectedOverlay.id, { [key]: value })}
@@ -442,22 +454,10 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
       <>
         <div className="editor-inspector-section">
           <div className="editor-inspector-label">转场类型（至下一片段）</div>
-          <div className="editor-transition-type-row">
-            <button
-              type="button"
-              className={`editor-transition-type ${transition === 'cut' ? 'is-active' : ''}`}
-              onClick={() => updateBlockTransition(selectedBlock.id, 'cut')}
-            >
-              硬切
-            </button>
-            <button
-              type="button"
-              className={`editor-transition-type ${transition === 'dissolve' ? 'is-active' : ''}`}
-              onClick={() => updateBlockTransition(selectedBlock.id, 'dissolve')}
-            >
-              叠化
-            </button>
-          </div>
+          <TransitionTypePicker
+            value={transition}
+            onChange={(value) => updateBlockTransition(selectedBlock.id, value)}
+          />
           <p className="editor-inspector-muted" style={{ marginTop: 10 }}>
             也可点击时间线片段衔接处的标记快速切换
           </p>

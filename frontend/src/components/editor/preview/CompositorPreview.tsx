@@ -2,10 +2,14 @@ import React, { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { EditBlock, EditSession } from '../../../types/editSession'
 import {
   buildFrameDescriptor,
+  canvasPointFromEvent,
   compileCompositionPlan,
+  hitTestFrameDescriptor,
   type CompositionPlan,
 } from '../../../editor/compositor'
 import { renderFrameDescriptorToCanvas } from '../../../editor/compositor/softwareRenderer'
+import { measureTextOverlay } from '../../../editor/opencut-text/measure'
+import type { OpenCutTextOverlay } from '../../../editor/opencut-text/params'
 import type { PreviewSceneViewModel } from '../../../editor/scene/adapters/previewAdapter'
 
 export interface CompositorPreviewProps {
@@ -29,6 +33,10 @@ export interface CompositorPreviewProps {
   onMetadata: (video: HTMLVideoElement) => void
   onTimeUpdate: (video: HTMLVideoElement) => void
   onEnded: () => void
+  onSelectOverlay?: (
+    overlayId: string | null,
+    options?: { additive?: boolean; seekPlayhead?: boolean }
+  ) => void
 }
 
 const CompositorPreview: React.FC<CompositorPreviewProps> = ({
@@ -52,6 +60,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   onMetadata,
   onTimeUpdate,
   onEnded,
+  onSelectOverlay,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const primaryVideoRef = useRef<HTMLVideoElement>(null)
@@ -66,6 +75,16 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     [session, previewBurnSubtitles]
   )
 
+  const measureText = useCallback(
+    ({ element, canvasHeight }: { element: OpenCutTextOverlay; canvasHeight: number }) => {
+      const scratch = document.createElement('canvas')
+      const ctx = scratch.getContext('2d')
+      if (!ctx) throw new Error('Canvas 2D unavailable')
+      return measureTextOverlay({ element, canvasHeight, ctx })
+    },
+    []
+  )
+
   const descriptor = useMemo(() => {
     if (!plan) return null
     return buildFrameDescriptor(plan, sequencePlayheadSec, {
@@ -75,6 +94,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       selectedOverlayId,
       selectedOverlayIds,
       mutedTextTrackIds,
+      measureTextOverlay: measureText,
     })
   }, [
     plan,
@@ -87,6 +107,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     selectedOverlayId,
     selectedOverlayIds,
     mutedTextTrackIds,
+    measureText,
   ])
 
   const primaryLayer = previewVm.videoLayers[0] ?? null
@@ -169,6 +190,21 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     return () => window.cancelAnimationFrame(raf)
   }, [isPlaying, paint])
 
+  const handleCanvasClick = useCallback(
+    (event: React.MouseEvent<HTMLCanvasElement>) => {
+      if (!onSelectOverlay || !descriptor) return
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const { x, y } = canvasPointFromEvent(canvas, event)
+      const hit = hitTestFrameDescriptor(descriptor, x, y)
+      onSelectOverlay(hit?.elementId ?? null, {
+        additive: event.shiftKey || event.metaKey || event.ctrlKey,
+        seekPlayhead: false,
+      })
+    },
+    [descriptor, onSelectOverlay]
+  )
+
   return (
     <div className="compositor-preview">
       <canvas
@@ -176,6 +212,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         className={`compositor-preview__canvas editor-preview-canvas ${videoFitClass}`}
         width={canvasWidth}
         height={canvasHeight}
+        onClick={handleCanvasClick}
       />
 
       <div className="compositor-preview__decoders" aria-hidden>

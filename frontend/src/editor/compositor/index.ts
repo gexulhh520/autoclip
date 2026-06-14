@@ -22,6 +22,8 @@ export {
 } from './templateCaptionOpenCut'
 export * from './compilePlan'
 export * from './buildFrameDescriptor'
+export { hitTestFrameDescriptor, canvasPointFromEvent } from './hitTest'
+export type { HitTestTarget } from './hitTest'
 export {
   isTauriRuntime,
   renderFrameNative,

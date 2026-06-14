@@ -1,6 +1,7 @@
 import type { VisualFilterId } from './types'
 import { listEffects } from './registry'
 import { resolveVisualFilterCss } from './filters'
+import { TEXT_PRESET_EFFECTS } from './textPresets'
 
 export interface VisualFilterUiOption {
   value: VisualFilterId
@@ -43,5 +44,17 @@ export function listTransitionUiOptions(): TransitionUiOption[] {
     value: def.id === 'transition.dissolve' ? 'dissolve' : 'cut',
     label: def.label,
     effectId: def.id,
+  }))
+}
+
+export interface TextPresetUiOption {
+  effectId: string
+  label: string
+}
+
+export function listTextPresetUiOptions(): TextPresetUiOption[] {
+  return TEXT_PRESET_EFFECTS.map((def) => ({
+    effectId: def.id,
+    label: def.label,
   }))
 }

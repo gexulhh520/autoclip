@@ -1,4 +1,5 @@
 import type { OpenCutTextOverlay } from '../editor/opencut-text/params'
+import type { EditProjectV3 } from '../editor/migration/v2ToV3'
 
 export type EditOverlayElement = OpenCutTextOverlay
 
@@ -97,6 +98,7 @@ export interface EditSession {
   bookmarks?: TimelineBookmark[]
   export_settings: EditExportSettings
   audio_settings: EditSessionAudioSettings
+  project_v3?: EditProjectV3 | null
   created_at: string
   updated_at: string
 }
@@ -129,6 +131,8 @@ export interface EditSessionUpdateRequest {
   bookmarks?: TimelineBookmark[]
   export_settings?: EditExportSettings
   audio_settings?: EditSessionAudioSettings
+  schema_version?: number
+  project_v3?: EditProjectV3 | null
 }
 
 export interface EditSessionRegenerateRequest {

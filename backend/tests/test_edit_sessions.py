@@ -126,6 +126,40 @@ def test_update_edit_session_sequence(tmp_path, monkeypatch):
     assert updated.sequence[0].source_clip_id == session.sequence[1].source_clip_id
 
 
+def test_update_edit_session_persists_project_v3(tmp_path, monkeypatch):
+    project_id = "edit-session-v3"
+    project_dir = tmp_path / "projects" / project_id
+    _write_project_clips(project_dir)
+
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+
+    service = EditSessionService(db=None)
+    session = service.create_session(project_id, ["1"])
+    from backend.schemas.edit_session import EditProjectV3Payload, EditSessionUpdateRequest
+
+    project_v3 = EditProjectV3Payload(
+        id=session.id,
+        project_id=project_id,
+        name=session.name,
+        scenes=[{"id": "scene_1", "name": "主场景", "tracks": {"main": [], "overlay": [], "audio": []}}],
+    )
+    updated = service.update_session(
+        project_id,
+        session.id,
+        EditSessionUpdateRequest(schema_version=3, project_v3=project_v3),
+    )
+    assert updated.schema_version == 3
+    assert updated.project_v3 is not None
+    assert updated.project_v3.id == session.id
+
+    saved = json.loads((project_dir / "edit_sessions" / f"{session.id}.json").read_text(encoding="utf-8"))
+    assert saved.get("schema_version") == 3
+    assert saved.get("project_v3", {}).get("id") == session.id
+
+
 def test_edit_session_accepts_imported_clip_media_type():
     from backend.schemas.edit_session import EditSession
 
