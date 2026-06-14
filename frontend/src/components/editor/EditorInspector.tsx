@@ -29,6 +29,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   const session = useEditSessionStore((state) => state.session)
   const saving = useEditSessionStore((state) => state.saving)
   const selectedBlockId = useEditSessionStore((state) => state.selectedBlockId)
+  const selectedCaptionBlockId = useEditSessionStore((state) => state.selectedCaptionBlockId)
   const selectedOverlayId = useEditSessionStore((state) => state.selectedOverlayId)
   const selectedOverlayIds = useEditSessionStore((state) => state.selectedOverlayIds)
   const selectedCaptionBlockIds = useEditSessionStore((state) => state.selectedCaptionBlockIds)
@@ -53,6 +54,8 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
 
   const selectedBlock =
     session?.sequence.find((block) => block.id === selectedBlockId) ?? session?.sequence[0]
+  const captionEditingBlock =
+    session?.sequence.find((block) => block.id === selectedCaptionBlockId) ?? null
   const selectedOverlay =
     session?.overlay_elements?.find((item) => item.id === selectedOverlayId) ?? null
 
@@ -101,7 +104,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
       : Math.max(selectedBlock.trim.out_sec, blockDuration(selectedBlock))
     : 0
   const trimSnapPoints = selectedBlock ? collectTrimSnapPoints(maxDur, srtBoundaries) : []
-  const overlay = selectedBlock?.overlay
+  const overlay = captionEditingBlock?.overlay ?? selectedBlock?.overlay
   const totalTimelineSec = session.sequence.reduce(
     (sum, block) => sum + blockDuration(block),
     0
@@ -337,13 +340,15 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
       )
     }
 
-    if (!selectedBlock || !overlay) {
+    if (!overlay || (!captionEditingBlock && !selectedBlock)) {
       return (
         <div className="editor-empty-hint">
           选中片段编辑模板字幕，或按 T 在播放头添加自由文本层
         </div>
       )
     }
+
+    const captionBlock = captionEditingBlock ?? selectedBlock!
 
     return (
       <>
@@ -353,7 +358,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
             value={overlay.content.join('\n') || overlay.outline}
             onChange={(event) => {
               const lines = event.target.value.split('\n')
-              updateBlockOverlay(selectedBlock.id, {
+              updateBlockOverlay(captionBlock.id, {
                 content: lines,
                 outline: lines[0] || '',
               })
@@ -377,7 +382,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
             step={0.5}
             value={overlay.position_offset_x_pct ?? 0}
             onChange={(event) =>
-              updateBlockOverlay(selectedBlock.id, {
+              updateBlockOverlay(captionBlock.id, {
                 position_offset_x_pct: Number(event.target.value),
               })
             }
@@ -393,7 +398,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
             step={0.5}
             value={overlay.position_offset_y_pct ?? 0}
             onChange={(event) =>
-              updateBlockOverlay(selectedBlock.id, {
+              updateBlockOverlay(captionBlock.id, {
                 position_offset_y_pct: Number(event.target.value),
               })
             }
@@ -407,7 +412,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
             onClick={async () => {
               setRegenerating(true)
               try {
-                await regenerateBlockContent(projectId, selectedBlock.id, 'both')
+                await regenerateBlockContent(projectId, captionBlock.id, 'both')
                 message.success('文案已重写')
               } catch (error: unknown) {
                 message.error(error instanceof Error ? error.message : 'AI 重写失败')

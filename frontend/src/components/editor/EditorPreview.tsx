@@ -475,7 +475,6 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                       onSelect={(id, options) => {
                         if (!options?.additive) {
                           setSelectedOverlayId(null)
-                          setSelectedBlockId(id)
                         }
                         setSelectedCaptionBlockId(id, options)
                         setInspectorTab('text')
@@ -506,7 +505,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                     setSelectedBlockId(null)
                     setSelectedCaptionBlockId(null)
                   }
-                  setSelectedOverlayId(id, options)
+                  setSelectedOverlayId(id, { ...options, seekPlayhead: false })
                   useEditSessionStore.getState().setInspectorTab('text')
                 }}
                 onParamsChange={(id, patch, options) =>

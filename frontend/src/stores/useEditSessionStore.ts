@@ -150,8 +150,14 @@ interface EditSessionState {
   updateBlockPlaybackRate: (blockId: string, rate: number) => void
   updateBlockTransition: (blockId: string, transition: EditBlock['transition_out']) => void
   uploadBgm: (projectId: string, file: File) => Promise<void>
-  setSelectedBlockId: (blockId: string | null, options?: { additive?: boolean }) => void
-  setSelectedOverlayId: (overlayId: string | null, options?: { additive?: boolean }) => void
+  setSelectedBlockId: (
+    blockId: string | null,
+    options?: { additive?: boolean; seekPlayhead?: boolean }
+  ) => void
+  setSelectedOverlayId: (
+    overlayId: string | null,
+    options?: { additive?: boolean; seekPlayhead?: boolean }
+  ) => void
   setSelectedCaptionBlockId: (blockId: string | null, options?: { additive?: boolean }) => void
   setBoxSelection: (items: BoxSelectableItem[], options?: { additive?: boolean }) => void
   clearEditorSelection: () => void
@@ -765,7 +771,9 @@ export const useEditSessionStore = create<EditSessionState>()(
           state.selectedCaptionBlockId = null
           state.selectedCaptionBlockIds = []
           state.assetPreviewClip = null
-          state.sequencePlayheadSec = segment?.startSec ?? 0
+          if (options?.seekPlayhead !== false) {
+            state.sequencePlayheadSec = segment?.startSec ?? 0
+          }
           state.isPlaying = false
         })
       },
@@ -794,7 +802,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             state.selectedCaptionBlockIds = []
           }
           state.isPlaying = false
-          if (!state.session?.overlay_elements) return
+          if (options?.seekPlayhead === false || !state.session?.overlay_elements) return
           const overlay = state.session.overlay_elements.find((item) => item.id === overlayId)
           if (overlay) {
             state.sequencePlayheadSec = overlay.start_sec

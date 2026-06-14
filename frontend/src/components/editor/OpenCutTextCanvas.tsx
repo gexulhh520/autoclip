@@ -205,7 +205,10 @@ const OpenCutTextCanvas = forwardRef<OpenCutTextCanvasHandle, OpenCutTextCanvasP
       if (!hit) return
       event.stopPropagation()
       const additive = event.shiftKey || event.ctrlKey || event.metaKey
-      onSelect?.(hit.id, { additive })
+      const alreadySelected = resolvedSelectedIds.includes(hit.id)
+      if (additive || !alreadySelected) {
+        onSelect?.(hit.id, { additive })
+      }
 
       const dragIds =
         resolvedSelectedIds.includes(hit.id) && resolvedSelectedIds.length > 1

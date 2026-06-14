@@ -65,7 +65,10 @@ const TemplateCaptionLayer: React.FC<TemplateCaptionLayerProps> = ({
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     event.stopPropagation()
     const additive = event.shiftKey || event.ctrlKey || event.metaKey
-    onSelect(blockId, { additive })
+    const alreadySelected = selected || selectedBlockIds.includes(blockId)
+    if (additive || !alreadySelected) {
+      onSelect(blockId, { additive })
+    }
     const frame = event.currentTarget.closest('.editor-preview-frame') as HTMLElement | null
     if (!frame) return
 
