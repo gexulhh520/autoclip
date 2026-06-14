@@ -326,8 +326,42 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
             placeholder="输入字幕文案…"
           />
           <div className="editor-inspector-muted" style={{ marginTop: 8 }}>
-            模板字幕使用 cinema 布局预览与导出，样式由模板控制
+            可在预览区点击字幕并拖拽调整位置，导出时会同步偏移
           </div>
+        </div>
+        <div className="editor-inspector-section">
+          <div className="editor-inspector-label">
+            横向位置 ({(overlay.position_offset_x_pct ?? 0).toFixed(1)}%)
+          </div>
+          <input
+            className="editor-range"
+            type="range"
+            min={-25}
+            max={25}
+            step={0.5}
+            value={overlay.position_offset_x_pct ?? 0}
+            onChange={(event) =>
+              updateBlockOverlay(selectedBlock.id, {
+                position_offset_x_pct: Number(event.target.value),
+              })
+            }
+          />
+          <div className="editor-inspector-label" style={{ marginTop: 12 }}>
+            纵向位置 ({(overlay.position_offset_y_pct ?? 0).toFixed(1)}%)
+          </div>
+          <input
+            className="editor-range"
+            type="range"
+            min={-25}
+            max={25}
+            step={0.5}
+            value={overlay.position_offset_y_pct ?? 0}
+            onChange={(event) =>
+              updateBlockOverlay(selectedBlock.id, {
+                position_offset_y_pct: Number(event.target.value),
+              })
+            }
+          />
         </div>
         <div className="editor-inspector-section">
           <button

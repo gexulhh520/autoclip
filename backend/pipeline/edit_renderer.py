@@ -82,6 +82,8 @@ def block_to_clip_data(block: EditBlock) -> Dict[str, Any]:
         "outline": block.overlay.outline,
         "content": content,
         "recommend_reason": block.overlay.recommend_reason,
+        "position_offset_x_pct": float(block.overlay.position_offset_x_pct or 0),
+        "position_offset_y_pct": float(block.overlay.position_offset_y_pct or 0),
     }
     if len(content) >= 1 and all(isinstance(item, str) and item.strip() for item in content[:3]):
         payload["overlay_copy"] = True
@@ -219,13 +221,33 @@ def render_block_segment(
     ffmpeg_bin = get_ffmpeg_path()
 
     clip_data = block_to_clip_data(block)
-    style_config = overlay_config or {}
+    style_config = dict(overlay_config or {})
 
     canvas_size: Optional[Tuple[int, int]] = None
     frame_vf: Optional[str] = None
     if export_settings is not None and should_apply_canvas_per_segment(export_settings):
         canvas_size = target_dimensions(export_settings)
         frame_vf = build_frame_filter(export_settings)
+
+    overlay_w, overlay_h = canvas_size if canvas_size else (None, None)
+    if overlay_w and overlay_h:
+        from backend.pipeline.overlay_pipeline import apply_overlay_position_offsets
+
+        style_config = apply_overlay_position_offsets(
+            style_config,
+            clip_data,
+            ref_width=int(overlay_w),
+            ref_height=int(overlay_h),
+        )
+    elif style_config:
+        from backend.pipeline.overlay_pipeline import apply_overlay_position_offsets
+
+        style_config = apply_overlay_position_offsets(
+            style_config,
+            clip_data,
+            ref_width=720,
+            ref_height=1280,
+        )
 
     vf: Optional[str] = None
     if burn_subtitles:

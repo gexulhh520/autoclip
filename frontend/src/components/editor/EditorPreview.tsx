@@ -21,8 +21,8 @@ import {
   shouldShowBlurBackground,
 } from '../../utils/editPreviewFit'
 import { resolveVisualFilterStyle } from '../../utils/editVisualFilter'
-import QuoteOverlayPreview from '../QuoteOverlayPreview'
-import type { OverlayPreviewLayer } from '../QuoteOverlayPreview'
+import type { OverlayPreviewLayer, OverlayPreviewConfig } from '../QuoteOverlayPreview'
+import TemplateCaptionLayer from './TemplateCaptionLayer'
 import EditorAspectRatioPicker from './EditorAspectRatioPicker'
 import OpenCutTextCanvas from './OpenCutTextCanvas'
 import PreviewVideoLayer from './EditorPreviewVideoLayer'
@@ -37,7 +37,7 @@ interface EditorPreviewProps {
 interface OverlayState {
   layout: 'cinema' | 'highlight' | 'none'
   layers: OverlayPreviewLayer[]
-  config?: Record<string, unknown>
+  config?: OverlayPreviewConfig
 }
 
 const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) => {
@@ -66,8 +66,14 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const timelineTrackHidden = useEditSessionStore((state) => state.timelineTrackHidden)
   const overlayElements = useEditSessionStore((state) => state.session?.overlay_elements)
   const selectedOverlayId = useEditSessionStore((state) => state.selectedOverlayId)
+  const selectedBlockId = useEditSessionStore((state) => state.selectedBlockId)
+  const selectedCaptionBlockId = useEditSessionStore((state) => state.selectedCaptionBlockId)
   const setSelectedOverlayId = useEditSessionStore((state) => state.setSelectedOverlayId)
+  const setSelectedCaptionBlockId = useEditSessionStore((state) => state.setSelectedCaptionBlockId)
+  const setSelectedBlockId = useEditSessionStore((state) => state.setSelectedBlockId)
+  const setInspectorTab = useEditSessionStore((state) => state.setInspectorTab)
   const updateOverlayParams = useEditSessionStore((state) => state.updateOverlayParams)
+  const updateBlockOverlay = useEditSessionStore((state) => state.updateBlockOverlay)
 
   const isAssetPreview = Boolean(assetPreviewClip)
   const clipAudioMuted = timelineTrackMuted.mainVideo || timelineTrackMuted.audioWave
@@ -404,18 +410,30 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
               ? previewVm.captionLayers.map(({ blockId, opacity }) => {
                   const overlayData = overlayByBlockId[blockId]
                   if (!overlayData?.layers.length) return null
+                  const block = blocks.find((item) => item.id === blockId)
                   return (
-                    <div
+                    <TemplateCaptionLayer
                       key={blockId}
-                      className="editor-preview-caption-layer"
-                      style={{ opacity }}
-                    >
-                      <QuoteOverlayPreview
-                        layout={overlayData.layout}
-                        layers={overlayData.layers}
-                        config={overlayData.config}
-                      />
-                    </div>
+                      blockId={blockId}
+                      block={block}
+                      opacity={opacity}
+                      layout={overlayData.layout}
+                      layers={overlayData.layers}
+                      config={overlayData.config}
+                      selected={
+                        selectedCaptionBlockId === blockId ||
+                        selectedBlockId === blockId
+                      }
+                      onSelect={(id) => {
+                        setSelectedOverlayId(null)
+                        setSelectedBlockId(id)
+                        setSelectedCaptionBlockId(id)
+                        setInspectorTab('text')
+                      }}
+                      onPositionChange={(id, patch, options) => {
+                        updateBlockOverlay(id, patch, options)
+                      }}
+                    />
                   )
                 })
               : null}

@@ -95,12 +95,14 @@ def _stack_positions(
 
     positions: List[Tuple[int, int, int]] = []
     y_cursor = height - margin_bottom
+    offset_x = int(config.get("position_offset_x") or 0)
+    offset_y = int(config.get("position_offset_y") or 0)
 
     for layer in reversed(layers):
         _, size_scale, _, _, _ = _layer_style(layer.role, config)
         line_height = max(min_line, int(base_size * size_scale * layer.size_scale * line_factor))
         y_cursor -= line_height
-        positions.append((x_base, y_cursor, ass_anchor))
+        positions.append((x_base + offset_x, y_cursor - offset_y, ass_anchor))
 
     positions.reverse()
     return positions

@@ -182,7 +182,11 @@ interface EditSessionState {
   setSequencePlayheadSec: (sec: number) => void
   advanceSequencePlayhead: (sec: number) => void
   setTimelineZoom: (zoom: number) => void
-  updateBlockOverlay: (blockId: string, overlay: Partial<EditBlock['overlay']>) => void
+  updateBlockOverlay: (
+    blockId: string,
+    overlay: Partial<EditBlock['overlay']>,
+    options?: { recordHistory?: boolean }
+  ) => void
   updateBlockTrim: (
     blockId: string,
     trim: Partial<EditBlock['trim']>,
@@ -1033,7 +1037,10 @@ export const useEditSessionStore = create<EditSessionState>()(
       },
       setTimelineZoom: (zoom) => set({ timelineZoom: Math.min(200, Math.max(50, zoom)) }),
 
-      updateBlockOverlay: (blockId, overlay) => {
+      updateBlockOverlay: (blockId, overlay, options) => {
+        if (options?.recordHistory) {
+          pushHistory()
+        }
         set((state) => {
           if (!state.session) return
           const block = state.session.sequence.find((item) => item.id === blockId)

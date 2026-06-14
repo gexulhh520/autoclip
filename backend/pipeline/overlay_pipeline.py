@@ -171,6 +171,24 @@ def compose_overlay_layers(
     return composer_fn(clip_data, pipeline.config)
 
 
+def apply_overlay_position_offsets(
+    config: Dict[str, Any],
+    clip_data: Dict[str, Any],
+    *,
+    ref_width: int,
+    ref_height: int,
+) -> Dict[str, Any]:
+    """将片段级位置偏移合并进 overlay 布局配置（预览与导出共用）。"""
+    merged = dict(config)
+    ox_pct = float(clip_data.get("position_offset_x_pct") or 0)
+    oy_pct = float(clip_data.get("position_offset_y_pct") or 0)
+    merged["position_offset_x"] = int(round(ref_width * ox_pct / 100))
+    merged["position_offset_y"] = int(round(ref_height * oy_pct / 100))
+    merged["position_offset_x_pct"] = ox_pct
+    merged["position_offset_y_pct"] = oy_pct
+    return merged
+
+
 def build_overlay_layout_config(
     config: Dict[str, Any],
     *,
@@ -219,6 +237,12 @@ def build_overlay_preview(
     """预览校准 API 与 Step6 共用的 overlay 预览结构。"""
     layout_config = build_overlay_layout_config(
         pipeline.config,
+        ref_width=ref_width,
+        ref_height=ref_height,
+    )
+    layout_config = apply_overlay_position_offsets(
+        layout_config,
+        clip_data,
         ref_width=ref_width,
         ref_height=ref_height,
     )

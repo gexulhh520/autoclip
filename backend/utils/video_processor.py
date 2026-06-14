@@ -243,8 +243,13 @@ class VideoProcessor:
         border_color = VideoProcessor._normalize_ffmpeg_color(style_config.get("border_color"), "black")
         border_width = int(style_config.get("border_width", 3) or 3)
         margin_bottom = int(style_config.get("margin_bottom", 80) or 80)
+        offset_y = int(style_config.get("position_offset_y") or 0)
+        margin_bottom += offset_y
         line_spacing = int(style_config.get("line_spacing", 8) or 8)
+        offset_x = int(style_config.get("position_offset_x") or 0)
         x_expr = str(style_config.get("x", "(w-text_w)/2"))
+        if offset_x:
+            x_expr = f"({x_expr})+{offset_x}"
         y_expr = str(style_config.get("y", f"h-text_h-{margin_bottom}"))
 
         parts = [

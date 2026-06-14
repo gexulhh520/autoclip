@@ -18,6 +18,8 @@ class EditBlockOverlay(BaseModel):
     outline: str = ""
     content: List[str] = Field(default_factory=list)
     recommend_reason: str = ""
+    position_offset_x_pct: float = 0.0
+    position_offset_y_pct: float = 0.0
 
 
 class EditBlockAudio(BaseModel):

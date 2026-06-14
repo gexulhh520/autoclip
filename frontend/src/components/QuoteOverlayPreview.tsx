@@ -22,6 +22,8 @@ export interface OverlayPreviewConfig {
   alignment?: string
   headline_color?: string
   body_color?: string
+  position_offset_x_pct?: number
+  position_offset_y_pct?: number
 }
 
 interface QuoteOverlayPreviewProps {
@@ -29,6 +31,13 @@ interface QuoteOverlayPreviewProps {
   layers: OverlayPreviewLayer[]
   config?: OverlayPreviewConfig
   visible?: boolean
+  interactive?: boolean
+  selected?: boolean
+  className?: string
+  onPointerDown?: (event: React.PointerEvent<HTMLDivElement>) => void
+  onPointerMove?: (event: React.PointerEvent<HTMLDivElement>) => void
+  onPointerUp?: (event: React.PointerEvent<HTMLDivElement>) => void
+  onPointerCancel?: (event: React.PointerEvent<HTMLDivElement>) => void
 }
 
 const roleClass = (role: string): string => {
@@ -64,6 +73,13 @@ const QuoteOverlayPreview: React.FC<QuoteOverlayPreviewProps> = ({
   layers,
   config,
   visible = true,
+  interactive = false,
+  selected = false,
+  className,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
 }) => {
   if (!visible || layout === 'none' || layers.length === 0) return null
 
@@ -71,6 +87,27 @@ const QuoteOverlayPreview: React.FC<QuoteOverlayPreviewProps> = ({
   const leftPct = config?.margin_left_pct ?? 5.5
   const rightPct = config?.margin_right_pct ?? leftPct
   const bottomPct = config?.margin_bottom_pct ?? 11
+  const offsetXPct = config?.position_offset_x_pct ?? 0
+  const offsetYPct = config?.position_offset_y_pct ?? 0
+
+  const applyPositionOffset = (style: React.CSSProperties): React.CSSProperties => {
+    if (!offsetXPct && !offsetYPct) return style
+    const extraTransform = ` translate(${offsetXPct}%, ${-offsetYPct}%)`
+    if (style.transform) {
+      return { ...style, transform: `${style.transform}${extraTransform}` }
+    }
+    return { ...style, transform: extraTransform.trim() }
+  }
+
+  const rootClassName = [
+    'quote-overlay-preview',
+    'quote-overlay-preview--highlight',
+    interactive ? 'is-interactive' : '',
+    selected ? 'is-selected' : '',
+    className ?? '',
+  ]
+    .filter(Boolean)
+    .join(' ')
 
   if (layout === 'highlight') {
     const layer = layers[0]
@@ -82,9 +119,13 @@ const QuoteOverlayPreview: React.FC<QuoteOverlayPreviewProps> = ({
 
     return (
       <div
-        className="quote-overlay-preview quote-overlay-preview--highlight"
-        style={{ bottom: `${bottomPctHighlight}%` }}
+        className={rootClassName}
+        style={applyPositionOffset({ bottom: `${bottomPctHighlight}%` })}
         aria-hidden
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
       >
         <div
           className="quote-overlay-line quote-overlay-line--highlight"
@@ -109,11 +150,26 @@ const QuoteOverlayPreview: React.FC<QuoteOverlayPreviewProps> = ({
     positionStyle.left = `${leftPct}%`
   }
 
+  const cinemaClassName = [
+    'quote-overlay-preview',
+    'quote-overlay-preview--cinema',
+    alignmentClass(alignment),
+    interactive ? 'is-interactive' : '',
+    selected ? 'is-selected' : '',
+    className ?? '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   return (
     <div
-      className={`quote-overlay-preview quote-overlay-preview--cinema ${alignmentClass(alignment)}`}
-      style={positionStyle}
+      className={cinemaClassName}
+      style={applyPositionOffset(positionStyle)}
       aria-hidden
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
     >
       {layers.map((layer, index) => (
         <div

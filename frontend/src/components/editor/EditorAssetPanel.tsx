@@ -386,7 +386,7 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
       <div className="editor-inspector-section">
         <div className="editor-inspector-label">模板字幕</div>
         <p className="editor-inspector-muted">
-          片段自带 cinema 模板字幕，选中片段后在右侧「文本」编辑或 AI 写旁白
+          片段自带 cinema 模板字幕；在预览区点击字幕拖拽改位置，或在右侧「文本」面板微调
         </p>
         <label className="editor-modal__check" style={{ marginTop: 10 }}>
           <input

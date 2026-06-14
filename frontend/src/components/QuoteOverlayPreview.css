@@ -1,3 +1,18 @@
+.quote-overlay-preview.is-interactive {
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+}
+
+.quote-overlay-preview.is-interactive:active {
+  cursor: grabbing;
+}
+
+.quote-overlay-preview.is-interactive.is-selected {
+  outline: 2px solid color-mix(in srgb, var(--ac-accent) 85%, transparent);
+  outline-offset: 4px;
+}
+
 .quote-overlay-preview {
   position: absolute;
   z-index: 2;

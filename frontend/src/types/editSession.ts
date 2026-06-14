@@ -21,6 +21,10 @@ export interface EditBlockOverlay {
   outline: string
   content: string[]
   recommend_reason: string
+  /** 相对模板默认位置的横向偏移（画布宽度百分比，正=向右） */
+  position_offset_x_pct?: number
+  /** 相对模板默认位置的纵向偏移（画布高度百分比，正=向上） */
+  position_offset_y_pct?: number
 }
 
 export interface EditBlockAudio {
