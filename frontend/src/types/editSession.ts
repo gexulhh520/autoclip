@@ -172,6 +172,16 @@ export interface EditSessionExportRequest {
   write_back_to_project?: boolean
   output_dir?: string | null
   async_export?: boolean
+  use_compositor_export?: boolean
+}
+
+export interface EditSessionCompositorMuxRequest {
+  compositor_video_path: string
+  filename?: string
+  export_srt?: boolean
+  use_source_video?: boolean
+  write_back_to_project?: boolean
+  output_dir?: string | null
 }
 
 export interface EditSessionBatchExportRequest {

@@ -19,6 +19,7 @@ from backend.schemas.edit_session import (
     EditSessionBilibiliUploadRequest,
     EditSessionBilibiliUploadResponse,
     EditSessionExportRequest,
+    EditSessionCompositorMuxRequest,
     EditSessionExportJobStatusResponse,
     EditSessionExportResponse,
     EditSessionImportMediaResponse,
@@ -389,6 +390,74 @@ async def export_edit_session_video(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("导出剪辑工程失败: %s/%s", project_id, session_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/export/compositor-mux",
+    response_model=EditSessionExportResponse,
+)
+async def mux_compositor_export_video(
+    project_id: str,
+    session_id: str,
+    body: EditSessionCompositorMuxRequest,
+    service: EditSessionService = Depends(get_edit_session_service),
+):
+    from pathlib import Path
+
+    from backend.core.path_utils import get_project_directory
+    from backend.pipeline.edit_renderer import mux_compositor_export as run_mux
+    from backend.utils.export_local import copy_export_outputs
+
+    try:
+        session = service.get_session(project_id, session_id)
+        compositor_video = Path(body.compositor_video_path).expanduser()
+        if not compositor_video.is_file():
+            raise HTTPException(status_code=400, detail="Compositor 视频文件不存在")
+
+        output_path, srt_path = run_mux(
+            session,
+            compositor_video,
+            output_filename=body.filename or session.name,
+            export_srt=body.export_srt,
+            use_source_video=body.use_source_video,
+        )
+
+        project_clip_path: str | None = None
+        if body.write_back_to_project:
+            project_clip_path = service.write_export_to_project(
+                project_id,
+                session,
+                output_path,
+                title=body.filename or session.name,
+            )
+
+        rel = output_path.relative_to(get_project_directory(project_id)).as_posix()
+        srt_rel: str | None = None
+        srt_download_url: str | None = None
+        if srt_path is not None:
+            srt_rel = srt_path.relative_to(get_project_directory(project_id)).as_posix()
+            srt_download_url = (
+                f"/api/v1/projects/{project_id}/edit-sessions/{session_id}/exports/{srt_path.name}"
+            )
+
+        local_video, local_srt = copy_export_outputs(output_path, srt_path, body.output_dir)
+        return EditSessionExportResponse(
+            success=True,
+            output_path=rel,
+            download_url=f"/api/v1/projects/{project_id}/edit-sessions/{session_id}/exports/{output_path.name}",
+            srt_path=srt_rel,
+            srt_download_url=srt_download_url,
+            project_clip_path=project_clip_path,
+            local_output_path=str(local_video),
+            local_srt_path=str(local_srt) if local_srt else None,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Compositor 混音导出失败: %s/%s", project_id, session_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

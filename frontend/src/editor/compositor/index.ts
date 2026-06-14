@@ -28,3 +28,9 @@ export {
   renderFrameDescriptorToDataUrl,
   type SoftwareRendererOptions,
 } from './softwareRenderer'
+export { exportTimelineViaCompositor, type ExportTimelineOptions } from './exportTimeline'
+export {
+  loadExportVideoSources,
+  syncExportVideosAtTime,
+  disposeExportVideoSources,
+} from './exportVideoSources'

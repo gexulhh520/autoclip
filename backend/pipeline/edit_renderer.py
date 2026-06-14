@@ -854,6 +854,18 @@ def export_edit_session(
     use_source_video: Optional[bool] = None,
     progress_callback: Optional[Callable[[int, str], None]] = None,
 ) -> Tuple[Path, Optional[Path]]:
+    """Legacy FFmpeg 合成导出（ASS/drawtext 布局）。
+
+    新默认路径：桌面 Compositor + ``mux_compositor_export``。
+    设置 ``AUTOCLIP_EXPORT_LEGACY=1`` 可显式保留此路径用于回归对比。
+    """
+    import os
+
+    if os.getenv("AUTOCLIP_EXPORT_LEGACY", "").lower() not in {"1", "true", "yes"}:
+        logger.warning(
+            "export_edit_session: legacy FFmpeg layout path invoked; prefer Compositor export (AUTOCLIP_EXPORT_LEGACY=1 to silence)"
+        )
+
     def report(progress: int, message: str) -> None:
         if progress_callback is not None:
             progress_callback(max(0, min(progress, 100)), message)
@@ -964,6 +976,171 @@ def _safe_export_stem(value: str, fallback: str) -> str:
     for char in '\\/:*?"<>|':
         stem = stem.replace(char, "_")
     return stem or fallback
+
+
+def extract_block_audio_segment(
+    project_dir: Path,
+    block: EditBlock,
+    output_path: Path,
+    *,
+    use_source_video: bool,
+) -> bool:
+    """提取单片段音频轨（无视频滤镜）— Compositor 导出后混音用。"""
+    try:
+        input_video, trim_in, duration = _resolve_render_window(
+            project_dir, block, use_source_video=use_source_video
+        )
+    except FileNotFoundError:
+        return False
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    af = _build_audio_filter(
+        block.audio.volume,
+        fade_in_sec=block.audio.fade_in_sec,
+        fade_out_sec=block.audio.fade_out_sec,
+        duration_sec=duration,
+    )
+    playback_rate = _block_playback_rate(block)
+    if abs(playback_rate - 1.0) >= 0.01:
+        speed_af = _build_speed_audio_filter(playback_rate)
+        if speed_af:
+            af = f"{af},{speed_af}" if af else speed_af
+    cmd: List[str] = [
+        get_ffmpeg_path(),
+        "-ss",
+        str(trim_in),
+        "-i",
+        str(input_video.resolve()),
+        "-t",
+        str(duration),
+        "-vn",
+    ]
+    if af:
+        cmd.extend(["-af", af])
+    cmd.extend(["-c:a", "aac", "-b:a", "128k", "-y", str(output_path.resolve())])
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore")
+    if result.returncode != 0:
+        logger.error("片段音频提取失败: %s", result.stderr[:300])
+        return False
+    return output_path.exists()
+
+
+def mux_compositor_export(
+    session: EditSession,
+    compositor_video: Path,
+    *,
+    output_filename: Optional[str] = None,
+    export_srt: bool = False,
+    use_source_video: Optional[bool] = None,
+) -> Tuple[Path, Optional[Path]]:
+    """Compositor 像素 + timeline 音频/BGM → 成片（无 ASS/drawtext 布局）。"""
+    if not compositor_video.is_file():
+        raise FileNotFoundError(str(compositor_video))
+
+    session = session.model_copy(deep=True)
+    project_dir = get_project_directory(session.project_id)
+    export_dir = project_dir / "edit_exports" / session.id
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    prefer_source = (
+        use_source_video
+        if use_source_video is not None
+        else bool(session.audio_settings.use_source_video)
+    )
+
+    safe_name = _safe_export_stem(output_filename or session.name, session.id[:8])
+    output_path = export_dir / f"{safe_name}.mp4"
+    audio_segments: List[Path] = []
+
+    for index, block in enumerate(session.sequence):
+        seg_audio = export_dir / f"compositor_audio_{index:03d}.aac"
+        if extract_block_audio_segment(
+            project_dir, block, seg_audio, use_source_video=prefer_source
+        ):
+            audio_segments.append(seg_audio)
+
+    merged_audio = export_dir / f"{safe_name}_timeline_audio.aac"
+    if audio_segments:
+        concat_list = export_dir / f"{safe_name}_audio_concat.txt"
+        concat_lines = [f"file '{path.resolve().as_posix()}'" for path in audio_segments]
+        concat_list.write_text("\n".join(concat_lines), encoding="utf-8")
+        concat_cmd = [
+            get_ffmpeg_path(),
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(concat_list.resolve()),
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-y",
+            str(merged_audio.resolve()),
+        ]
+        result = subprocess.run(
+            concat_cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore"
+        )
+        concat_list.unlink(missing_ok=True)
+        for seg in audio_segments:
+            seg.unlink(missing_ok=True)
+        if result.returncode != 0 or not merged_audio.exists():
+            shutil.copy2(compositor_video, output_path)
+        else:
+            staged = export_dir / f"{safe_name}_with_audio.mp4"
+            mux_cmd = [
+                get_ffmpeg_path(),
+                "-i",
+                str(compositor_video.resolve()),
+                "-i",
+                str(merged_audio.resolve()),
+                "-map",
+                "0:v",
+                "-map",
+                "1:a",
+                "-c:v",
+                "copy",
+                "-c:a",
+                "aac",
+                "-shortest",
+                "-y",
+                str(staged.resolve()),
+            ]
+            mux_result = subprocess.run(
+                mux_cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore"
+            )
+            merged_audio.unlink(missing_ok=True)
+            if mux_result.returncode != 0 or not staged.exists():
+                shutil.copy2(compositor_video, output_path)
+            else:
+                shutil.copy2(staged, output_path)
+                staged.unlink(missing_ok=True)
+    else:
+        shutil.copy2(compositor_video, output_path)
+
+    bgm_rel = session.audio_settings.bgm_path
+    if bgm_rel:
+        bgm_path = project_dir / bgm_rel
+        if bgm_path.exists():
+            final_with_bgm = export_dir / f"{safe_name}_final.mp4"
+            if mix_bgm_track(
+                output_path,
+                bgm_path,
+                final_with_bgm,
+                bgm_volume=session.audio_settings.bgm_volume,
+                fade_in_sec=session.audio_settings.fade_in_sec,
+                fade_out_sec=session.audio_settings.fade_out_sec,
+                duck_enabled=session.audio_settings.bgm_duck_enabled,
+                duck_ratio=session.audio_settings.bgm_duck_ratio,
+            ):
+                output_path.unlink(missing_ok=True)
+                shutil.move(str(final_with_bgm), str(output_path))
+
+    srt_path: Optional[Path] = None
+    if export_srt:
+        srt_path = write_export_srt(session, export_dir / f"{safe_name}.srt")
+
+    return output_path, srt_path
 
 
 def export_single_block(

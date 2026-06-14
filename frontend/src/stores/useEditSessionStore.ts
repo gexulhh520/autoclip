@@ -28,6 +28,14 @@ import {
   nextTextTrackOrder,
 } from '../editor/textTracks'
 import { resolveCanvasDimensions } from '../editor/scene/canvas'
+import { exportTimelineViaCompositor } from '../editor/compositor'
+import { getBlockVideoUrl } from '../utils/editBlockMedia'
+import { isTauriApp } from '../utils/desktopMode'
+import {
+  normalizeExportDirectory,
+  resolveInitialExportDirectory,
+} from '../utils/editorExportLocal'
+import { projectApi } from '../services/api'
 import { loadExportPreset, saveExportPreset } from '../utils/editExportPresets'
 import {
   BASE_PX_PER_SEC,
@@ -85,6 +93,7 @@ interface EditSessionState {
   previewZoom: number
   previewBurnSubtitles: boolean
   useCompositorPreview: boolean
+  useCompositorExport: boolean
   snapEnabled: boolean
   rippleTrimEnabled: boolean
   inspectorTab: 'video' | 'audio' | 'text' | 'transition'
@@ -147,6 +156,7 @@ interface EditSessionState {
   setPreviewZoom: (zoom: number) => void
   setPreviewBurnSubtitles: (enabled: boolean) => void
   setUseCompositorPreview: (enabled: boolean) => void
+  setUseCompositorExport: (enabled: boolean) => void
   setInspectorTab: (tab: 'video' | 'audio' | 'text' | 'transition') => void
   updateExportSettings: (settings: Partial<EditExportSettings>) => void
   updateAudioSettings: (settings: Partial<EditSessionAudioSettings>) => void
@@ -341,6 +351,7 @@ export const useEditSessionStore = create<EditSessionState>()(
       previewZoom: 100,
       previewBurnSubtitles: true,
       useCompositorPreview: true,
+      useCompositorExport: isTauriApp(),
       snapEnabled: true,
       rippleTrimEnabled: true,
       inspectorTab: 'video',
@@ -469,14 +480,91 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (get().dirty) {
             await get().saveSession(projectId)
           }
+
+          const useCompositorExport = get().useCompositorExport && isTauriApp()
+          const burnSubtitles = options?.burn_subtitles ?? true
+          const useSourceVideo =
+            options?.use_source_video ?? session.audio_settings.use_source_video ?? false
+          const filename = options?.filename ?? session.name
+          const outputDirRaw = options?.output_dir ?? (await resolveInitialExportDirectory())
+          const outputDir =
+            (outputDirRaw ? await normalizeExportDirectory(outputDirRaw) : null) ??
+            outputDirRaw ??
+            ''
+          if (!outputDir.trim()) {
+            throw new Error('请选择有效的导出目录')
+          }
+
+          if (useCompositorExport) {
+            const getVideoUrlForBlock = (block: EditBlock) => {
+              if (
+                useSourceVideo &&
+                block.media.source_video_path &&
+                block.media.source_start_sec != null
+              ) {
+                const sourceId = block.media.source_video_path.includes('sources/')
+                  ? block.media.source_video_path.split('/').find((_, i, arr) => arr[i - 1] === 'sources')
+                  : null
+                return projectApi.getSourceVideoUrl(projectId, sourceId)
+              }
+              return getBlockVideoUrl(projectId, session.id, block)
+            }
+            const getSourceTimeForBlock = (block: EditBlock, relativeSec: number) => {
+              const sourceOffset =
+                useSourceVideo && block.media.source_start_sec != null
+                  ? block.media.source_start_sec
+                  : 0
+              return sourceOffset + block.trim.in_sec + relativeSec
+            }
+
+            const compositorResult = await exportTimelineViaCompositor(
+              session,
+              {
+                projectId,
+                sessionId: session.id,
+                getVideoUrlForBlock,
+                getSourceTimeForBlock,
+              },
+              {
+                burnSubtitles,
+                useSourceVideo,
+                filename,
+                outputDir,
+                exportSrt: options?.export_srt ?? false,
+                onProgress: (percent, message) => {
+                  set({ exportProgress: percent, exportMessage: message })
+                },
+              }
+            )
+
+            set({ exportProgress: 92, exportMessage: '混音与封装' })
+            const muxResult = await editApi.muxCompositorExport(projectId, session.id, {
+              compositor_video_path: compositorResult.compositorVideoPath,
+              filename,
+              export_srt: options?.export_srt ?? false,
+              use_source_video: useSourceVideo,
+              write_back_to_project: options?.write_back_to_project ?? false,
+              output_dir: outputDir,
+            })
+            set({ exporting: false, exportProgress: 100, exportMessage: '导出完成' })
+            return {
+              videoUrl: muxResult.download_url,
+              srtUrl: muxResult.srt_download_url,
+              projectClipPath: muxResult.project_clip_path,
+              localOutputPath: muxResult.local_output_path,
+              localSrtPath: muxResult.local_srt_path,
+            }
+          }
+
           const result = await editApi.exportSession(projectId, session.id, {
-            burn_subtitles: options?.burn_subtitles ?? true,
-            filename: options?.filename ?? session.name,
+            burn_subtitles: burnSubtitles,
+            filename,
             export_srt: options?.export_srt ?? false,
-            use_source_video: options?.use_source_video,
+            use_source_video: useSourceVideo,
             async_export: true,
             write_back_to_project: options?.write_back_to_project ?? false,
-            output_dir: options?.output_dir ?? undefined,
+            output_dir: outputDir,
+            use_compositor_export: false,
           })
           if (result.job_id) {
             const urls = await pollExportJob(projectId, session.id, result.job_id)
@@ -646,6 +734,7 @@ export const useEditSessionStore = create<EditSessionState>()(
         saveExportPreset({ ...preset, burn_subtitles: enabled })
       },
       setUseCompositorPreview: (enabled) => set({ useCompositorPreview: enabled }),
+      setUseCompositorExport: (enabled) => set({ useCompositorExport: enabled }),
       setInspectorTab: (tab) => set({ inspectorTab: tab }),
 
       appendClips: async (projectId, clipIds, sourceId) => {

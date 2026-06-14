@@ -3,6 +3,7 @@ import type {
   EditSession,
   EditSessionCreateRequest,
   EditSessionExportRequest,
+  EditSessionCompositorMuxRequest,
   EditSessionExportResponse,
   EditSessionExportJobStatus,
   EditSessionBatchExportResponse,
@@ -156,6 +157,17 @@ export const editApi = {
   ): Promise<EditSessionExportResponse> => {
     return (await api.post(
       `/projects/${projectId}/edit-sessions/${sessionId}/export`,
+      payload
+    )) as EditSessionExportResponse
+  },
+
+  muxCompositorExport: async (
+    projectId: string,
+    sessionId: string,
+    payload: EditSessionCompositorMuxRequest
+  ): Promise<EditSessionExportResponse> => {
+    return (await api.post(
+      `/projects/${projectId}/edit-sessions/${sessionId}/export/compositor-mux`,
       payload
     )) as EditSessionExportResponse
   },

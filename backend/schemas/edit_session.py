@@ -277,6 +277,19 @@ class EditSessionExportRequest(BaseModel):
     async_export: bool = True
     write_back_to_project: bool = False
     output_dir: Optional[str] = Field(default=None, description="导出完成后复制到的本地目录")
+    use_compositor_export: Optional[bool] = Field(
+        default=None,
+        description="桌面 Compositor 导出；None 时由客户端决定",
+    )
+
+
+class EditSessionCompositorMuxRequest(BaseModel):
+    compositor_video_path: str = Field(description="Compositor 导出的本地 MP4（通常无声）")
+    filename: Optional[str] = None
+    use_source_video: Optional[bool] = None
+    export_srt: bool = False
+    write_back_to_project: bool = False
+    output_dir: Optional[str] = None
 
 
 class EditSessionExportResponse(BaseModel):

@@ -1,0 +1,12 @@
+[package]
+name = "autoclip-export"
+version = "0.1.0"
+description = "Compositor timeline export orchestrator"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+autoclip-encoder = { path = "../encoder" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { version = "1.11", features = ["v4"] }

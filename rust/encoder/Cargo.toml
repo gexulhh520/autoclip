@@ -1,0 +1,10 @@
+[package]
+name = "autoclip-encoder"
+version = "0.1.0"
+description = "Export encoder — FFmpeg stdin rawvideo (no filtergraph layout)"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
