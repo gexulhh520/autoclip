@@ -71,8 +71,58 @@ fn draw_layer_rect(img: &mut RgbaImage, transform: &autoclip_document::VisualTra
 
 fn layer_tint(source: &str) -> Rgba<u8> {
     match source {
-        "blur_backdrop" => Rgba([32, 32, 40, 220]),
+        "blur_backdrop" => Rgba([32, 32, 40, 255]),
         _ => Rgba([48, 48, 56, 255]),
+    }
+}
+
+fn clamp01(v: f32) -> f32 {
+    v.clamp(0.0, 1.0)
+}
+
+fn apply_brightness(r: f32, g: f32, b: f32, amount: f32) -> (f32, f32, f32) {
+    (clamp01(r * amount), clamp01(g * amount), clamp01(b * amount))
+}
+
+fn apply_contrast(r: f32, g: f32, b: f32, amount: f32) -> (f32, f32, f32) {
+    (
+        clamp01((r - 0.5) * amount + 0.5),
+        clamp01((g - 0.5) * amount + 0.5),
+        clamp01((b - 0.5) * amount + 0.5),
+    )
+}
+
+fn apply_saturate(r: f32, g: f32, b: f32, amount: f32) -> (f32, f32, f32) {
+    let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    (
+        clamp01(luma + amount * (r - luma)),
+        clamp01(luma + amount * (g - luma)),
+        clamp01(luma + amount * (b - luma)),
+    )
+}
+
+fn apply_css_filter(r: f32, g: f32, b: f32, filter: &str) -> (f32, f32, f32) {
+    match filter {
+        "mono_soft" => {
+            let (r, g, b) = apply_brightness(r, g, b, 1.02);
+            let (r, g, b) = apply_saturate(r, g, b, 0.65);
+            apply_contrast(r, g, b, 1.05)
+        }
+        "mono_contrast" => {
+            let (r, g, b) = apply_contrast(r, g, b, 1.18);
+            let (r, g, b) = apply_brightness(r, g, b, 0.97);
+            apply_saturate(r, g, b, 0.55)
+        }
+        "mono_cool" => {
+            let (r, g, b) = apply_saturate(r, g, b, 0.5);
+            apply_brightness(r, g, b, 1.01)
+        }
+        "mono_warm" => {
+            let (r, g, b) = apply_saturate(r, g, b, 0.62);
+            let (r, g, b) = apply_brightness(r, g, b, 1.03);
+            apply_contrast(r, g, b, 1.06)
+        }
+        _ => (r, g, b),
     }
 }
 
@@ -88,20 +138,7 @@ fn apply_scene_effect(img: &mut RgbaImage, effect_id: &str) {
         let r = pixel[0] as f32 / 255.0;
         let g = pixel[1] as f32 / 255.0;
         let b = pixel[2] as f32 / 255.0;
-        let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-        let (nr, ng, nb) = match filter {
-            "mono_soft" => {
-                let mix = luma * 0.85 + 0.08;
-                (mix, mix, mix)
-            }
-            "mono_contrast" => {
-                let mix = ((luma - 0.5) * 1.18 + 0.5).clamp(0.0, 1.0);
-                (mix, mix, mix)
-            }
-            "mono_cool" => (luma * 0.92, luma * 0.96, (luma * 1.02).min(1.0)),
-            "mono_warm" => ((luma * 1.03).min(1.0), (luma * 0.98).min(1.0), luma * 0.94),
-            _ => (luma, luma, luma),
-        };
+        let (nr, ng, nb) = apply_css_filter(r, g, b, filter);
         pixel[0] = (nr * 255.0).round() as u8;
         pixel[1] = (ng * 255.0).round() as u8;
         pixel[2] = (nb * 255.0).round() as u8;

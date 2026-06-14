@@ -11,6 +11,54 @@ import {
 
 const TEMPLATE_TRACK_ID = 'template-caption'
 
+const resolveRoleShadowOutline = (
+  role: string,
+  config: OverlayPreviewConfig & Record<string, unknown>
+): { shadow: number; outline: number } => {
+  const roleStyles = config.role_styles as Record<string, Record<string, unknown>> | undefined
+  const fromRole = roleStyles?.[role]
+
+  let shadow = 1
+  let outline = 0
+  if (role === 'headline') {
+    shadow = Number(config.headline_shadow ?? 2)
+    outline = Number(config.headline_outline ?? 1)
+  } else if (role === 'body') {
+    shadow = Number(config.body_shadow ?? 1)
+  }
+
+  if (fromRole?.shadow != null) shadow = Number(fromRole.shadow)
+  if (fromRole?.outline != null) outline = Number(fromRole.outline)
+
+  return { shadow: Math.max(0, shadow), outline: Math.max(0, outline) }
+}
+
+const shadowParamsForRole = (
+  role: string,
+  config: OverlayPreviewConfig & Record<string, unknown>
+): Record<string, string | number | boolean> => {
+  const { shadow, outline } = resolveRoleShadowOutline(role, config)
+  if (shadow <= 0 && outline <= 0) {
+    return {
+      'shadow.enabled': false,
+      'outline.enabled': false,
+    }
+  }
+
+  return {
+    'shadow.enabled': shadow > 0,
+    'shadow.color': 'rgba(0,0,0,0.55)',
+    'shadow.offsetX': 0,
+    'shadow.offsetY': 1,
+    'shadow.blur': 2,
+    'shadow.glowBlur': shadow > 0 ? 12 : 0,
+    'shadow.glowColor': 'rgba(0,0,0,0.35)',
+    'outline.enabled': outline > 0,
+    'outline.color': 'rgba(0,0,0,0.25)',
+    'outline.width': outline * 1.5,
+  }
+}
+
 export interface TemplateLineLayoutInput {
   layout: 'cinema' | 'highlight' | 'none'
   layers: TemplateCaptionPreviewLayer[]
@@ -95,6 +143,7 @@ export function layoutTemplateCaptionLinesToParams(
         opacity: 1,
         'template.role': line.role,
         'template.layout': layout,
+        ...shadowParamsForRole(line.role, config),
       },
     })
 

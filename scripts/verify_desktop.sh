@@ -14,6 +14,16 @@ export PYTHON_BIN
 cd "${ROOT_DIR}/src-tauri"
 cargo check
 
+cd "${ROOT_DIR}/rust"
+if command -v cargo >/dev/null 2>&1; then
+  cargo test -p autoclip-compositor golden_ --quiet
+fi
+
+cd "${ROOT_DIR}"
+if [[ -x "${ROOT_DIR}/scripts/verify_compositor_smoke.sh" ]]; then
+  bash "${ROOT_DIR}/scripts/verify_compositor_smoke.sh"
+fi
+
 cd "${ROOT_DIR}"
 "${PYTHON_BIN}" - <<'PY'
 import os

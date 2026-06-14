@@ -69,3 +69,17 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  rust-compositor:
+    name: Rust compositor golden
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run compositor golden tests
+        working-directory: rust
+        run: cargo test -p autoclip-compositor --quiet

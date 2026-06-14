@@ -49,6 +49,20 @@ const session = (): EditSession => ({
 })
 
 describe('templateCaptionOpenCut', () => {
+  it('layoutTemplateCaptionLinesToParams emits shadow params for cinema roles', () => {
+    const preview = buildTemplateCaptionPreview(block(), session(), 608, 1080)
+    const lines = layoutTemplateCaptionLinesToParams({
+      layout: preview.layout,
+      layers: preview.layers,
+      config: preview.config,
+      canvasWidth: 608,
+      canvasHeight: 1080,
+    })
+    const headline = lines.find((line) => line.role === 'headline')
+    expect(headline?.params['shadow.enabled']).toBe(true)
+    expect(headline?.params['outline.enabled']).toBe(true)
+  })
+
   it('layoutTemplateCaptionLinesToParams emits OpenCut params per role', () => {
     const preview = buildTemplateCaptionPreview(block(), session(), 608, 1080)
     const lines = layoutTemplateCaptionLinesToParams({

@@ -70,6 +70,16 @@ export const OPENCUT_TEXT_PARAM_KEYS = [
   'transform.scaleY',
   'transform.rotate',
   'opacity',
+  'shadow.enabled',
+  'shadow.color',
+  'shadow.offsetX',
+  'shadow.offsetY',
+  'shadow.blur',
+  'shadow.glowBlur',
+  'shadow.glowColor',
+  'outline.enabled',
+  'outline.color',
+  'outline.width',
 ] as const
 
 export type OpenCutTextParamKey = (typeof OPENCUT_TEXT_PARAM_KEYS)[number]
@@ -98,4 +108,14 @@ export const OPENCUT_TEXT_PARAM_LABELS: Record<OpenCutTextParamKey, string> = {
   'transform.scaleY': '缩放 Y',
   'transform.rotate': '旋转',
   opacity: '透明度',
+  'shadow.enabled': '阴影',
+  'shadow.color': '阴影色',
+  'shadow.offsetX': '阴影 X',
+  'shadow.offsetY': '阴影 Y',
+  'shadow.blur': '阴影模糊',
+  'shadow.glowBlur': '光晕模糊',
+  'shadow.glowColor': '光晕色',
+  'outline.enabled': '描边',
+  'outline.color': '描边色',
+  'outline.width': '描边宽',
 }

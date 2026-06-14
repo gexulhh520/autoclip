@@ -49,7 +49,17 @@
         "transform.rotate": 0,
         "opacity": 1,
         "template.role": "headline",
-        "template.layout": "cinema"
+        "template.layout": "cinema",
+        "shadow.enabled": true,
+        "shadow.color": "rgba(0,0,0,0.55)",
+        "shadow.offsetX": 0,
+        "shadow.offsetY": 1,
+        "shadow.blur": 2,
+        "shadow.glowBlur": 12,
+        "shadow.glowColor": "rgba(0,0,0,0.35)",
+        "outline.enabled": true,
+        "outline.color": "rgba(0,0,0,0.25)",
+        "outline.width": 1.5
       },
       "opacity": 1,
       "zIndex": 11

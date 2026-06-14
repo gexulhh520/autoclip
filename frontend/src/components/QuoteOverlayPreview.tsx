@@ -22,6 +22,10 @@ export interface OverlayPreviewConfig {
   alignment?: string
   headline_color?: string
   body_color?: string
+  headline_shadow?: number
+  body_shadow?: number
+  headline_outline?: number
+  role_styles?: Record<string, Record<string, unknown>>
   position_offset_x_pct?: number
   position_offset_y_pct?: number
   position_offset_x?: number

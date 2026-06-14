@@ -10,5 +10,13 @@ autoclip-document = { path = "../document" }
 image = { version = "0.25", default-features = false, features = ["png"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = "0.10"
+hex = "0.4"
+
+[[bin]]
+name = "hash_frame"
+path = "src/bin/hash_frame.rs"
 
 [dev-dependencies]
+sha2 = "0.10"
+hex = "0.4"

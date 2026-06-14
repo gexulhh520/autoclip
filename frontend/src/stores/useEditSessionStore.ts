@@ -94,7 +94,6 @@ interface EditSessionState {
   timelineZoom: number
   previewZoom: number
   previewBurnSubtitles: boolean
-  useCompositorPreview: boolean
   useCompositorExport: boolean
   snapEnabled: boolean
   rippleTrimEnabled: boolean
@@ -157,7 +156,6 @@ interface EditSessionState {
   previewZoom: number
   setPreviewZoom: (zoom: number) => void
   setPreviewBurnSubtitles: (enabled: boolean) => void
-  setUseCompositorPreview: (enabled: boolean) => void
   setUseCompositorExport: (enabled: boolean) => void
   setInspectorTab: (tab: 'video' | 'audio' | 'text' | 'transition') => void
   updateExportSettings: (settings: Partial<EditExportSettings>) => void
@@ -352,7 +350,6 @@ export const useEditSessionStore = create<EditSessionState>()(
       timelineZoom: 100,
       previewZoom: 100,
       previewBurnSubtitles: true,
-      useCompositorPreview: true,
       useCompositorExport: isTauriApp(),
       snapEnabled: true,
       rippleTrimEnabled: true,
@@ -725,7 +722,6 @@ export const useEditSessionStore = create<EditSessionState>()(
         const preset = loadExportPreset()
         saveExportPreset({ ...preset, burn_subtitles: enabled })
       },
-      setUseCompositorPreview: (enabled) => set({ useCompositorPreview: enabled }),
       setUseCompositorExport: (enabled) => set({ useCompositorExport: enabled }),
       setInspectorTab: (tab) => set({ inspectorTab: tab }),
 
