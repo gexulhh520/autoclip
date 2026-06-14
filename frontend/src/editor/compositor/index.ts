@@ -14,6 +14,12 @@ export {
   type CompositionSpec,
 } from './geometry'
 export * from './templateCaption'
+export {
+  compileTemplateCaptionToFreeTextLayers,
+  layoutTemplateCaptionLinesToParams,
+  buildTemplateCaptionsIndex,
+  isTemplatePresetLayer,
+} from './templateCaptionOpenCut'
 export * from './compilePlan'
 export * from './buildFrameDescriptor'
 export {

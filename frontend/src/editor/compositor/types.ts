@@ -76,6 +76,11 @@ export interface FreeTextLayerDef {
   durationSec: number
   hidden: boolean
   params: Record<string, string | number | boolean>
+  /** template_preset = 基因模板编译；缺省 user */
+  source?: 'template_preset' | 'user'
+  blockId?: string
+  role?: string
+  zOrder?: number
 }
 
 export interface AudioBgmLayerDef {
@@ -122,6 +127,16 @@ export interface CompositionPlan {
   totalDurationSec: number
   transitionDurationSec: number
   layers: CompositionLayerDef[]
+  /** 模板字幕预览索引（DOM / Inspector；像素渲染走 free_text） */
+  templateCaptions?: Record<
+    string,
+    {
+      layout: 'cinema' | 'highlight' | 'none'
+      applicable: boolean
+      layers: TemplateCaptionPreviewLayer[]
+      config: Record<string, unknown>
+    }
+  >
   compile: CompositionPlanCompileOptions
   metadata: {
     compiledAt: string

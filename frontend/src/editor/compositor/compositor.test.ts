@@ -62,7 +62,12 @@ describe('compositor Phase 0', () => {
     expect(plan.canvas.height).toBe(1080)
     expect(plan.totalDurationSec).toBeCloseTo(6.65, 2)
     expect(plan.layers.some((layer) => layer.kind === 'video_clip')).toBe(true)
-    expect(plan.layers.filter((layer) => layer.kind === 'template_caption')).toHaveLength(2)
+    expect(plan.layers.filter((layer) => layer.kind === 'template_caption')).toHaveLength(0)
+    expect(
+      plan.layers.filter(
+        (layer) => layer.kind === 'free_text' && layer.source === 'template_preset'
+      ).length
+    ).toBeGreaterThanOrEqual(2)
   })
 
   it('embeds template caption layers without preview-overlay API', () => {
@@ -84,7 +89,11 @@ describe('compositor Phase 0', () => {
     const frame = buildFrameDescriptor(plan, 0)
     expect(frame.width).toBe(608)
     expect(frame.items.filter((item) => item.kind === 'layer')).toHaveLength(1)
-    expect(frame.items.some((item) => item.kind === 'text')).toBe(true)
+    expect(
+      frame.items.filter(
+        (item) => item.kind === 'text' && item.source === 'free_text' && item.elementId?.startsWith('template:')
+      ).length
+    ).toBeGreaterThan(0)
     expect(frame.transition?.inDissolve).toBe(false)
   })
 

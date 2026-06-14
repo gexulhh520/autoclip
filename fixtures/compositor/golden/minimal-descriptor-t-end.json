@@ -27,30 +27,32 @@
     },
     {
       "kind": "text",
-      "id": "template:a",
-      "source": "template_caption",
-      "blockId": "a",
-      "layout": "cinema",
-      "lines": [
-        {
-          "role": "headline",
-          "text": "caption-a",
-          "color": "#E8C872",
-          "sizeScale": 1
-        }
-      ],
-      "anchor": {
-        "bottomPct": 11,
-        "leftPct": 6.58,
-        "centerX": false,
-        "alignment": "bottom-left"
-      },
-      "offsetPct": {
-        "x": 0,
-        "y": 0
+      "id": "free:template:a:headline",
+      "source": "free_text",
+      "elementId": "template:a:headline",
+      "params": {
+        "content": "caption-a",
+        "color": "#E8C872",
+        "fontSize": 4.32,
+        "fontFamily": "Noto Sans SC",
+        "fontWeight": "bold",
+        "fontStyle": "normal",
+        "textAlign": "left",
+        "textDecoration": "none",
+        "letterSpacing": 0,
+        "lineHeight": 1.35,
+        "background.enabled": false,
+        "transform.positionX": -251.0336,
+        "transform.positionY": 386.20799999999986,
+        "transform.scaleX": 1,
+        "transform.scaleY": 1,
+        "transform.rotate": 0,
+        "opacity": 1,
+        "template.role": "headline",
+        "template.layout": "cinema"
       },
       "opacity": 1,
-      "zIndex": 1
+      "zIndex": 11
     }
   ],
   "audio": [

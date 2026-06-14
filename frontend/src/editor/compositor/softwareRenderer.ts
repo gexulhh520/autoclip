@@ -32,11 +32,6 @@ const readZIndex = (item: FrameItem): number => {
   return item.kind === 'scene_effect' ? 10_000 : 9_000
 }
 
-const parseCssColor = (color: string): string => {
-  if (color.startsWith('#')) return color
-  return color
-}
-
 const drawVideoInTransform = (
   ctx: CanvasRenderingContext2D,
   video: HTMLVideoElement,
@@ -62,60 +57,6 @@ const drawPlaceholderRect = (
   ctx.globalAlpha = opacity
   ctx.fillStyle = fill
   ctx.fillRect(transform.x, transform.y, transform.width, transform.height)
-  ctx.restore()
-}
-
-const drawTemplateText = (
-  ctx: CanvasRenderingContext2D,
-  item: FrameTextItem,
-  canvasWidth: number,
-  canvasHeight: number
-): void => {
-  if (!item.lines?.length || item.layout === 'none' || !item.anchor) return
-
-  const baseFont = Math.max(14, canvasHeight * 0.048)
-  const anchor = item.anchor
-  const offsetX = ((item.offsetPct?.x ?? 0) / 100) * canvasWidth
-  const offsetY = -((item.offsetPct?.y ?? 0) / 100) * canvasHeight
-  const bottomPx = (anchor.bottomPct / 100) * canvasHeight
-
-  const lineHeights = item.lines.map((line) => baseFont * line.sizeScale * 1.35)
-  const totalHeight = lineHeights.reduce((sum, value) => sum + value, 0)
-  let cursorY = canvasHeight - bottomPx - totalHeight + offsetY
-
-  ctx.save()
-  ctx.globalAlpha = item.opacity
-  ctx.textBaseline = 'top'
-
-  if (item.layout === 'highlight') {
-    ctx.textAlign = 'center'
-  } else if (anchor.centerX) {
-    ctx.textAlign = 'center'
-  } else if (anchor.rightPct != null) {
-    ctx.textAlign = 'right'
-  } else {
-    ctx.textAlign = 'left'
-  }
-
-  for (let index = 0; index < item.lines.length; index += 1) {
-    const line = item.lines[index]
-    const fontSize = baseFont * line.sizeScale
-    ctx.font = `${line.role === 'headline' ? '600' : '400'} ${fontSize}px "Noto Sans SC", "PingFang SC", sans-serif`
-    ctx.fillStyle = parseCssColor(line.color)
-
-    let x = (anchor.leftPct ?? 5.5) / 100 * canvasWidth + offsetX
-    if (item.layout === 'highlight' || anchor.centerX) {
-      x = canvasWidth / 2 + offsetX
-    } else if (anchor.rightPct != null) {
-      x = canvasWidth - (anchor.rightPct / 100) * canvasWidth + offsetX
-    }
-
-    ctx.shadowColor = 'rgba(0,0,0,0.55)'
-    ctx.shadowBlur = 6
-    ctx.fillText(line.text, x, cursorY)
-    cursorY += lineHeights[index] ?? fontSize * 1.35
-  }
-
   ctx.restore()
 }
 
@@ -195,11 +136,11 @@ export function renderFrameDescriptorToCanvas(
       continue
     }
     if (item.kind === 'text') {
-      if (item.source === 'template_caption' && showTemplateCaptions) {
-        drawTemplateText(ctx, item, width, height)
-      } else if (item.source === 'free_text' && showFreeText) {
-        drawFreeText(ctx, item, width, height)
-      }
+      if (item.source !== 'free_text') continue
+      const isTemplatePreset = item.elementId?.startsWith('template:') ?? false
+      if (isTemplatePreset && !showTemplateCaptions) continue
+      if (!isTemplatePreset && !showFreeText) continue
+      drawFreeText(ctx, item, width, height)
       continue
     }
     if (item.kind === 'scene_effect') {

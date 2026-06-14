@@ -52,7 +52,9 @@ $env:UPDATE_GOLDEN=1; npx vitest run src/editor/compositor/compositorGolden.test
 pytest backend/tests/test_compositor_golden.py
 ```
 
-## Phase 2 导出
+## 模板字幕 → OpenCut 自由文本
+
+基因模板（`templateCaption.ts`）编排 slice 文案后，由 `templateCaptionOpenCut.ts` 编译为 Plan 内 `source: template_preset` 的 `free_text` 层（每 role 一条 OpenCut params）。**预览与导出统一走** `opencut-text/measure` + `render`。
 
 桌面默认：`exportTimelineViaCompositor`（逐帧 Compositor + FFmpeg stdin 编码）→ `POST .../export/compositor-mux`（timeline 音频 + BGM，`-c:v copy`）。
 

@@ -6,6 +6,7 @@ import {
 import { resolveFreeTextLayers } from '../scene/sceneBuilder'
 import { buildTransformFromParams } from '../opencut-text/transform'
 import type { MeasuredTextOverlay } from '../opencut-text/measure'
+import type { OpenCutTextOverlay } from '../opencut-text/params'
 import {
   buildVideoCompositionSpec,
   resolveVideoLayerTransforms,
@@ -17,6 +18,7 @@ import {
   type FrameDescriptor,
   type FrameItem,
   type FrameTextItem,
+  type FreeTextLayerDef,
   type VisualTransform,
 } from './types'
 
@@ -64,54 +66,19 @@ const buildFreeTextTransform = (
   }
 }
 
-const buildTemplateTextItem = (
-  blockId: string,
-  layout: 'cinema' | 'highlight' | 'none',
-  layers: Array<{ role: string; text: string; color: string; size_scale: number }>,
-  config: Record<string, unknown>,
-  opacity: number,
-  zIndex: number
-): FrameTextItem | null => {
-  if (layout === 'none' || layers.length === 0) return null
-
-  const leftPct = Number(config.margin_left_pct ?? 5.5)
-  const rightPct = Number(config.margin_right_pct ?? leftPct)
-  const bottomPct = Number(config.margin_bottom_pct ?? 11)
-  const alignment = String(config.alignment ?? 'bottom-left')
-
-  return {
-    kind: 'text',
-    id: `template:${blockId}`,
-    source: 'template_caption',
-    blockId,
-    layout,
-    lines: layers.map((layer) => ({
-      role: layer.role,
-      text: layer.text,
-      color: layer.color,
-      sizeScale: layer.size_scale,
-    })),
-    anchor: {
-      bottomPct,
-      leftPct: alignment === 'bottom-left' ? leftPct : undefined,
-      rightPct: alignment === 'bottom-right' ? rightPct : undefined,
-      centerX: alignment === 'bottom-center',
-      alignment,
-    },
-    offsetPct: {
-      x: Number(config.position_offset_x_pct ?? 0),
-      y: Number(config.position_offset_y_pct ?? 0),
-    },
-    opacity,
-    zIndex,
-  }
-}
+const toOverlayElement = (def: FreeTextLayerDef): OpenCutTextOverlay => ({
+  id: def.elementId,
+  type: 'text',
+  start_sec: def.startSec,
+  duration_sec: def.durationSec,
+  hidden: def.hidden,
+  params: def.params,
+})
 
 export interface BuildFrameDescriptorContext extends BuildFrameDescriptorOptions {
-  /** 用于 resolveFreeTextLayers 的 session 快照；Plan 编译期可传入 */
   session?: EditSession | null
   measureTextOverlay?: (input: {
-    element: EditSession['overlay_elements'] extends (infer T)[] | undefined ? T : never
+    element: OpenCutTextOverlay
     canvasHeight: number
   }) => MeasuredTextOverlay
 }
@@ -157,13 +124,48 @@ export function buildFrameDescriptor(
   }
 
   const dissolve = findDissolveAtTime(timeline, clampedTime)
-  const templateLayers = plan.layers.filter(
-    (layer): layer is Extract<typeof layer, { kind: 'template_caption' }> =>
-      layer.kind === 'template_caption'
+  const freeTextDefs = plan.layers.filter(
+    (layer): layer is FreeTextLayerDef => layer.kind === 'free_text'
   )
-  const templateByBlockId = new Map(templateLayers.map((layer) => [layer.blockId, layer]))
 
   const audio: FrameDescriptor['audio'] = []
+
+  const pushFreeTextDef = (def: FreeTextLayerDef, opacity: number): void => {
+    if (def.hidden) return
+    if (!isOverlayActiveAt(def.startSec, def.durationSec, clampedTime)) return
+    if (!burnSubtitles && def.source === 'template_preset') return
+
+    let transform: VisualTransform | undefined
+    if (context.measureTextOverlay) {
+      const measured = context.measureTextOverlay({
+        element: toOverlayElement(def),
+        canvasHeight: canvas.height,
+      })
+      transform = buildFreeTextTransform(measured, def.params, canvas.width, canvas.height)
+    }
+
+    const textItem: FrameTextItem = {
+      kind: 'text',
+      id: `free:${def.elementId}`,
+      source: 'free_text',
+      elementId: def.elementId,
+      params: def.params,
+      transform,
+      opacity,
+      zIndex: zIndex + 10 + (def.zOrder ?? 0),
+    }
+    items.push(textItem)
+  }
+
+  const appendTemplateFreeText = (blockId: string, opacity: number): void => {
+    if (!burnSubtitles) return
+    const defs = freeTextDefs
+      .filter((def) => def.source === 'template_preset' && def.blockId === blockId)
+      .sort((a, b) => (a.zOrder ?? 0) - (b.zOrder ?? 0))
+    for (const def of defs) {
+      pushFreeTextDef(def, opacity)
+    }
+  }
 
   if (dissolve) {
     const { outgoing, incoming, progress } = dissolve
@@ -191,32 +193,8 @@ export function buildFrameDescriptor(
       zIndex: zIndex++,
     })
 
-    if (burnSubtitles) {
-      const outCaption = templateByBlockId.get(outgoing.block.id)
-      if (outCaption) {
-        const textItem = buildTemplateTextItem(
-          outCaption.blockId,
-          outCaption.layout,
-          outCaption.layers,
-          outCaption.config,
-          1 - progress,
-          zIndex++
-        )
-        if (textItem) items.push(textItem)
-      }
-      const inCaption = templateByBlockId.get(incoming.block.id)
-      if (inCaption) {
-        const textItem = buildTemplateTextItem(
-          inCaption.blockId,
-          inCaption.layout,
-          inCaption.layers,
-          inCaption.config,
-          progress,
-          zIndex++
-        )
-        if (textItem) items.push(textItem)
-      }
-    }
+    appendTemplateFreeText(outgoing.block.id, 1 - progress)
+    appendTemplateFreeText(incoming.block.id, progress)
 
     audio.push(
       {
@@ -264,20 +242,7 @@ export function buildFrameDescriptor(
         zIndex: zIndex++,
       })
 
-      if (burnSubtitles) {
-        const caption = templateByBlockId.get(active.block.id)
-        if (caption) {
-          const textItem = buildTemplateTextItem(
-            caption.blockId,
-            caption.layout,
-            caption.layers,
-            caption.config,
-            1,
-            zIndex++
-          )
-          if (textItem) items.push(textItem)
-        }
-      }
+      appendTemplateFreeText(active.block.id, 1)
 
       audio.push({
         kind: 'clip',
@@ -306,10 +271,6 @@ export function buildFrameDescriptor(
     })
   }
 
-  const freeTextDefs = plan.layers.filter(
-    (layer): layer is Extract<typeof layer, { kind: 'free_text' }> => layer.kind === 'free_text'
-  )
-
   if (context.session) {
     const activeFree = resolveFreeTextLayers(context.session, clampedTime, {
       selectedOverlayId: context.selectedOverlayId,
@@ -320,42 +281,16 @@ export function buildFrameDescriptor(
     })
 
     for (const { element, opacity } of activeFree) {
-      const def = freeTextDefs.find((item) => item.elementId === element.id)
+      const def = freeTextDefs.find(
+        (item) => item.elementId === element.id && item.source !== 'template_preset'
+      )
       if (!def) continue
-
-      let transform: VisualTransform | undefined
-      if (context.measureTextOverlay) {
-        const measured = context.measureTextOverlay({
-          element,
-          canvasHeight: canvas.height,
-        })
-        transform = buildFreeTextTransform(measured, element.params, canvas.width, canvas.height)
-      }
-
-      items.push({
-        kind: 'text',
-        id: `free:${element.id}`,
-        source: 'free_text',
-        elementId: element.id,
-        params: def.params,
-        transform,
-        opacity,
-        zIndex: zIndex + 10,
-      })
+      pushFreeTextDef(def, opacity)
     }
   } else {
     for (const def of freeTextDefs) {
-      if (def.hidden) continue
-      if (!isOverlayActiveAt(def.startSec, def.durationSec, clampedTime)) continue
-      items.push({
-        kind: 'text',
-        id: `free:${def.elementId}`,
-        source: 'free_text',
-        elementId: def.elementId,
-        params: def.params,
-        opacity: 1,
-        zIndex: zIndex + 10,
-      })
+      if (def.source === 'template_preset') continue
+      pushFreeTextDef(def, 1)
     }
   }
 

@@ -68,13 +68,50 @@
       "fadeOutSec": 0
     },
     {
-      "kind": "template_caption",
+      "kind": "free_text",
+      "elementId": "template:a:headline",
+      "trackId": "template-caption",
+      "startSec": 0,
+      "durationSec": 4,
+      "hidden": false,
+      "params": {
+        "content": "caption-a",
+        "color": "#E8C872",
+        "fontSize": 4.32,
+        "fontFamily": "Noto Sans SC",
+        "fontWeight": "bold",
+        "fontStyle": "normal",
+        "textAlign": "left",
+        "textDecoration": "none",
+        "letterSpacing": 0,
+        "lineHeight": 1.35,
+        "background.enabled": false,
+        "transform.positionX": -251.0336,
+        "transform.positionY": 386.20799999999986,
+        "transform.scaleX": 1,
+        "transform.scaleY": 1,
+        "transform.rotate": 0,
+        "opacity": 1,
+        "template.role": "headline",
+        "template.layout": "cinema"
+      },
+      "source": "template_preset",
       "blockId": "a",
-      "blockIndex": 0,
-      "compositionStartSec": 0,
-      "sourceDurationSec": 4,
+      "role": "headline",
+      "zOrder": 0
+    },
+    {
+      "kind": "filter",
+      "filterId": "none"
+    },
+    {
+      "kind": "transition",
+      "transitionDurationSec": 0.35
+    }
+  ],
+  "templateCaptions": {
+    "a": {
       "layout": "cinema",
-      "applicable": true,
       "layers": [
         {
           "role": "headline",
@@ -98,17 +135,10 @@
         "position_offset_y": 0,
         "position_offset_x_pct": 0,
         "position_offset_y_pct": 0
-      }
-    },
-    {
-      "kind": "filter",
-      "filterId": "none"
-    },
-    {
-      "kind": "transition",
-      "transitionDurationSec": 0.35
+      },
+      "applicable": true
     }
-  ],
+  },
   "compile": {
     "burnSubtitles": true,
     "useSourceVideo": false
