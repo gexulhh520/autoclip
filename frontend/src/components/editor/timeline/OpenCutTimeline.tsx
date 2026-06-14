@@ -12,7 +12,7 @@ import { buildAdaptedTracks, findElementInTracks, mapTrackIdToStoreKey, ADAPTED_
 import TimelineToolbar from './TimelineToolbar'
 import TimelineRuler from './TimelineRuler'
 import TimelineElementView from './TimelineElementView'
-import { TIMELINE_CONSTANTS, TRACK_GAP, TRACK_HEIGHTS, TRACK_ICONS } from './constants'
+import { TIMELINE_CONSTANTS, TRACK_HEIGHTS, TRACK_ICONS } from './constants'
 import {
   calculateTotalDuration,
   canTrackBeHidden,
@@ -142,20 +142,18 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   }, [session?.id])
 
   const containerWidth = tracksViewportWidth || 1000
-  const paddingPx = getTimelinePaddingPx(containerWidth, 1, 1)
-
   const minZoom = getTimelineZoomMin(totalDuration, containerWidth)
 
   const { zoomLevel, setZoomLevel, handleWheel } = useTimelineZoom({
     containerRef: timelineRef,
     minZoom,
     playheadSec: sequencePlayheadSec,
-    paddingPx,
     tracksScrollRef,
   })
 
+  const trailingPaddingPx = getTimelinePaddingPx(containerWidth, zoomLevel, minZoom)
   const contentWidth = totalDuration * TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel
-  const dynamicTimelineWidth = Math.max(contentWidth + paddingPx, containerWidth)
+  const dynamicTimelineWidth = Math.max(contentWidth + trailingPaddingPx, containerWidth)
 
   const seek = useCallback(
     (timeSec: number) => {
@@ -174,7 +172,6 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     tracksScrollRef,
     zoomLevel,
     duration: totalDuration,
-    paddingPx,
     onSeek: seek,
     onClearSelection: clearSelection,
   })
@@ -183,7 +180,6 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     playheadSec: sequencePlayheadSec,
     zoomLevel,
     duration: totalDuration,
-    paddingPx,
     tracksScrollRef,
     onSeek: seek,
   })
@@ -441,6 +437,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   )
 
   const tracksHeight = Math.min(800, Math.max(120, getTotalTracksHeight(tracks)))
+  const playheadHeight = TIMELINE_CONSTANTS.HEADER_HEIGHT_PX + tracksHeight
 
   if (!session) {
     return <div className="oc-timeline" />
@@ -483,9 +480,11 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
 
       <div className="oc-timeline__body">
         <div className="oc-timeline__labels" ref={trackLabelsScrollRef}>
-          <div className="oc-timeline__labels-spacer" />
-          <div className="oc-timeline__labels-spacer" />
-          <div className="flex flex-col gap-1 px-0">
+          <div
+            className="oc-timeline__labels-spacer"
+            style={{ height: TIMELINE_CONSTANTS.HEADER_HEIGHT_PX }}
+          />
+          <div className="oc-timeline__labels-tracks">
             {tracks.map((track) => (
               <div
                 key={track.id}
@@ -530,7 +529,6 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                 dynamicTimelineWidth={dynamicTimelineWidth}
                 duration={totalDuration}
                 fps={fps}
-                paddingPx={paddingPx}
                 onWheel={handleWheel}
                 onPointerDown={handlePointerDown}
                 onClick={handlePointerClick}
@@ -546,7 +544,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                     key={bookmark.id}
                     type="button"
                     className="oc-timeline__bookmark"
-                    style={{ left: paddingPx + timeToPx(bookmark.time_sec, zoomLevel) }}
+                    style={{ left: timeToPx(bookmark.time_sec, zoomLevel) }}
                     title={bookmark.label || `${bookmark.time_sec.toFixed(1)}s`}
                     onClick={(event) => {
                       event.stopPropagation()
@@ -563,31 +561,36 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
               </div>
             </div>
 
-            <div className="oc-timeline__tracks" style={{ height: tracksHeight + TRACK_GAP * tracks.length }}>
+            <div className="oc-timeline__canvas">
               {snapPoint ? (
                 <div
                   className="oc-timeline__snap-indicator"
-                  style={{ left: paddingPx + timeToPx(snapPoint.time, zoomLevel) }}
+                  style={{ left: timeToPx(snapPoint.time, zoomLevel) }}
                 />
               ) : null}
 
               <div
                 className="oc-timeline__playhead"
-                style={{ left: playheadLeft, height: tracksHeight + 32 }}
+                style={{
+                  left: playheadLeft,
+                  height: playheadHeight,
+                  top: -TIMELINE_CONSTANTS.HEADER_HEIGHT_PX,
+                }}
               >
                 <div className="oc-timeline__playhead-line" onPointerDown={startPlayheadDrag} />
                 <div className="oc-timeline__playhead-head" onPointerDown={startPlayheadDrag} />
               </div>
 
-              {tracks.map((track, index) => (
-                <div
-                  key={track.id}
-                  className={`oc-timeline__track-lane${track.elements.length === 0 ? ' is-empty' : ''}`}
-                  style={{
-                    top: getCumulativeHeightBefore(tracks, index),
-                    height: TRACK_HEIGHTS[track.type],
-                  }}
-                >
+              <div className="oc-timeline__tracks" style={{ height: tracksHeight }}>
+                {tracks.map((track, index) => (
+                  <div
+                    key={track.id}
+                    className={`oc-timeline__track-lane${track.elements.length === 0 ? ' is-empty' : ''}`}
+                    style={{
+                      top: getCumulativeHeightBefore(tracks, index),
+                      height: TRACK_HEIGHTS[track.type],
+                    }}
+                  >
                   <button
                     type="button"
                     className="oc-timeline__track-hit"
@@ -599,7 +602,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                       type="button"
                       className="oc-timeline__add-text"
                       style={{
-                        left: paddingPx + timeToPx(sequencePlayheadSec, zoomLevel) - 10,
+                        left: timeToPx(sequencePlayheadSec, zoomLevel) - 10,
                       }}
                       title="在播放头添加文本"
                       onClick={(event) => {
@@ -626,7 +629,6 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                         element={element}
                         track={track}
                         zoomLevel={zoomLevel}
-                        paddingPx={paddingPx}
                         selected={isSelected(track.id, element)}
                         onSelect={(event) => selectElement(track.id, element, event)}
                         onPointerDown={(event) => startElementDrag(track.id, element, event)}
@@ -647,8 +649,9 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                       />
                     ))
                   )}
-                </div>
-              ))}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>

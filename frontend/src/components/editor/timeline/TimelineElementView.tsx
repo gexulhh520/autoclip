@@ -7,7 +7,6 @@ interface TimelineElementViewProps {
   element: AdaptedElement
   track: AdaptedTrack
   zoomLevel: number
-  paddingPx: number
   selected: boolean
   onSelect: (event: React.MouseEvent) => void
   onPointerDown: (event: React.PointerEvent) => void
@@ -20,7 +19,6 @@ const TimelineElementView: React.FC<TimelineElementViewProps> = ({
   element,
   track,
   zoomLevel,
-  paddingPx,
   selected,
   onSelect,
   onPointerDown,
@@ -29,7 +27,7 @@ const TimelineElementView: React.FC<TimelineElementViewProps> = ({
   waveformPeaks,
 }) => {
   const width = Math.max(timeToPx(element.duration, zoomLevel), 24)
-  const left = paddingPx + timeToPx(element.startTime, zoomLevel)
+  const left = timeToPx(element.startTime, zoomLevel)
   const bgColor = track.type === 'video' ? undefined : TRACK_COLORS[track.type]
 
   return (

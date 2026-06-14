@@ -9,6 +9,7 @@
   --oc-accent: #ececec;
   --oc-primary: #ececec;
   --oc-destructive: #ef4444;
+  --oc-header-height: 32px;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -100,8 +101,13 @@
 }
 
 .oc-timeline__labels-spacer {
-  height: 32px;
   flex-shrink: 0;
+}
+
+.oc-timeline__labels-tracks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .oc-timeline__label-row {
@@ -147,6 +153,10 @@
 .oc-timeline__content {
   position: relative;
   min-height: 100%;
+}
+
+.oc-timeline__canvas {
+  position: relative;
 }
 
 .oc-timeline__header {
@@ -232,7 +242,6 @@
 
 .oc-timeline__playhead {
   position: absolute;
-  top: 0;
   width: 2px;
   z-index: 60;
   pointer-events: none;
@@ -249,7 +258,7 @@
 
 .oc-timeline__playhead-head {
   position: absolute;
-  top: 4px;
+  top: calc(var(--oc-header-height, 32px) - 2px);
   left: 50%;
   width: 12px;
   height: 12px;
@@ -263,7 +272,7 @@
 
 .oc-timeline__snap-indicator {
   position: absolute;
-  top: 0;
+  top: calc(-1 * var(--oc-header-height, 32px));
   bottom: 0;
   width: 1px;
   background: #00cae0;

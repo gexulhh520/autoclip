@@ -23,6 +23,8 @@ export const TIMELINE_CONSTANTS = {
   ZOOM_BUTTON_FACTOR: 1.7,
   ZOOM_ANCHOR_PLAYHEAD_THRESHOLD: 0.15,
   SIDEBAR_WIDTH_PX: 112,
+  /** 标尺 16px + 书签 16px */
+  HEADER_HEIGHT_PX: 32,
 } as const
 
 export const TRACK_ICONS: Record<AdaptedTrackType, React.ReactNode> = {

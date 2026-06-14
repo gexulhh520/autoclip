@@ -6,11 +6,10 @@ export function useTimelineSeek(options: {
   tracksScrollRef: React.RefObject<HTMLDivElement | null>
   zoomLevel: number
   duration: number
-  paddingPx: number
   onSeek: (timeSec: number) => void
   onClearSelection: () => void
 }) {
-  const { tracksScrollRef, zoomLevel, duration, paddingPx, onSeek, onClearSelection } = options
+  const { tracksScrollRef, zoomLevel, duration, onSeek, onClearSelection } = options
   const mouseTrackingRef = useRef({ isMouseDown: false, downX: 0, downY: 0, downTime: 0 })
 
   const seekFromClientX = useCallback(
@@ -19,11 +18,11 @@ export function useTimelineSeek(options: {
       if (!scrollElement) return
       const rect = scrollElement.getBoundingClientRect()
       const scrollLeft = scrollLeftOverride ?? scrollElement.scrollLeft
-      const xInContent = clientX - rect.left + scrollLeft - paddingPx
+      const xInContent = clientX - rect.left + scrollLeft
       const time = Math.max(0, Math.min(duration, pxToTime(xInContent, zoomLevel)))
       onSeek(time)
     },
-    [tracksScrollRef, zoomLevel, duration, paddingPx, onSeek]
+    [tracksScrollRef, zoomLevel, duration, onSeek]
   )
 
   const handlePointerDown = useCallback((event: React.MouseEvent) => {
@@ -60,11 +59,10 @@ export function usePlayheadDrag(options: {
   playheadSec: number
   zoomLevel: number
   duration: number
-  paddingPx: number
   tracksScrollRef: React.RefObject<HTMLDivElement | null>
   onSeek: (timeSec: number) => void
 }) {
-  const { playheadSec, zoomLevel, duration, paddingPx, tracksScrollRef, onSeek } = options
+  const { playheadSec, zoomLevel, duration, tracksScrollRef, onSeek } = options
 
   const startDrag = useCallback(
     (event: React.PointerEvent) => {
@@ -92,8 +90,7 @@ export function usePlayheadDrag(options: {
     [playheadSec, zoomLevel, duration, tracksScrollRef, onSeek]
   )
 
-  const playheadLeft =
-    paddingPx + playheadSec * TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel
+  const playheadLeft = playheadSec * TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel
 
   return { startDrag, playheadLeft }
 }
