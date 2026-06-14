@@ -427,8 +427,9 @@ const EditorTimeline: React.FC<EditorTimelineProps> = ({ projectId }) => {
                   onSelect={(event) => {
                     event.stopPropagation()
                     setSelectedOverlayId(element.id)
-                    setSelectedBlockId(null)
-                    setSequencePlayheadSec(element.start_sec)
+                    setSequencePlayheadSec(
+                      element.start_sec + Math.min(element.duration_sec * 0.5, 0.05)
+                    )
                   }}
                   onUpdate={(patch, recordHistory) =>
                     updateOverlayElement(element.id, patch, { recordHistory })

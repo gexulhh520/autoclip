@@ -1803,6 +1803,7 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
+  z-index: 5;
 }
 
 .editor-opencut-text-canvas.is-interactive {
@@ -1813,6 +1814,11 @@
   display: block;
   width: 100%;
   height: 100%;
+  touch-action: none;
+}
+
+.editor-opencut-text-canvas.is-interactive .editor-opencut-text-canvas__surface {
+  cursor: default;
 }
 
 .editor-free-overlay {

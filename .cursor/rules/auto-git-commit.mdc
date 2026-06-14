@@ -1,0 +1,34 @@
+---
+description: 代码修改完成后自动 git 提交（本项目专用）
+alwaysApply: true
+---
+
+# 修改完成后自动 Git 提交
+
+在本项目中，**每次完成代码修改任务后必须创建 git 提交**，无需用户再次提醒。
+
+## 何时提交
+
+- 完成一轮实现、修复、重构或测试改动后，**在结束回复之前**执行提交
+- 仅回答问题、代码审查、纯规划且无文件变更时，不提交
+- 不要为 `data/`、数据库、构建产物、`.env` 等创建提交
+
+## 提交流程
+
+1. 并行执行：`git status`、`git diff`（必要时 `git log -3 --oneline`）
+2. 只暂存与本次任务相关的源码与配置：
+   - `backend/`、`frontend/`、`src-tauri/`、`scripts/`、`.cursor/`、根目录文档与配置
+3. **不要**暂存：`data/`、`*.db`、`__pycache__/`、`node_modules/`、`dist/`、`.env*`
+4. 撰写简洁的 commit message（1–2 句，说明 why）
+5. 顺序执行：`git add …` → `git commit` → `git status` 确认成功
+6. **不要**自动 `git push`
+
+## Commit message
+
+- 使用完整句子，聚焦「为什么改」
+- 示例：`fix(editor): 预览与导出共用 composition 画布几何`
+- 示例：`chore: 添加 Agent 完成后自动提交 hook`
+
+## 与 Hook 的关系
+
+`.cursor/hooks/auto-git-commit.ps1` 会在 Agent 会话结束时兜底提交未保存的变更。Agent 仍应优先主动提交，并写更准确的 commit message；若 hook 已提交，不要重复 amend。

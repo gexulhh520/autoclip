@@ -727,7 +727,15 @@ export const useEditSessionStore = create<EditSessionState>()(
       },
 
       setSelectedOverlayId: (overlayId) => {
-        set({ selectedOverlayId: overlayId, isPlaying: false })
+        set((state) => {
+          state.selectedOverlayId = overlayId
+          state.isPlaying = false
+          if (overlayId) {
+            state.selectedBlockId = null
+            state.selectedBlockIds = []
+            state.inspectorTab = 'text'
+          }
+        })
       },
 
       toggleTimelineTrackCollapsed: (trackId) => {
