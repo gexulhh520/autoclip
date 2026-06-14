@@ -205,8 +205,14 @@ class SpeechRecognizer:
         try:
             # 检查ffmpeg是否可用
             ffmpeg_bin = get_ffmpeg_path()
-            result = subprocess.run([ffmpeg_bin, '-version'], 
-                                  capture_output=True, text=True, timeout=10)
+            result = subprocess.run(
+                [ffmpeg_bin, '-version'],
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='ignore',
+                timeout=10,
+            )
             if result.returncode != 0:
                 raise SpeechRecognitionError("ffmpeg不可用，请安装ffmpeg")
             
@@ -233,7 +239,14 @@ class SpeechRecognizer:
                 str(audio_path)
             ]
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='ignore',
+                timeout=300,
+            )
             
             if result.returncode != 0:
                 stderr = result.stderr or ""
