@@ -88,23 +88,25 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
     return (
       <aside className="editor-asset-panel oc-panel__content">
         <div className="editor-asset-toolbar">
-          <input
-            ref={videoInputRef}
-            type="file"
-            accept="video/*,.mp4,.mov,.mkv,.webm,.m4v,.avi"
-            hidden
-            onChange={async (event) => {
-              const file = event.target.files?.[0]
-              event.target.value = ''
-              if (!file) return
-              try {
-                await importMedia(projectId, file)
-                message.success(`已导入「${file.name}」并添加到时间线`)
-              } catch (error: unknown) {
-                message.error(error instanceof Error ? error.message : '视频导入失败')
-              }
-            }}
-          />
+          <span className="editor-asset-toolbar__title">素材</span>
+          <div className="editor-asset-toolbar__actions">
+            <input
+              ref={videoInputRef}
+              type="file"
+              accept="video/*,.mp4,.mov,.mkv,.webm,.m4v,.avi"
+              hidden
+              onChange={async (event) => {
+                const file = event.target.files?.[0]
+                event.target.value = ''
+                if (!file) return
+                try {
+                  await importMedia(projectId, file)
+                  message.success(`已导入「${file.name}」并添加到时间线`)
+                } catch (error: unknown) {
+                  message.error(error instanceof Error ? error.message : '视频导入失败')
+                }
+              }}
+            />
           <button
             type="button"
             className="editor-import-btn"
@@ -113,11 +115,9 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
           >
             <PlusOutlined /> 导入视频
           </button>
-          <span className="editor-asset-toolbar__hint">
-            {loadingClips ? '加载素材…' : `${projectClips.length} 个 AI 切片`}
-          </span>
+          </div>
         </div>
-        <div className="editor-panel-body">
+        <div className="oc-panel__scroll editor-panel-body">
             {projectClips.length === 0 ? (
             <div className="editor-empty-hint">
               暂无 AI 切片。可点击上方「导入视频」直接加入时间线，或从项目详情勾选切片进入剪辑。

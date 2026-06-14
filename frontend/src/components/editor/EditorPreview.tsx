@@ -324,7 +324,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   }
 
   return (
-    <section className="editor-preview-panel">
+    <section className="editor-preview-panel oc-panel">
       <div className="editor-preview-stage">
         <EditorAspectRatioPicker videoNaturalSize={videoNaturalSize} />
         <div
@@ -435,76 +435,90 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
         </div>
       </div>
       <div className="editor-preview-controls">
-        <span className="editor-timecode">{formatTimecode(displayCurrentSec, previewFps)}</span>
-        <button
-          type="button"
-          className="editor-play-btn"
-          onClick={() => setPlaying(!isPlaying)}
-          disabled={!canPreview}
-        >
-          {isPlaying ? '❚❚' : '▶'}
-        </button>
-        <button
-          type="button"
-          className="editor-tool-btn editor-preview-fullscreen-btn"
-          onClick={() => void toggleFullscreen()}
-          disabled={!canPreview}
-          title="全屏预览"
-        >
-          {isFullscreen ? '退出' : '全屏'}
-        </button>
-        <div className="editor-preview-zoom">
-          <span>缩放</span>
-          <input
-            type="range"
-            min={50}
-            max={150}
-            value={previewZoom}
-            onChange={(event) => setPreviewZoom(Number(event.target.value))}
-          />
-          <span>{previewZoom}%</span>
+        <div className="editor-preview-controls__left">
+          <span className="editor-timecode">{formatTimecode(displayCurrentSec, previewFps)}</span>
+          <span className="editor-timecode editor-timecode--muted">/</span>
+          <span className="editor-timecode editor-timecode--muted">
+            {formatTimecode(displayTotalSec, previewFps)}
+          </span>
         </div>
-        {!isAssetPreview ? (
-          <label className="editor-preview-burn-toggle" title="与导出烧录字幕开关同步">
+        <div className="editor-preview-controls__center">
+          <button
+            type="button"
+            className="editor-play-btn"
+            onClick={() => setPlaying(!isPlaying)}
+            disabled={!canPreview}
+            aria-label={isPlaying ? '暂停' : '播放'}
+          >
+            {isPlaying ? '❚❚' : '▶'}
+          </button>
+        </div>
+        <div className="editor-preview-controls__right">
+          <div className="editor-preview-zoom">
+            <span>{previewZoom}%</span>
             <input
-              type="checkbox"
-              checked={previewBurnSubtitles}
-              onChange={(event) => setPreviewBurnSubtitles(event.target.checked)}
+              type="range"
+              min={50}
+              max={150}
+              value={previewZoom}
+              onChange={(event) => setPreviewZoom(Number(event.target.value))}
+              aria-label="预览缩放"
             />
-            字幕
-          </label>
-        ) : null}
-        {exportSummary ? (
-          <span className="editor-preview-badge" title="导出将与预览一致">
-            {exportSummary}
-          </span>
-        ) : null}
-        {isAssetPreview ? (
-          <span className="editor-preview-badge" title="素材预览，未加入时间线">
-            素材
-          </span>
-        ) : null}
-        {!isAssetPreview && useSourcePreview ? (
-          <span className="editor-preview-badge" title="预览使用原片重切时间轴">
-            原片
-          </span>
-        ) : null}
-        {!isAssetPreview && bgmUrl && !bgmMuted ? (
-          <span className="editor-preview-badge" title="预览含 BGM">
-            BGM
-          </span>
-        ) : null}
-        {!isAssetPreview && !freeOverlayMuted && previewVm?.freeOverlays.length ? (
-          <span className="editor-preview-badge" title="预览含自由文本层">
-            文本
-          </span>
-        ) : null}
-        {!isAssetPreview && previewVm?.inDissolve ? (
-          <span className="editor-preview-badge" title="叠化转场预览">
-            叠化
-          </span>
-        ) : null}
-        <span className="editor-timecode">{formatTimecode(displayTotalSec, previewFps)}</span>
+          </div>
+          <span className="editor-preview-controls__divider" aria-hidden="true" />
+          <button
+            type="button"
+            className="editor-tool-btn editor-preview-fullscreen-btn"
+            onClick={() => void toggleFullscreen()}
+            disabled={!canPreview}
+            title="全屏预览"
+            aria-label="全屏预览"
+          >
+            {isFullscreen ? '退出' : '全屏'}
+          </button>
+          {!isAssetPreview ? (
+            <label className="editor-preview-burn-toggle" title="与导出烧录字幕开关同步">
+              <input
+                type="checkbox"
+                checked={previewBurnSubtitles}
+                onChange={(event) => setPreviewBurnSubtitles(event.target.checked)}
+              />
+              字幕
+            </label>
+          ) : null}
+          <div className="editor-preview-badges">
+            {exportSummary ? (
+              <span className="editor-preview-badge" title="导出将与预览一致">
+                {exportSummary}
+              </span>
+            ) : null}
+            {isAssetPreview ? (
+              <span className="editor-preview-badge" title="素材预览，未加入时间线">
+                素材
+              </span>
+            ) : null}
+            {!isAssetPreview && useSourcePreview ? (
+              <span className="editor-preview-badge" title="预览使用原片重切时间轴">
+                原片
+              </span>
+            ) : null}
+            {!isAssetPreview && bgmUrl && !bgmMuted ? (
+              <span className="editor-preview-badge" title="预览含 BGM">
+                BGM
+              </span>
+            ) : null}
+            {!isAssetPreview && !freeOverlayMuted && previewVm?.freeOverlays.length ? (
+              <span className="editor-preview-badge" title="预览含自由文本层">
+                文本
+              </span>
+            ) : null}
+            {!isAssetPreview && previewVm?.inDissolve ? (
+              <span className="editor-preview-badge" title="叠化转场预览">
+                叠化
+              </span>
+            ) : null}
+          </div>
+        </div>
       </div>
     </section>
   )

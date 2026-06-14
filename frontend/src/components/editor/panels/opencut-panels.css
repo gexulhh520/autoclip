@@ -1,13 +1,19 @@
-/* OpenCut 风格面板 — 素材栏 / 属性栏 */
+/* OpenCut 风格面板 — 素材栏 / 属性栏 / 预览 / 时间轴 */
 
 .oc-panel {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   background: var(--editor-panel);
   border: 1px solid var(--editor-border);
   border-radius: 4px;
   overflow: hidden;
+}
+
+.editor-preview-panel.oc-panel {
+  background: var(--editor-preview-bg);
+  border-color: var(--editor-border);
 }
 
 .oc-panel__body {
@@ -17,14 +23,20 @@
   overflow: hidden;
 }
 
+.oc-panel__separator {
+  width: 1px;
+  flex-shrink: 0;
+  align-self: stretch;
+  background: var(--editor-border);
+}
+
 .oc-panel-tabbar {
   display: flex;
   flex-direction: column;
   gap: 2px;
   flex-shrink: 0;
   padding: 4px;
-  border-right: 1px solid var(--editor-border);
-  background: var(--editor-panel);
+  background: transparent;
 }
 
 .oc-panel-tab {
@@ -77,17 +89,19 @@
   text-align: center;
 }
 
-.editor-left-column.oc-panel {
-  border-right: none;
-  border-radius: 0;
-  border-left: none;
-  border-top: none;
-  border-bottom: none;
+.editor-inspector-panel.oc-panel {
+  border-radius: 4px;
+}
+
+.editor-timeline-panel.oc-panel {
+  border-radius: 4px;
+}
+
+.editor-inspector-tabbar {
+  border-right: 1px solid var(--editor-border);
+  background: transparent;
 }
 
 .editor-inspector-panel.oc-panel {
-  border-radius: 0;
-  border-top: none;
-  border-right: none;
-  border-bottom: none;
+  border-left: none;
 }
