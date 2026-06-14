@@ -9,6 +9,7 @@ Phase 0–2 回归用固定输入/输出，供 TS 与 Rust Compositor 对齐测�
 | `session-minimal.json` | 单片段 9:16 测试工程 |
 | `session-dissolve.json` | 双片段叠化测试工程 |
 | `session-free-text.json` | 自由文本 overlay（拖动偏移） |
+| `session-perf-30s.json` | 30s 性能基线 fixture（900 帧 @ 30fps） |
 
 ## Golden outputs (`golden/`)
 
@@ -50,7 +51,43 @@ $env:UPDATE_GOLDEN=1; npx vitest run src/editor/compositor/compositorGolden.test
 
 ```bash
 pytest backend/tests/test_compositor_golden.py
+pytest backend/tests/test_compositor_mux_integration.py   # 需 FFmpeg
+pytest backend/tests/test_compositor_export_perf.py       # 缩小版 perf 基线
 ```
+
+## 桌面 E2E（无 UI 自动化）
+
+覆盖 **编码 → mux → 抽帧**（T-11.5 partial，不依赖 Playwright/Tauri UI）：
+
+```bash
+bash scripts/verify_compositor_smoke.sh
+# 或分层：
+bash scripts/benchmark_compositor_export.sh e2e
+```
+
+| 层 | 测试 | 说明 |
+|----|------|------|
+| Renderer | `compositorExportSmoke.test.ts` | fixture → 全帧 layer hash |
+| Encoder | `rust/export/tests/export_smoke.rs` | RGBA → MP4 + ffprobe |
+| Mux | `test_compositor_mux_integration.py` | compositor MP4 + timeline 音频 → 成片 + 抽帧 hash |
+
+完整 App UI E2E（打开 fixture → 预览截图）待 tauri-driver / Playwright。
+
+## 导出性能基线（T-11.6）
+
+```bash
+# 缩小版（4s / 120 帧）— 适合 PR / 本地
+bash scripts/benchmark_compositor_export.sh all
+# Windows
+.\scripts\benchmark_compositor_export.ps1 -Mode all
+
+# 完整 30s（900 帧）— nightly / 本地
+BENCHMARK_FULL=1 bash scripts/benchmark_compositor_export.sh all
+.\scripts\benchmark_compositor_export.ps1 -Mode all -Full
+```
+
+基线上限：`fixtures/compositor/baseline/export-perf-minimal.json`  
+30s 最新结果：`fixtures/compositor/baseline/export-perf-30s-latest.json`（nightly 写入）
 
 ## 模板字幕 → OpenCut 自由文本
 

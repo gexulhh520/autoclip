@@ -25,3 +25,7 @@ jobs:
 
       - name: Run desktop smoke script
         run: bash scripts/verify_desktop.sh
+
+      - name: Compositor 30s benchmark (nightly)
+        continue-on-error: true
+        run: BENCHMARK_FULL=1 bash scripts/benchmark_compositor_export.sh all

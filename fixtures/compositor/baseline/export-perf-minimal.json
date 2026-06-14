@@ -1,0 +1,6 @@
+{
+  "schema_version": "compositor-perf-1",
+  "description": "CI 缩小版 mux 输入生成耗时上限（lavfi 4s 608x1080 silent MP4）",
+  "mux_input_wall_ms_ceiling": 15000,
+  "notes": "完整 30s 基线见 nightly COMPOSITOR_BENCHMARK=1 BENCHMARK_FULL=1"
+}

@@ -31,6 +31,9 @@ jobs:
         continue-on-error: true
         run: ruff check backend
 
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       - name: Run tests
         env:
           DASHSCOPE_API_KEY: test_api_key
@@ -70,8 +73,8 @@ jobs:
       - name: Build
         run: npm run build
 
-  rust-compositor:
-    name: Rust compositor golden
+  rust-compositor-export:
+    name: Rust compositor + export E2E
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -80,6 +83,13 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       - name: Run compositor golden tests
         working-directory: rust
         run: cargo test -p autoclip-compositor --quiet
+
+      - name: Run export encode smoke
+        working-directory: rust
+        run: cargo test -p autoclip-export export_smoke -- --nocapture

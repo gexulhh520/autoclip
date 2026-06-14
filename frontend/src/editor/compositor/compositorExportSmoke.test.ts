@@ -21,6 +21,13 @@ const layerHashAt = (sessionFile: string, timeSec: number): string => {
   )
 }
 
+const expectedFrameCount = (sessionFile: string): number => {
+  const session = loadFixtureSession(sessionFile)
+  const plan = compileCompositionPlan(session, COMPILE_OPTS)
+  const fps = session.export_settings?.fps ?? 30
+  return Math.max(1, Math.ceil(plan.totalDurationSec * fps))
+}
+
 describe('compositor export smoke (descriptor → RGBA hash)', () => {
   it('minimal session key frames render deterministically', () => {
     const times = [0, 1, 4]
@@ -41,5 +48,17 @@ describe('compositor export smoke (descriptor → RGBA hash)', () => {
   it('free-text session compiles and renders at t=1.5', () => {
     const hash = layerHashAt('session-free-text.json', 1.5)
     expect(hash).toMatch(/^[a-f0-9]{64}$/)
+  })
+
+  it('minimal session full export frame count matches plan duration', () => {
+    const session = loadFixtureSession('session-minimal.json')
+    const plan = compileCompositionPlan(session, COMPILE_OPTS)
+    const fps = session.export_settings?.fps ?? 30
+    const hashes = new Set<string>()
+    for (let i = 0; i < expectedFrameCount('session-minimal.json'); i += 1) {
+      hashes.add(layerHashAt('session-minimal.json', i / fps))
+    }
+    expect(hashes.size).toBeGreaterThan(0)
+    expect(plan.totalDurationSec).toBe(4)
   })
 })
