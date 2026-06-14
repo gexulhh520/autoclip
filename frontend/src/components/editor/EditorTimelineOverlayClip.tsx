@@ -31,7 +31,6 @@ const EditorTimelineOverlayClip: React.FC<EditorTimelineOverlayClipProps> = ({
   const startMoveDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
     if ((event.target as HTMLElement).closest('.editor-block-trim')) return
     event.stopPropagation()
-    event.preventDefault()
     const startX = event.clientX
     const initialStart = element.start_sec
     onUpdate({}, true)
@@ -89,8 +88,10 @@ const EditorTimelineOverlayClip: React.FC<EditorTimelineOverlayClipProps> = ({
       <button
         type="button"
         className="editor-overlay-chip"
-        onClick={onSelect}
-        onPointerDown={startMoveDrag}
+        onPointerDown={(event) => {
+          onSelect(event)
+          startMoveDrag(event)
+        }}
       >
         {readStringParam(element.params, 'content', '').slice(0, 16) || '文本'}
       </button>

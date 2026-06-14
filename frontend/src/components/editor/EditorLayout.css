@@ -1485,6 +1485,34 @@
 }
 
 /* ── 多轨时间线（OpenCut 结构 + Calm Premium） ── */
+.editor-timeline-stack {
+  position: relative;
+  min-width: min-content;
+}
+
+.editor-timeline-playhead-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 25;
+}
+
+.editor-timeline-playhead-layer .editor-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--editor-accent);
+  pointer-events: none;
+}
+
+.editor-timeline-playhead-layer .editor-playhead__head {
+  position: absolute;
+  top: 0;
+  pointer-events: auto;
+  cursor: ew-resize;
+}
+
 .editor-timeline-grid {
   display: grid;
   grid-template-columns: 112px minmax(640px, 1fr);
@@ -1520,20 +1548,6 @@
 .editor-timeline-group-spacer {
   min-height: 0;
   height: 0;
-}
-
-.editor-timeline-grid .editor-playhead {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  z-index: 20;
-  pointer-events: none;
-}
-
-.editor-timeline-grid .editor-playhead__head {
-  position: absolute;
-  top: 0;
-  z-index: 21;
 }
 
 .editor-timeline-layout {

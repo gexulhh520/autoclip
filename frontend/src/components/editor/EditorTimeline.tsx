@@ -31,6 +31,8 @@ import {
   collectTrimSnapPoints,
   pxToSequenceSec,
   snapTime,
+  timelineContentLeftPx,
+  timelinePlayheadLeftPx,
 } from '../../utils/editTimeline'
 import { secondsToSrtTime, srtTimeToSeconds } from '../../utils/srtTime'
 import EditorToolbar from './EditorToolbar'
@@ -87,7 +89,7 @@ const EditorTimeline: React.FC<EditorTimelineProps> = ({ projectId }) => {
   )
   const toggleTimelineTrackMuted = useEditSessionStore((state) => state.toggleTimelineTrackMuted)
 
-  const gridRef = useRef<HTMLDivElement>(null)
+  const contentLaneRef = useRef<HTMLDivElement>(null)
   const [sequenceSrtMarkers, setSequenceSrtMarkers] = useState<SequenceSrtMarker[]>([])
   const [sequenceWaveSlices, setSequenceWaveSlices] = useState<SequenceWaveSlice[]>([])
   const [scrubbing, setScrubbing] = useState(false)
@@ -124,8 +126,7 @@ const EditorTimeline: React.FC<EditorTimelineProps> = ({ projectId }) => {
     return collectTrimSnapPoints(maxDur)
   }, [])
 
-  const playheadLeft =
-    TIMELINE_SIDEBAR_WIDTH_PX + TRACK_OFFSET_PX + sequencePlayheadSec * pxPerSec
+  const playheadLeft = timelinePlayheadLeftPx(sequencePlayheadSec, pxPerSec)
   const bgmPath = session?.audio_settings?.bgm_path
   const bgmLabel = bgmPath ? bgmPath.split('/').pop() : null
   const bgmStartSec = session?.audio_settings?.bgm_start_sec ?? 0
@@ -187,14 +188,9 @@ const EditorTimeline: React.FC<EditorTimelineProps> = ({ projectId }) => {
 
   const scrubToClientX = useCallback(
     (clientX: number) => {
-      const grid = gridRef.current
-      if (!grid) return
-      const raw = pxToSequenceSec(
-        clientX,
-        grid.getBoundingClientRect(),
-        pxPerSec,
-        TIMELINE_SIDEBAR_WIDTH_PX
-      )
+      const lane = contentLaneRef.current
+      if (!lane) return
+      const raw = pxToSequenceSec(clientX, lane.getBoundingClientRect(), pxPerSec)
       const sec = snapTime(raw, sequenceSnapPoints, snapEnabled)
       setSequencePlayheadSec(Math.min(sec, totalDuration))
     },
@@ -308,9 +304,11 @@ const EditorTimeline: React.FC<EditorTimelineProps> = ({ projectId }) => {
     className: string,
     children: React.ReactNode,
     height: number,
-    collapsed: boolean
+    collapsed: boolean,
+    laneRef?: React.RefObject<HTMLDivElement | null>
   ) => (
     <div
+      ref={laneRef}
       className={`editor-timeline-grid__lane editor-track-lane editor-track-lane--scrub ${className}${
         collapsed ? ' is-collapsed' : ''
       }`}
@@ -438,7 +436,7 @@ const EditorTimeline: React.FC<EditorTimelineProps> = ({ projectId }) => {
             <button
               type="button"
               className="editor-overlay-add"
-              style={{ left: playheadLeft - TIMELINE_SIDEBAR_WIDTH_PX - 10 }}
+              style={{ left: timelineContentLeftPx(sequencePlayheadSec, pxPerSec) - 10 }}
               title="在播放头添加文本层"
               onClick={(event) => {
                 event.stopPropagation()
@@ -578,25 +576,13 @@ const EditorTimeline: React.FC<EditorTimelineProps> = ({ projectId }) => {
       <EditorToolbar projectId={projectId} />
       <div className="editor-timeline-body">
         <div
-          ref={gridRef}
-          className="editor-timeline-grid"
+          className="editor-timeline-stack"
           style={{ minWidth: totalWidth + TIMELINE_SIDEBAR_WIDTH_PX }}
-          onPointerDown={handleGridPointerDown}
         >
-          {blocks.length > 0 ? (
-            <>
-              <div className="editor-playhead" style={{ left: playheadLeft }} />
-              <div
-                className="editor-playhead__head"
-                style={{ left: playheadLeft - 6 }}
-                onPointerDown={(event) => {
-                  event.stopPropagation()
-                  setScrubbing(true)
-                }}
-              />
-            </>
-          ) : null}
-
+          <div
+            className="editor-timeline-grid"
+            style={{ minWidth: totalWidth + TIMELINE_SIDEBAR_WIDTH_PX }}
+          >
           <div className="editor-timeline-sidebar__cell editor-timeline-sidebar__cell--ruler">
             标尺
           </div>
@@ -608,7 +594,8 @@ const EditorTimeline: React.FC<EditorTimelineProps> = ({ projectId }) => {
               </span>
             )),
             28,
-            false
+            false,
+            contentLaneRef
           )}
 
           <div className="editor-timeline-sidebar__cell">书签</div>
@@ -638,6 +625,21 @@ const EditorTimeline: React.FC<EditorTimelineProps> = ({ projectId }) => {
           )}
 
           {trackRows}
+          </div>
+
+          {blocks.length > 0 ? (
+            <div className="editor-timeline-playhead-layer" aria-hidden={false}>
+              <div className="editor-playhead" style={{ left: playheadLeft }} />
+              <div
+                className="editor-playhead__head"
+                style={{ left: playheadLeft - 6 }}
+                onPointerDown={(event) => {
+                  event.stopPropagation()
+                  setScrubbing(true)
+                }}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
       <div className="editor-timeline-footer">

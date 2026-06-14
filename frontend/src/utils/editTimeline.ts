@@ -83,13 +83,22 @@ export function resolveSequencePlayhead(
   return { segment: last, relativeSec: last.duration }
 }
 
+/** 轨道内容列内：时间 → 像素（片段/标尺/书签 left） */
+export function timelineContentLeftPx(timeSec: number, pxPerSec: number): number {
+  return TRACK_OFFSET_PX + Math.max(0, timeSec) * pxPerSec
+}
+
+/** 整格网格内：播放头 left（含侧栏宽度） */
+export function timelinePlayheadLeftPx(timeSec: number, pxPerSec: number): number {
+  return TIMELINE_SIDEBAR_WIDTH_PX + timelineContentLeftPx(timeSec, pxPerSec)
+}
+
 export function pxToSequenceSec(
   clientX: number,
-  laneRect: DOMRect,
-  pxPerSec: number,
-  sidebarWidthPx = 0
+  contentLaneRect: DOMRect,
+  pxPerSec: number
 ): number {
-  const x = clientX - laneRect.left - sidebarWidthPx - TRACK_OFFSET_PX
+  const x = clientX - contentLaneRect.left - TRACK_OFFSET_PX
   return Math.max(0, x / pxPerSec)
 }
 
