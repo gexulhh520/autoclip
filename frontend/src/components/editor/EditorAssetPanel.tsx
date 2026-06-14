@@ -108,7 +108,11 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
       await importMedia(projectId, file)
       message.success(`「${file.name}」已导入并加入时间线`)
     } catch (error: unknown) {
-      message.error(error instanceof Error ? error.message : '视频导入失败')
+      const err = error as { userMessage?: string }
+      message.error(
+        err.userMessage ||
+          (error instanceof Error ? error.message : '视频导入失败')
+      )
     } finally {
       setImportingVideo(false)
     }

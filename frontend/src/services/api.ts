@@ -62,6 +62,16 @@ api.interceptors.request.use(
     }
 
     config.baseURL = apiConfigManager.getBaseUrl()
+
+    // FormData 必须让浏览器自动带 multipart boundary；保留 application/json 会导致 422
+    if (typeof FormData !== 'undefined' && config.data instanceof FormData && config.headers) {
+      if (typeof config.headers.delete === 'function') {
+        config.headers.delete('Content-Type')
+      } else {
+        delete (config.headers as Record<string, unknown>)['Content-Type']
+      }
+    }
+
     // 添加请求ID用于追踪
     config.metadata = { startTime: Date.now() }
     return config
@@ -105,6 +115,16 @@ api.interceptors.response.use(
     if (error.response?.status === 429) {
       const message = error.response?.data?.detail || '系统正在处理其他项目，请稍后再试'
       error.userMessage = message
+    }
+    else if (error.response?.status === 422) {
+      const detail = error.response?.data?.detail
+      if (typeof detail === 'string') {
+        error.userMessage = detail
+      } else if (Array.isArray(detail) && detail.length > 0) {
+        error.userMessage = detail.map((item: { msg?: string }) => item.msg).filter(Boolean).join('；') || '请求参数无效'
+      } else {
+        error.userMessage = '请求参数无效，请检查上传的文件'
+      }
     }
     else if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
       error.userMessage = '请求超时，项目可能仍在后台处理中，请稍后查看项目状态'
