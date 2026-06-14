@@ -86,6 +86,8 @@ export interface SceneCompileOptions {
   /** 与导出 burn_subtitles 对齐 */
   burnSubtitles: boolean
   useSourceVideo: boolean
+  /** 预览：选中的自由文本层在播放头外仍显示（半透明） */
+  selectedOverlayId?: string | null
 }
 
 export interface SceneBuilderInput {

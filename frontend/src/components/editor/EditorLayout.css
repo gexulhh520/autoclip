@@ -1012,6 +1012,7 @@
 .editor-preview-video-stack {
   position: absolute;
   inset: 0;
+  z-index: 1;
 }
 
 .editor-preview-video-stack .editor-preview-video-layer {
@@ -1029,6 +1030,7 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
+  z-index: 2;
 }
 
 .editor-transition-type-row {
@@ -2239,6 +2241,7 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
+  z-index: 3;
 }
 
 .editor-opencut-text-canvas.is-interactive {

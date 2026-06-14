@@ -53,12 +53,16 @@ const OpenCutTextCanvas: React.FC<OpenCutTextCanvasProps> = ({
     const displayH = container.clientHeight
     if (displayW <= 0 || displayH <= 0) return
 
-    canvas.width = displayW
-    canvas.height = displayH
+    const dpr = window.devicePixelRatio || 1
+    canvas.width = Math.max(1, Math.round(displayW * dpr))
+    canvas.height = Math.max(1, Math.round(displayH * dpr))
+    canvas.style.width = `${displayW}px`
+    canvas.style.height = `${displayH}px`
+
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    const scale = displayW / canvasWidth
+    const scale = (displayW / canvasWidth) * dpr
     ctx.setTransform(scale, 0, 0, scale, 0, 0)
     ctx.clearRect(0, 0, canvasWidth, canvasHeight)
 
@@ -92,6 +96,8 @@ const OpenCutTextCanvas: React.FC<OpenCutTextCanvasProps> = ({
 
   useEffect(() => {
     paint()
+    const frame = window.requestAnimationFrame(() => paint())
+    return () => window.cancelAnimationFrame(frame)
   }, [paint])
 
   useEffect(() => {

@@ -63,6 +63,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const setPlaying = useEditSessionStore((state) => state.setPlaying)
   const advanceSequencePlayhead = useEditSessionStore((state) => state.advanceSequencePlayhead)
   const timelineTrackMuted = useEditSessionStore((state) => state.timelineTrackMuted)
+  const overlayElements = useEditSessionStore((state) => state.session?.overlay_elements)
   const selectedOverlayId = useEditSessionStore((state) => state.selectedOverlayId)
   const setSelectedOverlayId = useEditSessionStore((state) => state.setSelectedOverlayId)
   const updateOverlayParams = useEditSessionStore((state) => state.updateOverlayParams)
@@ -95,10 +96,11 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
             options: {
               burnSubtitles: previewBurnSubtitles,
               useSourceVideo: useSourcePreview,
+              selectedOverlayId,
             },
           }
         : null,
-    [session, useSourcePreview, previewBurnSubtitles]
+    [session, useSourcePreview, previewBurnSubtitles, selectedOverlayId, overlayElements]
   )
 
   const renderScene = useMemo(() => {
@@ -411,7 +413,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                 })
               : null}
 
-            {!isAssetPreview && !freeOverlayMuted && previewVm?.freeOverlays.length ? (
+            {!isAssetPreview && !freeOverlayMuted && previewVm && previewVm.freeOverlays.length > 0 ? (
               <OpenCutTextCanvas
                 elements={previewVm.freeOverlays}
                 canvasWidth={canvasDims.width}
@@ -507,7 +509,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                 BGM
               </span>
             ) : null}
-            {!isAssetPreview && !freeOverlayMuted && previewVm?.freeOverlays.length ? (
+            {!isAssetPreview && !freeOverlayMuted && previewVm && previewVm.freeOverlays.length > 0 ? (
               <span className="editor-preview-badge" title="预览含自由文本层">
                 文本
               </span>

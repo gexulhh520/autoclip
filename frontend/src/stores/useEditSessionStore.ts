@@ -712,7 +712,15 @@ export const useEditSessionStore = create<EditSessionState>()(
       },
 
       setSelectedOverlayId: (overlayId) => {
-        set({ selectedOverlayId: overlayId, isPlaying: false })
+        set((state) => {
+          state.selectedOverlayId = overlayId
+          state.isPlaying = false
+          if (!overlayId || !state.session?.overlay_elements) return
+          const overlay = state.session.overlay_elements.find((item) => item.id === overlayId)
+          if (overlay) {
+            state.sequencePlayheadSec = overlay.start_sec
+          }
+        })
       },
 
       toggleTimelineTrackCollapsed: (trackId) => {
@@ -756,6 +764,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           state.selectedOverlayId = id
           state.selectedBlockId = null
           state.selectedBlockIds = []
+          state.sequencePlayheadSec = startSec
           state.dirty = true
         })
       },

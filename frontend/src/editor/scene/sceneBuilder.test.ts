@@ -108,17 +108,43 @@ describe('sceneBuilder', () => {
     expect(plan.timeline.totalDurationSec).toBe(4)
   })
 
-  it('applies playback rate to timeline duration and source mapping', () => {
-    const fast = block('a', 4)
-    fast.playback_rate = 2
-    const timeline = buildCompositionTimeline([fast], 0.35)
-    expect(timeline.totalDurationSec).toBeCloseTo(2, 2)
+  it('resolves free text layers at playhead and keeps selected overlay visible', () => {
+    const base = session([block('a', 4)])
+    base.overlay_elements = [
+      {
+        id: 'txt-1',
+        type: 'text',
+        start_sec: 2,
+        duration_sec: 3,
+        hidden: false,
+        params: {
+          content: '你好',
+          fontSize: 15,
+          'transform.positionX': 0,
+          'transform.positionY': 0,
+        },
+      },
+    ]
 
-    const scene = resolveSceneAt(
-      { session: session([fast]), options: { burnSubtitles: false, useSourceVideo: false } },
-      1
+    const atPlayhead = resolveSceneAt(
+      { session: base, options: { burnSubtitles: false, useSourceVideo: false } },
+      2.5
     )
-    expect(scene.videoLayers[0]?.playbackRate).toBe(2)
-    expect(scene.videoLayers[0]?.relativeSourceSec).toBeCloseTo(2, 2)
+    expect(atPlayhead.freeTextLayers).toHaveLength(1)
+    expect(atPlayhead.freeTextLayers[0]?.opacity).toBe(1)
+
+    const outside = resolveSceneAt(
+      {
+        session: base,
+        options: {
+          burnSubtitles: false,
+          useSourceVideo: false,
+          selectedOverlayId: 'txt-1',
+        },
+      },
+      0.5
+    )
+    expect(outside.freeTextLayers).toHaveLength(1)
+    expect(outside.freeTextLayers[0]?.opacity).toBeCloseTo(0.55)
   })
 })

@@ -14,7 +14,7 @@ export const createOpenCutTextOverlay = (
     id: nanoid(),
     type: 'text',
     start_sec: startSec,
-    duration_sec: 3,
+    duration_sec: 8,
     hidden: false,
     params: {
       ...OPENCUT_TEXT_DEFAULTS.params,

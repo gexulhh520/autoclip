@@ -1,4 +1,5 @@
 import type { EditSession } from '../../types/editSession'
+import type { OpenCutTextOverlay } from '../opencut-text/params'
 import { readStringParam } from '../opencut-text/params'
 import { blockPlaybackRate } from '../../utils/editTimeline'
 import { resolveCanvasDimensions } from './canvas'
@@ -17,6 +18,40 @@ import type {
 } from './types'
 
 const clamp01 = (value: number): number => Math.min(1, Math.max(0, value))
+
+const overlayHasContent = (element: OpenCutTextOverlay): boolean =>
+  readStringParam(element.params, 'content', '').trim().length > 0
+
+const isOverlayActiveAt = (element: OpenCutTextOverlay, timeSec: number): boolean => {
+  const start = element.start_sec
+  const duration = Math.max(element.duration_sec, 0.05)
+  return timeSec >= start - 0.001 && timeSec < start + duration + 0.001
+}
+
+/** 预览 / 导出共用的自由文本层筛选 */
+export function resolveFreeTextLayers(
+  session: EditSession,
+  timeSec: number,
+  options?: { selectedOverlayId?: string | null }
+): Array<{ element: OpenCutTextOverlay; opacity: number }> {
+  const selectedId = options?.selectedOverlayId ?? null
+  const candidates = (session.overlay_elements ?? []).filter(
+    (element) => !element.hidden && overlayHasContent(element)
+  )
+
+  const active = candidates
+    .filter((element) => isOverlayActiveAt(element, timeSec))
+    .map((element) => ({ element, opacity: 1 }))
+
+  if (selectedId && !active.some((item) => item.element.id === selectedId)) {
+    const selected = candidates.find((element) => element.id === selectedId)
+    if (selected) {
+      active.push({ element: selected, opacity: 0.55 })
+    }
+  }
+
+  return active
+}
 
 const blockVolumeAtRelative = (
   volume: number,
@@ -67,7 +102,7 @@ export function compileExportPlan(
     burnSubtitles: options.burnSubtitles,
     useSourceVideo: options.useSourceVideo,
     freeOverlays: (session.overlay_elements ?? []).filter(
-      (item) => !item.hidden && item.content.trim()
+      (item) => !item.hidden && overlayHasContent(item)
     ),
     bgm,
   }
@@ -171,17 +206,9 @@ export function resolveSceneAt(
     }
   }
 
-  const freeTextLayers = (session.overlay_elements ?? [])
-    .filter(
-      (element) =>
-        !element.hidden && readStringParam(element.params, 'content', '').trim().length > 0
-    )
-    .filter((element) => {
-      const start = element.start_sec
-      const end = start + element.duration_sec
-      return clampedTime >= start && clampedTime < end
-    })
-    .map((element) => ({ element, opacity: 1 }))
+  const freeTextLayers = resolveFreeTextLayers(session, clampedTime, {
+    selectedOverlayId: options.selectedOverlayId,
+  })
 
   const audioLayers: RenderScene['audioLayers'] = []
   const bgmSettings = session.audio_settings
