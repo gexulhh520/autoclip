@@ -168,7 +168,9 @@ const OpenCutTextCanvas = forwardRef<OpenCutTextCanvasHandle, OpenCutTextCanvasP
     }, [canvasWidth, canvasHeight, elements, resolvedSelectedIds])
 
     const schedulePaint = useCallback(() => {
-      if (paintRafRef.current != null) return
+      if (paintRafRef.current != null) {
+        window.cancelAnimationFrame(paintRafRef.current)
+      }
       paintRafRef.current = window.requestAnimationFrame(() => {
         paintRafRef.current = null
         paint()
@@ -176,14 +178,15 @@ const OpenCutTextCanvas = forwardRef<OpenCutTextCanvasHandle, OpenCutTextCanvasP
     }, [paint])
 
     useLayoutEffect(() => {
+      paint()
       schedulePaint()
-      const raf = window.requestAnimationFrame(() => schedulePaint())
-      return () => window.cancelAnimationFrame(raf)
-    }, [schedulePaint, elements, canvasWidth, canvasHeight])
-
-    useEffect(() => {
-      schedulePaint()
-    }, [schedulePaint])
+      return () => {
+        if (paintRafRef.current != null) {
+          window.cancelAnimationFrame(paintRafRef.current)
+          paintRafRef.current = null
+        }
+      }
+    }, [paint, schedulePaint, elements, canvasWidth, canvasHeight])
 
     useEffect(() => {
       const container = containerRef.current
@@ -192,15 +195,6 @@ const OpenCutTextCanvas = forwardRef<OpenCutTextCanvasHandle, OpenCutTextCanvasP
       observer.observe(container)
       return () => observer.disconnect()
     }, [schedulePaint])
-
-    useEffect(
-      () => () => {
-        if (paintRafRef.current != null) {
-          window.cancelAnimationFrame(paintRafRef.current)
-        }
-      },
-      []
-    )
 
     const hitTest = useCallback(
       (clientX: number, clientY: number): OpenCutTextOverlay | null => {

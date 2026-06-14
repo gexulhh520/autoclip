@@ -370,7 +370,6 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const videoFitClass = resolvePreviewVideoFitClass(fitMode, canvasAspect)
   const videoFilterStyle = resolveVisualFilterStyle(exportSettings?.visual_filter)
   const exportSummary = formatExportSettingsSummary(exportSettings, videoNaturalSize)
-  const hasFreeTextElements = (overlayElements?.length ?? 0) > 0
   const canvasDims = useMemo(
     () => resolveCanvasDimensions(exportSettings ?? { aspect: '9:16', height: 1080, fps: 30, visual_filter: 'none', fit_mode: 'contain' }, videoNaturalSize),
     [exportSettings, videoNaturalSize]
@@ -553,7 +552,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                 })
               : null}
 
-            {!isAssetPreview && previewVm && hasFreeTextElements ? (
+            {!isAssetPreview && previewVm && previewVm.freeOverlays.length > 0 ? (
               <OpenCutTextCanvas
                 ref={textCanvasRef}
                 elements={previewVm.freeOverlays}

@@ -58,6 +58,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const selectedOverlayIds = useEditSessionStore((state) => state.selectedOverlayIds)
   const selectedCaptionBlockId = useEditSessionStore((state) => state.selectedCaptionBlockId)
   const selectedCaptionBlockIds = useEditSessionStore((state) => state.selectedCaptionBlockIds)
+  const selectedBgm = useEditSessionStore((state) => state.selectedBgm)
   const sequencePlayheadSec = useEditSessionStore((state) => state.sequencePlayheadSec)
   const snapEnabled = useEditSessionStore((state) => state.snapEnabled)
   const rippleTrimEnabled = useEditSessionStore((state) => state.rippleTrimEnabled)
@@ -90,6 +91,8 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const removeOverlayElement = useEditSessionStore((state) => state.removeOverlayElement)
   const clearBlockCaption = useEditSessionStore((state) => state.clearBlockCaption)
   const setSelectedCaptionBlockId = useEditSessionStore((state) => state.setSelectedCaptionBlockId)
+  const setSelectedBgm = useEditSessionStore((state) => state.setSelectedBgm)
+  const removeBgm = useEditSessionStore((state) => state.removeBgm)
   const deleteSelectedCaption = useEditSessionStore((state) => state.deleteSelectedCaption)
   const deleteSelectedBlock = useEditSessionStore((state) => state.deleteSelectedBlock)
   const splitSelectedBlockAtPlayhead = useEditSessionStore(
@@ -293,6 +296,9 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         selectedOverlayIds.includes(element.source.overlayId)
       )
     }
+    if (element.source.kind === 'bgm') {
+      return selectedBgm
+    }
     return false
   }
 
@@ -327,6 +333,11 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       if (track?.textTrackId) {
         setActiveTextTrackId(track.textTrackId)
       }
+      return
+    }
+    if (element.source.kind === 'bgm') {
+      setSelectedBgm(true)
+      setInspectorTab('audio')
     }
   }
 
@@ -528,6 +539,8 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       else if (element.source.kind === 'block') {
         setSelectedBlockId(element.source.blockId)
         deleteSelectedBlock()
+      } else if (element.source.kind === 'bgm') {
+        removeBgm()
       }
     }
     if (action === 'duplicate' && element.source.kind === 'overlay') {
@@ -567,7 +580,8 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         onToggleRipple={() => setRippleTrimEnabled(!rippleTrimEnabled)}
         onSplit={splitSelectedBlockAtPlayhead}
         onDelete={() => {
-          if (selectedCaptionBlockIds.length > 0 || selectedCaptionBlockId) deleteSelectedCaption()
+          if (selectedBgm) removeBgm()
+          else if (selectedCaptionBlockIds.length > 0 || selectedCaptionBlockId) deleteSelectedCaption()
           else if (selectedOverlayIds.length > 0 || selectedOverlayId) {
             useEditSessionStore.getState().deleteSelectedOverlays()
           } else deleteSelectedBlock()
@@ -589,6 +603,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         bookmarkActive={bookmarkAtPlayhead}
         canSplit={!!selectedBlockId}
         canDelete={
+          selectedBgm ||
           !!selectedBlockId ||
           !!selectedOverlayId ||
           selectedOverlayIds.length > 0 ||

@@ -40,6 +40,7 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
   const updateExportSettings = useEditSessionStore((state) => state.updateExportSettings)
   const updateBlockTransition = useEditSessionStore((state) => state.updateBlockTransition)
   const uploadBgm = useEditSessionStore((state) => state.uploadBgm)
+  const removeBgm = useEditSessionStore((state) => state.removeBgm)
   const appendClips = useEditSessionStore((state) => state.appendClips)
   const importMedia = useEditSessionStore((state) => state.importMedia)
   const importSrtCaptions = useEditSessionStore((state) => state.importSrtCaptions)
@@ -296,7 +297,17 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
         </div>
         {audioSettings.bgm_path ? (
           <>
-            <div className="editor-inspector-muted">{audioSettings.bgm_path.split('/').pop()}</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 8 }}>
+              <div className="editor-inspector-muted">{audioSettings.bgm_path.split('/').pop()}</div>
+              <button
+                type="button"
+                className="editor-import-btn"
+                disabled={saving}
+                onClick={() => removeBgm()}
+              >
+                移除 BGM
+              </button>
+            </div>
             <div className="editor-inspector-section" style={{ marginTop: 16 }}>
               <div className="editor-inspector-label">
                 BGM 音量 ({Math.round(audioSettings.bgm_volume * 100)}%)

@@ -71,6 +71,7 @@ interface EditSessionState {
   selectedOverlayIds: string[]
   selectedCaptionBlockId: string | null
   selectedCaptionBlockIds: string[]
+  selectedBgm: boolean
   timelineTrackCollapsed: Record<TimelineTrackId, boolean>
   timelineTrackMuted: Record<TimelineTrackId, boolean>
   timelineTrackHidden: Record<TimelineTrackId, boolean>
@@ -151,6 +152,8 @@ interface EditSessionState {
   updateBlockPlaybackRate: (blockId: string, rate: number) => void
   updateBlockTransition: (blockId: string, transition: EditBlock['transition_out']) => void
   uploadBgm: (projectId: string, file: File) => Promise<void>
+  removeBgm: () => void
+  setSelectedBgm: (selected: boolean) => void
   setSelectedBlockId: (
     blockId: string | null,
     options?: { additive?: boolean; seekPlayhead?: boolean }
@@ -322,6 +325,7 @@ export const useEditSessionStore = create<EditSessionState>()(
       selectedOverlayIds: [],
       selectedCaptionBlockId: null,
       selectedCaptionBlockIds: [],
+      selectedBgm: false,
       timelineTrackCollapsed: { ...DEFAULT_TRACK_COLLAPSED },
       timelineTrackMuted: { ...DEFAULT_TRACK_MUTED },
       timelineTrackHidden: { ...DEFAULT_TRACK_HIDDEN },
@@ -413,6 +417,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             selectedOverlayIds: [],
             selectedCaptionBlockId: null,
             selectedCaptionBlockIds: [],
+            selectedBgm: false,
             timelineTrackCollapsed: { ...DEFAULT_TRACK_COLLAPSED },
             timelineTrackMuted: { ...DEFAULT_TRACK_MUTED },
             timelineTrackHidden: { ...DEFAULT_TRACK_HIDDEN },
@@ -746,6 +751,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             selectedOverlayIds: [],
             selectedCaptionBlockId: null,
             selectedCaptionBlockIds: [],
+            selectedBgm: false,
             assetPreviewClip: null,
             isPlaying: false,
           })
@@ -773,6 +779,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           state.selectedOverlayIds = []
           state.selectedCaptionBlockId = null
           state.selectedCaptionBlockIds = []
+          state.selectedBgm = false
           state.assetPreviewClip = null
           if (options?.seekPlayhead !== false) {
             state.sequencePlayheadSec = segment?.startSec ?? 0
@@ -803,6 +810,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             state.selectedBlockIds = []
             state.selectedCaptionBlockId = null
             state.selectedCaptionBlockIds = []
+            state.selectedBgm = false
           }
           state.isPlaying = false
           if (options?.seekPlayhead === false || !state.session?.overlay_elements) return
@@ -833,7 +841,23 @@ export const useEditSessionStore = create<EditSessionState>()(
             state.selectedCaptionBlockIds = [blockId]
             state.selectedOverlayId = null
             state.selectedOverlayIds = []
+            state.selectedBgm = false
           }
+          state.isPlaying = false
+        })
+      },
+
+      setSelectedBgm: (selected) => {
+        set((state) => {
+          state.selectedBgm = selected
+          if (!selected) return
+          state.selectedBlockId = null
+          state.selectedBlockIds = []
+          state.selectedOverlayId = null
+          state.selectedOverlayIds = []
+          state.selectedCaptionBlockId = null
+          state.selectedCaptionBlockIds = []
+          state.assetPreviewClip = null
           state.isPlaying = false
         })
       },
@@ -878,6 +902,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             state.selectedCaptionBlockId = captionIds[captionIds.length - 1] ?? null
             state.selectedOverlayId = overlayIds[overlayIds.length - 1] ?? null
           }
+          state.selectedBgm = false
           state.assetPreviewClip = null
           state.isPlaying = false
         })
@@ -891,6 +916,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           selectedOverlayIds: [],
           selectedCaptionBlockId: null,
           selectedCaptionBlockIds: [],
+          selectedBgm: false,
           assetPreviewClip: null,
           isPlaying: false,
         })
@@ -1029,6 +1055,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           state.selectedBlockIds = []
           state.selectedCaptionBlockId = null
           state.selectedCaptionBlockIds = []
+          state.assetPreviewClip = null
           state.sequencePlayheadSec = startSec
           state.activeTextTrackId = trackId
           state.isPlaying = false
@@ -1314,7 +1341,7 @@ export const useEditSessionStore = create<EditSessionState>()(
         set({ saving: true, error: null })
         try {
           const updated = await editApi.uploadBgm(projectId, session.id, file)
-          set({ session: updated, saving: false, dirty: false })
+          set({ session: updated, saving: false, dirty: false, selectedBgm: true })
         } catch (error: unknown) {
           set({
             saving: false,
@@ -1322,6 +1349,21 @@ export const useEditSessionStore = create<EditSessionState>()(
           })
           throw error
         }
+      },
+
+      removeBgm: () => {
+        pushHistory()
+        set((state) => {
+          if (!state.session?.audio_settings?.bgm_path) return
+          state.session.audio_settings = {
+            ...state.session.audio_settings,
+            bgm_path: null,
+            bgm_start_sec: undefined,
+            bgm_end_sec: undefined,
+          }
+          state.selectedBgm = false
+          state.dirty = true
+        })
       },
 
       updateSessionName: (name) => {
@@ -1445,6 +1487,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           selectedOverlayIds: [],
           selectedCaptionBlockId: null,
           selectedCaptionBlockIds: [],
+          selectedBgm: false,
           timelineTrackCollapsed: { ...DEFAULT_TRACK_COLLAPSED },
           timelineTrackMuted: { ...DEFAULT_TRACK_MUTED },
           timelineTrackHidden: { ...DEFAULT_TRACK_HIDDEN },
