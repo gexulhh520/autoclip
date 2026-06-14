@@ -329,10 +329,23 @@
   flex-direction: column;
   gap: 2px;
   flex-shrink: 0;
-  width: auto;
+  width: 40px;
+  min-width: 40px;
+  max-width: 40px;
   padding: 4px;
   border-right: none;
   background: transparent;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.editor-assets-panel {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
 }
 
 .editor-category-btn {
@@ -404,6 +417,128 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.editor-asset-search {
+  width: 100%;
+  height: 32px;
+  margin-bottom: 0;
+}
+
+.editor-asset-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr));
+  gap: 8px;
+}
+
+.editor-asset-preset-card {
+  position: relative;
+  border: 1px solid var(--editor-border);
+  border-radius: 8px;
+  background: var(--editor-panel-2);
+  overflow: hidden;
+}
+
+.editor-asset-preset-card__body {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+  text-align: center;
+}
+
+.editor-asset-preset-card__preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  background: var(--editor-track);
+  min-height: 4.5rem;
+}
+
+.editor-asset-preset-card__text-preview {
+  padding: 8px 6px;
+  line-height: 1.2;
+  word-break: break-word;
+}
+
+.editor-asset-preset-card__emoji-preview {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.editor-asset-preset-card__label {
+  display: block;
+  padding: 6px 4px;
+  font-size: 11px;
+  color: var(--editor-sub);
+}
+
+.editor-asset-preset-card__add {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: var(--editor-panel);
+  color: var(--editor-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.editor-asset-preset-card:hover .editor-asset-preset-card__add,
+.editor-asset-preset-card__add:focus-visible {
+  opacity: 1;
+}
+
+.editor-effect-preset {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 1px solid var(--editor-border);
+  border-radius: 8px;
+  background: var(--editor-panel-2);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.editor-effect-preset.is-active {
+  border-color: var(--editor-accent);
+}
+
+.editor-effect-preset__swatch {
+  width: 100%;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #3a3a3a 0%, #1a1a1a 100%);
+}
+
+.editor-effect-preset__swatch-inner {
+  width: 60%;
+  height: 60%;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6b6b6b, #2a2a2a);
+}
+
+.editor-effect-preset__label {
+  font-size: 11px;
+  color: var(--editor-sub);
+  padding: 0 4px 8px;
+  text-align: center;
 }
 
 .editor-media-grid {

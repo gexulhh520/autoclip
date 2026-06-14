@@ -11,6 +11,9 @@ import type { EditAspectPresetId } from '../../utils/editAspectRatios'
 import OpenCutPanelView from './opencut/OpenCutPanelView'
 import { useAssetsPanelStore } from './opencut/useAssetsPanelStore'
 import EditorSessionSettingsPanel from './panels/EditorSessionSettingsPanel'
+import TextAssetsView from './panels/assets/views/TextAssetsView'
+import StickersAssetsView from './panels/assets/views/StickersAssetsView'
+import EffectsAssetsView from './panels/assets/views/EffectsAssetsView'
 
 interface ProjectClip {
   id: string
@@ -37,9 +40,9 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
   const appendClips = useEditSessionStore((state) => state.appendClips)
   const importMedia = useEditSessionStore((state) => state.importMedia)
   const importSrtCaptions = useEditSessionStore((state) => state.importSrtCaptions)
-  const addOverlayElement = useEditSessionStore((state) => state.addOverlayElement)
-  const sequencePlayheadSec = useEditSessionStore((state) => state.sequencePlayheadSec)
   const setInspectorTab = useEditSessionStore((state) => state.setInspectorTab)
+  const previewBurnSubtitles = useEditSessionStore((state) => state.previewBurnSubtitles)
+  const setPreviewBurnSubtitles = useEditSessionStore((state) => state.setPreviewBurnSubtitles)
   const assetPreviewClip = useEditSessionStore((state) => state.assetPreviewClip)
   const setAssetPreviewClip = useEditSessionStore((state) => state.setAssetPreviewClip)
 
@@ -89,12 +92,6 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
       message.error(error instanceof Error ? error.message : '添加失败')
     }
   }
-
-  const renderPlaceholder = (label: string) => (
-    <OpenCutPanelView title={label}>
-      <p className="oc-panel-placeholder">该功能即将推出（OpenCut 同款入口，AutoClip 后续接入）</p>
-    </OpenCutPanelView>
-  )
 
   const renderMedia = () => (
     <OpenCutPanelView
@@ -248,6 +245,19 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
           </>
         }
       >
+        <div className="editor-inspector-section">
+          <div className="editor-inspector-label">会话音频</div>
+          <label className="editor-modal__check">
+            <input
+              type="checkbox"
+              checked={audioSettings.use_source_video}
+              onChange={(event) =>
+                updateAudioSettings({ use_source_video: event.target.checked })
+              }
+            />
+            导出从原片重切
+          </label>
+        </div>
         {audioSettings.bgm_path ? (
           <>
             <div className="editor-inspector-muted">{audioSettings.bgm_path.split('/').pop()}</div>
@@ -335,72 +345,69 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
     )
   }
 
-  const renderText = () => (
-    <OpenCutPanelView title="文本">
-      <div className="editor-inspector-section">
-        <button
-          type="button"
-          className="editor-tool-btn"
-          onClick={() => {
-            addOverlayElement({ start_sec: sequencePlayheadSec })
-            setInspectorTab('text')
-          }}
-        >
-          在播放头添加文本
-        </button>
-      </div>
-      <div className="editor-inspector-muted" style={{ marginTop: 8 }}>
-        在预览区拖拽定位，右侧属性栏调整样式
-      </div>
-    </OpenCutPanelView>
-  )
-
   const renderCaptions = () => (
     <OpenCutPanelView title="字幕">
-      <div className="editor-inspector-muted" style={{ marginBottom: 10 }}>
-        支持 .srt，导入为自由文本轨
+      <div className="editor-inspector-section">
+        <div className="editor-inspector-label">模板字幕</div>
+        <p className="editor-inspector-muted">
+          片段自带 cinema 模板字幕，选中片段后在右侧「文本」编辑或 AI 写旁白
+        </p>
+        <label className="editor-modal__check" style={{ marginTop: 10 }}>
+          <input
+            type="checkbox"
+            checked={previewBurnSubtitles}
+            onChange={(event) => setPreviewBurnSubtitles(event.target.checked)}
+          />
+          预览模板字幕（与导出烧录同步）
+        </label>
       </div>
-      <input
-        ref={srtInputRef}
-        type="file"
-        accept=".srt,text/plain"
-        hidden
-        onChange={async (event) => {
-          const file = event.target.files?.[0]
-          event.target.value = ''
-          if (!file) return
-          try {
-            const text = await file.text()
-            const dims = resolveCanvasDimensions(
-              session?.export_settings ?? {
-                aspect: '9:16',
-                height: 1080,
-                fps: 30,
-                visual_filter: 'none',
-                fit_mode: 'contain',
+      <div className="editor-inspector-section">
+        <div className="editor-inspector-label">导入 SRT</div>
+        <p className="editor-inspector-muted" style={{ marginBottom: 10 }}>
+          解析为自由文本轨，可逐条调整样式
+        </p>
+        <input
+          ref={srtInputRef}
+          type="file"
+          accept=".srt,text/plain"
+          hidden
+          onChange={async (event) => {
+            const file = event.target.files?.[0]
+            event.target.value = ''
+            if (!file) return
+            try {
+              const text = await file.text()
+              const dims = resolveCanvasDimensions(
+                session?.export_settings ?? {
+                  aspect: '9:16',
+                  height: 1080,
+                  fps: 30,
+                  visual_filter: 'none',
+                  fit_mode: 'contain',
+                }
+              )
+              const result = parseOpenCutSrt(text)
+              if (!result.captions.length) {
+                message.warning('未解析到有效字幕条目')
+                return
               }
-            )
-            const result = parseOpenCutSrt(text)
-            if (!result.captions.length) {
-              message.warning('未解析到有效字幕条目')
-              return
+              importSrtCaptions(
+                captionsToOpenCutOverlays(result.captions, dims.width, dims.height)
+              )
+              setInspectorTab('text')
+              message.success(
+                `已导入 ${result.captions.length} 条字幕` +
+                  (result.skippedCueCount ? `，跳过 ${result.skippedCueCount} 条` : '')
+              )
+            } catch (error: unknown) {
+              message.error(error instanceof Error ? error.message : '导入失败')
             }
-            importSrtCaptions(
-              captionsToOpenCutOverlays(result.captions, dims.width, dims.height)
-            )
-            setInspectorTab('text')
-            message.success(
-              `已导入 ${result.captions.length} 条字幕` +
-                (result.skippedCueCount ? `，跳过 ${result.skippedCueCount} 条` : '')
-            )
-          } catch (error: unknown) {
-            message.error(error instanceof Error ? error.message : '导入失败')
-          }
-        }}
-      />
-      <button type="button" className="editor-tool-btn" onClick={() => srtInputRef.current?.click()}>
-        选择 SRT 文件
-      </button>
+          }}
+        />
+        <button type="button" className="editor-tool-btn" onClick={() => srtInputRef.current?.click()}>
+          选择 SRT 文件
+        </button>
+      </div>
     </OpenCutPanelView>
   )
 
@@ -490,7 +497,7 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
         </div>
         {selectedBlock && !isLast ? (
           <div className="editor-inspector-section">
-            <div className="editor-inspector-label">当前片段转场</div>
+            <div className="editor-inspector-label">当前片段 → 下一段</div>
             <div className="editor-transition-type-row">
               <button
                 type="button"
@@ -507,9 +514,14 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
                 叠化
               </button>
             </div>
+            <p className="editor-inspector-muted" style={{ marginTop: 8 }}>
+              也可点击时间线片段衔接处快速切换
+            </p>
           </div>
         ) : (
-          <p className="editor-inspector-muted">选中非末片段可在右侧属性栏设置转场</p>
+          <p className="editor-inspector-muted">
+            在时间线选中非最后一个片段，可设置至下一片段的转场类型
+          </p>
         )}
       </OpenCutPanelView>
     )
@@ -524,9 +536,9 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
   const viewMap: Record<string, React.ReactNode> = {
     media: renderMedia(),
     sounds: renderSounds(),
-    text: renderText(),
-    stickers: renderPlaceholder('贴纸'),
-    effects: renderPlaceholder('效果'),
+    text: <TextAssetsView />,
+    stickers: <StickersAssetsView />,
+    effects: <EffectsAssetsView />,
     transitions: renderTransitions(),
     captions: renderCaptions(),
     adjustment: renderAdjustment(),
