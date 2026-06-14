@@ -326,9 +326,8 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         setSelectedBlockId(null)
         setSelectedCaptionBlockId(null)
       }
-      setSelectedOverlayId(element.source.overlayId, { additive })
+      setSelectedOverlayId(element.source.overlayId, { additive, seekPlayhead: false })
       setInspectorTab('text')
-      setSequencePlayheadSec(element.startTime)
       const track = tracks.find((item) => item.id === _trackId)
       if (track?.textTrackId) {
         setActiveTextTrackId(track.textTrackId)
