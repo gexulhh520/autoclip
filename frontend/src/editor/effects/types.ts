@@ -8,6 +8,7 @@ import type {
   VisualTransform,
 } from '../compositor/types'
 import type { findDissolveAtTime } from '../scene/timelineLayout'
+import type { EffectPassDefinition } from './effectPass'
 
 export type DissolveAtTime = NonNullable<ReturnType<typeof findDissolveAtTime>>
 
@@ -52,6 +53,8 @@ export interface CompositorEffectDefinition {
   resolveSceneEffect?: (plan: CompositionPlan) => FrameSceneEffectItem | null
   /** Canvas2D 软件合成应用 scene_effect */
   applySceneEffect?: (context: SceneEffectApplyContext) => void
+  /** WebGL2 EffectPass（预览优先，失败回退 applySceneEffect） */
+  effectPass?: EffectPassDefinition
   /** 解析当前时刻视频层（转场） */
   resolveTransition?: (context: EffectResolveContext) => TransitionResolveResult | null
 }

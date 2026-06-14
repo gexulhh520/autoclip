@@ -1,5 +1,6 @@
 import type { EditExportSettings } from '../../types/editSession'
 import type { CompositionPlan } from '../compositor/types'
+import { FILTER_EFFECT_PASS } from './effectPass'
 import type { CompositorEffectDefinition, VisualFilterId } from './types'
 import { toFilterEffectId, toFilterFrameEffectId } from './types'
 
@@ -74,6 +75,7 @@ function registerVisualFilter(filterId: VisualFilterId): CompositorEffectDefinit
           applyCanvasFilterEffect(ctx, width, height, css)
         }
       : undefined,
+    effectPass: filterId === 'none' ? undefined : FILTER_EFFECT_PASS,
   }
 }
 

@@ -197,8 +197,12 @@ def normalize_session(raw: dict) -> EditSession:
     if version < 2:
         raw["schema_version"] = 2
     session = EditSession.model_validate(raw)
+    if session.project_v3:
+        session.schema_version = 3
+        return session
     if version < 3:
         project = migrate_session_to_v3(session)
         session.schema_version = 3
+        session.project_v3 = project
         session.bookmarks = project.scenes[0].bookmarks if project.scenes else []
     return session

@@ -40,8 +40,10 @@ import {
 import { assertCompositorExportAvailable } from '../utils/compositorExportGate'
 import { loadExportPreset, saveExportPreset } from '../utils/editExportPresets'
 import {
+  hydrateEditDocument,
   normalizeEditDocument,
   type EditDocument,
+  type EditProjectV3,
 } from '../editor/migration/v2ToV3'
 import { applyTextPresetToParams } from '../editor/effects'
 import {
@@ -73,6 +75,7 @@ export interface AssetPreviewClip {
 
 interface EditSessionState {
   session: EditSession | null
+  editProject: EditProjectV3 | null
   loading: boolean
   saving: boolean
   exporting: boolean
@@ -205,6 +208,11 @@ interface EditSessionState {
     options?: { recordHistory?: boolean }
   ) => void
   applyTextPreset: (elementId: string, presetId: string) => void
+  beginOverlayDragHistory: () => void
+  moveOverlayPositions: (
+    updates: Array<{ elementId: string; positionX: number; positionY: number }>,
+    options?: { recordHistory?: boolean }
+  ) => void
   removeOverlayElement: (elementId: string) => void
   removeOverlayElements: (elementIds: string[]) => void
   clearBlockCaption: (blockId: string) => void
@@ -331,6 +339,7 @@ export const useEditSessionStore = create<EditSessionState>()(
 
     return {
       session: null,
+      editProject: null,
       loading: false,
       saving: false,
       exporting: false,
@@ -368,9 +377,9 @@ export const useEditSessionStore = create<EditSessionState>()(
       loadSession: async (projectId, sessionId) => {
         set({ loading: true, error: null })
         try {
-          const session = await editApi.getSession(projectId, sessionId)
-          if (!session.audio_settings) {
-            session.audio_settings = {
+          const rawSession = await editApi.getSession(projectId, sessionId)
+          if (!rawSession.audio_settings) {
+            rawSession.audio_settings = {
               bgm_volume: 0.28,
               fade_in_sec: 0.3,
               fade_out_sec: 0.3,
@@ -381,15 +390,17 @@ export const useEditSessionStore = create<EditSessionState>()(
             }
           }
           let migrated = false
-          if (!session.export_settings.fit_mode) {
-            session.export_settings.fit_mode = 'contain'
-          } else if (session.export_settings.fit_mode === 'cover') {
-            session.export_settings.fit_mode = 'contain'
+          if (!rawSession.export_settings.fit_mode) {
+            rawSession.export_settings.fit_mode = 'contain'
+          } else if (rawSession.export_settings.fit_mode === 'cover') {
+            rawSession.export_settings.fit_mode = 'contain'
             migrated = true
           }
-          if (!session.export_settings.visual_filter) {
-            session.export_settings.visual_filter = 'none'
+          if (!rawSession.export_settings.visual_filter) {
+            rawSession.export_settings.visual_filter = 'none'
           }
+          const document = hydrateEditDocument(rawSession)
+          const session = document.session
           for (const block of session.sequence) {
             if (!block.transition_out) {
               block.transition_out = 'cut'
@@ -426,8 +437,10 @@ export const useEditSessionStore = create<EditSessionState>()(
             session.bookmarks = []
           }
           const exportPreset = loadExportPreset()
+          const syncedDocument = normalizeEditDocument(session)
           set({
-            session,
+            session: syncedDocument.session,
+            editProject: syncedDocument.project,
             loading: false,
             dirty: migrated,
             previewBurnSubtitles: exportPreset.burn_subtitles,
@@ -472,7 +485,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             schema_version: 3,
             project_v3: document.project,
           })
-          set({ session: updated, saving: false, dirty: false })
+          set({ session: updated, editProject: document.project, saving: false, dirty: false })
         } catch (error: unknown) {
           set({
             saving: false,
@@ -485,6 +498,30 @@ export const useEditSessionStore = create<EditSessionState>()(
         const { session } = get()
         if (!session) return null
         return normalizeEditDocument(session)
+      },
+
+      beginOverlayDragHistory: () => {
+        pushHistory()
+      },
+
+      moveOverlayPositions: (updates, options) => {
+        if (options?.recordHistory !== false && updates.length > 0) {
+          pushHistory()
+        }
+        if (updates.length === 0) return
+        set((state) => {
+          if (!state.session?.overlay_elements) return
+          for (const update of updates) {
+            const element = state.session.overlay_elements.find((item) => item.id === update.elementId)
+            if (!element?.params) continue
+            element.params = {
+              ...element.params,
+              'transform.positionX': update.positionX,
+              'transform.positionY': update.positionY,
+            }
+          }
+          state.dirty = true
+        })
       },
 
       exportSession: async (projectId, options) => {
@@ -1580,6 +1617,7 @@ export const useEditSessionStore = create<EditSessionState>()(
       reset: () =>
         set({
           session: null,
+          editProject: null,
           loading: false,
           saving: false,
           exporting: false,

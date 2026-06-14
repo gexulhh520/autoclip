@@ -3,6 +3,7 @@ import { compileCompositionPlan } from '../compositor'
 import { loadFixtureSession } from '../compositor/goldenFixtures'
 import {
   flattenV3ToSession,
+  hydrateEditDocument,
   migrateSessionToV3,
   normalizeEditDocument,
 } from './v2ToV3'
@@ -32,5 +33,20 @@ describe('EditProjectV3 migration', () => {
     const document = normalizeEditDocument(session)
     const viaProject = compileCompositionPlan(flattenV3ToSession(document.project), COMPILE_OPTS)
     expect(viaProject.totalDurationSec).toBeCloseTo(direct.totalDurationSec, 2)
+  })
+
+  it('hydrateEditDocument prefers project_v3 over stale flat sequence', () => {
+    const session = loadFixtureSession('session-minimal.json')
+    const project = migrateSessionToV3(session)
+    project.scenes[0]!.tracks.main[0]!.properties.title = 'from-v3'
+    const stale = {
+      ...session,
+      schema_version: 3,
+      project_v3: project,
+      sequence: session.sequence.map((block) => ({ ...block, title: 'stale-flat' })),
+    }
+    const document = hydrateEditDocument(stale)
+    expect(document.session.sequence[0]?.title).toBe('from-v3')
+    expect(document.project.scenes[0]?.tracks.main[0]?.properties.title).toBe('from-v3')
   })
 })

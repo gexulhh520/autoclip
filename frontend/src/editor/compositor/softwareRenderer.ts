@@ -22,6 +22,8 @@ export interface SoftwareRendererOptions {
   showTemplateCaptions?: boolean
   /** Skip free text layers */
   showFreeText?: boolean
+  /** 预览优先 WebGL EffectPass */
+  preferGpuEffects?: boolean
 }
 
 const sortItems = (items: FrameItem[]): FrameItem[] =>
@@ -88,9 +90,10 @@ const applySceneEffectToContext = (
   ctx: CanvasRenderingContext2D,
   width: number,
   height: number,
-  effectId: string
+  effectId: string,
+  options?: { preferGpu?: boolean }
 ): void => {
-  if (applyRegisteredSceneEffect({ ctx, width, height, effectId })) {
+  if (applyRegisteredSceneEffect({ ctx, width, height, effectId }, options)) {
     return
   }
   // 未注册 effect 的兜底（历史 descriptor）
@@ -153,7 +156,9 @@ export function renderFrameDescriptorToCanvas(
   }
 
   for (const effectId of sceneEffects) {
-    applySceneEffectToContext(ctx, width, height, effectId)
+    applySceneEffectToContext(ctx, width, height, effectId, {
+      preferGpu: options.preferGpuEffects ?? true,
+    })
   }
 }
 

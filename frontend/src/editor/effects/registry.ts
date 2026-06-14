@@ -1,5 +1,6 @@
 import type { CompositionPlan, FrameSceneEffectItem } from '../compositor/types'
 import { VISUAL_FILTER_EFFECTS } from './filters'
+import { applyRegisteredEffectPass } from './effectPass'
 import { TEXT_PRESET_EFFECTS } from './textPresets'
 import { TRANSITION_CUT_EFFECT, TRANSITION_DISSOLVE_EFFECT } from './transitions'
 import type { CompositorEffectDefinition, SceneEffectApplyContext } from './types'
@@ -45,8 +46,24 @@ export function resolvePlanSceneEffects(plan: CompositionPlan): FrameSceneEffect
   return items
 }
 
-export function applyRegisteredSceneEffect(context: SceneEffectApplyContext): boolean {
+export function applyRegisteredSceneEffect(
+  context: SceneEffectApplyContext,
+  options?: { preferGpu?: boolean }
+): boolean {
   const def = getEffect(context.effectId)
+  if (options?.preferGpu !== false && def?.effectPass) {
+    if (
+      applyRegisteredEffectPass(
+        context.ctx,
+        context.width,
+        context.height,
+        context.effectId,
+        def.effectPass
+      )
+    ) {
+      return true
+    }
+  }
   if (!def?.applySceneEffect) return false
   def.applySceneEffect(context)
   return true

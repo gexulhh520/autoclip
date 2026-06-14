@@ -2,12 +2,11 @@ import React, { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { EditBlock, EditSession } from '../../../types/editSession'
 import {
   buildFrameDescriptor,
-  canvasPointFromEvent,
   compileCompositionPlan,
-  hitTestFrameDescriptor,
   type CompositionPlan,
 } from '../../../editor/compositor'
 import { renderFrameDescriptorToCanvas } from '../../../editor/compositor/softwareRenderer'
+import { usePreviewTextDrag } from '../../../editor/compositor/usePreviewTextDrag'
 import { measureTextOverlay } from '../../../editor/opencut-text/measure'
 import type { OpenCutTextOverlay } from '../../../editor/opencut-text/params'
 import type { PreviewSceneViewModel } from '../../../editor/scene/adapters/previewAdapter'
@@ -37,6 +36,11 @@ export interface CompositorPreviewProps {
     overlayId: string | null,
     options?: { additive?: boolean; seekPlayhead?: boolean }
   ) => void
+  beginOverlayDragHistory?: () => void
+  moveOverlayPositions?: (
+    updates: Array<{ elementId: string; positionX: number; positionY: number }>,
+    options?: { recordHistory?: boolean }
+  ) => void
 }
 
 const CompositorPreview: React.FC<CompositorPreviewProps> = ({
@@ -61,6 +65,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   onTimeUpdate,
   onEnded,
   onSelectOverlay,
+  beginOverlayDragHistory,
+  moveOverlayPositions,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const primaryVideoRef = useRef<HTMLVideoElement>(null)
@@ -165,6 +171,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       videos,
       showTemplateCaptions: previewBurnSubtitles && !captionsHidden && !captionsMuted,
       showFreeText: true,
+      preferGpuEffects: true,
     })
   }, [
     descriptor,
@@ -190,20 +197,15 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     return () => window.cancelAnimationFrame(raf)
   }, [isPlaying, paint])
 
-  const handleCanvasClick = useCallback(
-    (event: React.MouseEvent<HTMLCanvasElement>) => {
-      if (!onSelectOverlay || !descriptor) return
-      const canvas = canvasRef.current
-      if (!canvas) return
-      const { x, y } = canvasPointFromEvent(canvas, event)
-      const hit = hitTestFrameDescriptor(descriptor, x, y)
-      onSelectOverlay(hit?.elementId ?? null, {
-        additive: event.shiftKey || event.metaKey || event.ctrlKey,
-        seekPlayhead: false,
-      })
-    },
-    [descriptor, onSelectOverlay]
-  )
+  const dragHandlers = usePreviewTextDrag({
+    canvasRef,
+    descriptor,
+    session,
+    selectedOverlayIds,
+    onSelectOverlay,
+    beginOverlayDragHistory: beginOverlayDragHistory ?? (() => undefined),
+    moveOverlayPositions: moveOverlayPositions ?? (() => undefined),
+  })
 
   return (
     <div className="compositor-preview">
@@ -212,7 +214,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         className={`compositor-preview__canvas editor-preview-canvas ${videoFitClass}`}
         width={canvasWidth}
         height={canvasHeight}
-        onClick={handleCanvasClick}
+        style={{ touchAction: 'none' }}
+        {...dragHandlers}
       />
 
       <div className="compositor-preview__decoders" aria-hidden>

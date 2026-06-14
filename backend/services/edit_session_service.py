@@ -234,7 +234,9 @@ class EditSessionService:
         raw = _load_json(path)
         if not isinstance(raw, dict):
             raise FileNotFoundError(session_id)
-        return EditSession.model_validate(raw)
+        from backend.schemas.edit_project_v3 import normalize_session
+
+        return normalize_session(raw)
 
     def create_session(
         self,

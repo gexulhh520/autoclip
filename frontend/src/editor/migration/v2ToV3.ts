@@ -309,21 +309,42 @@ export const flattenV3ToSession = (project: EditProjectV3): EditSession => {
     overlay_elements,
     export_settings: project.export_settings,
     audio_settings: project.audio_settings,
+    project_v3: project,
     created_at: project.created_at,
     updated_at: project.updated_at,
   }
 }
 
+/** 加载时优先 project_v3 快照，否则从 v2 扁平字段迁移 */
+export const hydrateEditDocument = (session: EditSession): EditDocument => {
+  if (session.project_v3) {
+    const project = session.project_v3 as EditProjectV3
+    const hydrated = flattenV3ToSession(project)
+    return {
+      project,
+      session: { ...hydrated, project_v3: project, schema_version: 3 },
+    }
+  }
+  return normalizeEditDocument(session)
+}
+
 export const normalizeEditDocument = (session: EditSession): EditDocument => {
+  if (session.project_v3) {
+    return hydrateEditDocument(session)
+  }
   const version = session.schema_version ?? 2
   if (version >= 3) {
     const project = migrateSessionToV3(session)
     project.schema_version = 3
-    return { project, session: { ...session, schema_version: 3 } }
+    return {
+      project,
+      session: { ...session, schema_version: 3, project_v3: project },
+    }
   }
   const project = migrateSessionToV3(session)
   const normalized = flattenV3ToSession(project)
   normalized.schema_version = 3
+  normalized.project_v3 = project
   return { project, session: normalized }
 }
 

@@ -25,6 +25,15 @@ export {
 } from './ui'
 export type { VisualFilterUiOption, TransitionUiOption, TextPresetUiOption } from './ui'
 export {
+  applyRegisteredEffectPass,
+  applyGpuEffectPass,
+  FILTER_EFFECT_PASS,
+  FILTER_EFFECT_PASS_PRESETS,
+  isGpuEffectPassAvailable,
+  resolveEffectPassUniforms,
+} from './effectPass'
+export type { EffectPassDefinition, EffectPassUniforms } from './effectPass'
+export {
   toFilterEffectId,
   toFilterFrameEffectId,
   frameLayerFromTransitionSpec,
