@@ -1,4 +1,6 @@
 import type { EditSession } from '../../types/editSession'
+import type { EditDocument, EditProjectV3 } from '../migration/v2ToV3'
+import { flattenV3ToSession } from '../migration/v2ToV3'
 import { blockPlaybackRate } from '../../utils/editTimeline'
 import {
   getOverlayTrackId,
@@ -154,6 +156,22 @@ export function compileCompositionPlan(
       templateVersion: session.template_version,
     },
   }
+}
+
+/** EditProjectV3 → CompositionPlan（Phase 3 主路径） */
+export function compileCompositionPlanFromProject(
+  project: EditProjectV3,
+  options: CompileCompositionPlanOptions
+): CompositionPlan {
+  return compileCompositionPlan(flattenV3ToSession(project), options)
+}
+
+/** EditDocument → CompositionPlan */
+export function compileCompositionPlanFromDocument(
+  document: EditDocument,
+  options: CompileCompositionPlanOptions
+): CompositionPlan {
+  return compileCompositionPlan(document.session, options)
 }
 
 /** 从 Plan 读取某 block 的模板字幕预览（DOM 预览用；像素走 free_text） */

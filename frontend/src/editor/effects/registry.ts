@@ -1,5 +1,6 @@
 import type { CompositionPlan, FrameSceneEffectItem } from '../compositor/types'
 import { VISUAL_FILTER_EFFECTS } from './filters'
+import { TEXT_PRESET_EFFECTS } from './textPresets'
 import { TRANSITION_CUT_EFFECT, TRANSITION_DISSOLVE_EFFECT } from './transitions'
 import type { CompositorEffectDefinition, SceneEffectApplyContext } from './types'
 
@@ -59,6 +60,10 @@ export function registerBuiltinEffects(): void {
   }
   registerEffect(TRANSITION_DISSOLVE_EFFECT)
   registerEffect(TRANSITION_CUT_EFFECT)
+
+  for (const def of TEXT_PRESET_EFFECTS) {
+    registerEffect(def)
+  }
 
   alias('visual_filter.none', 'filter.none')
   alias('visual_filter.mono_soft', 'filter.mono_soft')

@@ -511,10 +511,10 @@ EditSession → edit_renderer.export_edit_session
 ## 附录 B：任务进度总表（复制到 Sprint）
 
 ```
-Phase 0  [ ] M0  Schema + Plan + Descriptor + 几何单源
-Phase 1  [ ] M1  Rust Compositor + 预览切换
-Phase 2  [ ] M2  Encoder 导出切换
-Phase 3  [ ] M3  Effect Registry + v3 文档
+Phase 0  [x] M0  Schema + Plan + Descriptor + 几何单源
+Phase 1  [x] M1  Rust Compositor + CompositorPreview 单路径
+Phase 2  [x] M2  Compositor 导出 + mux + E2E/perf 冒烟（无 UI driver）
+Phase 3  [~] M3  Effect Registry + EditProjectV3（进行中）
 Phase 4  [ ]     性能 / 插件 / Headless
 ```
 

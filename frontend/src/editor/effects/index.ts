@@ -13,6 +13,12 @@ export {
   VISUAL_FILTER_EFFECTS,
 } from './filters'
 export { TRANSITION_DISSOLVE_EFFECT, TRANSITION_CUT_EFFECT } from './transitions'
+export { TEXT_PRESET_EFFECTS } from './textPresets'
+export {
+  listVisualFilterUiOptions,
+  listTransitionUiOptions,
+} from './ui'
+export type { VisualFilterUiOption, TransitionUiOption } from './ui'
 export {
   toFilterEffectId,
   toFilterFrameEffectId,

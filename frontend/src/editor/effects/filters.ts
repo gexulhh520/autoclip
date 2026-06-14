@@ -42,6 +42,14 @@ const applyCanvasFilterEffect = (
   ctx.restore()
 }
 
+const FILTER_LABELS: Record<VisualFilterId, string> = {
+  none: '无滤镜',
+  mono_soft: '柔和单色',
+  mono_contrast: '高对比',
+  mono_cool: '冷色克制',
+  mono_warm: '暖色克制',
+}
+
 function registerVisualFilter(filterId: VisualFilterId): CompositorEffectDefinition {
   const css = resolveVisualFilterCss(filterId)
   const id = toFilterEffectId(filterId)
@@ -49,7 +57,7 @@ function registerVisualFilter(filterId: VisualFilterId): CompositorEffectDefinit
   return {
     id,
     category: 'filter',
-    label: filterId === 'none' ? '无滤镜' : filterId,
+    label: FILTER_LABELS[filterId],
     frameEffectId: toFilterFrameEffectId(filterId),
     resolveSceneEffect: (plan: CompositionPlan) => {
       const filterLayer = plan.layers.find((layer) => layer.kind === 'filter')

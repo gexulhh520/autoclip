@@ -1,5 +1,6 @@
 import type { EditBlock, EditBlockMedia, EditSession } from '../types/editSession'
 import { migrateToOpenCutText } from '../opencut-text/migrate'
+import { buildCompositionTimeline } from '../scene/timelineLayout'
 import { resolveCanvasDimensions } from '../scene/canvas'
 
 export type MediaAssetSource = 'ai_clip' | 'imported' | 'ai_generated' | 'extracted' | 'source_range'
@@ -115,17 +116,21 @@ export const migrateSessionToV3 = (session: EditSession): EditProjectV3 => {
   const mediaPool: MediaAsset[] = []
   const mainTrack: TrackElement[] = []
   const overlayTrack: TrackElement[] = []
-  let cursor = 0
+  const transitionDurationSec = session.audio_settings.transition_duration_sec ?? 0.35
+  const timeline = buildCompositionTimeline(session.sequence, transitionDurationSec)
 
-  for (const block of session.sequence) {
+  for (const segment of timeline.segments) {
+    const block = segment.block
     const asset = mediaFromBlock(block)
-    mediaPool.push(asset)
-    const duration = Math.max(0.1, block.trim.out_sec - block.trim.in_sec || block.duration_sec)
+    if (!mediaPool.some((item) => item.id === asset.id)) {
+      mediaPool.push(asset)
+    }
+    const duration = segment.sourceDurationSec
     mainTrack.push({
       id: block.id,
       type: 'clip',
       asset_id: asset.id,
-      start_time: cursor,
+      start_time: segment.compositionStartSec,
       duration,
       trim_start: block.trim.in_sec,
       trim_end: block.trim.out_sec,
@@ -135,7 +140,7 @@ export const migrateSessionToV3 = (session: EditSession): EditProjectV3 => {
         fade_in_sec: block.audio.fade_in_sec ?? 0,
         fade_out_sec: block.audio.fade_out_sec ?? 0,
       },
-      transition_out: block.transition_out,
+      transition_out: segment.transitionOut,
     })
     if (
       block.overlay.outline ||
@@ -146,15 +151,16 @@ export const migrateSessionToV3 = (session: EditSession): EditProjectV3 => {
         id: `caption_${block.id}`,
         type: 'template_caption',
         asset_id: asset.id,
-        start_time: cursor,
+        start_time: segment.compositionStartSec,
         duration,
         trim_start: 0,
         trim_end: duration,
         properties: { ...block.overlay },
       })
     }
-    cursor += duration
   }
+
+  const totalDurationSec = timeline.totalDurationSec
 
   for (const element of session.overlay_elements ?? []) {
     overlayTrack.push({
@@ -176,9 +182,9 @@ export const migrateSessionToV3 = (session: EditSession): EditProjectV3 => {
       type: 'audio',
       asset_id: null,
       start_time: session.audio_settings.bgm_start_sec ?? 0,
-      duration: Math.max(0.1, cursor),
+      duration: Math.max(0.1, totalDurationSec),
       trim_start: session.audio_settings.bgm_start_sec ?? 0,
-      trim_end: session.audio_settings.bgm_end_sec ?? cursor,
+      trim_end: session.audio_settings.bgm_end_sec ?? totalDurationSec,
       properties: {
         path: session.audio_settings.bgm_path,
         volume: session.audio_settings.bgm_volume,

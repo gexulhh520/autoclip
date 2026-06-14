@@ -1,7 +1,7 @@
 import React from 'react'
 import OpenCutPanelView from '../../../opencut/OpenCutPanelView'
 import { useEditSessionStore } from '../../../../../stores/useEditSessionStore'
-import { VISUAL_FILTER_OPTIONS } from '../../../../../utils/editExportPresets'
+import { listVisualFilterUiOptions } from '../../../../../editor/effects'
 import { resolveVisualFilterStyle } from '../../../../../utils/editVisualFilter'
 import type { EditExportSettings } from '../../../../../types/editSession'
 
@@ -9,18 +9,19 @@ const EffectsAssetsView: React.FC = () => {
   const session = useEditSessionStore((state) => state.session)
   const updateExportSettings = useEditSessionStore((state) => state.updateExportSettings)
   const active = session?.export_settings.visual_filter ?? 'none'
+  const filterOptions = listVisualFilterUiOptions()
 
   return (
     <OpenCutPanelView title="效果">
       <p className="editor-inspector-muted" style={{ marginBottom: 10 }}>
-        画面滤镜，应用于预览与导出
+        画面滤镜，应用于预览与导出（Effect Registry）
       </p>
       <div className="editor-asset-preset-grid">
-        {VISUAL_FILTER_OPTIONS.map((option) => {
+        {filterOptions.map((option) => {
           const isActive = active === option.value
           return (
             <button
-              key={option.value}
+              key={option.effectId}
               type="button"
               className={`editor-effect-preset${isActive ? ' is-active' : ''}`}
               onClick={() =>
