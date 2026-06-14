@@ -57,6 +57,24 @@ class EditOverlayElement(BaseModel):
     hidden: bool = False
     params: Dict[str, Any] = Field(default_factory=dict)
 
+    @staticmethod
+    def _legacy_int(value: Any, default: int) -> int:
+        if value is None:
+            return default
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _legacy_float(value: Any, default: float) -> float:
+        if value is None:
+            return default
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
     @model_validator(mode="before")
     @classmethod
     def migrate_legacy_overlay(cls, data: Any) -> Any:
@@ -69,14 +87,14 @@ class EditOverlayElement(BaseModel):
 
         transform = data.get("transform") or {}
         if isinstance(transform, dict):
-            pos_x = float(transform.get("x", 0.5))
-            pos_y = float(transform.get("y", 0.82))
-            scale = float(transform.get("scale", 1.0))
-            rotate = float(transform.get("rotation", 0.0))
+            pos_x = cls._legacy_float(transform.get("x"), 0.5)
+            pos_y = cls._legacy_float(transform.get("y"), 0.82)
+            scale = cls._legacy_float(transform.get("scale"), 1.0)
+            rotate = cls._legacy_float(transform.get("rotation"), 0.0)
         else:
             pos_x, pos_y, scale, rotate = 0.5, 0.82, 1.0, 0.0
 
-        font_size = int(data.get("font_size") or 15)
+        font_size = cls._legacy_int(data.get("font_size"), 15)
         if font_size >= 18:
             font_size = max(5, round((font_size * 90) / 1080))
 
@@ -86,7 +104,7 @@ class EditOverlayElement(BaseModel):
             "noto-sc": "Noto Sans SC",
         }
         font_family = font_map.get(str(data.get("font_family") or "noto-sc"), "Noto Sans SC")
-        background = data.get("background") or {}
+        background = data.get("background") if isinstance(data.get("background"), dict) else {}
         canvas_width = 608.0
         canvas_height = 1080.0
 
@@ -99,14 +117,14 @@ class EditOverlayElement(BaseModel):
             "fontStyle": "italic" if data.get("italic") else "normal",
             "textDecoration": "underline" if data.get("underline") else str(data.get("text_decoration") or "none"),
             "textAlign": str(data.get("text_align") or "center"),
-            "letterSpacing": float(data.get("letter_spacing") or 0.0),
-            "lineHeight": float(data.get("line_height") or 1.2),
-            "opacity": float(data.get("opacity") or 1.0),
-            "background.enabled": bool(background.get("enabled") if isinstance(background, dict) else False),
-            "background.color": str(background.get("color") if isinstance(background, dict) else "#000000"),
-            "background.cornerRadius": int(background.get("corner_radius") if isinstance(background, dict) else 0),
-            "background.paddingX": int(background.get("padding_x") if isinstance(background, dict) else 30),
-            "background.paddingY": int(background.get("padding_y") if isinstance(background, dict) else 42),
+            "letterSpacing": cls._legacy_float(data.get("letter_spacing"), 0.0),
+            "lineHeight": cls._legacy_float(data.get("line_height"), 1.2),
+            "opacity": cls._legacy_float(data.get("opacity"), 1.0),
+            "background.enabled": bool(background.get("enabled")),
+            "background.color": str(background.get("color") or "#000000"),
+            "background.cornerRadius": cls._legacy_int(background.get("corner_radius"), 0),
+            "background.paddingX": cls._legacy_int(background.get("padding_x"), 30),
+            "background.paddingY": cls._legacy_int(background.get("padding_y"), 42),
             "background.offsetX": 0,
             "background.offsetY": 0,
             "transform.positionX": pos_x * canvas_width - canvas_width / 2,
@@ -119,9 +137,9 @@ class EditOverlayElement(BaseModel):
         return {
             "id": data.get("id"),
             "type": data.get("type", "text"),
-            "start_sec": data.get("start_sec", 0.0),
-            "duration_sec": data.get("duration_sec", 3.0),
-            "hidden": data.get("hidden", False),
+            "start_sec": cls._legacy_float(data.get("start_sec"), 0.0),
+            "duration_sec": cls._legacy_float(data.get("duration_sec"), 3.0),
+            "hidden": bool(data.get("hidden", False)),
             "params": params,
         }
 
