@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { message } from 'antd'
 import { useEditSessionStore } from '../../../stores/useEditSessionStore'
+import EditorShortcutsModal from '../EditorShortcutsModal'
 
 export function useEditorKeyboardShortcuts(projectId: string) {
   const undo = useEditSessionStore((state) => state.undo)
