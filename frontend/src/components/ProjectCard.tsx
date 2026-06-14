@@ -299,8 +299,11 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onDelete, onRetry, o
       // 让父组件统一处理 toast / 刷新。但「静默自动启动」绝不能触发父组件，
       // 否则会走 handleRetryProject → loadProjects → 列表重挂载 → 再次自动启动
       // 的死循环。只有用户手动点重试才通知父组件。
-      if (onRetry && !opts?.silent) {
-        onRetry(project.id)
+      if (!opts?.silent) {
+        const shouldRedownload =
+          isDownloadFailed || isUrlImportWithoutVideo || !project.video_path
+        message.success(shouldRedownload ? '已开始重新下载，请稍候…' : '已开始重试处理')
+        onRetry?.(project.id)
       }
     } catch (error) {
       console.error('重试失败:', error)
@@ -629,6 +632,29 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onDelete, onRetry, o
                   console.log(`项目 ${project.id} 下载进度更新: ${progress}%`)
                 }}
               />
+              {normalizedStatus === 'failed' && (
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<ReloadOutlined />}
+                  loading={isRetrying}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void handleRetry()
+                  }}
+                  style={{
+                    padding: 0,
+                    height: 'auto',
+                    marginTop: 6,
+                    fontSize: 12.5,
+                    color: 'var(--ac-accent)',
+                  }}
+                >
+                  {(isDownloadFailed || isUrlImportWithoutVideo || !project.video_path)
+                    ? '重新下载'
+                    : '重试处理'}
+                </Button>
+              )}
             </div>
           ) : (
             // 已完成：● 已完成  +  灰色 mono 元信息（N 切片 · M 合集）

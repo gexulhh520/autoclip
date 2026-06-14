@@ -87,12 +87,19 @@ const AiSlicePage: React.FC = () => {
   }
 
   const handleRetryProject = async () => {
-    message.success('已开始重试处理项目')
     try {
       await loadProjects()
     } catch (error) {
       console.error('Refresh after retry error:', error)
     }
+  }
+
+  const matchesStatusFilter = (project: Project, filter: string) => {
+    if (filter === 'all') return true
+    if (filter === 'failed') {
+      return project.status === 'failed' || project.status === 'error'
+    }
+    return project.status === filter
   }
 
   const handleProjectCardClick = (project: Project) => {
@@ -104,7 +111,7 @@ const AiSlicePage: React.FC = () => {
   }
 
   const filteredProjects = (projects || [])
-    .filter((project) => statusFilter === 'all' || project.status === statusFilter)
+    .filter((project) => matchesStatusFilter(project, statusFilter))
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
   return (
@@ -202,7 +209,7 @@ const AiSlicePage: React.FC = () => {
             <Option value="all">全部状态</Option>
             <Option value="completed">已完成</Option>
             <Option value="processing">处理中</Option>
-            <Option value="error">处理失败</Option>
+            <Option value="failed">处理失败</Option>
           </Select>
         </div>
 

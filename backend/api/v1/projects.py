@@ -777,10 +777,24 @@ async def retry_processing(
         raw_dir = get_project_raw_directory(project_id)
         video_path = raw_dir / "input.mp4"  # 使用标准的input.mp4文件名
         srt_path = raw_dir / "input.srt"    # 使用标准的input.srt文件名
-        
-        # 检查视频文件是否存在，如果不存在则尝试重新下载
-        if not video_path.exists():
-            logger.warning(f"视频文件不存在: {video_path}，尝试重新下载")
+
+        processing_config = project.processing_config or {}
+        download_failed = processing_config.get("download_status") == "failed"
+        need_redownload = not video_path.exists() or download_failed
+
+        # 检查视频文件是否存在，或上次下载失败，则尝试重新下载
+        if need_redownload:
+            if download_failed and video_path.exists():
+                try:
+                    video_path.unlink()
+                    logger.info(f"已删除上次下载残留的视频文件: {video_path}")
+                except OSError as exc:
+                    logger.warning(f"删除残留视频文件失败: {video_path}: {exc}")
+
+            if not video_path.exists() or download_failed:
+                logger.warning(
+                    f"需要重新下载: video_exists={video_path.exists()}, download_failed={download_failed}"
+                )
             
             # 检查项目元数据中是否有源URL
             if hasattr(project, 'project_metadata') and project.project_metadata:
