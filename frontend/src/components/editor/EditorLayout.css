@@ -1128,6 +1128,14 @@
   max-height: 100cqh;
 }
 
+.editor-preview-selection-box {
+  position: absolute;
+  border: 1px solid #2d6bff;
+  background: color-mix(in srgb, #2d6bff 12%, transparent);
+  z-index: 30;
+  pointer-events: none;
+}
+
 .editor-preview-frame--native,
 .editor-preview-frame--canvas {
   container-type: size;

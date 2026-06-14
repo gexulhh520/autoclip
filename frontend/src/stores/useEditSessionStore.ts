@@ -16,6 +16,7 @@ import {
   DEFAULT_TRACK_MUTED,
   type TimelineTrackId,
 } from '../types/timelineTracks'
+import type { BoxSelectableItem } from '../editor/selection/boxSelect'
 import { createOpenCutTextOverlay } from '../editor/opencut-text/build'
 import { migrateToOpenCutText } from '../editor/opencut-text/migrate'
 import {
@@ -67,7 +68,9 @@ interface EditSessionState {
   selectedBlockId: string | null
   selectedBlockIds: string[]
   selectedOverlayId: string | null
+  selectedOverlayIds: string[]
   selectedCaptionBlockId: string | null
+  selectedCaptionBlockIds: string[]
   timelineTrackCollapsed: Record<TimelineTrackId, boolean>
   timelineTrackMuted: Record<TimelineTrackId, boolean>
   timelineTrackHidden: Record<TimelineTrackId, boolean>
@@ -148,8 +151,10 @@ interface EditSessionState {
   updateBlockTransition: (blockId: string, transition: EditBlock['transition_out']) => void
   uploadBgm: (projectId: string, file: File) => Promise<void>
   setSelectedBlockId: (blockId: string | null, options?: { additive?: boolean }) => void
-  setSelectedOverlayId: (overlayId: string | null) => void
-  setSelectedCaptionBlockId: (blockId: string | null) => void
+  setSelectedOverlayId: (overlayId: string | null, options?: { additive?: boolean }) => void
+  setSelectedCaptionBlockId: (blockId: string | null, options?: { additive?: boolean }) => void
+  setBoxSelection: (items: BoxSelectableItem[], options?: { additive?: boolean }) => void
+  clearEditorSelection: () => void
   toggleTimelineTrackCollapsed: (trackId: TimelineTrackId) => void
   toggleTimelineTrackMuted: (trackId: TimelineTrackId) => void
   toggleTimelineTrackHidden: (trackId: TimelineTrackId) => void
@@ -172,8 +177,10 @@ interface EditSessionState {
     options?: { recordHistory?: boolean }
   ) => void
   removeOverlayElement: (elementId: string) => void
+  removeOverlayElements: (elementIds: string[]) => void
   clearBlockCaption: (blockId: string) => void
   deleteSelectedCaption: () => void
+  deleteSelectedOverlays: () => void
   addBookmark: (timeSec: number, label?: string) => void
   removeBookmark: (bookmarkId: string) => void
   setAssetPreviewClip: (clip: AssetPreviewClip | null) => void
@@ -304,7 +311,9 @@ export const useEditSessionStore = create<EditSessionState>()(
       selectedBlockId: null,
       selectedBlockIds: [],
       selectedOverlayId: null,
+      selectedOverlayIds: [],
       selectedCaptionBlockId: null,
+      selectedCaptionBlockIds: [],
       timelineTrackCollapsed: { ...DEFAULT_TRACK_COLLAPSED },
       timelineTrackMuted: { ...DEFAULT_TRACK_MUTED },
       timelineTrackHidden: { ...DEFAULT_TRACK_HIDDEN },
@@ -392,7 +401,9 @@ export const useEditSessionStore = create<EditSessionState>()(
             selectedBlockId: session.sequence[0]?.id ?? null,
             selectedBlockIds: session.sequence[0]?.id ? [session.sequence[0].id] : [],
             selectedOverlayId: null,
+            selectedOverlayIds: [],
             selectedCaptionBlockId: null,
+            selectedCaptionBlockIds: [],
             timelineTrackCollapsed: { ...DEFAULT_TRACK_COLLAPSED },
             timelineTrackMuted: { ...DEFAULT_TRACK_MUTED },
             timelineTrackHidden: { ...DEFAULT_TRACK_HIDDEN },
@@ -659,6 +670,9 @@ export const useEditSessionStore = create<EditSessionState>()(
             selectedBlockId: result.block_id,
             selectedBlockIds: [result.block_id],
             selectedOverlayId: null,
+            selectedOverlayIds: [],
+            selectedCaptionBlockId: null,
+            selectedCaptionBlockIds: [],
             sequencePlayheadSec: importedSegment?.startSec ?? 0,
             isPlaying: false,
             historyPast: [],
@@ -720,7 +734,9 @@ export const useEditSessionStore = create<EditSessionState>()(
             selectedBlockId: blockId,
             selectedBlockIds: [],
             selectedOverlayId: null,
+            selectedOverlayIds: [],
             selectedCaptionBlockId: null,
+            selectedCaptionBlockIds: [],
             assetPreviewClip: null,
             isPlaying: false,
           })
@@ -745,19 +761,40 @@ export const useEditSessionStore = create<EditSessionState>()(
             state.selectedBlockIds = [blockId]
           }
           state.selectedOverlayId = null
+          state.selectedOverlayIds = []
           state.selectedCaptionBlockId = null
+          state.selectedCaptionBlockIds = []
           state.assetPreviewClip = null
           state.sequencePlayheadSec = segment?.startSec ?? 0
           state.isPlaying = false
         })
       },
 
-      setSelectedOverlayId: (overlayId) => {
+      setSelectedOverlayId: (overlayId, options) => {
         set((state) => {
-          state.selectedOverlayId = overlayId
-          state.selectedCaptionBlockId = null
+          const additive = options?.additive ?? false
+          if (!overlayId) {
+            state.selectedOverlayId = null
+            state.selectedOverlayIds = []
+            state.isPlaying = false
+            return
+          }
+          if (additive) {
+            const ids = state.selectedOverlayIds.includes(overlayId)
+              ? state.selectedOverlayIds.filter((id) => id !== overlayId)
+              : [...state.selectedOverlayIds, overlayId]
+            state.selectedOverlayIds = ids
+            state.selectedOverlayId = ids[ids.length - 1] ?? overlayId
+          } else {
+            state.selectedOverlayId = overlayId
+            state.selectedOverlayIds = [overlayId]
+            state.selectedBlockId = null
+            state.selectedBlockIds = []
+            state.selectedCaptionBlockId = null
+            state.selectedCaptionBlockIds = []
+          }
           state.isPlaying = false
-          if (!overlayId || !state.session?.overlay_elements) return
+          if (!state.session?.overlay_elements) return
           const overlay = state.session.overlay_elements.find((item) => item.id === overlayId)
           if (overlay) {
             state.sequencePlayheadSec = overlay.start_sec
@@ -765,8 +802,87 @@ export const useEditSessionStore = create<EditSessionState>()(
         })
       },
 
-      setSelectedCaptionBlockId: (blockId) => {
-        set({ selectedCaptionBlockId: blockId, isPlaying: false })
+      setSelectedCaptionBlockId: (blockId, options) => {
+        set((state) => {
+          const additive = options?.additive ?? false
+          if (!blockId) {
+            state.selectedCaptionBlockId = null
+            state.selectedCaptionBlockIds = []
+            state.isPlaying = false
+            return
+          }
+          if (additive) {
+            const ids = state.selectedCaptionBlockIds.includes(blockId)
+              ? state.selectedCaptionBlockIds.filter((id) => id !== blockId)
+              : [...state.selectedCaptionBlockIds, blockId]
+            state.selectedCaptionBlockIds = ids
+            state.selectedCaptionBlockId = ids[ids.length - 1] ?? blockId
+          } else {
+            state.selectedCaptionBlockId = blockId
+            state.selectedCaptionBlockIds = [blockId]
+            state.selectedOverlayId = null
+            state.selectedOverlayIds = []
+          }
+          state.isPlaying = false
+        })
+      },
+
+      setBoxSelection: (items, options) => {
+        const additive = options?.additive ?? false
+        const blockIds = [...new Set(items.filter((item) => item.kind === 'block').map((item) => item.id))]
+        const captionIds = [
+          ...new Set(items.filter((item) => item.kind === 'caption').map((item) => item.id)),
+        ]
+        const overlayIds = [
+          ...new Set(items.filter((item) => item.kind === 'overlay').map((item) => item.id)),
+        ]
+
+        set((state) => {
+          const mergeUnique = (existing: string[], incoming: string[]) => [
+            ...new Set([...existing, ...incoming]),
+          ]
+
+          if (additive) {
+            if (blockIds.length) {
+              state.selectedBlockIds = mergeUnique(state.selectedBlockIds, blockIds)
+              state.selectedBlockId = blockIds[blockIds.length - 1] ?? state.selectedBlockId
+            }
+            if (captionIds.length) {
+              state.selectedCaptionBlockIds = mergeUnique(
+                state.selectedCaptionBlockIds,
+                captionIds
+              )
+              state.selectedCaptionBlockId =
+                captionIds[captionIds.length - 1] ?? state.selectedCaptionBlockId
+            }
+            if (overlayIds.length) {
+              state.selectedOverlayIds = mergeUnique(state.selectedOverlayIds, overlayIds)
+              state.selectedOverlayId = overlayIds[overlayIds.length - 1] ?? state.selectedOverlayId
+            }
+          } else {
+            state.selectedBlockIds = blockIds
+            state.selectedCaptionBlockIds = captionIds
+            state.selectedOverlayIds = overlayIds
+            state.selectedBlockId = blockIds[blockIds.length - 1] ?? null
+            state.selectedCaptionBlockId = captionIds[captionIds.length - 1] ?? null
+            state.selectedOverlayId = overlayIds[overlayIds.length - 1] ?? null
+          }
+          state.assetPreviewClip = null
+          state.isPlaying = false
+        })
+      },
+
+      clearEditorSelection: () => {
+        set({
+          selectedBlockId: null,
+          selectedBlockIds: [],
+          selectedOverlayId: null,
+          selectedOverlayIds: [],
+          selectedCaptionBlockId: null,
+          selectedCaptionBlockIds: [],
+          assetPreviewClip: null,
+          isPlaying: false,
+        })
       },
 
       toggleTimelineTrackCollapsed: (trackId) => {
@@ -894,8 +1010,11 @@ export const useEditSessionStore = create<EditSessionState>()(
             params: { ...base.params, ...(partial?.params ?? {}) },
           })
           state.selectedOverlayId = id
+          state.selectedOverlayIds = [id]
           state.selectedBlockId = null
           state.selectedBlockIds = []
+          state.selectedCaptionBlockId = null
+          state.selectedCaptionBlockIds = []
           state.sequencePlayheadSec = startSec
           state.activeTextTrackId = trackId
           state.dirty = true
@@ -916,8 +1035,11 @@ export const useEditSessionStore = create<EditSessionState>()(
             ...elements.map((element) => ({ ...element, track_id: element.track_id ?? trackId }))
           )
           state.selectedOverlayId = elements[elements.length - 1]?.id ?? null
+          state.selectedOverlayIds = elements.map((element) => element.id)
           state.selectedBlockId = null
           state.selectedBlockIds = []
+          state.selectedCaptionBlockId = null
+          state.selectedCaptionBlockIds = []
           state.dirty = true
         })
       },
@@ -958,6 +1080,24 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (state.selectedOverlayId === elementId) {
             state.selectedOverlayId = null
           }
+          state.selectedOverlayIds = state.selectedOverlayIds.filter((id) => id !== elementId)
+          state.dirty = true
+        })
+      },
+
+      removeOverlayElements: (elementIds) => {
+        if (elementIds.length === 0) return
+        pushHistory()
+        const idSet = new Set(elementIds)
+        set((state) => {
+          if (!state.session?.overlay_elements) return
+          state.session.overlay_elements = state.session.overlay_elements.filter(
+            (item) => !idSet.has(item.id)
+          )
+          if (state.selectedOverlayId && idSet.has(state.selectedOverlayId)) {
+            state.selectedOverlayId = null
+          }
+          state.selectedOverlayIds = state.selectedOverlayIds.filter((id) => !idSet.has(id))
           state.dirty = true
         })
       },
@@ -972,14 +1112,44 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (state.selectedCaptionBlockId === blockId) {
             state.selectedCaptionBlockId = null
           }
+          state.selectedCaptionBlockIds = state.selectedCaptionBlockIds.filter((id) => id !== blockId)
           state.dirty = true
         })
       },
 
       deleteSelectedCaption: () => {
-        const { selectedCaptionBlockId } = get()
-        if (!selectedCaptionBlockId) return
-        get().clearBlockCaption(selectedCaptionBlockId)
+        const { selectedCaptionBlockIds, selectedCaptionBlockId } = get()
+        const ids =
+          selectedCaptionBlockIds.length > 0
+            ? selectedCaptionBlockIds
+            : selectedCaptionBlockId
+              ? [selectedCaptionBlockId]
+              : []
+        if (ids.length === 0) return
+        pushHistory()
+        set((state) => {
+          if (!state.session) return
+          for (const blockId of ids) {
+            const block = state.session.sequence.find((item) => item.id === blockId)
+            if (!block) continue
+            block.overlay = { ...block.overlay, content: [], outline: '' }
+          }
+          state.selectedCaptionBlockId = null
+          state.selectedCaptionBlockIds = []
+          state.dirty = true
+        })
+      },
+
+      deleteSelectedOverlays: () => {
+        const { selectedOverlayIds, selectedOverlayId } = get()
+        const ids =
+          selectedOverlayIds.length > 0
+            ? selectedOverlayIds
+            : selectedOverlayId
+              ? [selectedOverlayId]
+              : []
+        if (ids.length === 0) return
+        get().removeOverlayElements(ids)
       },
 
       addBookmark: (timeSec, label = '') => {
@@ -1255,7 +1425,9 @@ export const useEditSessionStore = create<EditSessionState>()(
           selectedBlockId: null,
           selectedBlockIds: [],
           selectedOverlayId: null,
+          selectedOverlayIds: [],
           selectedCaptionBlockId: null,
+          selectedCaptionBlockIds: [],
           timelineTrackCollapsed: { ...DEFAULT_TRACK_COLLAPSED },
           timelineTrackMuted: { ...DEFAULT_TRACK_MUTED },
           timelineTrackHidden: { ...DEFAULT_TRACK_HIDDEN },

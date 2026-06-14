@@ -30,6 +30,8 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   const saving = useEditSessionStore((state) => state.saving)
   const selectedBlockId = useEditSessionStore((state) => state.selectedBlockId)
   const selectedOverlayId = useEditSessionStore((state) => state.selectedOverlayId)
+  const selectedOverlayIds = useEditSessionStore((state) => state.selectedOverlayIds)
+  const selectedCaptionBlockIds = useEditSessionStore((state) => state.selectedCaptionBlockIds)
   const inspectorTab = useEditSessionStore((state) => state.inspectorTab)
   const setInspectorTab = useEditSessionStore((state) => state.setInspectorTab)
   const updateBlockOverlay = useEditSessionStore((state) => state.updateBlockOverlay)
@@ -43,6 +45,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   const updateOverlayElement = useEditSessionStore((state) => state.updateOverlayElement)
   const updateOverlayParams = useEditSessionStore((state) => state.updateOverlayParams)
   const removeOverlayElement = useEditSessionStore((state) => state.removeOverlayElement)
+  const deleteSelectedOverlays = useEditSessionStore((state) => state.deleteSelectedOverlays)
   const setSelectedOverlayId = useEditSessionStore((state) => state.setSelectedOverlayId)
 
   const [regenerating, setRegenerating] = useState(false)
@@ -244,6 +247,39 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   }
 
   const renderTextTab = () => {
+    const multiOverlayCount = selectedOverlayIds.length
+    const multiCaptionCount = selectedCaptionBlockIds.length
+
+    if (multiOverlayCount > 1) {
+      return (
+        <div className="editor-inspector-section">
+          <div className="editor-inspector-label">已选中 {multiOverlayCount} 个自由文本层</div>
+          <div className="editor-inspector-muted">
+            可在预览区框选或 Shift/Ctrl 多选，拖拽可成组移动位置
+          </div>
+          <button
+            type="button"
+            className="editor-header__back"
+            style={{ marginTop: 12 }}
+            onClick={() => deleteSelectedOverlays()}
+          >
+            删除选中文本层
+          </button>
+        </div>
+      )
+    }
+
+    if (multiCaptionCount > 1) {
+      return (
+        <div className="editor-inspector-section">
+          <div className="editor-inspector-label">已选中 {multiCaptionCount} 条模板字幕</div>
+          <div className="editor-inspector-muted">
+            可在预览区框选或 Shift/Ctrl 多选，拖拽可成组调整位置
+          </div>
+        </div>
+      )
+    }
+
     if (selectedOverlay) {
       return (
         <>

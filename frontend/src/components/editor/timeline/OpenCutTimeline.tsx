@@ -23,6 +23,7 @@ import { getTimelinePaddingPx, getTimelineZoomMin, timeToPx } from './zoomUtils'
 import { useTimelineZoom } from './hooks/useTimelineZoom'
 import { useScrollSync } from './hooks/useScrollSync'
 import { usePlayheadDrag, useTimelineSeek } from './hooks/useTimelineSeek'
+import { useTimelineBoxSelect } from './hooks/useTimelineBoxSelect'
 import { collectSequenceSnapPoints, snapTime } from '../../../utils/editTimeline'
 import type { AdaptedElement, SnapPoint } from './types'
 import { EditorShortcutsHost } from './useEditorKeyboardShortcuts'
@@ -54,7 +55,9 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const selectedBlockId = useEditSessionStore((state) => state.selectedBlockId)
   const selectedBlockIds = useEditSessionStore((state) => state.selectedBlockIds)
   const selectedOverlayId = useEditSessionStore((state) => state.selectedOverlayId)
+  const selectedOverlayIds = useEditSessionStore((state) => state.selectedOverlayIds)
   const selectedCaptionBlockId = useEditSessionStore((state) => state.selectedCaptionBlockId)
+  const selectedCaptionBlockIds = useEditSessionStore((state) => state.selectedCaptionBlockIds)
   const sequencePlayheadSec = useEditSessionStore((state) => state.sequencePlayheadSec)
   const snapEnabled = useEditSessionStore((state) => state.snapEnabled)
   const rippleTrimEnabled = useEditSessionStore((state) => state.rippleTrimEnabled)
@@ -67,6 +70,8 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
 
   const setSelectedBlockId = useEditSessionStore((state) => state.setSelectedBlockId)
   const setSelectedOverlayId = useEditSessionStore((state) => state.setSelectedOverlayId)
+  const setBoxSelection = useEditSessionStore((state) => state.setBoxSelection)
+  const clearEditorSelection = useEditSessionStore((state) => state.clearEditorSelection)
   const setInspectorTab = useEditSessionStore((state) => state.setInspectorTab)
   const setSequencePlayheadSec = useEditSessionStore((state) => state.setSequencePlayheadSec)
   const setSnapEnabled = useEditSessionStore((state) => state.setSnapEnabled)
@@ -180,10 +185,20 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   )
 
   const clearSelection = useCallback(() => {
-    setSelectedBlockId(null)
-    setSelectedOverlayId(null)
-    setSelectedCaptionBlockId(null)
-  }, [setSelectedBlockId, setSelectedOverlayId, setSelectedCaptionBlockId])
+    clearEditorSelection()
+  }, [clearEditorSelection])
+
+  const {
+    handleMouseDown: handleBoxSelectMouseDown,
+    selectionBoxStyle,
+    shouldIgnoreClick: shouldIgnoreBoxSelectClick,
+  } = useTimelineBoxSelect({
+    tracksCanvasRef,
+    tracksScrollRef,
+    tracks,
+    zoomLevel,
+    onSelectionComplete: (items, additive) => setBoxSelection(items, { additive }),
+  })
 
   const { handlePointerDown, handlePointerClick } = useTimelineSeek({
     tracksScrollRef,
@@ -192,6 +207,14 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     onSeek: seek,
     onClearSelection: clearSelection,
   })
+
+  const handleTimelineClick = useCallback(
+    (event: React.MouseEvent) => {
+      if (shouldIgnoreBoxSelectClick()) return
+      handlePointerClick(event)
+    },
+    [handlePointerClick, shouldIgnoreBoxSelectClick]
+  )
 
   const { startDrag: startPlayheadDrag, playheadLeft } = usePlayheadDrag({
     playheadSec: sequencePlayheadSec,
@@ -259,36 +282,45 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       )
     }
     if (element.source.kind === 'caption') {
-      return selectedCaptionBlockId === element.source.blockId
+      return (
+        selectedCaptionBlockId === element.source.blockId ||
+        selectedCaptionBlockIds.includes(element.source.blockId)
+      )
     }
     if (element.source.kind === 'overlay') {
-      return selectedOverlayId === element.source.overlayId
+      return (
+        selectedOverlayId === element.source.overlayId ||
+        selectedOverlayIds.includes(element.source.overlayId)
+      )
     }
     return false
   }
 
   const selectElement = (_trackId: string, element: AdaptedElement, event: React.MouseEvent) => {
     event.stopPropagation()
+    const additive = event.ctrlKey || event.metaKey || event.shiftKey
     if (element.source.kind === 'block') {
       setSelectedOverlayId(null)
       setSelectedCaptionBlockId(null)
-      setSelectedBlockId(element.source.blockId, {
-        additive: event.ctrlKey || event.metaKey,
-      })
+      setSelectedBlockId(element.source.blockId, { additive })
       setInspectorTab('video')
       return
     }
     if (element.source.kind === 'caption') {
-      setSelectedOverlayId(null)
-      setSelectedBlockId(element.source.blockId)
-      setSelectedCaptionBlockId(element.source.blockId)
+      if (!additive) {
+        setSelectedOverlayId(null)
+        setSelectedBlockId(element.source.blockId)
+      }
+      setSelectedCaptionBlockId(element.source.blockId, { additive })
       setInspectorTab('text')
       return
     }
     if (element.source.kind === 'overlay') {
-      setSelectedBlockId(null)
-      setSelectedCaptionBlockId(null)
-      setSelectedOverlayId(element.source.overlayId)
+      if (!additive) {
+        setSelectedBlockId(null)
+        setSelectedCaptionBlockId(null)
+      }
+      setSelectedOverlayId(element.source.overlayId, { additive })
       setInspectorTab('text')
       setSequencePlayheadSec(element.startTime)
       const track = tracks.find((item) => item.id === _trackId)
@@ -310,6 +342,29 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     const sourceTrack = tracks.find((item) => item.id === trackId)
     let pendingTargetTextTrackId: string | null = null
 
+    const groupOverlayIds =
+      element.source.kind === 'overlay' &&
+      selectedOverlayIds.includes(element.source.overlayId) &&
+      selectedOverlayIds.length > 1
+        ? selectedOverlayIds
+        : element.source.kind === 'overlay'
+          ? [element.source.overlayId]
+          : []
+
+    const groupOverlayStarts = new Map<string, number>()
+    if (groupOverlayIds.length > 0) {
+      for (const overlayId of groupOverlayIds) {
+        const found = tracks
+          .flatMap((track) => track.elements)
+          .find(
+            (item) => item.source.kind === 'overlay' && item.source.overlayId === overlayId
+          )
+        if (found) {
+          groupOverlayStarts.set(overlayId, found.startTime)
+        }
+      }
+    }
+
     const onMove = (moveEvent: PointerEvent) => {
       const deltaSec = (moveEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
       const raw = Math.max(0, initialStart + deltaSec)
@@ -317,7 +372,14 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       setSnapPoint({ time: snapped, type: 'grid' })
 
       if (element.source.kind === 'overlay') {
-        updateOverlayElement(element.source.overlayId, { start_sec: snapped }, { recordHistory: false })
+        const deltaFromAnchor = snapped - initialStart
+        for (const [overlayId, start] of groupOverlayStarts) {
+          updateOverlayElement(
+            overlayId,
+            { start_sec: Math.max(0, start + deltaFromAnchor) },
+            { recordHistory: false }
+          )
+        }
 
         const canvasEl = tracksCanvasRef.current
         if (canvasEl) {
@@ -505,8 +567,10 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         onToggleRipple={() => setRippleTrimEnabled(!rippleTrimEnabled)}
         onSplit={splitSelectedBlockAtPlayhead}
         onDelete={() => {
-          if (selectedCaptionBlockId) deleteSelectedCaption()
-          else deleteSelectedBlock()
+          if (selectedCaptionBlockIds.length > 0 || selectedCaptionBlockId) deleteSelectedCaption()
+          else if (selectedOverlayIds.length > 0 || selectedOverlayId) {
+            useEditSessionStore.getState().deleteSelectedOverlays()
+          } else deleteSelectedBlock()
         }}
         onCopy={copySelectedBlock}
         onPaste={pasteBlock}
@@ -524,7 +588,13 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         }}
         bookmarkActive={bookmarkAtPlayhead}
         canSplit={!!selectedBlockId}
-        canDelete={!!selectedBlockId || !!selectedOverlayId || !!selectedCaptionBlockId}
+        canDelete={
+          !!selectedBlockId ||
+          !!selectedOverlayId ||
+          selectedOverlayIds.length > 0 ||
+          !!selectedCaptionBlockId ||
+          selectedCaptionBlockIds.length > 0
+        }
         canCopy={!!selectedBlockId}
         canPaste={clipboardHasBlock()}
         canUndo={historyPast.length > 0}
@@ -644,13 +714,13 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                 fps={fps}
                 onWheel={handleWheel}
                 onPointerDown={handlePointerDown}
-                onClick={handlePointerClick}
+                onClick={handleTimelineClick}
               />
               <div
                 className="oc-timeline__bookmarks"
                 style={{ width: dynamicTimelineWidth }}
                 onMouseDown={handlePointerDown}
-                onClick={handlePointerClick}
+                onClick={handleTimelineClick}
               >
                 {bookmarks.map((bookmark) => (
                   <button
@@ -694,7 +764,15 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                 <div className="oc-timeline__playhead-head" onPointerDown={startPlayheadDrag} />
               </div>
 
-              <div className="oc-timeline__tracks" ref={tracksCanvasRef} style={{ height: tracksHeight }}>
+              <div
+                className="oc-timeline__tracks"
+                ref={tracksCanvasRef}
+                style={{ height: tracksHeight }}
+                onMouseDown={handleBoxSelectMouseDown}
+              >
+                {selectionBoxStyle ? (
+                  <div className="oc-timeline__selection-box" style={selectionBoxStyle} />
+                ) : null}
                 {tracks.map((track, index) => (
                   <div
                     key={track.id}
@@ -711,7 +789,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                       type="button"
                       className="oc-timeline__track-hit"
                       onMouseDown={handlePointerDown}
-                      onClick={handlePointerClick}
+                      onClick={handleTimelineClick}
                     />
                     {isUserTextAdaptedTrack(track) && !track.hidden ? (
                       <button

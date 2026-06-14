@@ -24,8 +24,9 @@ import { resolveVisualFilterStyle } from '../../utils/editVisualFilter'
 import type { OverlayPreviewLayer, OverlayPreviewConfig } from '../QuoteOverlayPreview'
 import TemplateCaptionLayer from './TemplateCaptionLayer'
 import EditorAspectRatioPicker from './EditorAspectRatioPicker'
-import OpenCutTextCanvas from './OpenCutTextCanvas'
+import OpenCutTextCanvas, { type OpenCutTextCanvasHandle } from './OpenCutTextCanvas'
 import PreviewVideoLayer from './EditorPreviewVideoLayer'
+import { usePreviewBoxSelect } from './hooks/usePreviewBoxSelect'
 import { resolveCanvasDimensions } from '../../editor/scene/canvas'
 import type { EditBlock } from '../../types/editSession'
 
@@ -43,6 +44,8 @@ interface OverlayState {
 const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) => {
   const bgmRef = useRef<HTMLAudioElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
+  const textCanvasRef = useRef<OpenCutTextCanvasHandle>(null)
+  const captionLayerRefs = useRef<Map<string, HTMLDivElement>>(new Map())
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [assetPreviewTimeSec, setAssetPreviewTimeSec] = useState(0)
   const [assetPreviewDurationSec, setAssetPreviewDurationSec] = useState(0)
@@ -66,10 +69,13 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const timelineTrackHidden = useEditSessionStore((state) => state.timelineTrackHidden)
   const overlayElements = useEditSessionStore((state) => state.session?.overlay_elements)
   const selectedOverlayId = useEditSessionStore((state) => state.selectedOverlayId)
+  const selectedOverlayIds = useEditSessionStore((state) => state.selectedOverlayIds)
   const selectedBlockId = useEditSessionStore((state) => state.selectedBlockId)
   const selectedCaptionBlockId = useEditSessionStore((state) => state.selectedCaptionBlockId)
+  const selectedCaptionBlockIds = useEditSessionStore((state) => state.selectedCaptionBlockIds)
   const setSelectedOverlayId = useEditSessionStore((state) => state.setSelectedOverlayId)
   const setSelectedCaptionBlockId = useEditSessionStore((state) => state.setSelectedCaptionBlockId)
+  const setBoxSelection = useEditSessionStore((state) => state.setBoxSelection)
   const setSelectedBlockId = useEditSessionStore((state) => state.setSelectedBlockId)
   const setInspectorTab = useEditSessionStore((state) => state.setInspectorTab)
   const updateOverlayParams = useEditSessionStore((state) => state.updateOverlayParams)
@@ -338,6 +344,35 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     }
   }
 
+  const getPreviewTargets = useCallback(() => {
+    const targets = textCanvasRef.current?.getSelectableTargets() ?? []
+    for (const { blockId } of previewVm?.captionLayers ?? []) {
+      const el = captionLayerRefs.current.get(blockId)
+      if (!el) continue
+      targets.push({
+        kind: 'caption' as const,
+        id: blockId,
+        getBounds: () => el.getBoundingClientRect(),
+      })
+    }
+    return targets
+  }, [previewVm?.captionLayers])
+
+  const {
+    handlePointerDown: handlePreviewBoxSelectDown,
+    selectionBoxStyle: previewSelectionBoxStyle,
+  } = usePreviewBoxSelect({
+    frameRef,
+    getTargets: getPreviewTargets,
+    onSelectionComplete: (items, additive) => {
+      if (items.length > 0) {
+        setBoxSelection(items, { additive })
+        setInspectorTab('text')
+      }
+    },
+    enabled: !isAssetPreview,
+  })
+
   return (
     <section className="editor-preview-panel oc-panel">
       <div className="editor-preview-stage">
@@ -350,7 +385,11 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
             ref={frameRef}
             className={`editor-preview-frame editor-preview-frame--canvas${isFullscreen ? ' is-fullscreen' : ''}`}
             style={isFullscreen ? videoFilterStyle : { ...frameStyle, ...videoFilterStyle }}
+            onPointerDown={handlePreviewBoxSelectDown}
           >
+            {previewSelectionBoxStyle ? (
+              <div className="editor-preview-selection-box" style={previewSelectionBoxStyle} />
+            ) : null}
             {isAssetPreview && assetVideoUrl ? (
               <PreviewVideoLayer
                 videoUrl={assetVideoUrl}
@@ -422,16 +461,31 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                       config={overlayData.config}
                       selected={
                         selectedCaptionBlockId === blockId ||
+                        selectedCaptionBlockIds.includes(blockId) ||
                         selectedBlockId === blockId
                       }
-                      onSelect={(id) => {
-                        setSelectedOverlayId(null)
-                        setSelectedBlockId(id)
-                        setSelectedCaptionBlockId(id)
+                      selectedBlockIds={selectedCaptionBlockIds}
+                      getCaptionOffset={(id) => {
+                        const target = blocks.find((item) => item.id === id)
+                        return {
+                          x: target?.overlay.position_offset_x_pct ?? 0,
+                          y: target?.overlay.position_offset_y_pct ?? 0,
+                        }
+                      }}
+                      onSelect={(id, options) => {
+                        if (!options?.additive) {
+                          setSelectedOverlayId(null)
+                          setSelectedBlockId(id)
+                        }
+                        setSelectedCaptionBlockId(id, options)
                         setInspectorTab('text')
                       }}
                       onPositionChange={(id, patch, options) => {
                         updateBlockOverlay(id, patch, options)
+                      }}
+                      onLayerRef={(el) => {
+                        if (el) captionLayerRefs.current.set(blockId, el)
+                        else captionLayerRefs.current.delete(blockId)
                       }}
                     />
                   )
@@ -440,13 +494,19 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
 
             {!isAssetPreview && previewVm && previewVm.freeOverlays.length > 0 ? (
               <OpenCutTextCanvas
+                ref={textCanvasRef}
                 elements={previewVm.freeOverlays}
                 canvasWidth={canvasDims.width}
                 canvasHeight={canvasDims.height}
                 selectedId={selectedOverlayId}
+                selectedIds={selectedOverlayIds}
                 interactive
-                onSelect={(id) => {
-                  setSelectedOverlayId(id)
+                onSelect={(id, options) => {
+                  if (!options?.additive) {
+                    setSelectedBlockId(null)
+                    setSelectedCaptionBlockId(null)
+                  }
+                  setSelectedOverlayId(id, options)
                   useEditSessionStore.getState().setInspectorTab('text')
                 }}
                 onParamsChange={(id, patch, options) =>
