@@ -43,8 +43,10 @@ const TimelineElementView: React.FC<TimelineElementViewProps> = ({
       <button
         type="button"
         className="oc-timeline__element-body"
-        onClick={onSelect}
-        onPointerDown={onPointerDown}
+        onPointerDown={(event) => {
+          onSelect(event)
+          onPointerDown(event)
+        }}
       >
         {track.type === 'video' && element.source.kind === 'block' ? (
           <div

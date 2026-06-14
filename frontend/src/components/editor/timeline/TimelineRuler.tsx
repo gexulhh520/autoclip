@@ -8,6 +8,7 @@ interface TimelineRulerProps {
   dynamicTimelineWidth: number
   duration: number
   fps: number
+  paddingPx: number
   onWheel: (event: React.WheelEvent) => void
   onPointerDown: (event: React.MouseEvent) => void
   onClick: (event: React.MouseEvent) => void
@@ -18,6 +19,7 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
   dynamicTimelineWidth,
   duration,
   fps,
+  paddingPx,
   onWheel,
   onPointerDown,
   onClick,
@@ -33,7 +35,7 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
     for (let tickIndex = 0; tickIndex < tickCount; tickIndex += 1) {
       const time = tickIndex * tickIntervalSeconds
       if (time > effectiveDuration) break
-      const left = timeToPx(time, zoomLevel)
+      const left = paddingPx + timeToPx(time, zoomLevel)
       const showLabel = shouldShowLabel(time, labelIntervalSeconds)
       items.push(
         <div
@@ -48,7 +50,7 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
       )
     }
     return items
-  }, [tickCount, tickIntervalSeconds, effectiveDuration, zoomLevel, labelIntervalSeconds, fps])
+  }, [tickCount, tickIntervalSeconds, effectiveDuration, zoomLevel, labelIntervalSeconds, fps, paddingPx])
 
   return (
     <div

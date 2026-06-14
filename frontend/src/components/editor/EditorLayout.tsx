@@ -4,7 +4,7 @@ import EditorCategoryBar from './EditorCategoryBar'
 import EditorHeader from './EditorHeader'
 import EditorInspector from './EditorInspector'
 import EditorPreview from './EditorPreview'
-import EditorTimeline from './EditorTimeline'
+import OpenCutTimeline from './timeline/OpenCutTimeline'
 import './EditorLayout.css'
 
 interface EditorLayoutProps {
@@ -24,7 +24,7 @@ const EditorLayout: React.FC<EditorLayoutProps> = ({ projectId, sessionId }) => 
         <EditorPreview projectId={projectId} sessionId={sessionId} />
         <EditorInspector projectId={projectId} />
         <section className="editor-timeline-panel">
-          <EditorTimeline projectId={projectId} />
+          <OpenCutTimeline projectId={projectId} />
         </section>
       </div>
     </div>

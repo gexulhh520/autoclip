@@ -486,6 +486,23 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
+}
+
+.editor-timeline-panel .oc-timeline {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  --oc-bg: var(--editor-bg);
+  --oc-panel: var(--editor-panel);
+  --oc-panel-2: var(--editor-panel-2);
+  --oc-border: var(--editor-border);
+  --oc-text: var(--editor-text);
+  --oc-muted: var(--editor-muted);
+  --oc-sub: var(--editor-sub);
+  --oc-accent: var(--editor-accent);
+  --oc-primary: var(--editor-accent);
+  --oc-destructive: #ef4444;
 }
 
 .editor-tabs {

@@ -122,7 +122,10 @@ export function buildAdaptedTracks(params: {
       hidden: false,
       elements: overlayElements,
     },
-    {
+  ]
+
+  if (session.audio_settings?.bgm_path) {
+    tracks.push({
       id: ADAPTED_TRACK_IDS.audio,
       type: 'audio',
       name: 'Audio',
@@ -130,10 +133,10 @@ export function buildAdaptedTracks(params: {
       muted: trackMuted.audioBgm,
       hidden: false,
       elements: audioElements,
-    },
-  ]
+    })
+  }
 
-  return tracks.filter((track) => track.elements.length > 0 || track.isMain)
+  return tracks
 }
 
 function overlayToAdapted(element: EditOverlayElement): AdaptedElement {

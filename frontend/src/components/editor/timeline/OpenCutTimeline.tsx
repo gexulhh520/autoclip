@@ -8,7 +8,7 @@ import {
 import { getBlockVideoUrl } from '../../../utils/editBlockMedia'
 import { extractWaveformPeaks } from '../../../utils/audioWaveform'
 import editApi from '../../../services/editApi'
-import { buildAdaptedTracks, findElementInTracks, mapTrackIdToStoreKey } from './adapter'
+import { buildAdaptedTracks, findElementInTracks, mapTrackIdToStoreKey, ADAPTED_TRACK_IDS } from './adapter'
 import TimelineToolbar from './TimelineToolbar'
 import TimelineRuler from './TimelineRuler'
 import TimelineElementView from './TimelineElementView'
@@ -64,6 +64,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
 
   const setSelectedBlockId = useEditSessionStore((state) => state.setSelectedBlockId)
   const setSelectedOverlayId = useEditSessionStore((state) => state.setSelectedOverlayId)
+  const setInspectorTab = useEditSessionStore((state) => state.setInspectorTab)
   const setSequencePlayheadSec = useEditSessionStore((state) => state.setSequencePlayheadSec)
   const setSnapEnabled = useEditSessionStore((state) => state.setSnapEnabled)
   const setRippleTrimEnabled = useEditSessionStore((state) => state.setRippleTrimEnabled)
@@ -254,6 +255,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     if (element.source.kind === 'overlay') {
       setSelectedBlockId(null)
       setSelectedOverlayId(element.source.overlayId)
+      setInspectorTab('text')
       setSequencePlayheadSec(element.startTime)
     }
   }
@@ -265,7 +267,6 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   ) => {
     if ((event.target as HTMLElement).closest('.oc-timeline__resize')) return
     event.stopPropagation()
-    event.preventDefault()
     const startX = event.clientX
     const initialStart = element.startTime
 
@@ -511,6 +512,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                 dynamicTimelineWidth={dynamicTimelineWidth}
                 duration={totalDuration}
                 fps={fps}
+                paddingPx={paddingPx}
                 onWheel={handleWheel}
                 onPointerDown={handlePointerDown}
                 onClick={handlePointerClick}
@@ -574,8 +576,31 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                     onMouseDown={handlePointerDown}
                     onClick={handlePointerClick}
                   />
+                  {track.id === ADAPTED_TRACK_IDS.overlay ? (
+                    <button
+                      type="button"
+                      className="oc-timeline__add-text"
+                      style={{
+                        left: paddingPx + timeToPx(sequencePlayheadSec, zoomLevel) - 10,
+                      }}
+                      title="在播放头添加文本"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        addOverlayElement({ start_sec: sequencePlayheadSec } as never)
+                        setInspectorTab('text')
+                      }}
+                    >
+                      +
+                    </button>
+                  ) : null}
                   {track.elements.length === 0 ? (
-                    <div className="oc-timeline__empty-hint">拖入素材或从左侧添加</div>
+                    <div className="oc-timeline__empty-hint">
+                      {track.id === ADAPTED_TRACK_IDS.main
+                        ? '拖入素材或从左侧添加'
+                        : track.id === ADAPTED_TRACK_IDS.overlay
+                          ? '按 T 或在播放头点击 + 添加文本'
+                          : '暂无内容'}
+                    </div>
                   ) : (
                     track.elements.map((element) => (
                       <TimelineElementView

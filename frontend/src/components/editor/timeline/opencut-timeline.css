@@ -426,7 +426,29 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   font-size: 11px;
   color: var(--oc-muted);
   pointer-events: none;
+}
+
+.oc-timeline__add-text {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 40;
+  width: 22px;
+  height: 22px;
+  border: 1px dashed color-mix(in srgb, var(--oc-accent) 55%, var(--oc-border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--oc-panel-2) 90%, transparent);
+  color: var(--oc-accent);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.oc-timeline__add-text:hover {
+  background: color-mix(in srgb, var(--oc-accent) 12%, var(--oc-panel-2));
 }
