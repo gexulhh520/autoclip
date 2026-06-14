@@ -308,7 +308,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     if (element.source.kind === 'block') {
       setSelectedOverlayId(null)
       setSelectedCaptionBlockId(null)
-      setSelectedBlockId(element.source.blockId, { additive })
+      setSelectedBlockId(element.source.blockId, { additive, seekPlayhead: false })
       setInspectorTab('video')
       return
     }
