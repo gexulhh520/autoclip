@@ -1,5 +1,5 @@
 use autoclip_document::{FrameDescriptor, FrameItem};
-use image::{Rgba, RgbaImage};
+use image::{ImageEncoder, Rgba, RgbaImage};
 
 use crate::text::draw_text_item;
 

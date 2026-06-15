@@ -1,7 +1,7 @@
 import { ExportOutlined } from '@ant-design/icons'
 
-import { isActiveJob, useHeadlessExportWorkerStore } from '../stores/useHeadlessExportWorkerStore'
-import { isTauriApp } from '../utils/desktopMode'
+import { isActiveJob, useHeadlessExportWorkerStore } from '../../stores/useHeadlessExportWorkerStore'
+import { isTauriApp } from '../../utils/desktopMode'
 
 /** 侧边栏后台导出入口（仅 Tauri） */
 export default function DesktopSidebarHeadlessExport() {

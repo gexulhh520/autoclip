@@ -5,7 +5,7 @@ use tauri::Manager;
 
 mod backend_manager;
 mod commands;
-mod compositor;
+pub mod compositor;
 mod export;
 mod tray;
 

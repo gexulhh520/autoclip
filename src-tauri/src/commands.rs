@@ -83,7 +83,7 @@ pub async fn is_autostart_enabled(manager: State<'_, AutoLaunchManager>) -> Resu
 
 #[tauri::command]
 pub fn pick_export_directory(default_path: Option<String>) -> Result<Option<String>, String> {
-    let mut dialog = rfd::FileDialog::new().title("选择导出目录");
+    let mut dialog = rfd::FileDialog::new().set_title("选择导出目录");
     if let Some(path) = default_path.filter(|value| !value.is_empty()) {
         dialog = dialog.set_directory(path);
     }
