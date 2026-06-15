@@ -35,6 +35,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
+      host: '127.0.0.1',
       port: 3000,
       strictPort: true, // 如果端口被占用则报错，而不是自动切换
       hmr: {
