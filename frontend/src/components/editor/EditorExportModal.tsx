@@ -308,7 +308,7 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
               checked={useCompositorExport}
               onChange={(event) => setUseCompositorExport(event.target.checked)}
             />
-            Compositor 导出（FFmpeg 预解码 + 与预览一致）
+            Compositor 导出（OpenCut · WebCodecs + 与预览一致）
           </label>
         ) : null}
         {isTauriApp() && mode === 'single' && useCompositorExport ? (

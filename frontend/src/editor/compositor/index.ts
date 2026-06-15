@@ -37,6 +37,9 @@ export {
   type SoftwareRendererOptions,
 } from './softwareRenderer'
 export { exportTimelineViaCompositor, type ExportTimelineOptions } from './exportTimeline'
+export { SceneExporter } from './sceneExporter'
+export { CompositorCanvasRenderer } from './compositorCanvasRenderer'
+export { assertWebCodecsExportSupported, isWebCodecsExportSupported } from './webcodecsExport'
 export {
   buildCompositorRuntimeParams,
   runCompositorExportAndMux,

@@ -112,12 +112,17 @@ pub fn reveal_export_directory(path: String) -> Result<(), String> {
             .spawn()
             .map_err(|error| format!("打开目录失败: {}", error))?;
     }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(trimmed)
-            .spawn()
-            .map_err(|error| format!("打开目录失败: {}", error))?;
-    }
     Ok(())
+}
+
+#[tauri::command]
+pub fn write_binary_file(path: String, data: Vec<u8>) -> Result<(), String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("文件路径为空".to_string());
+    }
+    if let Some(parent) = std::path::Path::new(trimmed).parent() {
+        std::fs::create_dir_all(parent).map_err(|error| format!("创建目录失败: {}", error))?;
+    }
+    std::fs::write(trimmed, data).map_err(|error| format!("写入文件失败: {}", error))
 }

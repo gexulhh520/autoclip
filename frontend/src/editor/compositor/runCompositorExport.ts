@@ -68,12 +68,7 @@ export async function runCompositorExportAndMux(
 }> {
   const compositorResult = await exportTimelineViaCompositor(
     runtime.session,
-    {
-      projectId: runtime.projectId,
-      sessionId: runtime.sessionId,
-      getVideoUrlForBlock: runtime.getVideoUrlForBlock,
-      getSourceTimeForBlock: runtime.getSourceTimeForBlock,
-    },
+    runtime,
     timelineOptions
   )
 

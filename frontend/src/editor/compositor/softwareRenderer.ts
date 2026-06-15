@@ -1,7 +1,7 @@
 import { applyRegisteredSceneEffect, resolveVisualFilterCss } from '../effects'
 import { renderTextOverlayToContext } from '../opencut-text/render'
 import type { OpenCutTextOverlay } from '../opencut-text/params'
-import { getDecodedFrameAtSourceTime, type DecodedBlockFrames } from './exportFfmpegFrameCache'
+import { getDecodedFrameAtSourceTime, type DecodedBlockFrames } from './videoFrameCache'
 import type {
   FrameDescriptor,
   FrameItem,

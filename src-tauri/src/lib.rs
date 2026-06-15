@@ -30,6 +30,7 @@ pub fn run() {
             is_autostart_enabled,
             pick_export_directory,
             reveal_export_directory,
+            write_binary_file,
             compositor::render_frame_png,
             export::compositor_export_start,
             export::compositor_export_push_frame,
