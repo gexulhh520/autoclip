@@ -99,6 +99,8 @@ const PipelineStepsPanel: React.FC<PipelineStepsPanelProps> = ({
   const [loadingResultId, setLoadingResultId] = useState<string | null>(null)
   const [resettingStuck, setResettingStuck] = useState(false)
 
+  const effectiveSourceId = sourceId ?? data?.source_id ?? null
+
   const load = useCallback(async () => {
     try {
       const res = await projectApi.getPipelineSteps(projectId, sourceId ?? undefined)
@@ -122,7 +124,11 @@ const PipelineStepsPanel: React.FC<PipelineStepsPanelProps> = ({
 
   }, [projectId, sourceId])
 
-
+  useEffect(() => {
+    setStepResults({})
+    setExpandedStepId(null)
+    setLoading(true)
+  }, [projectId, sourceId])
 
   useEffect(() => {
 
@@ -165,15 +171,16 @@ const PipelineStepsPanel: React.FC<PipelineStepsPanelProps> = ({
 
   const loadStepResult = useCallback(
 
-    async (stepId: string, force = false) => {
+    async (stepId: string, force = false, resolvedSourceId?: string | null) => {
 
+      const src = resolvedSourceId ?? sourceId ?? data?.source_id ?? undefined
       if (!force && stepResults[stepId]) return stepResults[stepId]
 
       setLoadingResultId(stepId)
 
       try {
 
-        const result = await projectApi.getPipelineStepResult(projectId, stepId, sourceId ?? undefined)
+        const result = await projectApi.getPipelineStepResult(projectId, stepId, src)
 
         setStepResults((prev) => ({ ...prev, [stepId]: result }))
 
@@ -197,7 +204,7 @@ const PipelineStepsPanel: React.FC<PipelineStepsPanelProps> = ({
 
     },
 
-    [projectId, sourceId, stepResults]
+    [projectId, sourceId, data?.source_id, stepResults]
 
   )
 
@@ -294,7 +301,7 @@ const PipelineStepsPanel: React.FC<PipelineStepsPanelProps> = ({
 
     if (!stepResults[step.id]) {
 
-      await loadStepResult(step.id)
+      await loadStepResult(step.id, false, effectiveSourceId)
 
     }
 
@@ -386,7 +393,7 @@ const PipelineStepsPanel: React.FC<PipelineStepsPanelProps> = ({
 
     if (activeStepId) {
 
-      await loadStepResult(activeStepId, true)
+      await loadStepResult(activeStepId, true, effectiveSourceId)
 
     }
 
@@ -850,7 +857,7 @@ const PipelineStepsPanel: React.FC<PipelineStepsPanelProps> = ({
                     <PipelineStepResultView
                       result={result}
                       projectId={projectId}
-                      sourceId={sourceId}
+                      sourceId={effectiveSourceId}
                       onOutlineItemSaved={handleOutlineItemSaved}
                       onTimelineItemSaved={handleTimelineItemSaved}
                       onScoreItemSaved={handleScoreItemSaved}

@@ -742,6 +742,51 @@ def _step_completed(
     return _read_json_output(path, defn.output_is_array)
 
 
+def _resolve_effective_source_id(
+    processing_config: Optional[Dict[str, Any]],
+    source_id: Optional[str] = None,
+) -> Tuple[Optional[str], Any]:
+    """多源项目解析实际查看/读取的 source_id 及对应记录。"""
+    from backend.services.project_source_service import (
+        find_source,
+        is_multi_source_project,
+        summarize_multi_source,
+    )
+
+    processing_config = processing_config or {}
+    multi_summary = summarize_multi_source(processing_config)
+    effective_source_id = source_id
+    if is_multi_source_project(processing_config):
+        if not effective_source_id:
+            effective_source_id = multi_summary.active_source_id
+        if not effective_source_id and multi_summary.sources:
+            for src in multi_summary.sources:
+                if src.status in ("pending", "processing", "failed"):
+                    effective_source_id = src.id
+                    break
+            if not effective_source_id:
+                effective_source_id = multi_summary.sources[0].id
+    source_record = (
+        find_source(processing_config, effective_source_id) if effective_source_id else None
+    )
+    return effective_source_id, source_record
+
+
+def _source_pipeline_is_active(
+    processing_config: Optional[Dict[str, Any]],
+    effective_source_id: Optional[str],
+    source_record: Any,
+) -> bool:
+    """多源场景下，仅当前正在处理的源应显示「执行中」。"""
+    from backend.services.project_source_service import is_multi_source_project
+
+    if not is_multi_source_project(processing_config):
+        return True
+    if not effective_source_id or source_record is None:
+        return False
+    return source_record.status == "processing"
+
+
 def get_pipeline_steps(
     project_id: str,
     project: Any,
@@ -771,24 +816,14 @@ def get_pipeline_steps(
     running_step = _infer_running_step(progress, project_status) if is_pipeline_running else None
 
     processing_config = project.processing_config or {}
-    from backend.services.project_source_service import (
-        find_source,
-        is_multi_source_project,
-        summarize_multi_source,
-    )
+    from backend.services.project_source_service import summarize_multi_source
 
     multi_summary = summarize_multi_source(processing_config)
-    effective_source_id = source_id
-    if is_multi_source_project(processing_config):
-        if not effective_source_id:
-            effective_source_id = multi_summary.active_source_id
-        if not effective_source_id and multi_summary.sources:
-            for src in multi_summary.sources:
-                if src.status in ("pending", "processing", "failed"):
-                    effective_source_id = src.id
-                    break
-    source_record = (
-        find_source(processing_config, effective_source_id) if effective_source_id else None
+    effective_source_id, source_record = _resolve_effective_source_id(
+        processing_config, source_id
+    )
+    source_pipeline_active = _source_pipeline_is_active(
+        processing_config, effective_source_id, source_record
     )
 
     effective_step_ids = _effective_pipeline_step_ids(processing_config)
@@ -832,9 +867,14 @@ def get_pipeline_steps(
         elif defn.id == "download" and _is_downloading(project, project_id):
             status = "running"
             message = download_message or f"下载中 {download_progress or 0}%"
-        elif running_step == defn.id and not found_running and defn.id != "download":
+        elif (
+            running_step == defn.id
+            and not found_running
+            and defn.id != "download"
+            and source_pipeline_active
+        ):
             status = "running"
-            message = progress.get("message") or get_stage_display_name(defn.progress_stage or "")
+            message = (progress or {}).get("message") or get_stage_display_name(defn.progress_stage or "")
             found_running = True
         elif completed:
             status = "completed"
@@ -998,20 +1038,33 @@ def get_pipeline_step_result(
 
     project_dir = get_project_directory(project_id)
     defn = STEP_BY_ID[step_id]
-    metadata_dir = _resolve_metadata_dir(project_dir, source_id)
+    processing_config = project.processing_config or {}
+    effective_source_id, source_record = _resolve_effective_source_id(
+        processing_config, source_id
+    )
+    metadata_dir = _resolve_metadata_dir(project_dir, effective_source_id)
 
     if step_id == "download":
-        video_path = project_dir / "raw" / "input.mp4"
-        srt_path = project_dir / "raw" / "input.srt"
-        source_url = None
-        if getattr(project, "project_metadata", None):
-            source_url = project.project_metadata.get("source_url")
+        if effective_source_id:
+            video_path = project_dir / "raw" / "sources" / effective_source_id / "input.mp4"
+            srt_path = project_dir / "raw" / "sources" / effective_source_id / "input.srt"
+            source_url = source_record.source_url if source_record else None
+            source_label = (
+                source_record.original_filename if source_record else effective_source_id
+            )
+        else:
+            video_path = project_dir / "raw" / "input.mp4"
+            srt_path = project_dir / "raw" / "input.srt"
+            source_url = None
+            source_label = "本地上传"
+            if getattr(project, "project_metadata", None):
+                source_url = project.project_metadata.get("source_url")
         items = [
             _media_entry("视频文件", video_path, project_dir),
             _media_entry("字幕文件", srt_path, project_dir),
             {
                 "label": "来源",
-                "path": source_url or "本地上传",
+                "path": source_url or source_label,
                 "detail": "URL 导入" if source_url else "本地文件",
                 "ready": bool(source_url or video_path.exists()),
             },
@@ -1027,7 +1080,7 @@ def get_pipeline_step_result(
     if not defn.output_rel:
         raise ValueError("该步骤无输出结果")
 
-    output_path = _resolve_step_artifact_path(project_dir, defn, source_id)
+    output_path = _resolve_step_artifact_path(project_dir, defn, effective_source_id)
     if not output_path.exists():
         return {
             "step_id": step_id,

@@ -493,7 +493,14 @@ const ProjectDetailPage: React.FC = () => {
 
       <PipelineStepsPanel
         projectId={currentProject.id}
-        sourceId={selectedSourceId}
+        sourceId={
+          multiSource?.enabled
+            ? (selectedSourceId ??
+                multiSource.active_source_id ??
+                multiSource.sources[0]?.id ??
+                null)
+            : null
+        }
         onPipelineFinished={() => loadProject()}
       />
 
