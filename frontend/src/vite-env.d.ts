@@ -21,3 +21,12 @@ declare module '*.svg?react' {
   const ReactComponent: React.FunctionComponent<React.SVGProps<SVGSVGElement>>
   export default ReactComponent
 }
+
+declare module '@/wasm/compositor/pkg/autoclip_compositor_wasm.js' {
+  export function compositeVideoFrame(
+    descriptor_json: string,
+    layers_json: string
+  ): Uint8Array
+  export function isWasmCompositorAvailable(): boolean
+  export default function initWasm(): Promise<void>
+}

@@ -16,6 +16,7 @@ export default defineConfig(({ mode }) => {
       sourcemap: false,
       assetsInlineLimit: 4096,
       chunkSizeWarningLimit: 1600,
+      assetsInclude: ['**/*.wasm'],
       rollupOptions: {
         external: [],
         // NOTE: do NOT hand-split React and antd into separate vendor chunks.

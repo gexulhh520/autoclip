@@ -22,7 +22,7 @@ export async function loadWasmCompositorModule(): Promise<WasmCompositorModule |
   if (wasmModulePromise) return wasmModulePromise
   wasmModulePromise = (async () => {
     try {
-      const mod = (await import('../wasm/compositor/pkg/autoclip_compositor_wasm.js')) as WasmCompositorModule
+      const mod = (await import('@/wasm/compositor/pkg/autoclip_compositor_wasm.js')) as WasmCompositorModule
       await mod.default()
       return mod
     } catch (error) {
