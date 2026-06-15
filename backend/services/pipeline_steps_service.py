@@ -495,9 +495,16 @@ def _resolve_status_after_interruption(project_dir: Path, progress: Optional[Dic
     return ProjectStatus.FAILED
 
 
-def reconcile_project_status_from_artifacts(db: Session, project_id: str, project: Any) -> bool:
+def reconcile_project_status_from_artifacts(
+    db: Session,
+    project_id: str,
+    project: Any,
+    *,
+    sync_clips: bool = False,
+) -> bool:
     """
-    磁盘上 step6 已产出切片时，将 failed/processing 等项目修正为 completed，并同步 DB。
+    磁盘上 step6 已产出切片时，将 failed/processing 等项目修正为 completed。
+    ``sync_clips=True`` 时才把磁盘切片/合集写入 DB（手动同步入口）。
     """
     from backend.models.project import ProjectStatus
     from backend.services.data_sync_service import DataSyncService
@@ -522,11 +529,12 @@ def reconcile_project_status_from_artifacts(db: Session, project_id: str, projec
             status_val,
         )
 
-    try:
-        sync_service = DataSyncService(db)
-        sync_service.sync_project_from_filesystem(project_id, project_dir)
-    except Exception as exc:
-        logger.warning("项目 %s 同步切片到数据库失败: %s", project_id, exc)
+    if sync_clips:
+        try:
+            sync_service = DataSyncService(db)
+            sync_service.sync_project_from_filesystem(project_id, project_dir)
+        except Exception as exc:
+            logger.warning("项目 %s 同步切片到数据库失败: %s", project_id, exc)
 
     if changed:
         db.commit()
@@ -739,6 +747,7 @@ def get_pipeline_steps(
     project: Any,
     db: Optional[Session] = None,
     source_id: Optional[str] = None,
+    sync_artifacts: bool = False,
 ) -> Dict[str, Any]:
     stale_recovered = False
     if db is not None:
@@ -747,7 +756,9 @@ def get_pipeline_steps(
                 db.refresh(project)
             cancelled = _cleanup_orphaned_pipeline_locks(db, project_id, project)
             stale_recovered = reconcile_stale_pipeline_state(db, project_id, project)
-            artifact_recovered = reconcile_project_status_from_artifacts(db, project_id, project)
+            artifact_recovered = reconcile_project_status_from_artifacts(
+                db, project_id, project, sync_clips=sync_artifacts
+            )
             if stale_recovered or cancelled or artifact_recovered:
                 db.refresh(project)
         except Exception as exc:

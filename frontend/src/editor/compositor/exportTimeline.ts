@@ -37,15 +37,6 @@ const sanitizeFilename = (value: string): string => {
   return trimmed.replace(/[\\/:*?"<>|]/g, '_')
 }
 
-const rgbaToBase64 = (rgba: Uint8ClampedArray): string => {
-  let binary = ''
-  const chunk = 0x8000
-  for (let index = 0; index < rgba.length; index += chunk) {
-    binary += String.fromCharCode(...rgba.subarray(index, index + chunk))
-  }
-  return btoa(binary)
-}
-
 /** Compositor 逐帧导出 — Phase 2 桌面端主路径（像素无 ASS/drawtext） */
 export async function exportTimelineViaCompositor(
   session: EditSession,
@@ -113,7 +104,6 @@ export async function exportTimelineViaCompositor(
       exportSessionId,
       prefetchDepth: options.prefetchDepth ?? 2,
       signal: options.signal,
-      rgbaToBase64,
       onProgress: (frameIndex, total) => {
         const percent = Math.round(((frameIndex + 1) / total) * 85)
         options.onProgress?.(percent, `合成帧 ${frameIndex + 1}/${total}`)

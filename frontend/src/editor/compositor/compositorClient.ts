@@ -107,12 +107,12 @@ export async function compositorExportStart(
 
 export async function compositorExportPushFrame(
   sessionId: string,
-  rgbaBase64: string
+  rgba: Uint8Array
 ): Promise<void> {
   const { invoke } = await import('@tauri-apps/api/core')
   await invoke('compositor_export_push_frame', {
     sessionId,
-    rgbaBase64,
+    rgba: rgba instanceof Uint8Array ? rgba : new Uint8Array(rgba),
   })
 }
 

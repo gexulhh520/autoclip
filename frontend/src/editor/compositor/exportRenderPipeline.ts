@@ -21,7 +21,6 @@ export interface ExportRenderPipelineOptions {
   prefetchDepth?: number
   onProgress?: (frameIndex: number, totalFrames: number) => void
   signal?: AbortSignal
-  rgbaToBase64: (rgba: Uint8ClampedArray) => string
 }
 
 /** 让出主线程，避免导出占满 JS 事件循环导致 UI / API 无响应 */
@@ -49,7 +48,6 @@ export async function runExportRenderPipeline(
     prefetchDepth = 2,
     onProgress,
     signal,
-    rgbaToBase64,
   } = options
 
   const decodeCache = new Map<number, Promise<Map<string, HTMLVideoElement>>>()
@@ -91,11 +89,8 @@ export async function runExportRenderPipeline(
       preferGpuEffects: false,
     })
 
-    const rgbaCopy = new Uint8ClampedArray(
-      ctx.getImageData(0, 0, plan.canvas.width, plan.canvas.height).data
-    )
-    const base64 = rgbaToBase64(rgbaCopy)
-    await compositorExportPushFrame(exportSessionId, base64)
+    const rgba = ctx.getImageData(0, 0, plan.canvas.width, plan.canvas.height).data
+    await compositorExportPushFrame(exportSessionId, new Uint8Array(rgba.buffer, rgba.byteOffset, rgba.byteLength))
     onProgress?.(frameIndex, totalFrames)
     await yieldToMainThread()
   }

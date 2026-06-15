@@ -2,6 +2,27 @@ import type { EditBlock } from '../../types/editSession'
 import { findDissolveAtTime, mapCompositionTimeToRelativeSource } from '../scene/timelineLayout'
 import type { CompositionPlan } from './types'
 
+const SEEK_TIMEOUT_MS = 8000
+
+const waitForVideoFrame = (video: HTMLVideoElement): Promise<void> => {
+  if (video.readyState >= 2) {
+    return Promise.resolve()
+  }
+  return new Promise((resolve) => {
+    if (typeof video.requestVideoFrameCallback === 'function') {
+      video.requestVideoFrameCallback(() => resolve())
+      return
+    }
+    video.addEventListener(
+      'loadeddata',
+      () => {
+        resolve()
+      },
+      { once: true }
+    )
+  })
+}
+
 const loadVideo = (url: string): Promise<HTMLVideoElement> =>
   new Promise((resolve, reject) => {
     const video = document.createElement('video')
@@ -9,24 +30,71 @@ const loadVideo = (url: string): Promise<HTMLVideoElement> =>
     video.preload = 'auto'
     video.muted = true
     video.playsInline = true
-    video.onloadeddata = () => resolve(video)
-    video.onerror = () => reject(new Error(`Failed to load video: ${url}`))
+
+    const cleanup = () => {
+      video.removeEventListener('canplay', onReady)
+      video.removeEventListener('error', onError)
+    }
+
+    const onReady = () => {
+      cleanup()
+      void waitForVideoFrame(video).then(() => resolve(video))
+    }
+
+    const onError = () => {
+      cleanup()
+      reject(new Error(`Failed to load video: ${url}`))
+    }
+
+    video.addEventListener('canplay', onReady, { once: true })
+    video.addEventListener('error', onError, { once: true })
     video.src = url
+    video.load()
   })
 
 const seekVideo = (video: HTMLVideoElement, timeSec: number): Promise<void> =>
-  new Promise((resolve) => {
-    if (Math.abs(video.currentTime - timeSec) < 0.03) {
-      resolve()
+  new Promise((resolve, reject) => {
+    const target = Math.max(0, timeSec)
+    if (Math.abs(video.currentTime - target) < 0.03 && video.readyState >= 2) {
+      void waitForVideoFrame(video).then(resolve)
       return
     }
-    const onSeeked = () => {
-      video.removeEventListener('seeked', onSeeked)
-      resolve()
+
+    let settled = false
+    const finish = (handler: () => void) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      handler()
     }
+
+    const onSeeked = () => {
+      void waitForVideoFrame(video)
+        .then(() => finish(resolve))
+        .catch(() => finish(reject))
+    }
+
+    const onError = () => {
+      finish(() => reject(new Error('Video seek failed')))
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      if (video.readyState >= 2) {
+        finish(resolve)
+        return
+      }
+      finish(() => reject(new Error('Video seek timeout')))
+    }, SEEK_TIMEOUT_MS)
+
+    const cleanup = () => {
+      video.removeEventListener('seeked', onSeeked)
+      video.removeEventListener('error', onError)
+      window.clearTimeout(timeoutId)
+    }
+
     video.addEventListener('seeked', onSeeked)
-    video.currentTime = Math.max(0, timeSec)
-    window.setTimeout(resolve, 120)
+    video.addEventListener('error', onError)
+    video.currentTime = target
   })
 
 export interface ExportVideoSource {

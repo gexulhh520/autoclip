@@ -496,7 +496,7 @@ async def get_project(
 
         db_project = db.query(Project).filter(Project.id == project_id).first()
         if db_project:
-            reconcile_project_status_from_artifacts(db, project_id, db_project)
+            reconcile_project_status_from_artifacts(db, project_id, db_project, sync_clips=False)
 
         project = project_service.get_project_with_stats(project_id)
         if not project:
@@ -1015,6 +1015,10 @@ class RestartStepRequest(BaseModel):
 async def get_project_pipeline_steps(
     project_id: str,
     source_id: Optional[str] = Query(None, description="多源项目：指定源视频 ID"),
+    sync_artifacts: bool = Query(
+        False,
+        description="是否将磁盘切片/合集同步进数据库（默认仅读状态，不扫盘）",
+    ),
     db: Session = Depends(get_db),
     project_service: ProjectService = Depends(get_project_service),
 ):
@@ -1024,7 +1028,13 @@ async def get_project_pipeline_steps(
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
         from backend.services.pipeline_steps_service import get_pipeline_steps
-        return get_pipeline_steps(project_id, project, db=db, source_id=source_id)
+        return get_pipeline_steps(
+            project_id,
+            project,
+            db=db,
+            source_id=source_id,
+            sync_artifacts=sync_artifacts,
+        )
     except HTTPException:
         raise
     except Exception as e:

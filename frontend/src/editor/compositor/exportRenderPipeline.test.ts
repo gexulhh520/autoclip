@@ -51,7 +51,6 @@ describe('runExportRenderPipeline', () => {
       ctx,
       exportSessionId: 'sess-1',
       prefetchDepth: 2,
-      rgbaToBase64: () => 'AAAA',
     })
 
     expect(renderFrameDescriptorToCanvas).toHaveBeenCalledTimes(3)

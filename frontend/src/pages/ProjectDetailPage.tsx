@@ -66,6 +66,7 @@ const ProjectDetailPage: React.FC = () => {
   const [selectedClipIds, setSelectedClipIds] = useState<string[]>([])
   const [deletingClips, setDeletingClips] = useState(false)
   const [enteringEditor, setEnteringEditor] = useState(false)
+  const [syncingFromDisk, setSyncingFromDisk] = useState(false)
   const { generateAndDownloadCollectionVideo } = useCollectionVideoDownload()
 
   useEffect(() => {
@@ -77,29 +78,11 @@ const ProjectDetailPage: React.FC = () => {
   const loadProjectMedia = async (
     projectId: string,
     sourceId?: string | null,
-    options?: { forceSync?: boolean },
   ) => {
-    if (options?.forceSync) {
-      try {
-        await projectApi.syncProjectFromFilesystem(projectId)
-      } catch (syncErr) {
-        console.warn('Force sync clips failed:', syncErr)
-      }
-    }
-
-    let [clips, collections] = await Promise.all([
+    const [clips, collections] = await Promise.all([
       projectApi.getClips(projectId, sourceId ?? undefined),
       projectApi.getCollections(projectId),
     ])
-
-    if (!clips || clips.length === 0) {
-      try {
-        await projectApi.syncProjectFromFilesystem(projectId)
-        clips = await projectApi.getClips(projectId, sourceId ?? undefined)
-      } catch (syncErr) {
-        console.warn('Auto sync clips failed:', syncErr)
-      }
-    }
 
     return {
       clips: clips || [],
@@ -142,9 +125,7 @@ const ProjectDetailPage: React.FC = () => {
 
       if (shouldLoadMedia && (project.status !== 'processing' || step6Ready)) {
         try {
-          const { clips, collections } = await loadProjectMedia(id, selectedSourceId, {
-            forceSync: step6Ready,
-          })
+          const { clips, collections } = await loadProjectMedia(id, selectedSourceId)
 
           const projectWithData = {
             ...project,
@@ -208,6 +189,21 @@ const ProjectDetailPage: React.FC = () => {
       console.error('Failed to load processing status:', error)
     } finally {
       setStatusLoading(false)
+    }
+  }
+
+  const handleManualSyncFromDisk = async () => {
+    if (!id) return
+    setSyncingFromDisk(true)
+    try {
+      await projectApi.syncProjectFromFilesystem(id)
+      message.success('已从磁盘同步切片数据')
+      await loadProject()
+    } catch (error) {
+      console.error('Manual sync failed:', error)
+      message.error('同步失败，请稍后重试')
+    } finally {
+      setSyncingFromDisk(false)
     }
   }
 
@@ -467,6 +463,11 @@ const ProjectDetailPage: React.FC = () => {
         </div>
         
         <Space>
+          {showClipWorkspace ? (
+            <Button loading={syncingFromDisk} onClick={() => void handleManualSyncFromDisk()}>
+              从磁盘同步
+            </Button>
+          ) : null}
           {currentProject.status === 'pending' && (
             <Button 
               type="primary" 

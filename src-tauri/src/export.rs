@@ -1,7 +1,5 @@
 use autoclip_export::{ExportFinishOptions, ExportSessionManager, ExportStartOptions};
-use base64::{engine::general_purpose::STANDARD, Engine as _};
-use std::sync::OnceLock;
-use tauri::{AppHandle, Emitter};
+use std::sync::OnceLock;use tauri::{AppHandle, Emitter};
 
 static EXPORT_MANAGER: OnceLock<ExportSessionManager> = OnceLock::new();
 
@@ -29,11 +27,8 @@ pub fn compositor_export_start(
 pub fn compositor_export_push_frame(
     app: AppHandle,
     session_id: String,
-    rgba_base64: String,
+    rgba: Vec<u8>,
 ) -> Result<(), String> {
-    let rgba = STANDARD
-        .decode(rgba_base64.trim())
-        .map_err(|error| error.to_string())?;
     let progress = manager()
         .push_frame(&session_id, &rgba)
         .map_err(|error| error.to_string())?;

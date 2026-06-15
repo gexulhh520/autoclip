@@ -578,8 +578,14 @@ export const projectApi = {
   },
 
   // 流水线各步骤状态
-  getPipelineSteps: async (id: string, sourceId?: string | null): Promise<PipelineStepsResponse> => {
-    const params = sourceId ? { source_id: sourceId } : undefined
+  getPipelineSteps: async (
+    id: string,
+    sourceId?: string | null,
+    options?: { syncArtifacts?: boolean }
+  ): Promise<PipelineStepsResponse> => {
+    const params: Record<string, string | boolean> = {}
+    if (sourceId) params.source_id = sourceId
+    if (options?.syncArtifacts) params.sync_artifacts = true
     return api.get(`/projects/${id}/pipeline-steps`, { params })
   },
 
