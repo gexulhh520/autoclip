@@ -17,6 +17,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _link_batch_error_detail(exc: Exception) -> str:
+    msg = str(exc).lower()
+    if "ssl" in msg or "unexpected_eof" in msg:
+        return (
+            "YouTube 连接失败：系统代理 SSL 握手异常。"
+            "请确认代理软件（如 Clash）已启动且可访问 YouTube，"
+            "或在 .env 中设置 AUTOCLIP_YT_CLIENT=android 后重试。"
+        )
+    if "unable to download" in msg or "http error 403" in msg:
+        return f"YouTube 视频无法访问：{exc}"
+    return "创建多链接项目失败"
+
+
 class LinkBatchDownloadRequest(BaseModel):
     urls: List[str] = Field(min_length=1, description="视频链接列表（B 站 / YouTube）")
     project_name: str = Field(default="多链接项目")
@@ -65,7 +78,7 @@ async def create_link_batch_download_task(body: LinkBatchDownloadRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("创建多链接项目失败")
-        raise HTTPException(status_code=500, detail="创建多链接项目失败") from exc
+        raise HTTPException(status_code=500, detail=_link_batch_error_detail(exc)) from exc
 
     from backend.api.v1.async_task_manager import task_manager
 

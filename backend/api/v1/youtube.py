@@ -57,6 +57,71 @@ def _is_browser_cookie_error(exc: BaseException) -> bool:
     )
 
 
+def _is_network_error(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return any(
+        token in msg
+        for token in (
+            "ssl",
+            "unexpected_eof",
+            "connection reset",
+            "connection refused",
+            "timed out",
+            "network is unreachable",
+            "unable to download",
+        )
+    )
+
+
+def _youtube_player_client_configured(ydl_opts: dict) -> bool:
+    clients = (
+        ydl_opts.get("extractor_args", {})
+        .get("youtube", {})
+        .get("player_client", [])
+    )
+    return bool(clients)
+
+
+def _with_youtube_player_client(ydl_opts: dict, client: str) -> dict:
+    opts = dict(ydl_opts)
+    player_clients = opts.setdefault("extractor_args", {}).setdefault("youtube", {}).setdefault(
+        "player_client", [],
+    )
+    if client not in player_clients:
+        player_clients.append(client)
+    return opts
+
+
+def _run_ytdl_with_fallbacks(ydl_opts: dict, browser: Optional[str], action: str, runner):
+    """执行 yt-dlp；Cookie 不可读或无 player_client 时遇网络/SSL 错误自动降级重试。"""
+    opts = dict(ydl_opts)
+    use_browser = bool(browser)
+    network_retried = False
+
+    while True:
+        try:
+            return runner(opts, use_browser)
+        except Exception as exc:
+            if use_browser and _is_browser_cookie_error(exc):
+                logger.warning(
+                    "无法读取 %s 浏览器 Cookie（请完全关闭该浏览器，或不要选择浏览器），将无 Cookie 重试: %s",
+                    browser,
+                    exc,
+                )
+                use_browser = False
+                continue
+            if not network_retried and _is_network_error(exc) and not _youtube_player_client_configured(opts):
+                logger.warning(
+                    "YouTube %s 网络/SSL 错误（常见于系统代理），将使用 android client 重试: %s",
+                    action,
+                    exc,
+                )
+                opts = _with_youtube_player_client(opts, "android")
+                network_retried = True
+                continue
+            raise
+
+
 def _base_ytdl_opts() -> dict:
     return {
         "quiet": True,
@@ -69,55 +134,35 @@ def _base_ytdl_opts() -> dict:
 
 
 def _extract_info(url: str, ydl_opts: dict, browser: Optional[str] = None):
-    """提取视频信息；浏览器 Cookie 不可读时自动降级为无 Cookie 重试。"""
+    """提取视频信息；浏览器 Cookie 不可读或代理 SSL 异常时自动降级重试。"""
 
-    def _run(use_browser: bool):
-        opts = dict(ydl_opts)
+    def _run(opts: dict, use_browser: bool):
+        run_opts = dict(opts)
         if use_browser and browser:
-            opts["cookiesfrombrowser"] = (browser.lower(),)
+            run_opts["cookiesfrombrowser"] = (browser.lower(),)
         else:
-            opts.pop("cookiesfrombrowser", None)
+            run_opts.pop("cookiesfrombrowser", None)
         with sanitized_yt_env():
-            with yt_dlp.YoutubeDL(opts) as ydl:
+            with yt_dlp.YoutubeDL(run_opts) as ydl:
                 return ydl.extract_info(url, download=False)
 
-    try:
-        return _run(bool(browser))
-    except Exception as e:
-        if browser and _is_browser_cookie_error(e):
-            logger.warning(
-                "无法读取 %s 浏览器 Cookie（请完全关闭该浏览器，或不要选择浏览器），将无 Cookie 重试: %s",
-                browser,
-                e,
-            )
-            return _run(False)
-        raise
+    return _run_ytdl_with_fallbacks(ydl_opts, browser, "解析", _run)
 
 
 def _download_url(url: str, ydl_opts: dict, browser: Optional[str] = None):
-    """下载视频；浏览器 Cookie 不可读时自动降级为无 Cookie 重试。"""
+    """下载视频；浏览器 Cookie 不可读或代理 SSL 异常时自动降级重试。"""
 
-    def _run(use_browser: bool):
-        opts = dict(ydl_opts)
+    def _run(opts: dict, use_browser: bool):
+        run_opts = dict(opts)
         if use_browser and browser:
-            opts["cookiesfrombrowser"] = (browser.lower(),)
+            run_opts["cookiesfrombrowser"] = (browser.lower(),)
         else:
-            opts.pop("cookiesfrombrowser", None)
+            run_opts.pop("cookiesfrombrowser", None)
         with sanitized_yt_env():
-            with yt_dlp.YoutubeDL(opts) as ydl:
+            with yt_dlp.YoutubeDL(run_opts) as ydl:
                 return ydl.download([url])
 
-    try:
-        return _run(bool(browser))
-    except Exception as e:
-        if browser and _is_browser_cookie_error(e):
-            logger.warning(
-                "无法读取 %s 浏览器 Cookie（请完全关闭该浏览器，或不要选择浏览器），将无 Cookie 重试: %s",
-                browser,
-                e,
-            )
-            return _run(False)
-        raise
+    return _run_ytdl_with_fallbacks(ydl_opts, browser, "下载", _run)
 
 
 class YouTubeParseRequest(BaseModel):
