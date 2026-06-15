@@ -105,7 +105,7 @@ interface EditSessionState {
   useCompositorExport: boolean
   snapEnabled: boolean
   rippleTrimEnabled: boolean
-  inspectorTab: 'video' | 'audio' | 'text' | 'transition'
+  inspectorTab: 'video' | 'audio' | 'text' | 'animation' | 'transition'
   clipboardBlock: EditBlock | null
   historyPast: EditBlock[][]
   historyFuture: EditBlock[][]
@@ -166,7 +166,7 @@ interface EditSessionState {
   setPreviewZoom: (zoom: number) => void
   setPreviewBurnSubtitles: (enabled: boolean) => void
   setUseCompositorExport: (enabled: boolean) => void
-  setInspectorTab: (tab: 'video' | 'audio' | 'text' | 'transition') => void
+  setInspectorTab: (tab: 'video' | 'audio' | 'text' | 'animation' | 'transition') => void
   updateExportSettings: (settings: Partial<EditExportSettings>) => void
   updateAudioSettings: (settings: Partial<EditSessionAudioSettings>) => void
   updateBlockAudio: (blockId: string, audio: Partial<EditBlock['audio']>) => void

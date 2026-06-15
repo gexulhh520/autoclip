@@ -6,6 +6,8 @@ import { resolveFreeTextLayers } from '../scene/sceneBuilder'
 import { buildTransformFromParams } from '../opencut-text/transform'
 import type { MeasuredTextOverlay } from '../opencut-text/measure'
 import type { OpenCutTextOverlay } from '../opencut-text/params'
+import { readTextAnimationFromParams } from '../textAnimation/params'
+import { resolveTextAnimationState } from '../textAnimation/resolve'
 import {
   buildVideoCompositionSpec,
   resolveVideoLayerTransforms,
@@ -197,6 +199,15 @@ export function buildFrameDescriptor(
     if (!isOverlayActiveAt(def.startSec, def.durationSec, clampedTime)) return
     if (!burnSubtitles && def.source === 'template_preset') return
 
+    const relativeSec = clampedTime - def.startSec
+    const animConfig = readTextAnimationFromParams(def.params)
+    const animState = resolveTextAnimationState(
+      relativeSec,
+      def.durationSec,
+      animConfig,
+      canvas.height
+    )
+
     let transform: VisualTransform | undefined
     if (context.measureTextOverlay) {
       const measured = context.measureTextOverlay({
@@ -213,7 +224,10 @@ export function buildFrameDescriptor(
       elementId: def.elementId,
       params: def.params,
       transform,
-      opacity,
+      opacity: opacity * animState.opacity,
+      animationOffsetX: animState.offsetX,
+      animationOffsetY: animState.offsetY,
+      animationScale: animState.scale,
       zIndex: zIndex + 10 + (def.zOrder ?? 0),
     }
     items.push(textItem)

@@ -1,5 +1,6 @@
 import { applyRegisteredSceneEffect, resolveVisualFilterCss } from '../effects'
 import { renderTextOverlayToContext } from '../opencut-text/render'
+import { readNumberParam } from '../opencut-text/params'
 import type { OpenCutTextOverlay } from '../opencut-text/params'
 import type { MediabunnyBlockVideoSource } from './mediabunnyVideoSources'
 import { getDecodedFrameAtSourceTime, type DecodedBlockFrames } from './videoFrameCache'
@@ -124,13 +125,24 @@ const drawFreeText = (
   canvasHeight: number
 ): void => {
   if (!item.params || !item.elementId) return
+  const baseScaleX = readNumberParam(item.params, 'transform.scaleX', 1)
+  const baseScaleY = readNumberParam(item.params, 'transform.scaleY', 1)
+  const animScale = item.animationScale ?? 1
+  const params =
+    animScale === 1
+      ? item.params
+      : {
+          ...item.params,
+          'transform.scaleX': baseScaleX * animScale,
+          'transform.scaleY': baseScaleY * animScale,
+        }
   const element: OpenCutTextOverlay = {
     id: item.elementId,
     type: 'text',
     start_sec: 0,
     duration_sec: 1,
     hidden: false,
-    params: item.params,
+    params,
   }
   renderTextOverlayToContext({
     element,
@@ -138,6 +150,10 @@ const drawFreeText = (
     canvasWidth,
     canvasHeight,
     layerOpacity: item.opacity,
+    positionOffset: {
+      x: item.animationOffsetX ?? 0,
+      y: item.animationOffsetY ?? 0,
+    },
   })
 }
 

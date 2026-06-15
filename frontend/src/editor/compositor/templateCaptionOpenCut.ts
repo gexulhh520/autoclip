@@ -3,6 +3,7 @@ import type { OverlayPreviewConfig } from '../../components/QuoteOverlayPreview'
 import { FONT_SIZE_SCALE_REFERENCE } from '../opencut-text/typography'
 import type { TextElementParams } from '../opencut-text/params'
 import { normalizedToPosition } from '../opencut-text/transform'
+import { mergeOverlayAnimationIntoParams } from '../textAnimation/params'
 import type { FreeTextLayerDef, TemplateCaptionPreviewLayer } from './types'
 import {
   buildTemplateCaptionPreview,
@@ -181,7 +182,7 @@ export function compileTemplateCaptionToFreeTextLayers(
     startSec: compositionStartSec,
     durationSec: Math.max(sourceDurationSec, 0.05),
     hidden: false,
-    params: line.params,
+    params: mergeOverlayAnimationIntoParams(line.params, block.overlay),
     source: 'template_preset',
     blockId: block.id,
     role: line.role,

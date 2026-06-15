@@ -18,6 +18,9 @@ export interface EditBlockMedia {
   source_end_sec?: number | null
 }
 
+export type TextMotionType = 'none' | 'fade' | 'slide_up' | 'slide_down' | 'scale' | 'pop'
+export type TextLoopType = 'none' | 'pulse' | 'bounce' | 'shake'
+
 export interface EditBlockOverlay {
   outline: string
   content: string[]
@@ -26,6 +29,12 @@ export interface EditBlockOverlay {
   position_offset_x_pct?: number
   /** 相对模板默认位置的纵向偏移（画布高度百分比，正=向上） */
   position_offset_y_pct?: number
+  animation_in_type?: TextMotionType
+  animation_in_duration_sec?: number
+  animation_out_type?: TextMotionType
+  animation_out_duration_sec?: number
+  animation_loop_type?: TextLoopType
+  animation_loop_duration_sec?: number
 }
 
 export interface EditBlockAudio {

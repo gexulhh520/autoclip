@@ -20,6 +20,12 @@ class EditBlockOverlay(BaseModel):
     recommend_reason: str = ""
     position_offset_x_pct: float = 0.0
     position_offset_y_pct: float = 0.0
+    animation_in_type: Optional[str] = None
+    animation_in_duration_sec: Optional[float] = None
+    animation_out_type: Optional[str] = None
+    animation_out_duration_sec: Optional[float] = None
+    animation_loop_type: Optional[str] = None
+    animation_loop_duration_sec: Optional[float] = None
 
 
 class EditBlockAudio(BaseModel):

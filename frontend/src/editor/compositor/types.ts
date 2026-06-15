@@ -184,6 +184,10 @@ export interface FrameTextItem {
   params?: Record<string, string | number | boolean>
   transform?: VisualTransform
   opacity: number
+  /** 动效偏移与缩放（相对时间解析结果） */
+  animationOffsetX?: number
+  animationOffsetY?: number
+  animationScale?: number
   zIndex: number
 }
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { message } from 'antd'
-import { Film, Music2, Type, Workflow } from 'lucide-react'
+import { Film, Music2, Sparkles, Type, Workflow } from 'lucide-react'
 import OpenCutPropertiesEmpty from './opencut/OpenCutPropertiesEmpty'
 import { blockDuration, useEditSessionStore } from '../../stores/useEditSessionStore'
 import { collectTrimSnapPoints, snapTime } from '../../utils/editTimeline'
@@ -10,13 +10,20 @@ import EditorInspectorSelectionBanner from './EditorInspectorSelectionBanner'
 import OpenCutTextParamsPanel from './OpenCutTextParamsPanel'
 import TransitionTypePicker from './TransitionTypePicker'
 import TextPresetPicker from './TextPresetPicker'
+import TextAnimationPanel from './TextAnimationPanel'
 import { readTextPresetId } from '../../editor/effects'
+import {
+  patchBlockOverlayAnimation,
+  readTextAnimationFromBlockOverlay,
+  readTextAnimationFromParams,
+  writeTextAnimationToParams,
+} from '../../editor/textAnimation/params'
 
 interface EditorInspectorProps {
   projectId: string
 }
 
-type InspectorTab = 'video' | 'audio' | 'text' | 'transition'
+type InspectorTab = 'video' | 'audio' | 'text' | 'animation' | 'transition'
 
 const INSPECTOR_TAB_META: Record<
   InspectorTab,
@@ -25,6 +32,7 @@ const INSPECTOR_TAB_META: Record<
   video: { label: '画面', icon: <Film size={16} strokeWidth={1.75} /> },
   audio: { label: '音频', icon: <Music2 size={16} strokeWidth={1.75} /> },
   text: { label: '文本', icon: <Type size={16} strokeWidth={1.75} /> },
+  animation: { label: '动画', icon: <Sparkles size={16} strokeWidth={1.75} /> },
   transition: { label: '转场', icon: <Workflow size={16} strokeWidth={1.75} /> },
 }
 
@@ -483,10 +491,57 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   }
 
 
+  const renderAnimationTab = () => {
+    const multiOverlayCount = selectedOverlayIds.length
+    const multiCaptionCount = selectedCaptionBlockIds.length
+
+    if (multiOverlayCount > 1 || multiCaptionCount > 1) {
+      return (
+        <div className="editor-inspector-section">
+          <div className="editor-inspector-muted">多选时暂不支持批量设置动画</div>
+        </div>
+      )
+    }
+
+    if (selectedOverlay) {
+      const config = readTextAnimationFromParams(selectedOverlay.params ?? {})
+      return (
+        <TextAnimationPanel
+          config={config}
+          onChange={(next) =>
+            updateOverlayParams(
+              selectedOverlay.id,
+              writeTextAnimationToParams(selectedOverlay.params ?? {}, next)
+            )
+          }
+        />
+      )
+    }
+
+    const captionBlock = captionEditingBlock ?? selectedBlock
+    if (!captionBlock?.overlay) {
+      return (
+        <div className="editor-empty-hint">
+          选中字幕或自由文本层后设置入场、出场或循环动画
+        </div>
+      )
+    }
+
+    const config = readTextAnimationFromBlockOverlay(captionBlock.overlay)
+    return (
+      <TextAnimationPanel
+        config={config}
+        onChange={(next) =>
+          updateBlockOverlay(captionBlock.id, patchBlockOverlayAnimation(captionBlock.overlay, next))
+        }
+      />
+    )
+  }
+
   const visibleTabs: InspectorTab[] = selectedOverlay
-    ? ['text']
+    ? ['text', 'animation']
     : selectedBlock
-      ? ['video', 'audio', 'text', 'transition']
+      ? ['video', 'audio', 'text', 'animation', 'transition']
       : []
 
   const activeInspectorTab: InspectorTab =
@@ -498,6 +553,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
     video: renderVideoTab(),
     audio: renderAudioTab(),
     text: renderTextTab(),
+    animation: renderAnimationTab(),
     transition: renderTransitionTab(),
   }
 
