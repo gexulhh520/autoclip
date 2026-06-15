@@ -16,23 +16,9 @@ from typing import Optional, Dict, Any
 from fastapi import FastAPI
 
 
-def _configure_stdio_utf8() -> None:
-    """Windows 控制台默认 GBK，print/logger 含 emoji 时会 UnicodeEncodeError。"""
-    if sys.platform != "win32":
-        return
-    for name in ("stdout", "stderr"):
-        stream = getattr(sys, name, None)
-        if stream is None:
-            continue
-        reconfigure = getattr(stream, "reconfigure", None)
-        if callable(reconfigure):
-            try:
-                reconfigure(encoding="utf-8", errors="replace")
-            except (OSError, ValueError):
-                pass
+from backend.utils.stdio_utf8 import configure_stdio_utf8, stream_handler
 
-
-_configure_stdio_utf8()
+configure_stdio_utf8()
 
 # 添加项目根目录到Python路径
 project_root = Path(__file__).parent.parent
@@ -75,13 +61,17 @@ class DesktopServiceManager:
     
     def _setup_logging(self):
         """设置日志配置"""
+        log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         logging.basicConfig(
             level=getattr(logging, self.config.log_level.upper()),
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            format=log_format,
             handlers=[
-                logging.FileHandler(self.config.paths.data_dir / "logs" / "autoclip.log"),
-                logging.StreamHandler()
-            ]
+                logging.FileHandler(
+                    self.config.paths.data_dir / "logs" / "autoclip.log",
+                    encoding='utf-8',
+                ),
+                stream_handler(sys.stdout),
+            ],
         )
         self.logger = logging.getLogger(__name__)
     

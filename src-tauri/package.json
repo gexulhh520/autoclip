@@ -4,6 +4,7 @@
   "description": "AutoClip Desktop Application",
   "scripts": {
     "tauri": "tauri",
+    "dev:frontend": "npm --prefix ../frontend run dev",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
   },

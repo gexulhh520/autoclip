@@ -29,13 +29,15 @@ def create_app(mode: str = "web") -> FastAPI:
     
     # 配置日志
     logging_config = get_logging_config()
+    from backend.utils.stdio_utf8 import stream_handler
+
     logging.basicConfig(
         level=getattr(logging, logging_config["level"]),
         format=logging_config["format"],
         handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler(logging_config["file"])
-        ]
+            stream_handler(),
+            logging.FileHandler(logging_config["file"], encoding="utf-8"),
+        ],
     )
     
     # 创建 FastAPI 应用
