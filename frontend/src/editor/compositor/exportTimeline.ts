@@ -3,7 +3,7 @@ import { compileCompositionPlan } from './index'
 import { CompositorCanvasRenderer } from './compositorCanvasRenderer'
 import { writeExportVideoFile } from './exportFileIO'
 import { isTauriRuntime } from './compositorClient'
-import { preloadMediabunnyVideoCache } from './mediabunnyVideoCache'
+import { prepareMediabunnyVideoSources } from './mediabunnyVideoSources'
 import { SceneExporter } from './sceneExporter'
 import type { CompositorExportRuntimeParams } from './runCompositorExport'
 import { assertWebCodecsExportSupported } from './webcodecsExport'
@@ -52,51 +52,54 @@ export async function exportTimelineViaCompositor(
   const safeName = sanitizeFilename(options.filename ?? session.name)
   const outputPath = `${options.outputDir.replace(/\\/g, '/').replace(/\/$/, '')}/${safeName}_compositor.mp4`
 
-  options.onProgress?.(0, 'WebCodecs 解码素材')
+  options.onProgress?.(0, '准备 WebCodecs 素材')
 
   const blocksById = new Map(session.sequence.map((block) => [block.id, block]))
-  const rgbaFrames = await preloadMediabunnyVideoCache({
+  const videoSources = await prepareMediabunnyVideoSources({
     plan,
     blocksById,
     runtime,
-    fps,
     onProgress: (message) => options.onProgress?.(5, message),
   })
 
-  const renderer = new CompositorCanvasRenderer({
-    plan,
-    session,
-    burnSubtitles,
-    mutedTextTrackIds: options.mutedTextTrackIds,
-    rgbaFrames,
-    fps,
-  })
+  try {
+    const renderer = new CompositorCanvasRenderer({
+      plan,
+      session,
+      burnSubtitles,
+      mutedTextTrackIds: options.mutedTextTrackIds,
+      videoSources: videoSources.byBlockId,
+      fps,
+    })
 
-  const exporter = new SceneExporter({
-    width: plan.canvas.width,
-    height: plan.canvas.height,
-    fps,
-    totalDurationSec: plan.totalDurationSec,
-  })
+    const exporter = new SceneExporter({
+      width: plan.canvas.width,
+      height: plan.canvas.height,
+      fps,
+      totalDurationSec: plan.totalDurationSec,
+    })
 
-  options.onProgress?.(10, 'WebCodecs 编码中')
+    options.onProgress?.(10, 'WebCodecs 编码中')
 
-  const buffer = await exporter.export(renderer, {
-    signal: options.signal,
-    onProgress: ({ frameIndex, totalFrames: total }) => {
-      const percent = 10 + Math.round(((frameIndex + 1) / total) * 75)
-      options.onProgress?.(percent, `编码帧 ${frameIndex + 1}/${total}`)
-    },
-  })
+    const buffer = await exporter.export(renderer, {
+      signal: options.signal,
+      onProgress: ({ frameIndex, totalFrames: total }) => {
+        const percent = 10 + Math.round(((frameIndex + 1) / total) * 75)
+        options.onProgress?.(percent, `编码帧 ${frameIndex + 1}/${total}`)
+      },
+    })
 
-  options.onProgress?.(88, '写入视频文件')
-  await writeExportVideoFile(outputPath, buffer)
-  options.onProgress?.(90, '视频编码完成')
+    options.onProgress?.(88, '写入视频文件')
+    await writeExportVideoFile(outputPath, buffer)
+    options.onProgress?.(90, '视频编码完成')
 
-  return {
-    compositorVideoPath: outputPath,
-    width: plan.canvas.width,
-    height: plan.canvas.height,
-    frameCount: totalFrames,
+    return {
+      compositorVideoPath: outputPath,
+      width: plan.canvas.width,
+      height: plan.canvas.height,
+      frameCount: totalFrames,
+    }
+  } finally {
+    videoSources.dispose()
   }
 }

@@ -1,6 +1,7 @@
 import { applyRegisteredSceneEffect, resolveVisualFilterCss } from '../effects'
 import { renderTextOverlayToContext } from '../opencut-text/render'
 import type { OpenCutTextOverlay } from '../opencut-text/params'
+import type { MediabunnyBlockVideoSource } from './mediabunnyVideoSources'
 import { getDecodedFrameAtSourceTime, type DecodedBlockFrames } from './videoFrameCache'
 import type {
   FrameDescriptor,
@@ -13,14 +14,17 @@ import type {
 export interface SoftwareRendererVideoSources {
   /** blockId → decoded video element（预览） */
   videos?: Map<string, HTMLVideoElement>
-  /** blockId → FFmpeg 预解码 RGBA（导出） */
+  /** blockId → FFmpeg 预解码 RGBA（Golden 测试） */
   rgbaFrames?: Map<string, DecodedBlockFrames>
+  /** blockId → WebCodecs 按需解码（导出） */
+  videoSources?: Map<string, MediabunnyBlockVideoSource>
   fps?: number
 }
 
 export interface SoftwareRendererOptions {
   videos?: SoftwareRendererVideoSources['videos']
   rgbaFrames?: SoftwareRendererVideoSources['rgbaFrames']
+  videoSources?: SoftwareRendererVideoSources['videoSources']
   fps?: number
   /** CSS filter string applied to video layers */
   visualFilter?: string
@@ -83,6 +87,20 @@ const drawVideoInTransform = (
   ctx.globalAlpha = opacity
   if (filter) ctx.filter = filter
   ctx.drawImage(video, transform.x, transform.y, transform.width, transform.height)
+  ctx.restore()
+}
+
+const drawCanvasInTransform = (
+  ctx: CanvasRenderingContext2D,
+  canvas: HTMLCanvasElement | OffscreenCanvas,
+  transform: VisualTransform,
+  opacity: number,
+  filter?: string
+): void => {
+  ctx.save()
+  ctx.globalAlpha = opacity
+  if (filter) ctx.filter = filter
+  ctx.drawImage(canvas as CanvasImageSource, transform.x, transform.y, transform.width, transform.height)
   ctx.restore()
 }
 
@@ -156,7 +174,7 @@ const applySceneEffectToContext = (
   ctx.restore()
 }
 
-/** Canvas2D 软件合成 — 预览与 Golden 测试共用 */
+/** Canvas2D 软件合成 — 预览与 Golden 测试共用（同步） */
 export function renderFrameDescriptorToCanvas(
   ctx: CanvasRenderingContext2D,
   descriptor: FrameDescriptor,
@@ -178,7 +196,7 @@ export function renderFrameDescriptorToCanvas(
 
   for (const item of sortItems(descriptor.items)) {
     if (item.kind === 'layer') {
-      renderLayerItem(ctx, item, videos, rgbaFrames, fps, visualFilter)
+      renderLayerItemSync(ctx, item, videos, rgbaFrames, fps, visualFilter)
       continue
     }
     if (item.kind === 'text') {
@@ -201,7 +219,53 @@ export function renderFrameDescriptorToCanvas(
   }
 }
 
-function renderLayerItem(
+/** 导出专用：WebCodecs 按需解码视频层 */
+export async function renderFrameDescriptorToCanvasAsync(
+  ctx: CanvasRenderingContext2D,
+  descriptor: FrameDescriptor,
+  options: SoftwareRendererOptions = {}
+): Promise<void> {
+  const { width, height } = descriptor
+  const videos = options.videos ?? new Map<string, HTMLVideoElement>()
+  const rgbaFrames = options.rgbaFrames
+  const videoSources = options.videoSources
+  const fps = options.fps ?? 30
+  const visualFilter = options.visualFilter
+  const showTemplateCaptions = options.showTemplateCaptions ?? true
+  const showFreeText = options.showFreeText ?? true
+
+  ctx.clearRect(0, 0, width, height)
+  ctx.fillStyle = `rgba(${Math.round(descriptor.clear.r * 255)}, ${Math.round(descriptor.clear.g * 255)}, ${Math.round(descriptor.clear.b * 255)}, ${descriptor.clear.a})`
+  ctx.fillRect(0, 0, width, height)
+
+  const sceneEffects: string[] = []
+
+  for (const item of sortItems(descriptor.items)) {
+    if (item.kind === 'layer') {
+      await renderLayerItemAsync(ctx, item, videos, rgbaFrames, videoSources, fps, visualFilter)
+      continue
+    }
+    if (item.kind === 'text') {
+      if (item.source !== 'free_text') continue
+      const isTemplatePreset = item.elementId?.startsWith('template:') ?? false
+      if (isTemplatePreset && !showTemplateCaptions) continue
+      if (!isTemplatePreset && !showFreeText) continue
+      drawFreeText(ctx, item, width, height)
+      continue
+    }
+    if (item.kind === 'scene_effect') {
+      sceneEffects.push(item.effectId)
+    }
+  }
+
+  for (const effectId of sceneEffects) {
+    applySceneEffectToContext(ctx, width, height, effectId, {
+      preferGpu: options.preferGpuEffects ?? false,
+    })
+  }
+}
+
+function renderLayerItemSync(
   ctx: CanvasRenderingContext2D,
   item: FrameLayerItem,
   videos: Map<string, HTMLVideoElement>,
@@ -214,6 +278,51 @@ function renderLayerItem(
   const decoded = blockId && rgbaFrames ? rgbaFrames.get(blockId) : undefined
   const blurFilter =
     item.source === 'blur_backdrop' ? 'blur(18px) brightness(0.55) saturate(1.1)' : visualFilter
+
+  if (decoded && item.relativeSourceSec != null) {
+    const frame = getDecodedFrameAtSourceTime(decoded, item.relativeSourceSec, fps)
+    if (frame) {
+      drawRgbaInTransform(ctx, frame, decoded.width, decoded.height, item.transform, item.opacity, blurFilter)
+      return
+    }
+  }
+
+  if (video && video.readyState >= 2) {
+    drawVideoInTransform(ctx, video, item.transform, item.opacity, blurFilter)
+    return
+  }
+
+  drawPlaceholderRect(
+    ctx,
+    item.transform,
+    item.opacity,
+    item.source === 'blur_backdrop' ? '#202028' : '#303038'
+  )
+}
+
+async function renderLayerItemAsync(
+  ctx: CanvasRenderingContext2D,
+  item: FrameLayerItem,
+  videos: Map<string, HTMLVideoElement>,
+  rgbaFrames: Map<string, DecodedBlockFrames> | undefined,
+  videoSources: Map<string, MediabunnyBlockVideoSource> | undefined,
+  fps: number,
+  visualFilter?: string
+): Promise<void> {
+  const blockId = item.blockId
+  const video = blockId ? videos.get(blockId) : undefined
+  const decoded = blockId && rgbaFrames ? rgbaFrames.get(blockId) : undefined
+  const videoSource = blockId && videoSources ? videoSources.get(blockId) : undefined
+  const blurFilter =
+    item.source === 'blur_backdrop' ? 'blur(18px) brightness(0.55) saturate(1.1)' : visualFilter
+
+  if (videoSource && item.relativeSourceSec != null) {
+    const canvas = await videoSource.getCanvasAtSourceTime(item.relativeSourceSec)
+    if (canvas) {
+      drawCanvasInTransform(ctx, canvas, item.transform, item.opacity, blurFilter)
+      return
+    }
+  }
 
   if (decoded && item.relativeSourceSec != null) {
     const frame = getDecodedFrameAtSourceTime(decoded, item.relativeSourceSec, fps)

@@ -72,7 +72,7 @@ export class SceneExporter {
       }
 
       const timeSec = frameIndex / fps
-      renderer.renderAt(timeSec)
+      await renderer.renderAt(timeSec)
       await videoSource.add(timeSec, frameDuration)
 
       if (frameIndex % 5 === 0 || frameIndex + 1 === totalFrames) {

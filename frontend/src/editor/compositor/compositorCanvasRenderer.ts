@@ -2,8 +2,8 @@ import type { EditSession } from '../../types/editSession'
 import { measureTextOverlay } from '../opencut-text/measure'
 import type { OpenCutTextOverlay } from '../opencut-text/params'
 import { buildFrameDescriptor } from './buildFrameDescriptor'
-import type { DecodedBlockFrames } from './videoFrameCache'
-import { renderFrameDescriptorToCanvas } from './softwareRenderer'
+import type { MediabunnyBlockVideoSource } from './mediabunnyVideoSources'
+import { renderFrameDescriptorToCanvasAsync } from './softwareRenderer'
 import type { CompositionPlan } from './types'
 
 export interface CompositorCanvasRendererOptions {
@@ -11,7 +11,7 @@ export interface CompositorCanvasRendererOptions {
   session: EditSession
   burnSubtitles: boolean
   mutedTextTrackIds?: string[]
-  rgbaFrames: Map<string, DecodedBlockFrames>
+  videoSources: Map<string, MediabunnyBlockVideoSource>
   fps: number
 }
 
@@ -35,8 +35,8 @@ export class CompositorCanvasRenderer {
     return this.canvas
   }
 
-  renderAt(timeSec: number): void {
-    const { plan, session, burnSubtitles, mutedTextTrackIds, rgbaFrames, fps } = this.options
+  async renderAt(timeSec: number): Promise<void> {
+    const { plan, session, burnSubtitles, mutedTextTrackIds, videoSources, fps } = this.options
     const measureText = ({
       element,
       canvasHeight,
@@ -58,8 +58,8 @@ export class CompositorCanvasRenderer {
       measureTextOverlay: measureText,
     })
 
-    renderFrameDescriptorToCanvas(this.ctx, descriptor, {
-      rgbaFrames,
+    await renderFrameDescriptorToCanvasAsync(this.ctx, descriptor, {
+      videoSources,
       fps,
       showTemplateCaptions: burnSubtitles,
       showFreeText: true,
