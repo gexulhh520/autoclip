@@ -145,6 +145,15 @@ impl BackendManager {
         self.status.lock().unwrap().clone()
     }
 
+    fn resolve_venv_python(project_root: &std::path::Path) -> Option<PathBuf> {
+        let candidates = if cfg!(target_os = "windows") {
+            vec![project_root.join("venv").join("Scripts").join("python.exe")]
+        } else {
+            vec![project_root.join("venv").join("bin").join("python")]
+        };
+        candidates.into_iter().find(|path| path.is_file())
+    }
+
     fn get_backend_launch(&self, app_handle: &AppHandle) -> Result<BackendLaunch, String> {
         if let Ok(resource_path) = app_handle.path().resource_dir() {
             for backend_work_dir in [resource_path.clone(), resource_path.join("resources")] {
@@ -172,8 +181,7 @@ impl BackendManager {
                     continue;
                 }
 
-                let venv_python = backend_work_dir.join("venv").join("bin").join("python");
-                if venv_python.exists() {
+                if let Some(venv_python) = Self::resolve_venv_python(&backend_work_dir) {
                     return Ok(Self::python_launch(
                         venv_python.to_string_lossy().to_string(),
                         backend_work_dir,
@@ -202,8 +210,7 @@ impl BackendManager {
             if let Some(project_root) = current_dir.parent() {
                 let backend_dir = project_root.join("backend");
                 if backend_dir.exists() {
-                    let venv_python = project_root.join("venv").join("bin").join("python");
-                    if venv_python.exists() {
+                    if let Some(venv_python) = Self::resolve_venv_python(&project_root) {
                         return Ok(Self::python_launch(
                             venv_python.to_string_lossy().to_string(),
                             project_root.to_path_buf(),
@@ -227,8 +234,7 @@ impl BackendManager {
         if let Ok(current_dir) = std::env::current_dir() {
             let backend_dir = current_dir.join("backend");
             if backend_dir.exists() {
-                let venv_python = current_dir.join("venv").join("bin").join("python");
-                if venv_python.exists() {
+                if let Some(venv_python) = Self::resolve_venv_python(&current_dir) {
                     return Ok(Self::python_launch(
                         venv_python.to_string_lossy().to_string(),
                         current_dir,
