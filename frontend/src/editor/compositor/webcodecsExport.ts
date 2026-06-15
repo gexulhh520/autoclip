@@ -8,14 +8,16 @@ export async function assertWebCodecsExportSupported(): Promise<void> {
     )
   }
 
-  const codec = await getFirstEncodableVideoCodec('avc')
+  const codec = await getFirstEncodableVideoCodec(['avc', 'hevc', 'vp9'])
   if (!codec) {
-    throw new Error('当前设备不支持 H.264 硬件/软件编码，无法使用 OpenCut 式导出。')
+    throw new Error(
+      '当前 WebView 无法使用 WebCodecs 进行 H.264 编码。请更新 [Microsoft Edge WebView2 运行时](https://developer.microsoft.com/microsoft-edge/webview2/) 后重启 AutoClip。'
+    )
   }
 
-  const canEncode = await canEncodeVideo('avc', { width: 640, height: 360 })
+  const canEncode = await canEncodeVideo(codec, { width: 640, height: 360 })
   if (!canEncode) {
-    throw new Error('WebCodecs H.264 编码不可用，请更新显卡驱动或 WebView2 运行时。')
+    throw new Error('WebCodecs 视频编码不可用，请更新 WebView2 运行时或显卡驱动后重启应用。')
   }
 }
 
