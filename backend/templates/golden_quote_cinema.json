@@ -2,7 +2,7 @@
   "id": "golden_quote_cinema",
   "name": "经典影视金句",
   "description": "只提取简短精炼、有含金量、可独立传播的金句 moment（宁缺毋滥）；时长随台词自然伸缩。下载时叠加影视感字幕。",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "enabled": true,
   "tags": [
     "金句",

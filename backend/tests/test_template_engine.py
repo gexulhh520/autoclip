@@ -37,7 +37,7 @@ def test_get_template_not_found(engine: TemplateEngine):
 def test_resolve_processing_settings(engine: TemplateEngine):
     settings = engine.resolve_processing_settings("golden_quote_cinema")
     assert settings["template_id"] == "golden_quote_cinema"
-    assert settings["template_version"] == "1.4.0"
+    assert settings["template_version"] == "1.4.1"
     assert settings["clip_goal"] == "golden_quote"
     assert settings["video_category"] == "entertainment"
     assert settings["clip_duration_preset"] == "quote_line"
