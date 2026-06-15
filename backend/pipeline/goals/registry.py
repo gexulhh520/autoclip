@@ -19,10 +19,11 @@ GOAL_PROFILES: Dict[str, GoalProfile] = {
     "golden_quote": GoalProfile(
         id="golden_quote",
         name="金句爆点",
-        description="提取可独立传播的金句与高能 moment，适合口播/短视频",
+        description="提取简短精炼、有含金量、可独立传播的金句",
         pipeline_id="moment",
         prompt_pack="golden_quote",
         default_duration_preset="short",
+        scoring_threshold=0.78,
     ),
     "live_highlight": GoalProfile(
         id="live_highlight",

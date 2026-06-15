@@ -198,7 +198,9 @@ def run_step3_scoring(
     metadata_dir: Path = None,
     output_path: Optional[Path] = None,
     prompt_files: Dict = None,
+    score_threshold: Optional[float] = None,
 ) -> List[Dict]:
+    threshold = score_threshold if score_threshold is not None else MIN_SCORE_THRESHOLD
     with open(timeline_path, "r", encoding="utf-8") as f:
         timeline_data = json.load(f)
 
@@ -207,7 +209,7 @@ def run_step3_scoring(
 
     scorer = ClipScorer(prompt_files, metadata_dir=metadata_dir)
     scored_clips = scorer.score_clips(timeline_data)
-    high_score_clips = [clip for clip in scored_clips if clip["final_score"] >= MIN_SCORE_THRESHOLD]
+    high_score_clips = [clip for clip in scored_clips if clip["final_score"] >= threshold]
 
     all_scored_path = metadata_dir / "step3_all_scored.json"
     scorer.save_scores(scored_clips, all_scored_path)
@@ -219,7 +221,7 @@ def run_step3_scoring(
     logger.info(
         "Step3 筛选完成: 共评分 %d 条，高分(>=%s) %d 条",
         len(scored_clips),
-        MIN_SCORE_THRESHOLD,
+        threshold,
         len(high_score_clips),
     )
     return high_score_clips

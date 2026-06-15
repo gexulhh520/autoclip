@@ -10,12 +10,24 @@ from backend.pipeline.context import PipelineContext
 from backend.pipeline.step1_outline import run_step1_outline
 from backend.pipeline.step2_timeline import run_step2_timeline
 from backend.pipeline.step3_scoring import run_step3_scoring
+from backend.core.shared_config import MIN_SCORE_THRESHOLD
 from backend.pipeline.step4_title import run_step4_title
 from backend.pipeline.step5_clustering import run_step5_clustering
 from backend.pipeline.step6_video import run_step6_video
 from backend.pipeline.types import StepResult
 
 logger = logging.getLogger(__name__)
+
+
+def resolve_score_threshold(settings: Optional[Dict[str, Any]] = None, goal: Any = None) -> float:
+    """模板 rules > goal.scoring_threshold > 全局默认。"""
+    settings = settings or {}
+    rules = settings.get("template_rules") or {}
+    if isinstance(rules, dict) and rules.get("min_score_threshold") is not None:
+        return float(rules["min_score_threshold"])
+    if goal is not None and getattr(goal, "scoring_threshold", None) is not None:
+        return float(goal.scoring_threshold)
+    return MIN_SCORE_THRESHOLD
 
 
 def _load_json_list(path: Path) -> List[Any]:
@@ -62,6 +74,7 @@ def run_scoring(ctx: PipelineContext) -> List[Dict]:
         ctx.artifact("timeline"),
         metadata_dir=ctx.metadata_dir,
         prompt_files=prompt_files,
+        score_threshold=resolve_score_threshold(ctx.settings, ctx.goal),
     )
 
 

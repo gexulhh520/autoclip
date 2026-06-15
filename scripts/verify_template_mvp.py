@@ -76,7 +76,7 @@ def main() -> int:
     )
     all_ok &= check(
         "cinema template prompt",
-        "影视解说" in cinema_prompts.get("outline", ""),
+        "含金量" in cinema_prompts.get("outline", ""),
     )
 
     digest_prompts = load_goal_prompt_contents(

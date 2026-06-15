@@ -113,4 +113,5 @@ def test_prompt_loader_uses_golden_quote_cinema_template():
         video_category="entertainment",
         settings=settings,
     )
-    assert "影视解说" in contents.get("outline", "")
+    assert "含金量" in contents.get("outline", "")
+    assert "金句质检" in contents.get("recommendation", "")

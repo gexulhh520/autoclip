@@ -37,11 +37,12 @@ def test_get_template_not_found(engine: TemplateEngine):
 def test_resolve_processing_settings(engine: TemplateEngine):
     settings = engine.resolve_processing_settings("golden_quote_cinema")
     assert settings["template_id"] == "golden_quote_cinema"
-    assert settings["template_version"] == "1.3.1"
+    assert settings["template_version"] == "1.4.0"
     assert settings["clip_goal"] == "golden_quote"
     assert settings["video_category"] == "entertainment"
     assert settings["clip_duration_preset"] == "quote_line"
     assert settings["prompt_pack"] == "golden_quote"
+    assert settings["template_rules"]["min_score_threshold"] == 0.82
     assert settings["template_rules"]["enable_clustering"] is False
     assert settings["template_rules"]["subtitle_style"] == "quote_cinema"
     assert settings["overlay"]["composer"] == "quote_cinema"
