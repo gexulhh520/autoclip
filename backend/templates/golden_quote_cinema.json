@@ -1,12 +1,12 @@
 {
   "id": "golden_quote_cinema",
-  "name": "经典影视金句",
-  "description": "只提取简短精炼、有含金量、可独立传播的金句 moment（宁缺毋滥）；时长随台词自然伸缩。下载时叠加影视感字幕。",
-  "version": "1.4.1",
+  "name": "金句模板",
+  "description": "从各类视频中提取有深度、可独立传播的金句 moment（宁缺毋滥）；时长随内容自然伸缩，下载时可叠加金句字幕。",
+  "version": "1.4.2",
   "enabled": true,
   "tags": [
     "金句",
-    "影视",
+    "深度",
     "口播"
   ],
   "preview": {
@@ -15,7 +15,7 @@
   },
   "pipeline": {
     "clip_goal": "golden_quote",
-    "video_category": "entertainment",
+    "video_category": "default",
     "clip_duration_preset": "quote_line"
   },
   "prompts": {

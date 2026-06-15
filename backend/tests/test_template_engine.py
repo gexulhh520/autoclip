@@ -24,9 +24,9 @@ def test_list_templates_returns_enabled_only(engine: TemplateEngine):
 
 def test_get_template_golden_quote_cinema(engine: TemplateEngine):
     template = engine.get_template("golden_quote_cinema")
-    assert template.name == "经典影视金句"
+    assert template.name == "金句模板"
     assert template.pipeline.clip_goal == "golden_quote"
-    assert template.pipeline.video_category == "entertainment"
+    assert template.pipeline.video_category == "default"
 
 
 def test_get_template_not_found(engine: TemplateEngine):
@@ -37,9 +37,9 @@ def test_get_template_not_found(engine: TemplateEngine):
 def test_resolve_processing_settings(engine: TemplateEngine):
     settings = engine.resolve_processing_settings("golden_quote_cinema")
     assert settings["template_id"] == "golden_quote_cinema"
-    assert settings["template_version"] == "1.4.1"
+    assert settings["template_version"] == "1.4.2"
     assert settings["clip_goal"] == "golden_quote"
-    assert settings["video_category"] == "entertainment"
+    assert settings["video_category"] == "default"
     assert settings["clip_duration_preset"] == "quote_line"
     assert settings["prompt_pack"] == "golden_quote"
     assert settings["template_rules"]["min_score_threshold"] == 0.82

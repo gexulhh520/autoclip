@@ -21,6 +21,6 @@ def test_knowledge_digest_keeps_all_steps():
 
 
 def test_resolve_template_names():
-    assert _resolve_template_name("golden_quote_cinema") == "经典影视金句"
+    assert _resolve_template_name("golden_quote_cinema") == "金句模板"
     assert _resolve_template_name("knowledge_digest") == "知识干货精选"
     assert _resolve_template_name(None) is None

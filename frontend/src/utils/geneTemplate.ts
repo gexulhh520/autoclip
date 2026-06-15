@@ -1,7 +1,7 @@
 export const SELECTED_TEMPLATE_STORAGE_KEY = 'autoclip.selectedGeneTemplate'
 
 export const TEMPLATE_LABELS: Record<string, string> = {
-  golden_quote_cinema: '经典影视金句',
+  golden_quote_cinema: '金句模板',
   knowledge_digest: '知识干货精选',
 }
 
