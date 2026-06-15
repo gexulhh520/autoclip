@@ -427,10 +427,18 @@ export const useEditSessionStore = create<EditSessionState>()(
           }
           for (const block of session.sequence) {
             const raw = block.overlay as Record<string, unknown>
+            const rawContent = raw.content
+            const content = Array.isArray(rawContent)
+              ? rawContent.map((line) => String(line))
+              : typeof rawContent === 'string' && rawContent.trim()
+                ? [rawContent.trim()]
+                : []
             block.overlay = {
-              outline: String(raw.outline ?? ''),
-              content: Array.isArray(raw.content) ? raw.content : [],
+              outline: String(raw.outline ?? content[0] ?? ''),
+              content,
               recommend_reason: String(raw.recommend_reason ?? ''),
+              position_offset_x_pct: Number(raw.position_offset_x_pct ?? 0),
+              position_offset_y_pct: Number(raw.position_offset_y_pct ?? 0),
             }
           }
           if (!session.bookmarks) {

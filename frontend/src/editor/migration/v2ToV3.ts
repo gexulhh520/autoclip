@@ -320,9 +320,21 @@ export const hydrateEditDocument = (session: EditSession): EditDocument => {
   if (session.project_v3) {
     const project = session.project_v3 as EditProjectV3
     const hydrated = flattenV3ToSession(project)
+    const mergedSequence = hydrated.sequence.map((block) => {
+      const rawBlock = session.sequence.find((item) => item.id === block.id)
+      if (!rawBlock) return block
+      const v3HasCaption =
+        block.overlay.content.some((line) => line.trim()) || block.overlay.outline.trim()
+      const rawHasCaption =
+        rawBlock.overlay.content.some((line) => line.trim()) || rawBlock.overlay.outline.trim()
+      if (!v3HasCaption && rawHasCaption) {
+        return { ...block, overlay: { ...rawBlock.overlay } }
+      }
+      return block
+    })
     return {
       project,
-      session: { ...hydrated, project_v3: project, schema_version: 3 },
+      session: { ...hydrated, sequence: mergedSequence, project_v3: project, schema_version: 3 },
     }
   }
   return normalizeEditDocument(session)

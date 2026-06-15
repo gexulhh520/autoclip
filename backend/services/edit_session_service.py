@@ -146,9 +146,7 @@ def _build_block_from_metadata(
     if isinstance(outline, dict):
         outline = str(outline.get("title") or outline.get("outline") or "")
 
-    content = clip_row.get("content") or []
-    if isinstance(content, str):
-        content = [content]
+    content = _normalize_content_list(clip_row.get("content"))
 
     title = (
         str(clip_row.get("generated_title") or "").strip()
@@ -165,29 +163,110 @@ def _build_block_from_metadata(
         trim=trim,
         overlay=EditBlockOverlay(
             outline=str(outline or ""),
-            content=[str(item).strip() for item in content if str(item).strip()],
+            content=content,
             recommend_reason=str(clip_row.get("recommend_reason") or ""),
         ),
         duration_sec=duration_sec,
     )
 
 
-def _load_clip_metadata_map(project_dir: Path, source_id: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+def _normalize_content_list(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    text = str(value).strip()
+    return [text] if text else []
+
+
+def _clip_overlay_richness(row: Dict[str, Any]) -> int:
+    score = len(_normalize_content_list(row.get("content")))
+    if row.get("overlay_copy"):
+        score += 10
+    return score
+
+
+def _load_clip_metadata_rows(project_dir: Path, source_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """合并 clips_metadata / step4_titles / 多源目录等全部候选元数据。"""
+    from backend.services.data_sync_service import _load_clips_data_from_project_dir
+
+    rows = _load_clips_data_from_project_dir(project_dir) or []
     if source_id:
-        metadata_path = project_dir / "metadata" / "sources" / source_id / "clips_metadata.json"
-    else:
-        metadata_path = project_dir / "metadata" / "clips_metadata.json"
-    raw = _load_json(metadata_path)
-    if not isinstance(raw, list):
-        return {}
+        sid = str(source_id)
+        rows = [row for row in rows if str(row.get("source_id") or "") == sid]
+    return rows
+
+
+def _load_clip_metadata_map(project_dir: Path, source_id: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
     mapping: Dict[str, Dict[str, Any]] = {}
-    for item in raw:
+    for item in _load_clip_metadata_rows(project_dir, source_id):
         if not isinstance(item, dict):
             continue
         key = str(item.get("id") or "")
-        if key:
+        if not key:
+            continue
+        existing = mapping.get(key)
+        if existing is None or _clip_overlay_richness(item) >= _clip_overlay_richness(existing):
             mapping[key] = item
     return mapping
+
+
+def _clip_time_window(clip: Any) -> tuple[Optional[float], Optional[float]]:
+    metadata = getattr(clip, "clip_metadata", None) or {}
+    if isinstance(metadata, dict):
+        meta_start = _srt_timestamp_to_seconds(metadata.get("start_time"))
+        meta_end = _srt_timestamp_to_seconds(metadata.get("end_time"))
+        if meta_start is not None and meta_end is not None:
+            return meta_start, meta_end
+
+    start_sec = getattr(clip, "start_time", None)
+    end_sec = getattr(clip, "end_time", None)
+    if start_sec is not None and end_sec is not None:
+        try:
+            return float(start_sec), float(end_sec)
+        except (TypeError, ValueError):
+            return None, None
+    return None, None
+
+
+def _find_metadata_row(
+    clip: Any,
+    metadata_map: Dict[str, Dict[str, Any]],
+    metadata_rows: List[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    metadata = getattr(clip, "clip_metadata", None) or {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+
+    db_clip_id = str(getattr(clip, "id", "") or "")
+    for pipeline_id in (
+        _clip_metadata_pipeline_id(metadata, fallback=db_clip_id),
+        db_clip_id,
+    ):
+        if pipeline_id and pipeline_id in metadata_map:
+            return metadata_map[pipeline_id]
+
+    clip_start, clip_end = _clip_time_window(clip)
+    if clip_start is None or clip_end is None:
+        return None
+
+    best_row: Optional[Dict[str, Any]] = None
+    best_delta = 999.0
+    for row in metadata_rows:
+        row_start = _srt_timestamp_to_seconds(row.get("start_time"))
+        row_end = _srt_timestamp_to_seconds(row.get("end_time"))
+        if row_start is None or row_end is None:
+            continue
+        delta = abs(row_start - clip_start) + abs(row_end - clip_end)
+        if delta < best_delta:
+            best_delta = delta
+            best_row = row
+    if best_row is not None and best_delta <= 3.0:
+        return best_row
+    return None
 
 
 def _clip_metadata_pipeline_id(metadata: Dict[str, Any], *, fallback: str = "") -> str:
@@ -202,6 +281,7 @@ def _clip_metadata_pipeline_id(metadata: Dict[str, Any], *, fallback: str = "") 
 def _resolve_clip_metadata(
     clip: Any,
     metadata_map: Dict[str, Dict[str, Any]],
+    metadata_rows: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     metadata = getattr(clip, "clip_metadata", None) or {}
     if not isinstance(metadata, dict):
@@ -209,11 +289,17 @@ def _resolve_clip_metadata(
 
     db_clip_id = str(getattr(clip, "id", "") or "")
     pipeline_id = _clip_metadata_pipeline_id(metadata, fallback=db_clip_id)
-    file_row = metadata_map.get(pipeline_id)
+    rows = metadata_rows if metadata_rows is not None else list(metadata_map.values())
+    file_row = _find_metadata_row(clip, metadata_map, rows)
+    db_content = _normalize_content_list(metadata.get("content"))
 
     if file_row:
         merged = dict(file_row)
         merged.setdefault("generated_title", getattr(clip, "title", None))
+        file_content = _normalize_content_list(merged.get("content"))
+        merged["content"] = file_content or db_content
+        if not merged.get("recommend_reason") and metadata.get("recommend_reason"):
+            merged["recommend_reason"] = metadata.get("recommend_reason")
         return merged
 
     return {
@@ -221,7 +307,7 @@ def _resolve_clip_metadata(
         "id": pipeline_id or db_clip_id,
         "generated_title": getattr(clip, "title", None) or metadata.get("generated_title"),
         "outline": metadata.get("outline", ""),
-        "content": metadata.get("content", []),
+        "content": db_content,
         "recommend_reason": metadata.get("recommend_reason", ""),
     }
 
@@ -264,6 +350,7 @@ class EditSessionService:
             raise ValueError("clip_ids 不能为空")
 
         project_dir = get_project_directory(project_id)
+        metadata_rows = _load_clip_metadata_rows(project_dir, source_id)
         metadata_map = _load_clip_metadata_map(project_dir, source_id)
         template_ctx = _load_template_context(project_dir)
 
@@ -281,7 +368,7 @@ class EditSessionService:
                 clip = clip_by_id.get(str(clip_id))
                 if clip is None:
                     raise ValueError(f"切片不存在: {clip_id}")
-                clip_row = _resolve_clip_metadata(clip, metadata_map)
+                clip_row = _resolve_clip_metadata(clip, metadata_map, metadata_rows)
                 block = _build_block_from_metadata(project_dir, clip_row, db_clip_id=str(clip.id))
                 video_file = resolve_clip_video_path(project_id, clip, project_dir)
                 if video_file and video_file.exists():
@@ -356,6 +443,7 @@ class EditSessionService:
             return session, 0
 
         project_dir = get_project_directory(project_id)
+        metadata_rows = _load_clip_metadata_rows(project_dir, source_id)
         metadata_map = _load_clip_metadata_map(project_dir, source_id)
         new_blocks: List[EditBlock] = []
 
@@ -372,7 +460,7 @@ class EditSessionService:
                 clip = clip_by_id.get(str(clip_id))
                 if clip is None:
                     raise ValueError(f"切片不存在: {clip_id}")
-                clip_row = _resolve_clip_metadata(clip, metadata_map)
+                clip_row = _resolve_clip_metadata(clip, metadata_map, metadata_rows)
                 block = _build_block_from_metadata(project_dir, clip_row, db_clip_id=str(clip.id))
                 video_file = resolve_clip_video_path(project_id, clip, project_dir)
                 if video_file and video_file.exists():

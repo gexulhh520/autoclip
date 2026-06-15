@@ -118,6 +118,118 @@ def test_resolve_clip_metadata_prefers_disk_overlay_with_original_id():
     assert merged.get("overlay_copy") is True
 
 
+def test_create_edit_session_prefers_step4_overlay(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    project_id = "edit-session-step4-overlay"
+    project_dir = tmp_path / "projects" / project_id
+    metadata_dir = project_dir / "metadata"
+    clips_dir = project_dir / "output" / "clips"
+    metadata_dir.mkdir(parents=True, exist_ok=True)
+    clips_dir.mkdir(parents=True, exist_ok=True)
+    (clips_dir / "1_标题.mp4").write_bytes(b"fake")
+
+    (metadata_dir / "clips_metadata.json").write_text(
+        json.dumps(
+            [
+                {
+                    "id": "1",
+                    "outline": "旧摘要",
+                    "content": [],
+                    "recommend_reason": "金句",
+                    "generated_title": "标题",
+                    "start_time": "00:00:01,000",
+                    "end_time": "00:00:05,000",
+                }
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (metadata_dir / "step4_titles.json").write_text(
+        json.dumps(
+            [
+                {
+                    "id": "1",
+                    "outline": "旧摘要",
+                    "content": ["真正的成长", "是学会与自己和解"],
+                    "overlay_copy": True,
+                    "generated_title": "标题",
+                    "start_time": "00:00:01,000",
+                    "end_time": "00:00:05,000",
+                }
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (metadata_dir / "template_config.json").write_text(
+        json.dumps({"template_id": "golden_quote_cinema", "overlay": {"composer": "quote_cinema"}}),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+
+    clip = SimpleNamespace(
+        id="uuid-db-clip",
+        title="标题",
+        start_time=1,
+        end_time=5,
+        clip_metadata={"original_id": "1", "content": [], "outline": "旧摘要"},
+    )
+
+    class _FakeQuery:
+        def __init__(self, items):
+            self._items = items
+
+        def filter(self, *args, **kwargs):
+            return self
+
+        def all(self):
+            return self._items
+
+    class _FakeDb:
+        def query(self, _model):
+            return _FakeQuery([clip])
+
+    service = EditSessionService(db=_FakeDb())
+    session = service.create_session(project_id, ["uuid-db-clip"])
+
+    assert session.sequence[0].overlay.content[0] == "真正的成长"
+    assert session.sequence[0].overlay.content[1] == "是学会与自己和解"
+
+
+def test_resolve_clip_metadata_by_time_window():
+    from types import SimpleNamespace
+
+    from backend.services.edit_session_service import _resolve_clip_metadata
+
+    clip = SimpleNamespace(
+        id="uuid-db-clip",
+        title="标题",
+        start_time=12,
+        end_time=18,
+        clip_metadata={"content": [], "outline": ""},
+    )
+    metadata_map = {}
+    metadata_rows = [
+        {
+            "id": "7",
+            "outline": "摘要",
+            "content": ["按时间对齐的旁白"],
+            "start_time": "00:00:12,000",
+            "end_time": "00:00:18,000",
+        }
+    ]
+
+    merged = _resolve_clip_metadata(clip, metadata_map, metadata_rows)
+
+    assert merged["content"][0] == "按时间对齐的旁白"
+
+
 def test_preview_block_overlay_from_session(tmp_path, monkeypatch):
     project_id = "edit-preview-overlay"
     project_dir = tmp_path / "projects" / project_id

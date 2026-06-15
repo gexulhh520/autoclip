@@ -57,10 +57,26 @@ def _clip_metadata_candidate_paths(project_dir: Path) -> List[Path]:
     return paths
 
 
+def _clip_overlay_richness(row: Dict[str, Any]) -> int:
+    """用于合并多份元数据时优先保留含旁白/要点的条目。"""
+    content = row.get("content")
+    if isinstance(content, str):
+        lines = [content.strip()] if content.strip() else []
+    elif isinstance(content, list):
+        lines = [str(item).strip() for item in content if str(item).strip()]
+    else:
+        lines = []
+    score = len(lines)
+    if row.get("overlay_copy"):
+        score += 10
+    if row.get("generated_title"):
+        score += 1
+    return score
+
+
 def _load_clips_data_from_project_dir(project_dir: Path) -> Optional[List[Dict[str, Any]]]:
     """从项目目录读取并合并切片元数据。"""
-    all_clips: List[Dict[str, Any]] = []
-    seen_keys: set = set()
+    merged_by_key: Dict[tuple, Dict[str, Any]] = {}
 
     for clips_file in _clip_metadata_candidate_paths(project_dir):
         logger.info(f"检查切片文件: {clips_file}")
@@ -105,11 +121,11 @@ def _load_clips_data_from_project_dir(project_dir: Path) -> Optional[List[Dict[s
                 clip_copy.get("generated_title", clip_copy.get("title", "")),
                 clip_copy.get("start_time"),
             )
-            if key in seen_keys:
-                continue
-            seen_keys.add(key)
-            all_clips.append(clip_copy)
+            existing = merged_by_key.get(key)
+            if existing is None or _clip_overlay_richness(clip_copy) > _clip_overlay_richness(existing):
+                merged_by_key[key] = clip_copy
 
+    all_clips = list(merged_by_key.values())
     return all_clips or None
 
 
