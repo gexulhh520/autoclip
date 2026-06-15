@@ -138,6 +138,8 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess, 
 
   const parsedUrls = parseUrlsFromText(url)
   const isMultiLink = parsedUrls.length > 1
+  const hasValidUrls =
+    parsedUrls.length > 0 && parsedUrls.every((item) => validateVideoUrl(item))
 
   const parseVideoInfo = async () => {
     const urls = parseUrlsFromText(url)
@@ -389,6 +391,7 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess, 
   const resetForm = () => {
     setUrl('')
     setProjectName('')
+    setSelectedBrowser('')
     setCurrentTask(null)
     setLinkBatchTask(null)
     setVideoInfo(null)
@@ -421,6 +424,10 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess, 
               value={url}
               onChange={(e) => {
                 setUrl(e.target.value)
+                const nextUrls = parseUrlsFromText(e.target.value)
+                if (nextUrls.length === 0) {
+                  setSelectedBrowser('')
+                }
                 // 清除之前的解析结果和错误信息
                 if (videoInfo) {
                   setVideoInfo(null)
@@ -503,9 +510,39 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess, 
             </div>
           )}
           
-          {/* 单链接解析成功或多链接识别后显示配置 */}
-          {(videoInfo || isMultiLink) && (
+          {/* 有效链接即可配置（无需等待单链接解析成功） */}
+          {hasValidUrls && (
             <>
+              <div>
+                <Text style={{ color: '#ffffff', marginBottom: '12px', display: 'block', fontSize: '16px', fontWeight: 500 }}>浏览器 Cookie（可选）</Text>
+                <Select
+                  placeholder="不使用浏览器 Cookie（推荐）"
+                  value={selectedBrowser || undefined}
+                  onChange={(value) => setSelectedBrowser(value ?? '')}
+                  onClear={() => setSelectedBrowser('')}
+                  allowClear
+                  style={{
+                    width: '100%',
+                    height: '48px'
+                  }}
+                  dropdownStyle={{
+                    background: 'var(--ac-line-2)',
+                    border: '1px solid rgba(79, 172, 254, 0.3)',
+                    borderRadius: '12px'
+                  }}
+                  disabled={downloading}
+                  options={[
+                    { value: 'chrome', label: 'Chrome' },
+                    { value: 'firefox', label: 'Firefox' },
+                    { value: 'edge', label: 'Edge' },
+                    { value: 'safari', label: 'Safari' },
+                  ]}
+                />
+                <Text style={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '12px', marginTop: '8px', display: 'block' }}>
+                  公开视频建议留空。需登录态字幕时再选浏览器，且 Windows 上请先完全退出该浏览器。
+                </Text>
+              </div>
+
               <div>
                 <Text style={{ color: '#ffffff', marginBottom: '12px', display: 'block', fontSize: '16px', fontWeight: 500 }}>项目名称（可选）</Text>
                 <Input
@@ -522,34 +559,6 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess, 
                   }}
                   disabled={downloading}
                 />
-              </div>
-              
-              <div>
-                <Text style={{ color: '#ffffff', marginBottom: '12px', display: 'block', fontSize: '16px', fontWeight: 500 }}>浏览器选择（获取AI字幕需要）</Text>
-                <Select
-                  placeholder="选择浏览器以获取cookie（可选）"
-                  value={selectedBrowser || undefined}
-                  onChange={(value) => setSelectedBrowser(value || '')}
-                  allowClear
-                  style={{
-                    width: '100%',
-                    height: '48px'
-                  }}
-                  dropdownStyle={{
-                    background: 'var(--ac-line-2)',
-                    border: '1px solid rgba(79, 172, 254, 0.3)',
-                    borderRadius: '12px'
-                  }}
-                  disabled={downloading}
-                >
-                  <Select.Option value="chrome">Chrome</Select.Option>
-                  <Select.Option value="firefox">Firefox</Select.Option>
-                  <Select.Option value="safari">Safari</Select.Option>
-                  <Select.Option value="edge">Edge</Select.Option>
-                </Select>
-                <Text style={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '12px', marginTop: '8px', display: 'block' }}>
-                  选择浏览器可获取登录状态，用于下载AI字幕。如不选择将只能下载公开字幕。
-                </Text>
               </div>
               
               {!selectedTemplate && (
@@ -627,7 +636,7 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess, 
       </div>
 
       {/* 操作按钮 - 只有解析成功后才显示 */}
-      {(videoInfo || isMultiLink) && (
+      {hasValidUrls && (
         <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'center', gap: '12px' }}>
           <Button
             type="primary"
