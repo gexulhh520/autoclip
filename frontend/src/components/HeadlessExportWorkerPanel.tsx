@@ -39,7 +39,8 @@ export default function HeadlessExportWorkerPanel() {
   const activeJobs = visibleJobs.filter(isActiveJob)
   const primaryJob = activeJobs[0] ?? visibleJobs[0]
 
-  if (visibleJobs.length === 0 && !panelExpanded) {
+  // 无进行中任务且未手动展开时隐藏浮层，避免历史记录让 worker 看起来一直在跑
+  if (activeJobs.length === 0 && !panelExpanded) {
     return null
   }
 
