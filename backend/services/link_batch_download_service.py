@@ -21,6 +21,7 @@ from backend.services.project_source_service import (
     attach_multi_source_to_config,
     build_source_records_from_links,
     ensure_source_raw_dir,
+    mark_source_failed,
 )
 from backend.utils.link_url_utils import LinkPlatform, parse_link_urls, validate_link_urls
 from backend.utils.task_submission_utils import submit_multi_source_project_task
@@ -191,6 +192,8 @@ async def process_link_batch_download(
         project_dir = get_project_directory(project_id)
         first_video_copied = False
 
+        download_failures = 0
+
         for index, (source_id, url, platform_raw) in enumerate(sources):
             platform: LinkPlatform = "youtube" if platform_raw == "youtube" else "bilibili"
             base_progress = (index / len(sources)) * 85.0
@@ -204,13 +207,30 @@ async def process_link_batch_download(
 
             video_dest = project_dir / "raw" / "sources" / source_id / "input.mp4"
             srt_dest = project_dir / "raw" / "sources" / source_id / "input.srt"
-            await download_link_to_source(
-                url=url,
-                platform=platform,
-                video_dest=video_dest,
-                srt_dest=srt_dest,
-                browser=browser,
-            )
+            try:
+                await download_link_to_source(
+                    url=url,
+                    platform=platform,
+                    video_dest=video_dest,
+                    srt_dest=srt_dest,
+                    browser=browser,
+                )
+            except Exception as exc:
+                download_failures += 1
+                logger.exception(
+                    "多链接下载失败 source=%s url=%s: %s",
+                    source_id,
+                    url,
+                    exc,
+                )
+                processing_config = mark_source_failed(
+                    dict(project.processing_config or {}),
+                    source_id,
+                    str(exc),
+                )
+                project.processing_config = processing_config
+                db.commit()
+                continue
 
             if not first_video_copied:
                 raw_dir = project_dir / "raw"
@@ -221,23 +241,39 @@ async def process_link_batch_download(
             db.commit()
 
         processing_config = copy.deepcopy(project.processing_config or {})
-        processing_config["download_status"] = "completed"
+        if download_failures == len(sources):
+            processing_config["download_status"] = "failed"
+            processing_config["download_message"] = "全部链接下载失败"
+            project.status = ProjectStatus.FAILED
+        elif download_failures > 0:
+            processing_config["download_status"] = "partial"
+            processing_config["download_message"] = f"{download_failures} 个链接下载失败，其余将继续处理"
+        else:
+            processing_config["download_status"] = "completed"
         processing_config["download_progress"] = 100.0
         project.processing_config = processing_config
-        project.status = ProjectStatus.PENDING
+        project.status = ProjectStatus.PENDING if download_failures < len(sources) else ProjectStatus.FAILED
         db.commit()
 
-        _update_task(
-            task_id,
-            status="completed",
-            progress=100.0,
-            message="下载完成，正在启动多源分析",
-            completed_urls=len(sources),
-            current_url=None,
-        )
-
-        submit_multi_source_project_task(project_id)
-        logger.info("多链接项目 %s 下载完成，已提交多源流水线", project_id)
+        if download_failures < len(sources):
+            _update_task(
+                task_id,
+                status="completed",
+                progress=100.0,
+                message="下载完成，正在启动多源分析",
+                completed_urls=len(sources) - download_failures,
+                current_url=None,
+            )
+            submit_multi_source_project_task(project_id)
+            logger.info("多链接项目 %s 下载完成（%d 失败），已提交多源流水线", project_id, download_failures)
+        else:
+            _update_task(
+                task_id,
+                status="failed",
+                error_message=processing_config.get("download_message"),
+                message="全部下载失败",
+                progress=0.0,
+            )
     except Exception as exc:
         logger.exception("多链接下载失败 project=%s: %s", project_id, exc)
         _update_task(

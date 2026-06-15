@@ -686,10 +686,13 @@ export const projectApi = {
   runPipelineStep: async (
     id: string,
     stepId: string,
-    force = true
+    force = true,
+    sourceId?: string | null
   ): Promise<{ success: boolean; message: string }> => {
+    const params: Record<string, string | boolean> = { force }
+    if (sourceId) params.source_id = sourceId
     return api.post(`/projects/${id}/pipeline-steps/${stepId}/run`, null, {
-      params: { force },
+      params,
     })
   },
 

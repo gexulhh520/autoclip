@@ -315,7 +315,12 @@ const PipelineStepsPanel: React.FC<PipelineStepsPanelProps> = ({
     setRunningStepId(step.id)
 
     const runOnce = async () => {
-      await projectApi.runPipelineStep(projectId, step.id, true)
+      await projectApi.runPipelineStep(
+        projectId,
+        step.id,
+        true,
+        effectiveSourceId ?? undefined
+      )
     }
 
     try {

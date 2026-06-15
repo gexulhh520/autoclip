@@ -136,7 +136,7 @@ const ProjectSourcesPanel: React.FC<ProjectSourcesPanelProps> = ({
                   </div>
                 </div>
               </button>
-              {source.status === 'failed' && onRetry ? (
+              {onRetry && (source.status === 'failed' || source.status === 'pending') ? (
                 <Button
                   size="small"
                   loading={retryingSourceId === source.id}

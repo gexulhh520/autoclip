@@ -14,6 +14,12 @@ from sqlalchemy.orm import Session
 
 from backend.core.path_utils import get_project_directory
 from backend.core.shared_config import MIN_SCORE_THRESHOLD
+from backend.services.source_pipeline_service import (
+    clear_legacy_root_pipeline_artifacts,
+    clear_source_step_outputs,
+    resolve_metadata_dir_for_read,
+    submit_single_source_pipeline_task,
+)
 from backend.services.simple_progress import (
     get_progress_snapshot,
     get_stage_display_name,
@@ -701,10 +707,16 @@ def _resolve_step_artifact_path(
         if defn.id == "download":
             return project_dir / "raw" / "sources" / source_id / "input.mp4"
         if defn.id == "step6_video":
-            return project_dir / "metadata" / "sources" / source_id / "clips_metadata.json"
+            per_source = project_dir / "metadata" / "sources" / source_id / "clips_metadata.json"
+            if per_source.exists():
+                return per_source
+            return project_dir / defn.output_rel
         if defn.output_rel.startswith("metadata/"):
             rel = defn.output_rel[len("metadata/") :]
-            return project_dir / "metadata" / "sources" / source_id / rel
+            per_source = project_dir / "metadata" / "sources" / source_id / rel
+            if per_source.exists():
+                return per_source
+            return project_dir / defn.output_rel
     return project_dir / defn.output_rel
 
 
@@ -1042,7 +1054,12 @@ def get_pipeline_step_result(
     effective_source_id, source_record = _resolve_effective_source_id(
         processing_config, source_id
     )
-    metadata_dir = _resolve_metadata_dir(project_dir, effective_source_id)
+    metadata_dir = resolve_metadata_dir_for_read(
+        project_dir,
+        processing_config,
+        effective_source_id,
+        source_record.index if source_record else None,
+    )
 
     if step_id == "download":
         if effective_source_id:
@@ -1907,15 +1924,53 @@ def run_pipeline_from_step(
     project_id: str,
     step_id: str,
     force: bool = True,
+    source_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     if step_id not in STEP_BY_ID:
         raise ValueError(f"无效步骤: {step_id}")
 
     from backend.models.project import Project, ProjectStatus
+    from backend.services.project_source_service import is_multi_source_project
 
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise ValueError("项目不存在")
+
+    processing_config = project.processing_config or {}
+    if is_multi_source_project(processing_config):
+        effective_source_id, source_record = _resolve_effective_source_id(
+            processing_config, source_id
+        )
+        if not effective_source_id:
+            raise ValueError("多源项目请指定要处理的源视频")
+        _prepare_pipeline_for_step_run(db, project_id, project)
+        if _is_pipeline_running(project_id, project, db):
+            raise RuntimeError("流水线正在执行中")
+
+        if step_id == "download":
+            import asyncio
+
+            from backend.services.source_pipeline_service import retry_source_download
+
+            result = asyncio.run(retry_source_download(project_id, effective_source_id))
+            if not result.get("success"):
+                raise ValueError(result.get("error") or "源视频下载失败")
+            project.status = ProjectStatus.PROCESSING
+            db.commit()
+            return submit_single_source_pipeline_task(project_id, effective_source_id)
+
+        if force:
+            clear_source_step_outputs(project_id, effective_source_id, step_id)
+            if source_record and source_record.index == 0:
+                clear_legacy_root_pipeline_artifacts(project_id)
+
+        project.status = ProjectStatus.PROCESSING
+        db.commit()
+        return submit_single_source_pipeline_task(
+            project_id,
+            effective_source_id,
+            start_from_step=step_id,
+        )
 
     _prepare_pipeline_for_step_run(db, project_id, project)
 

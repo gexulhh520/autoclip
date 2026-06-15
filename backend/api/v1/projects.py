@@ -373,7 +373,11 @@ async def retry_project_source(
     source_id: str,
     db: Session = Depends(get_db),
 ):
-    """重试失败的源视频（多源项目）。"""
+    """重试单个源视频：仅清理并重跑该源，不影响其他源。"""
+    import asyncio
+    import threading
+
+    from backend.core.database import SessionLocal
     from backend.models.project import Project, ProjectStatus
     from backend.services.project_source_service import (
         find_source,
@@ -381,6 +385,13 @@ async def retry_project_source(
         update_source_in_config,
     )
     from backend.schemas.project_source import ProjectSourceStatus
+    from backend.services.source_pipeline_service import (
+        clear_legacy_root_pipeline_artifacts,
+        clear_source_step_outputs,
+        is_source_video_ready,
+        retry_source_download,
+        submit_single_source_pipeline_task,
+    )
 
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -392,21 +403,59 @@ async def retry_project_source(
     if not source:
         raise HTTPException(status_code=404, detail="源视频不存在")
 
+    clear_source_step_outputs(project_id, source_id, "step1_outline")
+    if source.index == 0:
+        clear_legacy_root_pipeline_artifacts(project_id)
+
     config = update_source_in_config(
         dict(project.processing_config or {}),
         source_id,
         status=ProjectSourceStatus.PENDING,
         error_message=None,
         current_step=None,
+        clips_count=0,
     )
     project.processing_config = config
     project.status = ProjectStatus.PROCESSING
     db.commit()
 
-    from ...utils.task_submission_utils import submit_multi_source_project_task
+    def run_retry() -> None:
+        try:
+            if not is_source_video_ready(project_id, source_id):
+                result = asyncio.run(retry_source_download(project_id, source_id))
+                if not result.get("success"):
+                    from backend.services.project_source_service import mark_source_failed
 
-    result = submit_multi_source_project_task(project_id)
-    return {"success": result.get("success", False), "task_id": result.get("task_id"), "source_id": source_id}
+                    db_local = SessionLocal()
+                    try:
+                        proj = db_local.query(Project).filter(Project.id == project_id).first()
+                        if proj:
+                            cfg = mark_source_failed(
+                                dict(proj.processing_config or {}),
+                                source_id,
+                                result.get("error") or "下载失败",
+                            )
+                            proj.processing_config = cfg
+                            proj.status = ProjectStatus.FAILED
+                            db_local.commit()
+                    finally:
+                        db_local.close()
+                    return
+            submit_single_source_pipeline_task(project_id, source_id)
+        except Exception as exc:
+            logger.exception("重试源视频失败 %s source=%s: %s", project_id, source_id, exc)
+
+    threading.Thread(
+        target=run_retry,
+        name=f"retry-source-{source_id[:8]}",
+        daemon=True,
+    ).start()
+
+    return {
+        "success": True,
+        "source_id": source_id,
+        "message": "已开始重试该源视频（独立流水线，不影响其他源）",
+    }
 
 
 @router.post("/", response_model=ProjectResponse)
@@ -1389,6 +1438,7 @@ async def run_project_pipeline_step(
     project_id: str,
     step_id: str,
     force: bool = Query(True, description="重新执行时清除该步及之后输出"),
+    source_id: Optional[str] = Query(None, description="多源项目：指定源视频 ID"),
     db: Session = Depends(get_db),
     project_service: ProjectService = Depends(get_project_service),
 ):
@@ -1398,7 +1448,9 @@ async def run_project_pipeline_step(
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
         from backend.services.pipeline_steps_service import run_pipeline_from_step
-        return run_pipeline_from_step(db, project_id, step_id, force=force)
+        return run_pipeline_from_step(
+            db, project_id, step_id, force=force, source_id=source_id
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:

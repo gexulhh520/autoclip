@@ -20,6 +20,7 @@ from backend.services.project_source_service import (
     source_media_paths,
 )
 from backend.services.simple_pipeline_adapter import create_simple_pipeline_adapter
+from backend.services.source_pipeline_service import is_source_video_ready
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,17 @@ async def run_multi_source_queue(project_id: str, task_id: Optional[str] = None)
             project.processing_config = processing_config
             db.commit()
 
+            if not is_source_video_ready(project_id, source.id):
+                last_error = "源视频文件不存在或为空，请先完成下载"
+                logger.warning(
+                    "多源队列：跳过 source=%s，视频未就绪",
+                    source.id,
+                )
+                processing_config = mark_source_failed(processing_config, source.id, last_error)
+                project.processing_config = processing_config
+                db.commit()
+                continue
+
             video_path, srt_path = source_media_paths(project_id, source)
             adapter = create_simple_pipeline_adapter(
                 project_id,
@@ -83,15 +95,13 @@ async def run_multi_source_queue(project_id: str, task_id: Optional[str] = None)
                 last_error = result.get("error") or "源视频处理失败"
                 processing_config = mark_source_failed(processing_config, source.id, last_error)
                 project.processing_config = processing_config
-                project.status = ProjectStatus.FAILED
                 db.commit()
-                return {
-                    "success": False,
-                    "project_id": project_id,
-                    "source_id": source.id,
-                    "error": last_error,
-                    "processed": processed,
-                }
+                logger.error(
+                    "多源队列：source=%s 处理失败，继续下一个源: %s",
+                    source.id,
+                    last_error,
+                )
+                continue
 
             clips_count = _count_source_clips(project_id, source.id)
             processing_config = mark_source_completed(
