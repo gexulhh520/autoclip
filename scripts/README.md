@@ -8,6 +8,7 @@
 | 脚本 | 用途 |
 |------|------|
 | `build_macos_arm.sh` | **唯一的桌面打包脚本**（macOS Apple Silicon）。端到端产出 `.app` + `.dmg`。 |
+| `build_compositor_wasm.ps1` / `build_compositor_wasm.sh` | 构建前端导出用 Rust WASM 合成器 → `frontend/src/wasm/compositor/pkg/` |
 | `verify_desktop.sh` | 后端冒烟测试：`cargo check` + 起后端，校验 `/health` 与 `/api/v1/video-categories`。被 `nightly-desktop-smoke.yml` 调用。 |
 | `monitor_whisper.py` | 运行期 Whisper 任务监控，被根目录 `start_autoclip.sh` / `check_whisper_status.sh` 调用。 |
 

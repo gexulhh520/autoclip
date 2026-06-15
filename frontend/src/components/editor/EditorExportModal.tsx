@@ -55,6 +55,7 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
   const [exportDone, setExportDone] = useState<ExportDoneState | null>(null)
   const [batchExportDone, setBatchExportDone] = useState<BatchExportDoneItem[]>([])
   const [backgroundExport, setBackgroundExport] = useState(false)
+  const [useWasmCompositor, setUseWasmCompositor] = useState(true)
 
   useEffect(() => {
     if (!open) {
@@ -66,6 +67,7 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
     setBurnSubtitles(preset.burn_subtitles)
     setExportSrt(preset.export_srt)
     setUseSourceVideo(preset.use_source_video)
+    setUseWasmCompositor(preset.use_wasm_compositor ?? true)
     void resolveInitialExportDirectory().then(setExportDir)
   }, [open])
 
@@ -86,6 +88,7 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
       export_srt: exportSrt,
       use_source_video: useSourceVideo,
       use_compositor_export: true,
+      use_wasm_compositor: useWasmCompositor,
     })
   }
 
@@ -180,6 +183,7 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
         filename: session.name,
         export_srt: exportSrt,
         use_source_video: useSourceVideo,
+        use_wasm_compositor: useWasmCompositor,
         write_back_to_project: writeBackToProject,
         output_dir: outputDir,
       })
@@ -298,6 +302,16 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
           />
           使用原片重切（与预览「原片」一致）
         </label>
+        {isTauriApp() ? (
+          <label className="editor-modal__check" title="Rust WASM 合成视频层与滤镜，字幕仍由 OpenCut 文本栈绘制">
+            <input
+              type="checkbox"
+              checked={useWasmCompositor}
+              onChange={(event) => setUseWasmCompositor(event.target.checked)}
+            />
+            WASM 合成引擎（需已构建 wasm，见 npm run build:wasm）
+          </label>
+        ) : null}
         {isTauriApp() && mode === 'single' ? (
           <label className="editor-modal__check" title="提交到后台队列，关闭编辑器后仍会继续导出">
             <input

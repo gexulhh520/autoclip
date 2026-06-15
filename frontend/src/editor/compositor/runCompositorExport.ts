@@ -19,6 +19,7 @@ export interface CompositorMuxOptions {
   writeBackToProject?: boolean
   outputDir?: string
   blockId?: string
+  compositorBackend?: 'canvas' | 'wasm'
 }
 
 export function buildCompositorRuntimeParams(
@@ -69,7 +70,11 @@ export async function runCompositorExportAndMux(
   const compositorResult = await exportTimelineViaCompositor(
     runtime.session,
     runtime,
-    timelineOptions
+    {
+      ...timelineOptions,
+      compositorBackend:
+        muxOptions.compositorBackend ?? timelineOptions.compositorBackend ?? 'canvas',
+    }
   )
 
   const muxResult = await editApi.muxCompositorExport(runtime.projectId, runtime.sessionId, {

@@ -39,6 +39,12 @@ export {
 export { exportTimelineViaCompositor, type ExportTimelineOptions } from './exportTimeline'
 export { SceneExporter } from './sceneExporter'
 export { CompositorCanvasRenderer } from './compositorCanvasRenderer'
+export { WasmCompositorCanvasRenderer } from './wasmCompositorCanvasRenderer'
+export {
+  loadWasmCompositorModule,
+  isWasmCompositorReady,
+  type CompositorBackend,
+} from './wasmCompositorClient'
 export { assertWebCodecsExportSupported, isWebCodecsExportSupported } from './webcodecsExport'
 export {
   buildCompositorRuntimeParams,

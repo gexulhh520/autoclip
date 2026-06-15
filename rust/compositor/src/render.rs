@@ -1,6 +1,7 @@
 use autoclip_document::{FrameDescriptor, FrameItem};
 use image::{ImageEncoder, Rgba, RgbaImage};
 
+use crate::layers::{blit_rgba_layer, LayerRgbaInput};
 use crate::text::draw_text_item;
 
 #[derive(Debug)]
@@ -145,8 +146,19 @@ fn apply_scene_effect(img: &mut RgbaImage, effect_id: &str) {
     }
 }
 
-/// Render a single frame to RGBA8 bytes (width * height * 4).
-pub fn render_frame(descriptor: &FrameDescriptor) -> Result<Vec<u8>, CompositorError> {
+fn resolve_layer_rgba<'a>(
+    block_id: Option<&String>,
+    layers: &'a [LayerRgbaInput],
+) -> Option<&'a LayerRgbaInput> {
+    let block_id = block_id?;
+    layers.iter().find(|layer| layer.block_id == *block_id)
+}
+
+fn render_frame_internal(
+    descriptor: &FrameDescriptor,
+    layers: &[LayerRgbaInput],
+    include_text: bool,
+) -> Result<Vec<u8>, CompositorError> {
     if descriptor.width == 0 || descriptor.height == 0 {
         return Err(CompositorError::InvalidDescriptor(
             "width/height must be > 0".into(),
@@ -162,23 +174,49 @@ pub fn render_frame(descriptor: &FrameDescriptor) -> Result<Vec<u8>, CompositorE
         match item {
             FrameItem::Layer {
                 source,
+                block_id,
                 transform,
                 opacity,
                 ..
             } => {
-                draw_layer_rect(&mut img, transform, *opacity, layer_tint(source));
+                if let Some(input) = resolve_layer_rgba(block_id.as_ref(), layers) {
+                    blit_rgba_layer(
+                        &mut img,
+                        &input.rgba,
+                        input.width,
+                        input.height,
+                        transform,
+                        *opacity,
+                    );
+                } else {
+                    draw_layer_rect(&mut img, transform, *opacity, layer_tint(source));
+                }
             }
-            FrameItem::Text { opacity, .. } => {
+            FrameItem::Text { opacity, .. } if include_text => {
                 draw_text_item(&mut img, item, *opacity);
             }
             FrameItem::SceneEffect { effect_id, .. } => {
                 apply_scene_effect(&mut img, effect_id);
             }
             FrameItem::EffectGroup { .. } => {}
+            _ => {}
         }
     }
 
     Ok(img.into_raw())
+}
+
+/// WASM/导出：视频层 RGBA + 滤镜；文字由前端 OpenCut 文本栈绘制。
+pub fn render_frame_with_layer_inputs(
+    descriptor: &FrameDescriptor,
+    layers: &[LayerRgbaInput],
+) -> Result<Vec<u8>, CompositorError> {
+    render_frame_internal(descriptor, layers, false)
+}
+
+/// Render a single frame to RGBA8 bytes (width * height * 4).
+pub fn render_frame(descriptor: &FrameDescriptor) -> Result<Vec<u8>, CompositorError> {
+    render_frame_internal(descriptor, &[], true)
 }
 
 /// Render frame and encode as PNG bytes.

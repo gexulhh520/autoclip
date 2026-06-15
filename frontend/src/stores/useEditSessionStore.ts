@@ -120,6 +120,7 @@ interface EditSessionState {
       filename?: string
       export_srt?: boolean
       use_source_video?: boolean
+      use_wasm_compositor?: boolean
       write_back_to_project?: boolean
       output_dir?: string | null
     }
@@ -136,6 +137,7 @@ interface EditSessionState {
       burn_subtitles?: boolean
       export_srt?: boolean
       use_source_video?: boolean
+      use_wasm_compositor?: boolean
       output_dir?: string | null
     }
   ) => Promise<
@@ -564,6 +566,9 @@ export const useEditSessionStore = create<EditSessionState>()(
             throw new Error('请选择有效的导出目录')
           }
 
+          const useWasmCompositor = options?.use_wasm_compositor ?? loadExportPreset().use_wasm_compositor ?? false
+          const compositorBackend = useWasmCompositor ? 'wasm' : 'canvas'
+
           const result = await runCompositorExportAndMux(
             buildCompositorRuntimeParams(projectId, session, useSourceVideo),
             {
@@ -572,6 +577,7 @@ export const useEditSessionStore = create<EditSessionState>()(
               filename,
               outputDir,
               exportSrt: options?.export_srt ?? false,
+              compositorBackend,
               onProgress: (percent, message) => {
                 set({ exportProgress: percent, exportMessage: message })
               },
@@ -582,6 +588,7 @@ export const useEditSessionStore = create<EditSessionState>()(
               useSourceVideo,
               writeBackToProject: options?.write_back_to_project ?? false,
               outputDir,
+              compositorBackend,
             }
           )
           set({ exporting: false, exportProgress: 100, exportMessage: '导出完成' })
@@ -623,6 +630,8 @@ export const useEditSessionStore = create<EditSessionState>()(
             outputDirRaw ??
             ''
           const exportSrt = options?.export_srt ?? false
+          const useWasmCompositor = options?.use_wasm_compositor ?? loadExportPreset().use_wasm_compositor ?? false
+          const compositorBackend = useWasmCompositor ? 'wasm' : 'canvas'
 
           if (!outputDir.trim()) {
             throw new Error('请选择有效的导出目录')
@@ -657,6 +666,7 @@ export const useEditSessionStore = create<EditSessionState>()(
                 filename: block.title,
                 outputDir,
                 exportSrt,
+                compositorBackend,
                 onProgress: (percent, message) => {
                   const scaled = baseProgress + (percent / blocks.length) * 0.9
                   set({
@@ -671,6 +681,7 @@ export const useEditSessionStore = create<EditSessionState>()(
                 useSourceVideo,
                 outputDir,
                 blockId: block.id,
+                compositorBackend,
               }
             )
 

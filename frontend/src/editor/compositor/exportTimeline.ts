@@ -1,12 +1,18 @@
 import type { EditSession } from '../../types/editSession'
 import { compileCompositionPlan } from './index'
 import { CompositorCanvasRenderer } from './compositorCanvasRenderer'
+import { WasmCompositorCanvasRenderer } from './wasmCompositorCanvasRenderer'
+import { isWasmCompositorReady } from './wasmCompositorClient'
 import { writeExportVideoFile } from './exportFileIO'
 import { isTauriRuntime } from './compositorClient'
 import { prepareMediabunnyVideoSources } from './mediabunnyVideoSources'
 import { SceneExporter } from './sceneExporter'
 import type { CompositorExportRuntimeParams } from './runCompositorExport'
 import { assertWebCodecsExportSupported } from './webcodecsExport'
+
+import type { CompositorBackend } from './wasmCompositorClient'
+
+export type { CompositorBackend }
 
 export interface ExportTimelineOptions {
   burnSubtitles?: boolean
@@ -15,6 +21,8 @@ export interface ExportTimelineOptions {
   outputDir: string
   exportSrt?: boolean
   mutedTextTrackIds?: string[]
+  /** canvas = 纯 JS Canvas2D；wasm = Rust WASM 合成视频层 + JS 文本 */
+  compositorBackend?: CompositorBackend
   onProgress?: (percent: number, message: string) => void
   signal?: AbortSignal
 }
@@ -63,14 +71,31 @@ export async function exportTimelineViaCompositor(
   })
 
   try {
-    const renderer = new CompositorCanvasRenderer({
-      plan,
-      session,
-      burnSubtitles,
-      mutedTextTrackIds: options.mutedTextTrackIds,
-      videoSources: videoSources.byBlockId,
-      fps,
-    })
+    const backend = options.compositorBackend ?? 'canvas'
+    if (backend === 'wasm' && !(await isWasmCompositorReady())) {
+      throw new Error('WASM 合成器未构建，请在 frontend 目录运行 npm run build:wasm')
+    }
+
+    options.onProgress?.(8, backend === 'wasm' ? 'WASM 合成器就绪' : 'Canvas2D 合成器就绪')
+
+    const renderer =
+      backend === 'wasm'
+        ? new WasmCompositorCanvasRenderer({
+            plan,
+            session,
+            burnSubtitles,
+            mutedTextTrackIds: options.mutedTextTrackIds,
+            videoSources: videoSources.byBlockId,
+            fps,
+          })
+        : new CompositorCanvasRenderer({
+            plan,
+            session,
+            burnSubtitles,
+            mutedTextTrackIds: options.mutedTextTrackIds,
+            videoSources: videoSources.byBlockId,
+            fps,
+          })
 
     const exporter = new SceneExporter({
       width: plan.canvas.width,
@@ -79,7 +104,7 @@ export async function exportTimelineViaCompositor(
       totalDurationSec: plan.totalDurationSec,
     })
 
-    options.onProgress?.(10, 'WebCodecs 编码中')
+    options.onProgress?.(10, backend === 'wasm' ? 'WASM + WebCodecs 编码中' : 'WebCodecs 编码中')
 
     const buffer = await exporter.export(renderer, {
       signal: options.signal,

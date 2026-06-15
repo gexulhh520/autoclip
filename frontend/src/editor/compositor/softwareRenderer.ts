@@ -281,6 +281,26 @@ export async function renderFrameDescriptorToCanvasAsync(
   }
 }
 
+/** WASM 导出：在 Rust 合成视频层后，由 JS 绘制全部文本层 */
+export function renderFreeTextItemsOnCanvas(
+  ctx: CanvasRenderingContext2D,
+  descriptor: FrameDescriptor,
+  options: Pick<SoftwareRendererOptions, 'showTemplateCaptions' | 'showFreeText'> = {}
+): void {
+  const showTemplateCaptions = options.showTemplateCaptions ?? true
+  const showFreeText = options.showFreeText ?? true
+  const { width, height } = descriptor
+
+  for (const item of sortItems(descriptor.items)) {
+    if (item.kind !== 'text') continue
+    if (item.source !== 'free_text') continue
+    const isTemplatePreset = item.elementId?.startsWith('template:') ?? false
+    if (isTemplatePreset && !showTemplateCaptions) continue
+    if (!isTemplatePreset && !showFreeText) continue
+    drawFreeText(ctx, item, width, height)
+  }
+}
+
 function renderLayerItemSync(
   ctx: CanvasRenderingContext2D,
   item: FrameLayerItem,

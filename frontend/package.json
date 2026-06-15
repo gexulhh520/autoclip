@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:wasm": "powershell -ExecutionPolicy Bypass -File ../scripts/build_compositor_wasm.ps1",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",

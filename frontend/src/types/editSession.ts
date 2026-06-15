@@ -188,6 +188,8 @@ export interface EditExportPreset {
   use_source_video: boolean
   /** 桌面 Compositor 逐帧导出（仅 Tauri 有效） */
   use_compositor_export?: boolean
+  /** 使用 Rust WASM 合成视频层（需 npm run build:wasm） */
+  use_wasm_compositor?: boolean
 }
 
 export interface EditSessionExportRequest {
@@ -199,6 +201,7 @@ export interface EditSessionExportRequest {
   output_dir?: string | null
   async_export?: boolean
   use_compositor_export?: boolean
+  use_wasm_compositor?: boolean
 }
 
 export interface EditSessionCompositorMuxRequest {

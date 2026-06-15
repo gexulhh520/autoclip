@@ -12,6 +12,7 @@ export const DEFAULT_EXPORT_PRESET: EditExportPreset = {
   export_srt: false,
   use_source_video: true,
   use_compositor_export: true,
+  use_wasm_compositor: true,
 }
 
 export const loadExportPreset = (): EditExportPreset => {
