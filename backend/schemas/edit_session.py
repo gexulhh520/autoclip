@@ -334,6 +334,41 @@ class EditSessionCompositorPlanResponse(BaseModel):
     plan: Dict[str, Any]
 
 
+class HeadlessExportJobItemResponse(BaseModel):
+    job_id: str
+    project_id: str
+    session_id: str
+    filename: str
+    burn_subtitles: bool
+    export_srt: bool
+    use_source_video: Optional[bool] = None
+    output_dir: Optional[str] = None
+    plan_path: str
+    status: str = "pending"
+
+
+class HeadlessExportPendingResponse(BaseModel):
+    jobs: List[HeadlessExportJobItemResponse]
+
+
+class HeadlessExportProgressRequest(BaseModel):
+    progress: int = Field(ge=0, le=100)
+    message: str = "处理中"
+
+
+class HeadlessExportCompleteRequest(BaseModel):
+    output_path: str
+    download_url: str
+    local_output_path: Optional[str] = None
+    srt_path: Optional[str] = None
+    srt_download_url: Optional[str] = None
+    local_srt_path: Optional[str] = None
+
+
+class HeadlessExportFailRequest(BaseModel):
+    error: str
+
+
 class EditSessionExportResponse(BaseModel):
     success: bool
     output_path: str

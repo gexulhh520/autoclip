@@ -431,8 +431,9 @@ EditSession → edit_renderer.export_edit_session
 - [x] **P4.2** 硬件 H.264 默认开启（`preferHardware`，`AUTOCLIP_VIDEO_CODEC` 可覆盖）
 - [x] **P4.3** Effect Plugin API：`registerEffectPlugin` + `window.__AUTOCLIP_EFFECT_PLUGINS__`
 - [x] **P4.4** Headless HTTP：`GET .../export/compositor-plan` + `POST .../export/headless`
-- [ ] 多线程 render pipeline（Rust wgpu / 并行帧渲染）
-- [ ] 桌面 Headless worker 消费 queued job 并回调 mux
+- [x] **P4.5** 桌面 Headless worker：轮询 `GET /editor/headless-export/pending` → claim → Compositor 导出 + mux → complete
+- [x] **P4.6** Export render pipeline：`exportRenderPipeline` decode 预取 + encode 流水线
+- [ ] 多线程 Rust/wgpu render（远期）
 
 **里程碑 M4**：批量出片 API 可用；导出编码默认硬件；插件可扩展滤镜槽位。
 
@@ -519,7 +520,7 @@ Phase 0  [x] M0  Schema + Plan + Descriptor + 几何单源
 Phase 1  [x] M1  Rust Compositor + CompositorPreview 单路径
 Phase 2  [x] M2  Compositor 导出 + mux + E2E/perf 冒烟（无 UI driver）
 Phase 3  [x] M3  Effect Registry + EditProjectV3 + 预览拖拽 + GPU EffectPass
-Phase 4  [~] M4  硬件编码 + decode 预取 + Effect 插件 + Headless API（worker 待接）
+Phase 4  [x] M4  硬件编码 + 插件 + Headless API/worker + render pipeline
 ```
 
 **维护**：每完成一项在对应 `T-x.x.x` 打勾，并在 PR 描述中引用任务编号（如 `T-4.3.1`）。

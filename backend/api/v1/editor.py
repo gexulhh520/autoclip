@@ -11,6 +11,11 @@ from backend.schemas.edit_session import (
     EditSession,
     EditSessionBlankCreateResponse,
     EditSessionListResponse,
+    HeadlessExportCompleteRequest,
+    HeadlessExportFailRequest,
+    HeadlessExportJobItemResponse,
+    HeadlessExportPendingResponse,
+    HeadlessExportProgressRequest,
 )
 from backend.services.edit_session_service import EditSessionService
 from backend.services.editor_workspace_service import EditorWorkspaceService
@@ -99,3 +104,118 @@ async def validate_export_directory(body: dict):
         raise HTTPException(status_code=400, detail="路径不是目录")
 
     return {"path": str(resolved), "valid": True}
+
+
+@router.get("/headless-export/pending", response_model=HeadlessExportPendingResponse)
+async def list_pending_headless_exports(limit: int = 20):
+    from backend.services.headless_export_service import list_pending_headless_jobs
+
+    jobs = list_pending_headless_jobs(limit=max(1, min(limit, 50)))
+    return HeadlessExportPendingResponse(
+        jobs=[
+            HeadlessExportJobItemResponse(
+                job_id=item.job_id,
+                project_id=item.project_id,
+                session_id=item.session_id,
+                filename=item.filename,
+                burn_subtitles=item.burn_subtitles,
+                export_srt=item.export_srt,
+                use_source_video=item.use_source_video,
+                output_dir=item.output_dir,
+                plan_path=item.plan_path,
+                status=item.status,
+            )
+            for item in jobs
+        ]
+    )
+
+
+@router.post(
+    "/headless-export/{project_id}/{session_id}/{job_id}/claim",
+    response_model=HeadlessExportJobItemResponse,
+)
+async def claim_headless_export_job(project_id: str, session_id: str, job_id: str):
+    from backend.services.headless_export_service import claim_headless_job
+
+    try:
+        item = claim_headless_job(project_id, session_id, job_id)
+        return HeadlessExportJobItemResponse(
+            job_id=item.job_id,
+            project_id=item.project_id,
+            session_id=item.session_id,
+            filename=item.filename,
+            burn_subtitles=item.burn_subtitles,
+            export_srt=item.export_srt,
+            use_source_video=item.use_source_video,
+            output_dir=item.output_dir,
+            plan_path=item.plan_path,
+            status=item.status,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Headless 任务不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/headless-export/{project_id}/{session_id}/{job_id}/progress")
+async def report_headless_export_progress(
+    project_id: str,
+    session_id: str,
+    job_id: str,
+    body: HeadlessExportProgressRequest,
+):
+    from backend.services.headless_export_service import update_headless_job_progress
+
+    try:
+        update_headless_job_progress(
+            project_id,
+            session_id,
+            job_id,
+            progress=body.progress,
+            message=body.message,
+        )
+        return {"success": True}
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Headless 任务不存在") from exc
+
+
+@router.post("/headless-export/{project_id}/{session_id}/{job_id}/complete")
+async def complete_headless_export_job(
+    project_id: str,
+    session_id: str,
+    job_id: str,
+    body: HeadlessExportCompleteRequest,
+):
+    from backend.services.headless_export_service import complete_headless_job
+
+    try:
+        complete_headless_job(
+            project_id,
+            session_id,
+            job_id,
+            output_path=body.output_path,
+            download_url=body.download_url,
+            local_output_path=body.local_output_path,
+            srt_path=body.srt_path,
+            srt_download_url=body.srt_download_url,
+            local_srt_path=body.local_srt_path,
+        )
+        return {"success": True}
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Headless 任务不存在") from exc
+
+
+@router.post("/headless-export/{project_id}/{session_id}/{job_id}/fail")
+async def fail_headless_export_job(
+    project_id: str,
+    session_id: str,
+    job_id: str,
+    body: HeadlessExportFailRequest,
+):
+    from backend.services.headless_export_service import fail_headless_job
+
+    try:
+        fail_headless_job(project_id, session_id, job_id, error=body.error)
+        return {"success": True}
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Headless 任务不存在") from exc

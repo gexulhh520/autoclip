@@ -11,6 +11,7 @@ import timezone from 'dayjs/plugin/timezone'
 import utc from 'dayjs/plugin/utc'
 import App from './App.tsx'
 import ErrorBoundary from './components/ErrorBoundary'
+import HeadlessExportWorkerHost from './components/HeadlessExportWorkerHost'
 import { ThemeProvider, useTheme } from './context/ThemeContext'
 import { initAnalytics } from './analytics/posthog'
 import { trackLaunch } from './analytics/lifecycle'
@@ -70,6 +71,7 @@ function ThemedApp() {
     >
     <React.StrictMode>
       <HashRouter>
+        <HeadlessExportWorkerHost />
         <Root />
       </HashRouter>
     </React.StrictMode>

@@ -3,16 +3,14 @@ import { buildFrameDescriptor, compileCompositionPlan } from './index'
 import {
   compositorExportCancel,
   compositorExportFinish,
-  compositorExportPushFrame,
   compositorExportStart,
   isTauriRuntime,
 } from './compositorClient'
 import {
   disposeExportVideoSources,
   loadExportVideoSources,
-  syncExportVideosAtTime,
 } from './exportVideoSources'
-import { renderFrameDescriptorToCanvas } from './softwareRenderer'
+import { runExportRenderPipeline } from './exportRenderPipeline'
 
 export interface ExportTimelineOptions {
   burnSubtitles?: boolean
@@ -23,6 +21,8 @@ export interface ExportTimelineOptions {
   mutedTextTrackIds?: string[]
   onProgress?: (percent: number, message: string) => void
   signal?: AbortSignal
+  /** decode 预取深度 */
+  prefetchDepth?: number
 }
 
 export interface ExportTimelineResult {
@@ -99,56 +99,26 @@ export async function exportTimelineViaCompositor(
       preferHardware: true,
     })
 
-    let prefetchVideos: Promise<Map<string, HTMLVideoElement>> | null = null
-
-    for (let frameIndex = 0; frameIndex < totalFrames; frameIndex += 1) {
-      if (options.signal?.aborted) {
-        throw new Error('导出已取消')
-      }
-      const timeSec = frameIndex / fps
-      const activeVideos = prefetchVideos
-        ? await prefetchVideos
-        : await syncExportVideosAtTime(
-            plan,
-            timeSec,
-            videos,
-            params.getSourceTimeForBlock,
-            blocksById
-          )
-
-      const nextFrameIndex = frameIndex + 1
-      if (nextFrameIndex < totalFrames) {
-        const nextTimeSec = nextFrameIndex / fps
-        prefetchVideos = syncExportVideosAtTime(
-          plan,
-          nextTimeSec,
-          videos,
-          params.getSourceTimeForBlock,
-          blocksById
-        )
-      } else {
-        prefetchVideos = null
-      }
-
-      const descriptor = buildFrameDescriptor(plan, timeSec, {
-        session,
-        burnSubtitles,
-        mutedTextTrackIds: options.mutedTextTrackIds,
-      })
-
-      renderFrameDescriptorToCanvas(ctx, descriptor, {
-        videos: activeVideos,
-        showTemplateCaptions: burnSubtitles,
-        showFreeText: true,
-        preferGpuEffects: false,
-      })
-
-      const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height).data
-      await compositorExportPushFrame(exportSessionId, rgbaToBase64(rgba))
-
-      const percent = Math.round(((frameIndex + 1) / totalFrames) * 85)
-      options.onProgress?.(percent, `合成帧 ${frameIndex + 1}/${totalFrames}`)
-    }
+    await runExportRenderPipeline({
+      plan,
+      session,
+      fps,
+      totalFrames,
+      burnSubtitles,
+      mutedTextTrackIds: options.mutedTextTrackIds,
+      videos,
+      blocksById,
+      getSourceTimeForBlock: params.getSourceTimeForBlock,
+      ctx,
+      exportSessionId,
+      prefetchDepth: options.prefetchDepth ?? 2,
+      signal: options.signal,
+      rgbaToBase64,
+      onProgress: (frameIndex, total) => {
+        const percent = Math.round(((frameIndex + 1) / total) * 85)
+        options.onProgress?.(percent, `合成帧 ${frameIndex + 1}/${total}`)
+      },
+    })
 
     await compositorExportFinish(exportSessionId, { outputPath })
     options.onProgress?.(90, '视频编码完成')

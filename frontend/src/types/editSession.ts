@@ -234,6 +234,41 @@ export interface EditSessionExportJobStatus {
   error?: string | null
 }
 
+export interface HeadlessExportJobItem {
+  job_id: string
+  project_id: string
+  session_id: string
+  filename: string
+  burn_subtitles: boolean
+  export_srt: boolean
+  use_source_video?: boolean | null
+  output_dir?: string | null
+  plan_path: string
+  status: string
+}
+
+export interface HeadlessExportPendingResponse {
+  jobs: HeadlessExportJobItem[]
+}
+
+export interface HeadlessExportProgressRequest {
+  progress: number
+  message?: string
+}
+
+export interface HeadlessExportCompleteRequest {
+  output_path: string
+  download_url: string
+  local_output_path?: string | null
+  srt_path?: string | null
+  srt_download_url?: string | null
+  local_srt_path?: string | null
+}
+
+export interface HeadlessExportFailRequest {
+  error: string
+}
+
 export interface EditSessionBatchExportRequest {
   burn_subtitles?: boolean
   export_srt?: boolean

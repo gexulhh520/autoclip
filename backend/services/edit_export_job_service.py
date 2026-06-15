@@ -179,6 +179,9 @@ class EditExportJobService:
             "export_srt": export_srt,
             "use_source_video": use_source_video,
             "output_dir": output_dir,
+            "status": "pending",
+            "progress": 0,
+            "message": "等待 Compositor 工作进程",
             "plan": serialize_export_plan(plan),
         }
         plan_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
