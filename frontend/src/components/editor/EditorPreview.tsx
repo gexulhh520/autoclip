@@ -40,6 +40,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const [videoNaturalSize, setVideoNaturalSize] = useState<{ width: number; height: number } | null>(
     null
   )
+  const blockVideoSizesRef = useRef<Map<string, { width: number; height: number }>>(new Map())
 
   const session = useEditSessionStore((state) => state.session)
   const assetPreviewClip = useEditSessionStore((state) => state.assetPreviewClip)
@@ -66,7 +67,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const isAssetPreview = Boolean(assetPreviewClip)
   const clipAudioMuted = timelineTrackMuted.mainVideo || timelineTrackMuted.audioWave
   const captionsMuted = timelineTrackMuted.overlayCaption
-  const captionsHidden = timelineTrackMuted.overlayCaption
+  const captionsHidden = useEditSessionStore((state) => state.timelineTrackHidden.overlayCaption)
   const bgmMuted = timelineTrackMuted.audioBgm
   const mutedTextTrackIds = useMemo(
     () => Object.entries(textTrackMuted).filter(([, muted]) => muted).map(([id]) => id),
@@ -178,8 +179,20 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const primaryVideoLayer = previewVm?.videoLayers[0] ?? null
 
   useEffect(() => {
-    setVideoNaturalSize(null)
-    setPreviewVideoNaturalSize(null)
+    const blockId = primaryVideoLayer?.block.id
+    if (!blockId) {
+      setVideoNaturalSize(null)
+      setPreviewVideoNaturalSize(null)
+      return
+    }
+    const cached = blockVideoSizesRef.current.get(blockId)
+    if (cached) {
+      setVideoNaturalSize(cached)
+      setPreviewVideoNaturalSize(cached)
+    } else {
+      setVideoNaturalSize(null)
+      setPreviewVideoNaturalSize(null)
+    }
   }, [primaryVideoLayer?.block.id, assetVideoUrl, setPreviewVideoNaturalSize])
 
   useEffect(() => {
@@ -326,14 +339,28 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     [exportSettings, videoNaturalSize]
   )
 
-  const handleVideoMetadata = (video: HTMLVideoElement) => {
+  const handleVideoMetadata = (video: HTMLVideoElement, blockId?: string) => {
     if (video.videoWidth > 0 && video.videoHeight > 0) {
-      setVideoNaturalSize({ width: video.videoWidth, height: video.videoHeight })
+      const size = { width: video.videoWidth, height: video.videoHeight }
+      if (blockId) {
+        blockVideoSizesRef.current.set(blockId, size)
+      }
+      if (!blockId || blockId === primaryVideoLayer?.block.id) {
+        setVideoNaturalSize(size)
+      }
     }
     if (isAssetPreview) {
       setAssetPreviewDurationSec(video.duration || 0)
     }
   }
+
+  const blockSourceSizes = useMemo(() => {
+    const sizes: Record<string, { width: number; height: number }> = {}
+    for (const [blockId, size] of blockVideoSizesRef.current.entries()) {
+      sizes[blockId] = size
+    }
+    return sizes
+  }, [videoNaturalSize, primaryVideoLayer?.block.id])
 
   return (
     <section className="editor-preview-panel oc-panel">
@@ -380,7 +407,8 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                 mutedTextTrackIds={mutedTextTrackIds}
                 getVideoUrlForBlock={getVideoUrlForBlock}
                 getSourceTimeForBlock={getSourceTimeForBlock}
-                onMetadata={handleVideoMetadata}
+                blockSourceSizes={blockSourceSizes}
+                onMetadata={(video) => handleVideoMetadata(video, primaryVideoLayer.block.id)}
                 onTimeUpdate={handleOutgoingTimeUpdate}
                 onEnded={handleVideoEnded}
                 onSelectOverlay={setSelectedOverlayId}

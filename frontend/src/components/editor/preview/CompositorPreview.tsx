@@ -29,6 +29,7 @@ export interface CompositorPreviewProps {
   mutedTextTrackIds: string[]
   getVideoUrlForBlock: (block: EditBlock) => string
   getSourceTimeForBlock: (block: EditBlock, relativeSec: number) => number
+  blockSourceSizes?: Record<string, { width: number; height: number }>
   onMetadata: (video: HTMLVideoElement) => void
   onTimeUpdate: (video: HTMLVideoElement) => void
   onEnded: () => void
@@ -61,6 +62,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   mutedTextTrackIds,
   getVideoUrlForBlock,
   getSourceTimeForBlock,
+  blockSourceSizes,
   onMetadata,
   onTimeUpdate,
   onEnded,
@@ -75,10 +77,11 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   const plan: CompositionPlan | null = useMemo(
     () =>
       compileCompositionPlan(session, {
-        burnSubtitles: previewBurnSubtitles,
+        // 模板字幕层始终编入 Plan，预览可见性由 burnSubtitles / 字幕开关控制
+        burnSubtitles: true,
         useSourceVideo: session.audio_settings.use_source_video ?? false,
       }),
-    [session, previewBurnSubtitles]
+    [session]
   )
 
   const measureText = useCallback(
@@ -91,11 +94,23 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     []
   )
 
+  const primaryLayer = previewVm.videoLayers[0] ?? null
+  const secondaryLayer = previewVm.videoLayers[1] ?? null
+
   const descriptor = useMemo(() => {
     if (!plan) return null
+    const videos = new Map<string, HTMLVideoElement>()
+    if (primaryLayer && primaryVideoRef.current) {
+      videos.set(primaryLayer.block.id, primaryVideoRef.current)
+    }
+    if (secondaryLayer && secondaryVideoRef.current) {
+      videos.set(secondaryLayer.block.id, secondaryVideoRef.current)
+    }
     return buildFrameDescriptor(plan, sequencePlayheadSec, {
       session,
       sourceSize: videoNaturalSize,
+      blockSourceSizes,
+      videos,
       burnSubtitles: previewBurnSubtitles && !captionsHidden && !captionsMuted,
       selectedOverlayId,
       selectedOverlayIds,
@@ -107,6 +122,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     sequencePlayheadSec,
     session,
     videoNaturalSize,
+    blockSourceSizes,
     previewBurnSubtitles,
     captionsHidden,
     captionsMuted,
@@ -114,10 +130,9 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     selectedOverlayIds,
     mutedTextTrackIds,
     measureText,
+    primaryLayer?.block.id,
+    secondaryLayer?.block.id,
   ])
-
-  const primaryLayer = previewVm.videoLayers[0] ?? null
-  const secondaryLayer = previewVm.videoLayers[1] ?? null
 
   const syncVideo = useCallback(
     (
@@ -229,6 +244,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
             preload="auto"
             crossOrigin="anonymous"
             onLoadedMetadata={(event) => onMetadata(event.currentTarget)}
+            onLoadedData={() => paint()}
+            onSeeked={() => paint()}
             onTimeUpdate={(event) => onTimeUpdate(event.currentTarget)}
             onEnded={onEnded}
           />

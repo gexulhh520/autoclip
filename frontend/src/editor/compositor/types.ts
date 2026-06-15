@@ -229,6 +229,10 @@ export type CompileCompositionPlanOptions = SceneCompileOptions
 
 export interface BuildFrameDescriptorOptions {
   sourceSize?: { width: number; height: number } | null
+  /** blockId → 源视频像素尺寸（切换片段时避免用错画幅） */
+  blockSourceSizes?: Record<string, { width: number; height: number }>
+  /** 预览解码器，用于在 metadata 未写入 state 前读取 videoWidth/Height */
+  videos?: Map<string, HTMLVideoElement>
   burnSubtitles?: boolean
   selectedOverlayId?: string | null
   selectedOverlayIds?: string[]

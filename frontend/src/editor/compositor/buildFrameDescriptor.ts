@@ -28,6 +28,47 @@ import {
 
 const clamp01 = (value: number): number => Math.min(1, Math.max(0, value))
 
+const resolveBlockSourceSize = (
+  blockId: string | undefined,
+  context: BuildFrameDescriptorContext,
+  canvasWidth: number,
+  canvasHeight: number
+): { width: number; height: number } => {
+  if (blockId && context.videos) {
+    const video = context.videos.get(blockId)
+    if (video && video.videoWidth > 0 && video.videoHeight > 0) {
+      return { width: video.videoWidth, height: video.videoHeight }
+    }
+  }
+  if (blockId && context.blockSourceSizes?.[blockId]) {
+    return context.blockSourceSizes[blockId]
+  }
+  if (context.sourceSize && context.sourceSize.width > 0 && context.sourceSize.height > 0) {
+    return context.sourceSize
+  }
+  return { width: canvasWidth, height: canvasHeight }
+}
+
+const resolveForegroundTransform = (
+  settings: EditSession['export_settings'],
+  canvas: CompositionPlan['canvas'],
+  sourceWidth: number,
+  sourceHeight: number
+): { foreground: VisualTransform; blurBackdrop?: VisualTransform } => {
+  const spec = buildVideoCompositionSpec(
+    {
+      aspect: canvas.aspect as EditSession['export_settings']['aspect'],
+      height: canvas.height,
+      fps: canvas.fps,
+      visual_filter: canvas.visualFilter as EditSession['export_settings']['visual_filter'],
+      fit_mode: canvas.fitMode,
+    },
+    sourceWidth,
+    sourceHeight
+  )
+  return resolveVideoLayerTransforms(spec)
+}
+
 const blockVolumeAtRelative = (
   volume: number,
   relativeSec: number,
@@ -95,33 +136,43 @@ export function buildFrameDescriptor(
 ): FrameDescriptor {
   const clampedTime = Math.max(0, Math.min(plan.totalDurationSec, timeSec))
   const { canvas, timeline } = plan
-  const sourceSize = context.sourceSize
-  const sourceWidth = sourceSize?.width ?? canvas.width
-  const sourceHeight = sourceSize?.height ?? canvas.height
   const burnSubtitles = context.burnSubtitles ?? plan.compile.burnSubtitles
 
-  const spec = buildVideoCompositionSpec(
-    {
-      aspect: canvas.aspect as EditSession['export_settings']['aspect'],
-      height: canvas.height,
-      fps: canvas.fps,
-      visual_filter: canvas.visualFilter as EditSession['export_settings']['visual_filter'],
-      fit_mode: canvas.fitMode,
-    },
-    sourceWidth,
-    sourceHeight
-  )
+  const exportSettingsStub = {
+    aspect: canvas.aspect,
+    height: canvas.height,
+    fps: canvas.fps,
+    visual_filter: canvas.visualFilter,
+    fit_mode: canvas.fitMode,
+  } as EditSession['export_settings']
 
-  const { foreground, blurBackdrop } = resolveVideoLayerTransforms(spec)
   const items: FrameItem[] = []
   let zIndex = 0
 
-  if (blurBackdrop && canvas.fitMode === 'contain_blur') {
+  const primaryBlockIdForBlur = (): string | undefined => {
+    const active = timeline.segments.find(
+      (segment) =>
+        clampedTime >= segment.compositionStartSec - 0.001 &&
+        clampedTime < segment.compositionStartSec + segment.sourceDurationSec + 0.001
+    )
+    return active?.block.id ?? timeline.segments[0]?.block.id
+  }
+
+  const blurBlockId = primaryBlockIdForBlur()
+  const blurSource = resolveBlockSourceSize(blurBlockId, context, canvas.width, canvas.height)
+  const blurTransforms = resolveForegroundTransform(
+    exportSettingsStub,
+    canvas,
+    blurSource.width,
+    blurSource.height
+  )
+
+  if (blurTransforms.blurBackdrop && canvas.fitMode === 'contain_blur') {
     items.push({
       kind: 'layer',
       id: 'blur-backdrop',
       source: 'blur_backdrop',
-      transform: blurBackdrop,
+      transform: blurTransforms.blurBackdrop,
       opacity: 1,
       zIndex: zIndex++,
     })
@@ -130,8 +181,8 @@ export function buildFrameDescriptor(
   const transitionResult = resolveTransitionAtTime({
     plan,
     clampedTime,
-    foreground,
-    blurBackdrop,
+    foreground: blurTransforms.foreground,
+    blurBackdrop: blurTransforms.blurBackdrop,
     timeline,
   })
 
@@ -179,7 +230,21 @@ export function buildFrameDescriptor(
   }
 
   for (const layerSpec of transitionResult.videoLayers) {
-    items.push(frameLayerFromTransitionSpec(layerSpec, zIndex++))
+    const blockSize = resolveBlockSourceSize(
+      layerSpec.blockId,
+      context,
+      canvas.width,
+      canvas.height
+    )
+    const { foreground: layerForeground } = resolveForegroundTransform(
+      exportSettingsStub,
+      canvas,
+      blockSize.width,
+      blockSize.height
+    )
+    items.push(
+      frameLayerFromTransitionSpec({ ...layerSpec, transform: layerForeground }, zIndex++)
+    )
   }
 
   if (transitionResult.dissolve) {

@@ -445,13 +445,21 @@ export const useEditSessionStore = create<EditSessionState>()(
             session.bookmarks = []
           }
           const exportPreset = loadExportPreset()
+          const hasTemplateOverlay = session.sequence.some(
+            (block) =>
+              block.overlay.content.some((line) => line.trim()) ||
+              block.overlay.outline.trim()
+          )
           const syncedDocument = normalizeEditDocument(session)
           set({
             session: syncedDocument.session,
             editProject: syncedDocument.project,
             loading: false,
             dirty: migrated,
-            previewBurnSubtitles: exportPreset.burn_subtitles,
+            previewBurnSubtitles:
+              session.template_id && hasTemplateOverlay
+                ? true
+                : exportPreset.burn_subtitles,
             selectedBlockId: session.sequence[0]?.id ?? null,
             selectedBlockIds: session.sequence[0]?.id ? [session.sequence[0].id] : [],
             selectedOverlayId: null,
