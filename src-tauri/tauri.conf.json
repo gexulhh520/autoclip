@@ -59,35 +59,5 @@
       "timestampUrl": ""
     }
   },
-  "plugins": {
-    "dialog": {
-      "all": true,
-      "ask": true,
-      "confirm": true,
-      "message": true,
-      "open": true,
-      "save": true
-    },
-    "fs": {
-      "all": true,
-      "readFile": true,
-      "writeFile": true,
-      "readDir": true,
-      "copyFile": true,
-      "createDir": true,
-      "removeDir": true,
-      "removeFile": true,
-      "renameFile": true,
-      "exists": true
-    },
-    "os": {
-      "all": true
-    },
-    "process": {
-      "all": true
-    },
-    "shell": {
-      "open": true
-    }
-  }
+  "plugins": {}
 }
