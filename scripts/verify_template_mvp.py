@@ -52,7 +52,7 @@ def main() -> int:
     )
     all_ok &= check(
         "merge_template_settings",
-        merged.get("clip_duration_preset") == "short" and merged.get("video_file") == "demo.mp4",
+        merged.get("clip_duration_preset") == "quote_line" and merged.get("video_file") == "demo.mp4",
     )
 
     cinema_steps = resolve_effective_step_order(GOAL_PROFILES["golden_quote"], cinema_settings)

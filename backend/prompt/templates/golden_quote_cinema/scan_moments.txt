@@ -21,8 +21,8 @@
 
 ## 数量与时长
 - 30 分钟文本块：提取 **5–15 个** moment（宁多勿漏）
-- 每个 moment 对应视频 **{target_duration_range}**（目标 **{target_duration_label}**）
-- 单个 moment **不超过 {max_duration_label}**
+- **每个 moment 的成片时长由该句/串经典台词自然决定**（短句可十几秒，长独白可到约 {max_duration_label}），**不要**按固定秒数规划 moment
+- 单个 moment 在 Step2 定位后**不应超过 {max_duration_label}**（安全上限，非目标时长）
 
 ## 输出格式
 严格 JSON 数组，每项包含：
@@ -34,3 +34,4 @@
 - 不要输出 3 分钟以上的大话题
 - 不要合并两句可独立传播的金句
 - 不要编造转写中没有的内容
+- 不要按「每段都要 {target_duration_label} 左右」来设计 moment

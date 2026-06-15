@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 class ClipDurationPreset(str, Enum):
     SHORT = "short"          # 口播爆点 30–90s
+    QUOTE_LINE = "quote_line"  # 金句台词：随识别的一句/串台词自然伸缩
     MEDIUM = "medium"        # 短视频 45s–3min
     STANDARD = "standard"    # 精华切片 1.5–5min（默认）
     LONG = "long"            # 长论述 2–8min
@@ -40,6 +41,12 @@ CLIP_DURATION_PRESETS: Dict[str, ClipDurationConfig] = {
         min_seconds=30,
         target_seconds=60,
         max_seconds=90,
+    ),
+    ClipDurationPreset.QUOTE_LINE.value: ClipDurationConfig(
+        preset=ClipDurationPreset.QUOTE_LINE.value,
+        min_seconds=8,
+        target_seconds=25,
+        max_seconds=120,
     ),
     ClipDurationPreset.MEDIUM.value: ClipDurationConfig(
         preset=ClipDurationPreset.MEDIUM.value,
@@ -69,6 +76,14 @@ CLIP_DURATION_PRESET_META: List[Dict[str, Any]] = [
         "min_seconds": 30,
         "target_seconds": 60,
         "max_seconds": 90,
+    },
+    {
+        "value": ClipDurationPreset.QUOTE_LINE.value,
+        "name": "台词自然时长",
+        "description": "按识别的一句/串经典台词定边界，短句可十几秒，长独白可到约 2 分钟",
+        "min_seconds": 8,
+        "target_seconds": 25,
+        "max_seconds": 120,
     },
     {
         "value": ClipDurationPreset.MEDIUM.value,
