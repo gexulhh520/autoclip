@@ -15,6 +15,25 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 from fastapi import FastAPI
 
+
+def _configure_stdio_utf8() -> None:
+    """Windows 控制台默认 GBK，print/logger 含 emoji 时会 UnicodeEncodeError。"""
+    if sys.platform != "win32":
+        return
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name, None)
+        if stream is None:
+            continue
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                pass
+
+
+_configure_stdio_utf8()
+
 # 添加项目根目录到Python路径
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
