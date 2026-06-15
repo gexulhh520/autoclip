@@ -279,17 +279,25 @@ class TimelineExtractor:
                 
                 # 验证和调整时间范围
                 try:
-                    # 验证时间格式
-                    if not self._validate_time_format(timeline_item['start_time']):
-                        logger.warning(f"  > 话题 '{timeline_item['outline']}' 开始时间格式不正确: {timeline_item['start_time']}")
+                    start_normalized = self._normalize_srt_time(timeline_item['start_time'])
+                    if start_normalized is None:
+                        logger.warning(
+                            f"  > 话题 '{timeline_item['outline']}' 开始时间格式不正确: {timeline_item['start_time']}"
+                        )
                         continue
-                    
-                    if not self._validate_time_format(timeline_item['end_time']):
-                        logger.warning(f"  > 话题 '{timeline_item['outline']}' 结束时间格式不正确: {timeline_item['end_time']}")
+
+                    end_normalized = self._normalize_srt_time(timeline_item['end_time'])
+                    if end_normalized is None:
+                        logger.warning(
+                            f"  > 话题 '{timeline_item['outline']}' 结束时间格式不正确: {timeline_item['end_time']}"
+                        )
                         continue
-                    
-                    start_time = self._convert_time_format(timeline_item['start_time'])
-                    end_time = self._convert_time_format(timeline_item['end_time'])
+
+                    timeline_item['start_time'] = start_normalized
+                    timeline_item['end_time'] = end_normalized
+
+                    start_time = self._convert_time_format(start_normalized)
+                    end_time = self._convert_time_format(end_normalized)
                     
                     start_sec = self.text_processor.time_to_seconds(start_time)
                     end_sec = self.text_processor.time_to_seconds(end_time)
@@ -328,13 +336,20 @@ class TimelineExtractor:
             self._save_debug_response(json.dumps(error_info, indent=2, ensure_ascii=False), chunk_index, "parse_error")
             return []
 
-    def _validate_time_format(self, time_str: str) -> bool:
+    def _normalize_srt_time(self, time_str: str) -> Optional[str]:
         """
-        验证时间格式是否正确 (HH:MM:SS,mmm)
+        将 LLM 返回的时间规范为 SRT 格式 (HH:MM:SS,mmm)。
+        兼容毫秒分隔符为逗号或点号。
         """
-        pattern = r'^\d{2}:\d{2}:\d{2},\d{3}$'
-        return bool(re.match(pattern, time_str))
-    
+        if not time_str or time_str == "end":
+            return time_str
+        cleaned = str(time_str).strip()
+        match = re.match(r"^(\d{2}):(\d{2}):(\d{2})[,.](\d{3})$", cleaned)
+        if not match:
+            return None
+        hours, minutes, seconds, millis = match.groups()
+        return f"{hours}:{minutes}:{seconds},{millis}"
+
     def _convert_time_format(self, time_str: str) -> str:
         """
         转换时间格式：SRT格式 -> FFmpeg格式
