@@ -3,6 +3,7 @@ import {
   mapCompositionTimeToRelativeSource,
 } from '../scene/timelineLayout'
 import { resolveCrossTransitionLayerState } from '../transitions/crossTransitionLayers'
+import { easeInOutCubic } from '../compositor/previewPlayhead'
 import type { TransitionOutKind } from '../../types/transitions'
 import { TRANSITION_OUT_LABELS, transitionEffectId } from '../../types/transitions'
 import type { CompositorEffectDefinition, EffectResolveContext, TransitionResolveResult } from './types'
@@ -45,11 +46,12 @@ const buildCrossTransitionResult = (
   cross: NonNullable<ReturnType<typeof findCrossTransitionAtTime>>
 ): TransitionResolveResult => {
   const { outgoing, incoming, progress, kind } = cross
+  const easedProgress = easeInOutCubic(progress)
   const outRelative = mapCompositionTimeToRelativeSource(outgoing, context.clampedTime)
   const inRelative = mapCompositionTimeToRelativeSource(incoming, context.clampedTime)
 
-  const outState = resolveCrossTransitionLayerState(kind, context.foreground, progress, 'outgoing')
-  const inState = resolveCrossTransitionLayerState(kind, context.foreground, progress, 'incoming')
+  const outState = resolveCrossTransitionLayerState(kind, context.foreground, easedProgress, 'outgoing')
+  const inState = resolveCrossTransitionLayerState(kind, context.foreground, easedProgress, 'incoming')
 
   return {
     videoLayers: [

@@ -14,6 +14,7 @@ import {
   mapCompositionTimeToRelativeSource,
 } from './timelineLayout'
 import { resolveCrossTransitionLayerState } from '../transitions/crossTransitionLayers'
+import { easeInOutCubic } from './previewPlayhead'
 import type {
   ExportScenePlan,
   RenderScene,
@@ -173,11 +174,12 @@ export function resolveSceneAt(
 
   if (cross) {
     const { outgoing, incoming, progress, kind } = cross
+    const easedProgress = easeInOutCubic(progress)
     const outRelative = mapCompositionTimeToRelativeSource(outgoing, clampedTime)
     const inRelative = mapCompositionTimeToRelativeSource(incoming, clampedTime)
     const foreground = { x: 0, y: 0, width: canvas.width, height: canvas.height }
-    const outState = resolveCrossTransitionLayerState(kind, foreground, progress, 'outgoing')
-    const inState = resolveCrossTransitionLayerState(kind, foreground, progress, 'incoming')
+    const outState = resolveCrossTransitionLayerState(kind, foreground, easedProgress, 'outgoing')
+    const inState = resolveCrossTransitionLayerState(kind, foreground, easedProgress, 'incoming')
 
     videoLayers.push({
       blockId: outgoing.block.id,
