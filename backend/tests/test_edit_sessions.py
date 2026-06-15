@@ -85,6 +85,39 @@ def test_create_edit_session_from_metadata(tmp_path, monkeypatch):
     assert saved["schema_version"] == 1
 
 
+def test_resolve_clip_metadata_prefers_disk_overlay_with_original_id():
+    from types import SimpleNamespace
+
+    from backend.services.edit_session_service import _resolve_clip_metadata
+
+    clip = SimpleNamespace(
+        id="uuid-clip-1",
+        title="列表标题",
+        clip_metadata={
+            "original_id": "1",
+            "outline": "旧摘要",
+            "content": [],
+            "recommend_reason": "",
+        },
+    )
+    metadata_map = {
+        "1": {
+            "id": "1",
+            "outline": "新摘要",
+            "content": ["真正的成长", "是学会与自己和解"],
+            "recommend_reason": "金句",
+            "generated_title": "列表标题",
+            "overlay_copy": True,
+        }
+    }
+
+    merged = _resolve_clip_metadata(clip, metadata_map)
+
+    assert merged["content"][0] == "真正的成长"
+    assert merged["content"][1] == "是学会与自己和解"
+    assert merged.get("overlay_copy") is True
+
+
 def test_preview_block_overlay_from_session(tmp_path, monkeypatch):
     project_id = "edit-preview-overlay"
     project_dir = tmp_path / "projects" / project_id

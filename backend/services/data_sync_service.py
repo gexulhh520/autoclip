@@ -271,7 +271,8 @@ class DataSyncService:
             candidates = self.db.query(Clip).filter(Clip.project_id == project_id).all()
             for clip in candidates:
                 meta = clip.clip_metadata or {}
-                if str(meta.get("id") or "") == pipeline_id:
+                meta_id = str(meta.get("id") or meta.get("original_id") or "")
+                if meta_id == pipeline_id:
                     return clip
 
         title = clip_data.get("generated_title", clip_data.get("title", ""))
@@ -280,6 +281,20 @@ class DataSyncService:
             .filter(Clip.project_id == project_id, Clip.title == title)
             .first()
         )
+
+    @staticmethod
+    def _clip_metadata_from_pipeline_row(clip_data: Dict[str, Any]) -> Dict[str, Any]:
+        pipeline_id = str(clip_data.get("id") or "")
+        return {
+            "id": pipeline_id,
+            "original_id": pipeline_id,
+            "outline": clip_data.get("outline"),
+            "content": clip_data.get("content", []),
+            "recommend_reason": clip_data.get("recommend_reason"),
+            "chunk_index": clip_data.get("chunk_index"),
+            "overlay_copy": clip_data.get("overlay_copy"),
+            "generated_title": clip_data.get("generated_title"),
+        }
 
     def _sync_clips_from_filesystem(self, project_id: str, project_dir: Path) -> int:
         """从文件系统同步切片数据"""
@@ -346,6 +361,10 @@ class DataSyncService:
                         video_path = str(project_video_path.resolve()) if project_video_path.exists() else str(project_video_path)
                         logger.info(f"更新切片 {existing_clip.id} 的video_path: {video_path}")
                         existing_clip.video_path = video_path
+                        existing_clip.clip_metadata = self._clip_metadata_from_pipeline_row(clip_data)
+                        generated_title = clip_data.get("generated_title")
+                        if generated_title:
+                            existing_clip.title = str(generated_title)
                         if existing_clip.tags is None:
                             existing_clip.tags = []  # 确保tags是空列表而不是null
                         updated_count += 1
@@ -408,7 +427,7 @@ class DataSyncService:
                         score=clip_data.get('final_score', 0.0),
                         video_path=video_path,
                         tags=[],  # 确保tags是空列表而不是null
-                        clip_metadata=clip_data,
+                        clip_metadata=self._clip_metadata_from_pipeline_row(clip_data),
                         status=ClipStatus.COMPLETED
                     )
                     
@@ -706,11 +725,14 @@ class DataSyncService:
                     status=ClipStatus.COMPLETED,
                     tags=[],
                     clip_metadata={
+                        "id": str(clip_data.get("id") or ""),
+                        "original_id": clip_data.get("id"),
                         "outline": clip_data.get("outline"),
                         "content": clip_data.get("content", []),
                         "recommend_reason": clip_data.get("recommend_reason"),
                         "chunk_index": clip_data.get("chunk_index"),
-                        "original_id": clip_data.get("id")
+                        "overlay_copy": clip_data.get("overlay_copy"),
+                        "generated_title": clip_data.get("generated_title"),
                     }
                 )
                 

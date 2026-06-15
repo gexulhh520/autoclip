@@ -190,6 +190,15 @@ def _load_clip_metadata_map(project_dir: Path, source_id: Optional[str] = None) 
     return mapping
 
 
+def _clip_metadata_pipeline_id(metadata: Dict[str, Any], *, fallback: str = "") -> str:
+    """DB 里 pipeline id 可能存于 id 或 original_id（历史同步字段）。"""
+    for key in ("id", "original_id"):
+        value = metadata.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return fallback
+
+
 def _resolve_clip_metadata(
     clip: Any,
     metadata_map: Dict[str, Dict[str, Any]],
@@ -197,14 +206,19 @@ def _resolve_clip_metadata(
     metadata = getattr(clip, "clip_metadata", None) or {}
     if not isinstance(metadata, dict):
         metadata = {}
-    pipeline_id = metadata.get("id")
-    if pipeline_id is not None and str(pipeline_id) in metadata_map:
-        merged = dict(metadata_map[str(pipeline_id)])
+
+    db_clip_id = str(getattr(clip, "id", "") or "")
+    pipeline_id = _clip_metadata_pipeline_id(metadata, fallback=db_clip_id)
+    file_row = metadata_map.get(pipeline_id)
+
+    if file_row:
+        merged = dict(file_row)
         merged.setdefault("generated_title", getattr(clip, "title", None))
         return merged
+
     return {
         **metadata,
-        "id": pipeline_id or getattr(clip, "id", ""),
+        "id": pipeline_id or db_clip_id,
         "generated_title": getattr(clip, "title", None) or metadata.get("generated_title"),
         "outline": metadata.get("outline", ""),
         "content": metadata.get("content", []),
