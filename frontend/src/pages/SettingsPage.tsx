@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { Layout, Card, Form, Input, Button, Typography, Space, Alert, Divider, Row, Col, Tabs, message, Select, Tag, Switch } from 'antd'
 import { KeyOutlined, SaveOutlined, ApiOutlined, SettingOutlined, InfoCircleOutlined, UserOutlined, RobotOutlined, SoundOutlined, PoweroffOutlined } from '@ant-design/icons'
 import { settingsApi } from '../services/api'
@@ -804,6 +804,174 @@ const SettingsPage: React.FC = () => {
 
 // 应用设置组件
 const AppSettings: React.FC = () => {
+  return (
+    <div>
+      <DataDirectorySettings />
+      <AutostartSettings />
+    </div>
+  )
+}
+
+const DataDirectorySettings: React.FC = () => {
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [info, setInfo] = useState<Awaited<ReturnType<typeof settingsApi.getDataDirectoryInfo>> | null>(
+    null
+  )
+  const [targetPath, setTargetPath] = useState('')
+  const [migrate, setMigrate] = useState(true)
+
+  const loadInfo = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await settingsApi.getDataDirectoryInfo()
+      setInfo(data)
+      setTargetPath(data.persisted_data_directory || data.data_directory)
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '无法读取数据目录')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadInfo()
+  }, [loadInfo])
+
+  const handleBrowse = async () => {
+    if (!isTauriApp()) {
+      message.info('请在桌面版中使用文件夹选择')
+      return
+    }
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog')
+      const selected = await open({ directory: true, multiple: false })
+      if (typeof selected === 'string' && selected.trim()) {
+        setTargetPath(selected)
+      }
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '选择文件夹失败')
+    }
+  }
+
+  const handleApply = async () => {
+    const nextPath = targetPath.trim()
+    if (!nextPath) {
+      message.warning('请先填写或选择数据目录')
+      return
+    }
+    setSaving(true)
+    try {
+      await settingsApi.updateDataDirectory({
+        new_data_directory: nextPath,
+        migrate,
+      })
+      message.success('数据目录已更新，请重启应用以确保全部服务使用新目录')
+      await loadInfo()
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '更新数据目录失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleUseCandidate = (path: string) => {
+    setTargetPath(path)
+  }
+
+  return (
+    <Card
+      size="small"
+      style={{
+        background: 'rgba(255,255,255,0.05)',
+        border: '1px solid #404040',
+        marginBottom: 16,
+      }}
+    >
+      <div style={{ marginBottom: 12 }}>
+        <Text strong style={{ color: 'var(--ac-ink)' }}>数据目录</Text>
+        <Paragraph type="secondary" style={{ margin: '6px 0 0', color: '#b0b0b0' }}>
+          AI 模型配置、Whisper 运行时/模型、项目文件都保存在此。切换目录可找回旧配置。
+        </Paragraph>
+      </div>
+
+      {loading ? (
+        <Text type="secondary">正在读取当前目录…</Text>
+      ) : (
+        <>
+          <div style={{ marginBottom: 8 }}>
+            <Text type="secondary">当前使用</Text>
+            <div style={{ fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all', marginTop: 4 }}>
+              {info?.data_directory}
+            </div>
+          </div>
+          {info?.contents ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+              {info.contents.settings_json ? <Text type="success">含 settings.json</Text> : null}
+              {info.contents.whisper_runtime ? <Text type="success">含 Whisper 运行时</Text> : null}
+              {info.contents.whisper_models ? <Text type="success">含 Whisper 模型</Text> : null}
+              {!info.contents.settings_json && !info.contents.whisper_runtime ? (
+                <Text type="warning">当前目录未见 AI/Whisper 配置</Text>
+              ) : null}
+            </div>
+          ) : null}
+
+          <Space.Compact style={{ width: '100%', marginBottom: 8 }}>
+            <Input
+              value={targetPath}
+              onChange={(event) => setTargetPath(event.target.value)}
+              placeholder="例如 D:\AutoClipData 或 %LOCALAPPDATA%\AutoClip"
+              className="settings-input"
+            />
+            <Button onClick={() => void handleBrowse()}>浏览…</Button>
+          </Space.Compact>
+
+          <div style={{ marginBottom: 12 }}>
+            <Switch checked={migrate} onChange={setMigrate} size="small" />
+            <Text style={{ marginLeft: 8 }}>从当前目录复制缺失文件到新目录</Text>
+          </div>
+
+          <Button type="primary" loading={saving} onClick={() => void handleApply()}>
+            应用并保存
+          </Button>
+
+          {info?.candidates?.length ? (
+            <div style={{ marginTop: 16 }}>
+              <Text type="secondary">常见历史位置（点击填入）</Text>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                {info.candidates.map((item) => (
+                  <Button
+                    key={item.path}
+                    type="text"
+                    style={{
+                      height: 'auto',
+                      textAlign: 'left',
+                      padding: '8px 10px',
+                      border: '1px solid #404040',
+                      whiteSpace: 'normal',
+                    }}
+                    onClick={() => handleUseCandidate(item.path)}
+                  >
+                    <div style={{ fontWeight: 500 }}>{item.label}</div>
+                    <div style={{ fontFamily: 'monospace', fontSize: 11, opacity: 0.85 }}>{item.path}</div>
+                    <div style={{ fontSize: 11, marginTop: 4 }}>
+                      {item.exists ? '目录存在' : '目录不存在'}
+                      {item.has_settings ? ' · 有 AI 配置' : ''}
+                      {item.has_whisper_models ? ' · 有 Whisper 模型' : ''}
+                      {item.has_whisper_runtime ? ' · 有 Whisper 运行时' : ''}
+                    </div>
+                  </Button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </>
+      )}
+    </Card>
+  )
+}
+
+const AutostartSettings: React.FC = () => {
   const [autostartEnabled, setAutostartEnabled] = useState(false)
   const [loading, setLoading] = useState(false)
 

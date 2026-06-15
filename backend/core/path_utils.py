@@ -59,20 +59,26 @@ def get_data_directory() -> Path:
     configured_data_dir = os.getenv("AUTOCLIP_DATA_DIR")
     if configured_data_dir:
         data_dir = Path(configured_data_dir).expanduser()
-    elif is_desktop_mode():
-        # 源码开发：未显式指定应用目录时，使用项目内 data/
-        if not os.getenv("AUTOCLIP_APP_DIR") and _is_source_dev_tree():
-            data_dir = get_project_root() / "data"
-        else:
-            app_dir = os.getenv("AUTOCLIP_APP_DIR")
-            data_dir = (
-                Path(app_dir).expanduser()
-                if app_dir
-                else get_default_desktop_app_dir()
-            )
     else:
-        # 统一使用项目根目录下的data目录，与config.py保持一致
-        data_dir = get_project_root() / "data"
+        from backend.core.data_dir_store import load_persisted_data_dir
+
+        persisted = load_persisted_data_dir()
+        if persisted is not None:
+            data_dir = persisted
+        elif is_desktop_mode():
+            # 源码开发：未显式指定应用目录时，使用项目内 data/
+            if not os.getenv("AUTOCLIP_APP_DIR") and _is_source_dev_tree():
+                data_dir = get_project_root() / "data"
+            else:
+                app_dir = os.getenv("AUTOCLIP_APP_DIR")
+                data_dir = (
+                    Path(app_dir).expanduser()
+                    if app_dir
+                    else get_default_desktop_app_dir()
+                )
+        else:
+            # 统一使用项目根目录下的data目录，与config.py保持一致
+            data_dir = get_project_root() / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     return data_dir
 

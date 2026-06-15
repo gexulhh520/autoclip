@@ -41,6 +41,26 @@ def test_get_data_directory_in_desktop_mode_uses_project_data_in_source_tree(mon
     assert result == path_utils.get_project_root() / "data"
 
 
+def test_get_data_directory_uses_persisted_bootstrap(monkeypatch, tmp_path):
+    persisted_dir = tmp_path / "legacy-data"
+    persisted_dir.mkdir()
+    bootstrap_dir = tmp_path / "bootstrap"
+    bootstrap_dir.mkdir()
+    bootstrap_file = bootstrap_dir / "app_paths.json"
+    bootstrap_file.write_text(
+        '{"data_dir": "' + str(persisted_dir).replace("\\", "\\\\") + '"}',
+        encoding="utf-8",
+    )
+
+    monkeypatch.delenv("AUTOCLIP_DATA_DIR", raising=False)
+    monkeypatch.delenv("AUTOCLIP_APP_DIR", raising=False)
+    monkeypatch.setenv("AUTOCLIP_DESKTOP_MODE", "1")
+    monkeypatch.setattr("backend.core.data_dir_store.get_bootstrap_file", lambda: bootstrap_file)
+
+    result = path_utils.get_data_directory()
+    assert result == persisted_dir
+
+
 def test_get_log_file_path_respects_explicit_log_file(monkeypatch, tmp_path):
     log_file = tmp_path / "logs" / "custom.log"
     monkeypatch.setenv("LOG_FILE", str(log_file))

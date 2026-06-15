@@ -425,7 +425,38 @@ export const settingsApi = {
   // 检查桌面模式
   checkDesktopMode: (): Promise<{ is_desktop_mode: boolean; environment: any }> => {
     return api.get('/settings/desktop-mode')
-  }
+  },
+
+  getDataDirectoryInfo: (): Promise<{
+    data_directory: string
+    bootstrap_file: string
+    persisted_data_directory: string | null
+    size_mb: number | null
+    candidates: Array<{
+      label: string
+      path: string
+      exists: boolean
+      has_settings: boolean
+      has_whisper_runtime: boolean
+      has_whisper_models: boolean
+    }>
+    contents: {
+      settings_json: boolean
+      speech_recognition_json: boolean
+      whisper_runtime: boolean
+      whisper_models: boolean
+      autoclip_db: boolean
+    }
+  }> => {
+    return api.get('/settings/paths/data-directory')
+  },
+
+  updateDataDirectory: (payload: {
+    new_data_directory: string
+    migrate?: boolean
+  }): Promise<any> => {
+    return api.post('/settings/paths/data-directory', payload)
+  },
 }
 
 // 项目相关API

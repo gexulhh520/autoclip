@@ -180,6 +180,9 @@ class DesktopConfig:
             migrated = True
 
         os.environ["AUTOCLIP_DATA_DIR"] = str(new_data_dir)
+        from backend.core.data_dir_store import save_persisted_data_dir
+
+        bootstrap_file = save_persisted_data_dir(new_data_dir)
         self.paths = DesktopPaths(
             data_dir=new_data_dir,
             cache_dir=new_data_dir / "cache",
@@ -188,7 +191,12 @@ class DesktopConfig:
         )
         self.paths.cache_dir.mkdir(parents=True, exist_ok=True)
         self.paths.temp_dir.mkdir(parents=True, exist_ok=True)
-        return {"data_dir": str(new_data_dir), "migrated": migrated}
+        return {
+            "data_dir": str(new_data_dir),
+            "migrated": migrated,
+            "bootstrap_file": str(bootstrap_file),
+            "previous_data_dir": str(old_data_dir),
+        }
 
     def validate_config(self):
         errors = []

@@ -55,7 +55,7 @@ impl BackendManager {
         // 启动后端服务
         let launch = self.get_backend_launch(&app_handle)?;
 
-        let mut cmd = Command::new(&launch.program);
+        let mut         cmd = Command::new(&launch.program);
         cmd.args(&launch.args)
             .current_dir(&launch.working_dir)
             .stdout(Stdio::piped())
@@ -64,6 +64,10 @@ impl BackendManager {
             .env("AUTOCLIP_MODE", "desktop")
             .env("PYTHONUTF8", "1")
             .env("PYTHONIOENCODING", "utf-8");
+
+        if let Some(data_dir) = Self::load_persisted_data_dir() {
+            cmd.env("AUTOCLIP_DATA_DIR", data_dir);
+        }
 
         // Point the backend at the bundled ffmpeg/ffprobe when present.
         // The backend's ffmpeg_utils reads these env vars before falling back
@@ -259,6 +263,45 @@ impl BackendManager {
             args: vec!["-m".to_string(), "backend.desktop_main".to_string()],
             working_dir,
         }
+    }
+
+    fn bootstrap_paths_file() -> Option<PathBuf> {
+        if cfg!(target_os = "windows") {
+            std::env::var("LOCALAPPDATA")
+                .ok()
+                .map(|dir| PathBuf::from(dir).join("AutoClip").join("app_paths.json"))
+        } else if cfg!(target_os = "macos") {
+            std::env::var("HOME").ok().map(|dir| {
+                PathBuf::from(dir)
+                    .join("Library")
+                    .join("Application Support")
+                    .join("AutoClip")
+                    .join("app_paths.json")
+            })
+        } else {
+            std::env::var("XDG_DATA_HOME")
+                .ok()
+                .map(|dir| PathBuf::from(dir).join("AutoClip").join("app_paths.json"))
+                .or_else(|| {
+                    std::env::var("HOME").ok().map(|dir| {
+                        PathBuf::from(dir)
+                            .join(".local")
+                            .join("share")
+                            .join("AutoClip")
+                            .join("app_paths.json")
+                    })
+                })
+        }
+    }
+
+    fn load_persisted_data_dir() -> Option<String> {
+        let path = Self::bootstrap_paths_file()?;
+        let content = std::fs::read_to_string(&path).ok()?;
+        let value: serde_json::Value = serde_json::from_str(&content).ok()?;
+        value
+            .get("data_dir")
+            .and_then(|item| item.as_str())
+            .map(|item| item.to_string())
     }
 
     fn backend_binary_name() -> &'static str {

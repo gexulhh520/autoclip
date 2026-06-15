@@ -240,44 +240,18 @@ async def get_settings():
         raise HTTPException(status_code=500, detail=f"获取设置失败: {str(e)}")
 
 
-@router.post("/paths/data-directory")
-async def update_data_directory(
-    new_path: str,
-    migrate_data: bool = True
-):
-    """更新数据目录"""
-    check_desktop_mode()
-    
-    try:
-        from backend.core.desktop_config import set_data_dir
-        
-        result = set_data_dir(new_path, migrate_data)
-        
-        if result["success"]:
-            return {
-                "message": result["message"],
-                "new_path": result["new_path"],
-                "migrated_files": result.get("migrated_files", []),
-                "failed_files": result.get("failed_files", [])
-            }
-        else:
-            raise HTTPException(status_code=400, detail=result["error"])
-            
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"更新数据目录失败: {str(e)}")
-
 @router.get("/paths/data-directory")
 async def get_data_directory_info():
     """获取数据目录信息"""
-    check_desktop_mode()
-    
+    check_desktop_mode(relaxed=True)
+
     try:
-        from backend.core.desktop_config import get_data_dir_info
-        
+        from backend.core.data_dir_store import get_data_dir_info
+
         return get_data_dir_info()
-        
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取数据目录信息失败: {str(e)}")
+
 
 @router.delete("/")
 async def clear_settings(
@@ -497,6 +471,11 @@ async def update_data_directory(payload: UpdateDataDirRequest):
         resp = {"message": "数据目录更新成功", "result": result, "paths": paths}
         if not is_desktop:
             resp["warning"] = "当前非Desktop模式，但已更新路径配置"
+
+        from backend.core.llm_manager import initialize_llm_manager
+        from backend.core.path_utils import get_settings_file_path
+
+        initialize_llm_manager(get_settings_file_path())
         return resp
     except Exception as e:
         # 返回更详细的错误，帮助定位权限/路径/占用等问题

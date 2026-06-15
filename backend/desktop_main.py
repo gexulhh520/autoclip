@@ -24,20 +24,24 @@ configure_stdio_utf8()
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-app_data_dir = Path(os.getenv("AUTOCLIP_APP_DIR", "~/Library/Application Support/AutoClip")).expanduser()
-app_data_dir.mkdir(parents=True, exist_ok=True)
-(app_data_dir / "logs").mkdir(parents=True, exist_ok=True)
-os.environ.setdefault("AUTOCLIP_APP_DIR", str(app_data_dir))
-os.environ.setdefault("AUTOCLIP_DATA_DIR", str(app_data_dir))
-os.environ.setdefault("DATABASE_URL", f"sqlite:///{app_data_dir / 'autoclip.db'}")
-os.environ.setdefault("LOG_FILE", str(app_data_dir / "logs" / "backend.log"))
-
 from backend.app_factory import create_app
+from backend.core.path_utils import get_data_directory, get_default_desktop_app_dir
 from backend.core.desktop_config import (
-    get_desktop_config, 
-    is_desktop_mode, 
-    ensure_desktop_directories
+    get_desktop_config,
+    is_desktop_mode,
+    ensure_desktop_directories,
 )
+
+# 数据目录：优先 persisted app_paths.json，其次环境变量，再默认位置
+data_dir = get_data_directory()
+default_app_dir = get_default_desktop_app_dir()
+default_app_dir.mkdir(parents=True, exist_ok=True)
+(data_dir / "logs").mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("AUTOCLIP_APP_DIR", str(default_app_dir))
+os.environ.setdefault("AUTOCLIP_DATA_DIR", str(data_dir))
+os.environ.setdefault("DATABASE_URL", f"sqlite:///{data_dir / 'autoclip.db'}")
+os.environ.setdefault("LOG_FILE", str(data_dir / "logs" / "backend.log"))
+
 
 class DesktopServiceManager:
     """桌面服务管理器，统一管理FastAPI和Celery服务"""
