@@ -18,6 +18,7 @@ import {
   readTextAnimationFromParams,
   writeTextAnimationToParams,
 } from '../../editor/textAnimation/params'
+import { DEFAULT_TEXT_ANIMATION_CONFIG, type TextAnimationConfig } from '../../editor/textAnimation/types'
 
 interface EditorInspectorProps {
   projectId: string
@@ -60,6 +61,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   const deleteSelectedOverlays = useEditSessionStore((state) => state.deleteSelectedOverlays)
   const setSelectedOverlayId = useEditSessionStore((state) => state.setSelectedOverlayId)
   const applyTextPreset = useEditSessionStore((state) => state.applyTextPreset)
+  const applyBatchTextAnimation = useEditSessionStore((state) => state.applyBatchTextAnimation)
 
   const [regenerating, setRegenerating] = useState(false)
   const [srtBoundaries, setSrtBoundaries] = useState<number[]>([])
@@ -270,7 +272,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
         <div className="editor-inspector-section">
           <div className="editor-inspector-label">已选中 {multiOverlayCount} 个自由文本层</div>
           <div className="editor-inspector-muted">
-            可在预览区框选或 Shift/Ctrl 多选，拖拽可成组移动位置
+            可在预览区框选或 Shift/Ctrl 多选，拖拽可成组移动位置；在「动画」Tab 批量设置动效
           </div>
           <button
             type="button"
@@ -289,7 +291,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
         <div className="editor-inspector-section">
           <div className="editor-inspector-label">已选中 {multiCaptionCount} 条模板字幕</div>
           <div className="editor-inspector-muted">
-            可在预览区框选或 Shift/Ctrl 多选，拖拽可成组调整位置
+            可在预览区框选或 Shift/Ctrl 多选，拖拽可成组调整位置；在「动画」Tab 批量设置动效
           </div>
         </div>
       )
@@ -492,18 +494,60 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
 
 
   const renderAnimationTab = () => {
-    const multiOverlayCount = selectedOverlayIds.length
-    const multiCaptionCount = selectedCaptionBlockIds.length
+    const overlayIds =
+      selectedOverlayIds.length > 0
+        ? selectedOverlayIds
+        : selectedOverlay
+          ? [selectedOverlay.id]
+          : []
+    const captionIds =
+      selectedCaptionBlockIds.length > 0
+        ? selectedCaptionBlockIds
+        : captionEditingBlock
+          ? [captionEditingBlock.id]
+          : []
+    const totalSelected = overlayIds.length + captionIds.length
 
-    if (multiOverlayCount > 1 || multiCaptionCount > 1) {
+    if (totalSelected === 0) {
       return (
-        <div className="editor-inspector-section">
-          <div className="editor-inspector-muted">多选时暂不支持批量设置动画</div>
+        <div className="editor-empty-hint">
+          选中字幕或自由文本层后设置入场、出场或循环动画
         </div>
       )
     }
 
-    if (selectedOverlay) {
+    const resolveSeedConfig = () => {
+      if (overlayIds.length > 0) {
+        const element = session.overlay_elements?.find((item) => item.id === overlayIds[0])
+        if (element) return readTextAnimationFromParams(element.params ?? {})
+      }
+      if (captionIds.length > 0) {
+        const block = session.sequence.find((item) => item.id === captionIds[0])
+        if (block?.overlay) return readTextAnimationFromBlockOverlay(block.overlay)
+      }
+      return DEFAULT_TEXT_ANIMATION_CONFIG
+    }
+
+    const applyAnimation = (next: TextAnimationConfig) => {
+      applyBatchTextAnimation({ overlayIds, captionBlockIds: captionIds }, next)
+    }
+
+    if (totalSelected > 1) {
+      const summaryParts: string[] = []
+      if (overlayIds.length > 0) summaryParts.push(`${overlayIds.length} 个文本层`)
+      if (captionIds.length > 0) summaryParts.push(`${captionIds.length} 条字幕`)
+      return (
+        <>
+          <div className="editor-inspector-section">
+            <div className="editor-inspector-label">已选中 {summaryParts.join(' · ')}</div>
+            <div className="editor-inspector-muted">以下动效将批量应用到全部选中项</div>
+          </div>
+          <TextAnimationPanel config={resolveSeedConfig()} onChange={applyAnimation} />
+        </>
+      )
+    }
+
+    if (overlayIds.length === 1 && selectedOverlay) {
       const config = readTextAnimationFromParams(selectedOverlay.params ?? {})
       return (
         <TextAnimationPanel
@@ -518,7 +562,8 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
       )
     }
 
-    const captionBlock = captionEditingBlock ?? selectedBlock
+    const captionBlock =
+      session.sequence.find((block) => block.id === captionIds[0]) ?? captionEditingBlock ?? selectedBlock
     if (!captionBlock?.overlay) {
       return (
         <div className="editor-empty-hint">
@@ -538,11 +583,15 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
     )
   }
 
-  const visibleTabs: InspectorTab[] = selectedOverlay
-    ? ['text', 'animation']
-    : selectedBlock
-      ? ['video', 'audio', 'text', 'animation', 'transition']
-      : []
+  const visibleTabs: InspectorTab[] =
+    selectedOverlay ||
+    selectedOverlayIds.length > 0 ||
+    selectedCaptionBlockIds.length > 0 ||
+    Boolean(captionEditingBlock)
+      ? ['text', 'animation']
+      : selectedBlock
+        ? ['video', 'audio', 'text', 'animation', 'transition']
+        : []
 
   const activeInspectorTab: InspectorTab =
     visibleTabs.includes(inspectorTab as InspectorTab)
@@ -557,7 +606,13 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
     transition: renderTransitionTab(),
   }
 
-  if (!selectedBlock && !selectedOverlay) {
+  const hasTextSelection =
+    selectedOverlayIds.length > 0 ||
+    selectedCaptionBlockIds.length > 0 ||
+    Boolean(selectedOverlay) ||
+    Boolean(captionEditingBlock)
+
+  if (!selectedBlock && !selectedOverlay && !hasTextSelection) {
     return (
       <aside className="editor-inspector-panel oc-panel">
         <OpenCutPropertiesEmpty />

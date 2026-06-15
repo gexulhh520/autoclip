@@ -17,6 +17,11 @@ import {
   type TimelineTrackId,
 } from '../types/timelineTracks'
 import type { BoxSelectableItem } from '../editor/selection/boxSelect'
+import {
+  patchBlockOverlayAnimation,
+  writeTextAnimationToParams,
+} from '../editor/textAnimation/params'
+import type { TextAnimationConfig } from '../editor/textAnimation/types'
 import { createOpenCutTextOverlay } from '../editor/opencut-text/build'
 import { migrateToOpenCutText } from '../editor/opencut-text/migrate'
 import {
@@ -210,6 +215,11 @@ interface EditSessionState {
     options?: { recordHistory?: boolean }
   ) => void
   applyTextPreset: (elementId: string, presetId: string) => void
+  applyBatchTextAnimation: (
+    target: { overlayIds?: string[]; captionBlockIds?: string[] },
+    config: TextAnimationConfig,
+    options?: { recordHistory?: boolean }
+  ) => void
   beginOverlayDragHistory: () => void
   moveOverlayPositions: (
     updates: Array<{ elementId: string; positionX: number; positionY: number }>,
@@ -1304,6 +1314,29 @@ export const useEditSessionStore = create<EditSessionState>()(
         if (!element?.params) return
         const nextParams = applyTextPresetToParams(element.params, presetId)
         get().updateOverlayParams(elementId, nextParams)
+      },
+
+      applyBatchTextAnimation: (target, config, options) => {
+        const overlayIds = target.overlayIds ?? []
+        const captionBlockIds = target.captionBlockIds ?? []
+        if (overlayIds.length === 0 && captionBlockIds.length === 0) return
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
+        set((state) => {
+          if (!state.session) return
+          for (const elementId of overlayIds) {
+            const element = state.session.overlay_elements?.find((item) => item.id === elementId)
+            if (!element?.params) continue
+            element.params = writeTextAnimationToParams(element.params, config)
+          }
+          for (const blockId of captionBlockIds) {
+            const block = state.session.sequence.find((item) => item.id === blockId)
+            if (!block?.overlay) continue
+            block.overlay = patchBlockOverlayAnimation(block.overlay, config)
+          }
+          state.dirty = true
+        })
       },
 
       removeOverlayElement: (elementId) => {
