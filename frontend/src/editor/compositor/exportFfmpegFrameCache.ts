@@ -1,4 +1,4 @@
-import apiConfigManager from '../../utils/apiConfig'
+import { apiConfigManager } from '../../utils/apiConfig'
 import type { CompositionPlan } from './types'
 
 export interface DecodedBlockFrames {

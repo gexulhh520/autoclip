@@ -39,7 +39,7 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       strictPort: true, // 如果端口被占用则报错，而不是自动切换
       hmr: {
-        overlay: false // 禁用错误覆盖层
+        overlay: true
       },
       proxy: {
         '/api': {
