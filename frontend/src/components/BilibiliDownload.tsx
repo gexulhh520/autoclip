@@ -1,13 +1,25 @@
 import React, { useState, useEffect } from 'react'
 import { Button, message, Progress, Input, Card, Typography, Space, Spin, Select } from 'antd'
 import { DownloadOutlined } from '@ant-design/icons'
-import { projectApi, bilibiliApi, VideoCategory, BilibiliDownloadTask, ClipDurationSelection, ClipGoalSelection, GeneTemplateSummary } from '../services/api'
+import { projectApi, bilibiliApi, linkBatchApi, VideoCategory, BilibiliDownloadTask, LinkBatchDownloadTask, ClipDurationSelection, ClipGoalSelection, GeneTemplateSummary } from '../services/api'
 import { useProjectStore } from '../store/useProjectStore'
 import { validateApiConfigBeforeProjectCreation } from '../utils/apiConfigCheck'
 import ClipDurationSelector from './ClipDurationSelector'
 import ClipGoalSelector from './ClipGoalSelector'
 
 const { Text } = Typography
+
+const parseUrlsFromText = (raw: string): string[] => {
+  const seen = new Set<string>()
+  const urls: string[] = []
+  for (const line of raw.replace(/\r\n/g, '\n').split('\n')) {
+    const candidate = line.trim()
+    if (!candidate || seen.has(candidate)) continue
+    seen.add(candidate)
+    urls.push(candidate)
+  }
+  return urls
+}
 
 interface BilibiliDownloadProps {
   onDownloadSuccess?: (projectId: string) => void
@@ -31,6 +43,7 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess, 
   const [loadingCategories, setLoadingCategories] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [currentTask, setCurrentTask] = useState<BilibiliDownloadTask | null>(null)
+  const [linkBatchTask, setLinkBatchTask] = useState<LinkBatchDownloadTask | null>(null)
   const [pollingInterval, setPollingInterval] = useState<number | null>(null)
   const [videoInfo, setVideoInfo] = useState<any>(null)
   const [parsing, setParsing] = useState(false)
@@ -123,13 +136,33 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess, 
     return null
   }
 
+  const parsedUrls = parseUrlsFromText(url)
+  const isMultiLink = parsedUrls.length > 1
+
   const parseVideoInfo = async () => {
-    if (!url.trim()) {
+    const urls = parseUrlsFromText(url)
+    if (urls.length === 0) {
       setError('请输入正确的视频链接')
       return
     }
 
-    const videoType = getVideoType(url.trim())
+    if (urls.length > 1) {
+      for (const item of urls) {
+        if (!validateVideoUrl(item)) {
+          setError(`无效链接: ${item}`)
+          return
+        }
+      }
+      setVideoInfo(null)
+      setError('')
+      if (!projectName.trim()) {
+        setProjectName(`多链接项目 (${urls.length} 个视频)`)
+      }
+      return
+    }
+
+    const singleUrl = urls[0]
+    const videoType = getVideoType(singleUrl)
     if (!videoType) {
       setError('请输入正确的B站或YouTube视频链接')
       return
@@ -141,9 +174,9 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess, 
     try {
       let response
       if (videoType === 'bilibili') {
-        response = await bilibiliApi.parseVideoInfo(url.trim(), selectedBrowser)
+        response = await bilibiliApi.parseVideoInfo(singleUrl, selectedBrowser)
       } else if (videoType === 'youtube') {
-        response = await bilibiliApi.parseYouTubeVideoInfo(url.trim(), selectedBrowser)
+        response = await bilibiliApi.parseYouTubeVideoInfo(singleUrl, selectedBrowser)
       }
       
       const parsedVideoInfo = response?.video_info
@@ -163,6 +196,35 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess, 
     } finally {
       setParsing(false)
     }
+  }
+
+  const startLinkBatchPolling = (taskId: string) => {
+    const interval = setInterval(async () => {
+      try {
+        const task = await linkBatchApi.getTaskStatus(taskId)
+        setLinkBatchTask(task)
+
+        if (task.status === 'completed') {
+          clearInterval(interval)
+          setPollingInterval(null)
+          setDownloading(false)
+          message.success(`多链接项目创建成功，${task.total_urls} 个视频已加入同一项目`)
+          if (task.project_id && onDownloadSuccess) {
+            onDownloadSuccess(task.project_id)
+          }
+          resetForm()
+        } else if (task.status === 'failed') {
+          clearInterval(interval)
+          setPollingInterval(null)
+          setDownloading(false)
+          message.error(`多链接下载失败: ${task.error_message || '未知错误'}`)
+        }
+      } catch (error) {
+        console.error('轮询多链接任务失败:', error)
+      }
+    }, 2000)
+
+    setPollingInterval(interval)
   }
 
   const startPolling = (taskId: string, videoType: 'bilibili' | 'youtube') => {
@@ -204,28 +266,71 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess, 
   }
 
   const handleDownload = async () => {
-    if (!url.trim()) {
+    const urls = parseUrlsFromText(url)
+    if (urls.length === 0) {
       message.error('请输入视频链接')
       return
     }
 
-    const videoType = getVideoType(url.trim())
-    if (!videoType) {
-      message.error('请输入有效的B站或YouTube视频链接')
+    for (const item of urls) {
+      if (!validateVideoUrl(item)) {
+        message.error(`无效链接: ${item}`)
+        return
+      }
+    }
+
+    if (urls.length > 20) {
+      message.error('单次最多 20 个链接')
       return
     }
 
-    // 检查API配置
     const hasValidApiConfig = await validateApiConfigBeforeProjectCreation()
     if (!hasValidApiConfig) {
       return
     }
 
     setDownloading(true)
-    
+
     try {
+      const requestBase = {
+        video_category: selectedCategory,
+        ...clipDuration,
+        ...clipGoal,
+        ...(selectedTemplate ? { template_id: selectedTemplate.id } : {}),
+        ...(selectedBrowser ? { browser: selectedBrowser } : {}),
+      }
+
+      if (urls.length > 1) {
+        const response = await linkBatchApi.createDownloadTask({
+          urls,
+          project_name: projectName.trim() || `多链接项目 (${urls.length} 个视频)`,
+          ...requestBase,
+        })
+
+        addProject({
+          id: response.project_id,
+          name: projectName.trim() || response.project_name,
+          status: 'pending',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+
+        setLinkBatchTask(response)
+        startLinkBatchPolling(response.id)
+        message.success(`已创建多链接项目，将按顺序下载 ${urls.length} 个视频`)
+        return
+      }
+
+      const singleUrl = urls[0]
+      const videoType = getVideoType(singleUrl)
+      if (!videoType) {
+        message.error('请输入有效的B站或YouTube视频链接')
+        setDownloading(false)
+        return
+      }
+
       const requestBody: any = {
-        url: url.trim(),
+        url: singleUrl,
         video_category: selectedCategory,
         ...clipDuration,
         ...clipGoal,
@@ -285,11 +390,9 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess, 
     setUrl('')
     setProjectName('')
     setCurrentTask(null)
+    setLinkBatchTask(null)
     setVideoInfo(null)
     setError('')
-    // 保持分类和浏览器选择，方便用户继续添加项目
-    // setSelectedCategory(categories[0].value)
-    // setSelectedBrowser('')
   }
 
   const stopDownload = () => {
@@ -299,6 +402,7 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess, 
     }
     setDownloading(false)
     setCurrentTask(null)
+    setLinkBatchTask(null)
     message.info('已停止监控下载任务')
   }
 
@@ -313,7 +417,7 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess, 
         <Space direction="vertical" style={{ width: '100%' }} size={16}>
           <div>
             <Input.TextArea
-              placeholder="请粘贴B站或YouTube视频链接，支持：&#10;• B站：https://www.bilibili.com/video/BV1xx411c7mu&#10;• YouTube：https://www.youtube.com/watch?v=xxxxx"
+              placeholder={'请粘贴 B 站或 YouTube 链接，每行一个；多个链接将创建同一项目并按顺序处理\n• B站：https://www.bilibili.com/video/BV1xx411c7mu\n• YouTube：https://www.youtube.com/watch?v=xxxxx'}
               value={url}
               onChange={(e) => {
                 setUrl(e.target.value)
@@ -327,9 +431,9 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess, 
                 }
               }}
               onBlur={() => {
-                // 失去焦点时自动解析
-                if (url.trim() && !videoInfo && validateVideoUrl(url.trim())) {
-                  parseVideoInfo();
+                const urls = parseUrlsFromText(url)
+                if (urls.length === 1 && !videoInfo && validateVideoUrl(urls[0])) {
+                  void parseVideoInfo()
                 }
               }}
               style={{
@@ -355,6 +459,15 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess, 
                  <span>正在解析视频信息...</span>
                </div>
              )}
+             {isMultiLink && !parsing ? (
+               <div style={{
+                 marginTop: '8px',
+                 color: '#4facfe',
+                 fontSize: '14px',
+               }}>
+                 已识别 {parsedUrls.length} 个链接，将创建同一项目并按顺序下载与分析
+               </div>
+             ) : null}
              {error && !parsing && (
                <div style={{
                  marginTop: '8px',
@@ -385,13 +498,13 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess, 
                 {videoInfo.title}
               </Text>
               <Text style={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '12px' }}>
-                {getVideoType(url) === 'bilibili' ? 'UP主' : '频道'}: {videoInfo.uploader || '未知'} • 时长: {videoInfo.duration ? `${Math.floor(videoInfo.duration / 60)}:${String(Math.floor(videoInfo.duration % 60)).padStart(2, '0')}` : '未知'}
+                {getVideoType(parsedUrls[0] || url) === 'bilibili' ? 'UP主' : '频道'}: {videoInfo.uploader || '未知'} • 时长: {videoInfo.duration ? `${Math.floor(videoInfo.duration / 60)}:${String(Math.floor(videoInfo.duration % 60)).padStart(2, '0')}` : '未知'}
               </Text>
             </div>
           )}
           
-          {/* 只有解析成功后才显示项目名称和分类 */}
-          {videoInfo && (
+          {/* 单链接解析成功或多链接识别后显示配置 */}
+          {(videoInfo || isMultiLink) && (
             <>
               <div>
                 <Text style={{ color: '#ffffff', marginBottom: '12px', display: 'block', fontSize: '16px', fontWeight: 500 }}>项目名称（可选）</Text>
@@ -514,7 +627,7 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess, 
       </div>
 
       {/* 操作按钮 - 只有解析成功后才显示 */}
-      {videoInfo && (
+      {(videoInfo || isMultiLink) && (
         <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'center', gap: '12px' }}>
           <Button
             type="primary"
@@ -535,7 +648,11 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess, 
               minWidth: '160px'
             }}
           >
-            {downloading ? '导入中...' : '开始导入'}
+            {downloading
+              ? '导入中...'
+              : isMultiLink
+                ? `开始导入 ${parsedUrls.length} 个链接`
+                : '开始导入'}
           </Button>
           
           {downloading && (
@@ -556,6 +673,39 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess, 
             </Button>
           )}
         </div>
+      )}
+
+      {linkBatchTask && (
+        <Card
+          style={{
+            background: 'var(--ac-line-2)',
+            border: '1px solid rgba(79, 172, 254, 0.3)',
+            borderRadius: '12px',
+            marginTop: '16px',
+            backdropFilter: 'blur(10px)'
+          }}
+          styles={{ body: { padding: '16px' } }}
+        >
+          <div style={{ marginBottom: '16px' }}>
+            <Text style={{ color: '#ffffff', fontWeight: 600, fontSize: '18px' }}>多链接导入进度</Text>
+          </div>
+          <Text style={{ color: 'var(--ac-sub)', fontSize: '14px', display: 'block', marginBottom: '12px' }}>
+            {linkBatchTask.message} · {linkBatchTask.completed_urls}/{linkBatchTask.total_urls}
+          </Text>
+          <Progress
+            percent={Math.round(linkBatchTask.progress)}
+            status={linkBatchTask.status === 'failed' ? 'exception' : 'active'}
+            strokeColor={{ '0%': '#4facfe', '100%': '#00f2fe' }}
+            trailColor="var(--ac-line)"
+            strokeWidth={8}
+            showInfo={false}
+          />
+          {linkBatchTask.error_message ? (
+            <Text style={{ color: '#ff4d4f', fontSize: '14px', display: 'block', marginTop: '12px' }}>
+              错误: {linkBatchTask.error_message}
+            </Text>
+          ) : null}
+        </Card>
       )}
 
       {/* 下载进度 */}

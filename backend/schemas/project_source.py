@@ -23,6 +23,8 @@ class ProjectSourceRecord(BaseModel):
     status: ProjectSourceStatus = ProjectSourceStatus.PENDING
     video_path: Optional[str] = None
     subtitle_path: Optional[str] = None
+    source_url: Optional[str] = None
+    platform: Optional[str] = None
     duration_seconds: Optional[int] = None
     clips_count: int = 0
     error_message: Optional[str] = None

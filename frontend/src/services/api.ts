@@ -381,6 +381,34 @@ export interface BilibiliDownloadTask {
   updated_at: string
 }
 
+export interface LinkBatchDownloadRequest {
+  urls: string[]
+  project_name: string
+  video_category?: string
+  clip_duration_preset?: string
+  clip_min_seconds?: number
+  clip_target_seconds?: number
+  clip_max_seconds?: number
+  clip_goal?: string
+  template_id?: string
+  browser?: string
+}
+
+export interface LinkBatchDownloadTask {
+  id: string
+  project_id: string
+  project_name: string
+  total_urls: number
+  status: 'pending' | 'processing' | 'completed' | 'failed'
+  progress: number
+  message: string
+  completed_urls: number
+  current_url?: string | null
+  error_message?: string | null
+  created_at: string
+  updated_at: string
+}
+
 // 设置相关API
 export const settingsApi = {
   // 获取系统配置
@@ -1173,6 +1201,18 @@ export const bilibiliApi = {
   getAllYouTubeTasks: async (): Promise<BilibiliDownloadTask[]> => {
     return api.get('/youtube/tasks')
   }
+}
+
+export const linkBatchApi = {
+  createDownloadTask: async (data: LinkBatchDownloadRequest): Promise<LinkBatchDownloadTask> => {
+    const task = await api.post<unknown, LinkBatchDownloadTask>('/link-batch/download', data)
+    trackVideoImported({ source: 'url', fileType: 'link_batch' })
+    return task
+  },
+
+  getTaskStatus: async (taskId: string): Promise<LinkBatchDownloadTask> => {
+    return api.get(`/link-batch/tasks/${taskId}`)
+  },
 }
 
 // 系统状态相关API

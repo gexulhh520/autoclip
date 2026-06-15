@@ -69,6 +69,27 @@ def build_source_records(filenames: List[str]) -> List[ProjectSourceRecord]:
     return records
 
 
+def build_source_records_from_links(
+    entries: List[tuple[str, str, str]],
+) -> List[ProjectSourceRecord]:
+    """从 (url, platform, title) 构建多源记录。"""
+    records: List[ProjectSourceRecord] = []
+    for index, (url, platform, title) in enumerate(entries):
+        source_id = new_source_id()
+        label = (title or "").strip() or f"link_{index + 1}"
+        records.append(
+            ProjectSourceRecord(
+                id=source_id,
+                index=index,
+                original_filename=label[:120],
+                source_url=url,
+                platform=platform,
+                status=ProjectSourceStatus.PENDING,
+            )
+        )
+    return records
+
+
 def assign_source_paths(project_id: str, source: ProjectSourceRecord) -> ProjectSourceRecord:
     video_path = resolve_source_video_path(project_id, source.id)
     srt_path = resolve_source_srt_path(project_id, source.id)

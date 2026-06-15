@@ -31,6 +31,7 @@ from .settings import router as settings_router
 from .templates import router as templates_router
 from .edit_sessions import router as edit_sessions_router
 from .editor import router as editor_router
+from .link_batch import router as link_batch_router
 from ..upload_queue import router as upload_queue_router
 from ..account_health import router as account_health_router
 
@@ -45,6 +46,7 @@ api_router.include_router(processing_router, tags=["processing"])
 api_router.include_router(files_router, tags=["files"])
 api_router.include_router(bilibili_router, prefix="/bilibili", tags=["bilibili"])
 api_router.include_router(youtube_router, prefix="/youtube", tags=["youtube"])
+api_router.include_router(link_batch_router, prefix="/link-batch", tags=["link-batch"])
 api_router.include_router(speech_recognition_router, tags=["speech-recognition"])
 api_router.include_router(subtitle_editor_router, prefix="/subtitle-editor", tags=["subtitle-editor"])
 api_router.include_router(upload_router, tags=["upload"])

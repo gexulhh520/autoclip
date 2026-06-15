@@ -6,6 +6,7 @@ from backend.services.project_source_service import (
     aggregate_project_status,
     attach_multi_source_to_config,
     build_source_records,
+    build_source_records_from_links,
     get_pending_sources,
     is_multi_source_project,
     mark_source_completed,
@@ -13,6 +14,19 @@ from backend.services.project_source_service import (
     summarize_multi_source,
 )
 from backend.schemas.project_source import ProjectSourceStatus
+
+
+def test_build_source_records_from_links():
+    records = build_source_records_from_links(
+        [
+            ("https://www.bilibili.com/video/BV1", "bilibili", "视频 A"),
+            ("https://www.youtube.com/watch?v=abc", "youtube", "Video B"),
+        ]
+    )
+    assert len(records) == 2
+    assert records[0].source_url.endswith("BV1")
+    assert records[0].platform == "bilibili"
+    assert records[1].platform == "youtube"
 
 
 def test_build_and_attach_multi_source():
