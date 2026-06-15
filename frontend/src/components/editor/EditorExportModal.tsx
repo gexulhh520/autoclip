@@ -55,7 +55,7 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
   const [exportDone, setExportDone] = useState<ExportDoneState | null>(null)
   const [batchExportDone, setBatchExportDone] = useState<BatchExportDoneItem[]>([])
   const [backgroundExport, setBackgroundExport] = useState(false)
-  const [useWasmCompositor, setUseWasmCompositor] = useState(true)
+  const [useWasmCompositor, setUseWasmCompositor] = useState(false)
 
   useEffect(() => {
     if (!open) {
@@ -67,7 +67,7 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
     setBurnSubtitles(preset.burn_subtitles)
     setExportSrt(preset.export_srt)
     setUseSourceVideo(preset.use_source_video)
-    setUseWasmCompositor(preset.use_wasm_compositor ?? true)
+    setUseWasmCompositor(preset.use_wasm_compositor ?? false)
     void resolveInitialExportDirectory().then(setExportDir)
   }, [open])
 

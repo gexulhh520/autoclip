@@ -9,6 +9,7 @@ import { prepareMediabunnyVideoSources } from './mediabunnyVideoSources'
 import { SceneExporter } from './sceneExporter'
 import type { CompositorExportRuntimeParams } from './runCompositorExport'
 import { assertWebCodecsExportSupported } from './webcodecsExport'
+import type { CompositionPlan } from './types'
 
 import type { CompositorBackend } from './wasmCompositorClient'
 
@@ -38,6 +39,20 @@ const sanitizeFilename = (value: string): string => {
   const trimmed = value.trim() || 'export'
   return trimmed.replace(/[\\/:*?"<>|]/g, '_')
 }
+
+interface RendererContext {
+  plan: CompositionPlan
+  session: EditSession
+  burnSubtitles: boolean
+  mutedTextTrackIds?: string[]
+  videoSources: Map<string, import('./mediabunnyVideoSources').MediabunnyBlockVideoSource>
+  fps: number
+}
+
+const createRenderer = (backend: CompositorBackend, ctx: RendererContext) =>
+  backend === 'wasm'
+    ? new WasmCompositorCanvasRenderer(ctx)
+    : new CompositorCanvasRenderer(ctx)
 
 /** OpenCut SceneExporter：WebCodecs 解码/编码 + 与预览相同的 Canvas 合成（唯一导出路径） */
 export async function exportTimelineViaCompositor(
@@ -70,33 +85,29 @@ export async function exportTimelineViaCompositor(
     onProgress: (message) => options.onProgress?.(5, message),
   })
 
-  try {
-    const backend = options.compositorBackend ?? 'canvas'
-    if (backend === 'wasm' && !(await isWasmCompositorReady())) {
-      throw new Error('WASM 合成器未构建，请在 frontend 目录运行 npm run build:wasm')
-    }
+  const rendererCtx: RendererContext = {
+    plan,
+    session,
+    burnSubtitles,
+    mutedTextTrackIds: options.mutedTextTrackIds,
+    videoSources: videoSources.byBlockId,
+    fps,
+  }
 
-    options.onProgress?.(8, backend === 'wasm' ? 'WASM 合成器就绪' : 'Canvas2D 合成器就绪')
+  let backend: CompositorBackend = options.compositorBackend ?? 'canvas'
+  if (backend === 'wasm' && !(await isWasmCompositorReady())) {
+    console.warn('[export] WASM unavailable, falling back to Canvas2D')
+    backend = 'canvas'
+    options.onProgress?.(7, 'WASM 未就绪，已回退 Canvas2D')
+  }
 
-    const renderer =
-      backend === 'wasm'
-        ? new WasmCompositorCanvasRenderer({
-            plan,
-            session,
-            burnSubtitles,
-            mutedTextTrackIds: options.mutedTextTrackIds,
-            videoSources: videoSources.byBlockId,
-            fps,
-          })
-        : new CompositorCanvasRenderer({
-            plan,
-            session,
-            burnSubtitles,
-            mutedTextTrackIds: options.mutedTextTrackIds,
-            videoSources: videoSources.byBlockId,
-            fps,
-          })
+  const runEncode = async (activeBackend: CompositorBackend): Promise<ArrayBuffer> => {
+    options.onProgress?.(
+      8,
+      activeBackend === 'wasm' ? 'WASM 合成器就绪' : 'Canvas2D 合成器就绪'
+    )
 
+    const renderer = createRenderer(activeBackend, rendererCtx)
     const exporter = new SceneExporter({
       width: plan.canvas.width,
       height: plan.canvas.height,
@@ -104,15 +115,30 @@ export async function exportTimelineViaCompositor(
       totalDurationSec: plan.totalDurationSec,
     })
 
-    options.onProgress?.(10, backend === 'wasm' ? 'WASM + WebCodecs 编码中' : 'WebCodecs 编码中')
+    options.onProgress?.(
+      10,
+      activeBackend === 'wasm' ? 'WASM + WebCodecs 编码中' : 'WebCodecs 编码中'
+    )
 
-    const buffer = await exporter.export(renderer, {
+    return exporter.export(renderer, {
       signal: options.signal,
       onProgress: ({ frameIndex, totalFrames: total }) => {
         const percent = 10 + Math.round(((frameIndex + 1) / total) * 75)
         options.onProgress?.(percent, `编码帧 ${frameIndex + 1}/${total}`)
       },
     })
+  }
+
+  try {
+    let buffer: ArrayBuffer
+    try {
+      buffer = await runEncode(backend)
+    } catch (error) {
+      if (backend !== 'wasm') throw error
+      console.warn('[export] WASM encode failed, falling back to Canvas2D', error)
+      options.onProgress?.(8, 'WASM 导出失败，回退 Canvas2D…')
+      buffer = await runEncode('canvas')
+    }
 
     options.onProgress?.(88, '写入视频文件')
     await writeExportVideoFile(outputPath, buffer)

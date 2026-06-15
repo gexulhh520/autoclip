@@ -3,16 +3,20 @@ import type { MediabunnyBlockVideoSource } from './mediabunnyVideoSources'
 
 export type CompositorBackend = 'canvas' | 'wasm'
 
-interface LayerRgbaPayload {
+interface LayerRgbaMeta {
   blockId: string
   width: number
   height: number
-  rgbaB64: string
+  byteLength: number
 }
 
 type WasmCompositorModule = {
-  default: () => Promise<unknown>
-  compositeVideoFrame: (descriptorJson: string, layersJson: string) => Uint8Array
+  default: (input?: RequestInfo | URL | Response | BufferSource | WebAssembly.Module) => Promise<unknown>
+  compositeVideoFrameBinary: (
+    descriptorJson: string,
+    layersMetaJson: string,
+    rgbaBlob: Uint8Array
+  ) => Uint8Array
   isWasmCompositorAvailable: () => boolean
 }
 
@@ -22,9 +26,12 @@ export async function loadWasmCompositorModule(): Promise<WasmCompositorModule |
   if (wasmModulePromise) return wasmModulePromise
   wasmModulePromise = (async () => {
     try {
-      const mod = (await import('@/wasm/compositor/pkg/autoclip_compositor_wasm.js')) as WasmCompositorModule
-      await mod.default()
-      return mod
+      const [mod, wasmUrl] = await Promise.all([
+        import('@/wasm/compositor/pkg/autoclip_compositor_wasm.js'),
+        import('@/wasm/compositor/pkg/autoclip_compositor_wasm_bg.wasm?url'),
+      ])
+      await (mod as WasmCompositorModule).default(wasmUrl.default)
+      return mod as WasmCompositorModule
     } catch (error) {
       console.warn('[compositor-wasm] load failed', error)
       return null
@@ -38,27 +45,23 @@ export async function isWasmCompositorReady(): Promise<boolean> {
   return mod != null && mod.isWasmCompositorAvailable()
 }
 
-const canvasToRgbaBase64 = (
-  canvas: HTMLCanvasElement | OffscreenCanvas,
-  width: number,
-  height: number
-): string => {
-  const ctx = canvas.getContext('2d')
+const readCanvasRgba = (
+  canvas: HTMLCanvasElement | OffscreenCanvas
+): { width: number; height: number; rgba: Uint8Array } => {
+  const width = canvas.width
+  const height = canvas.height
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
   if (!ctx) throw new Error('Canvas 2D unavailable')
   const imageData = ctx.getImageData(0, 0, width, height)
-  const rgba = imageData.data
-  let binary = ''
-  for (let index = 0; index < rgba.length; index += 1) {
-    binary += String.fromCharCode(rgba[index]!)
-  }
-  return btoa(binary)
+  return { width, height, rgba: new Uint8Array(imageData.data) }
 }
 
-export async function collectLayerRgbaPayloads(
+export async function collectLayerRgbaBinary(
   descriptor: FrameDescriptor,
   videoSources: Map<string, MediabunnyBlockVideoSource>
-): Promise<LayerRgbaPayload[]> {
-  const payloads: LayerRgbaPayload[] = []
+): Promise<{ metas: LayerRgbaMeta[]; blob: Uint8Array }> {
+  const metas: LayerRgbaMeta[] = []
+  const chunks: Uint8Array[] = []
   const seen = new Set<string>()
 
   for (const item of descriptor.items) {
@@ -73,16 +76,26 @@ export async function collectLayerRgbaPayloads(
     const canvas = await source.getCanvasAtSourceTime(layer.relativeSourceSec)
     if (!canvas) continue
 
-    payloads.push({
+    const { width, height, rgba } = readCanvasRgba(canvas)
+    metas.push({
       blockId: layer.blockId,
-      width: source.width,
-      height: source.height,
-      rgbaB64: canvasToRgbaBase64(canvas, source.width, source.height),
+      width,
+      height,
+      byteLength: rgba.byteLength,
     })
+    chunks.push(rgba)
     seen.add(layer.blockId)
   }
 
-  return payloads
+  const total = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0)
+  const blob = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    blob.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+
+  return { metas, blob }
 }
 
 export async function compositeVideoFrameWithWasm(
@@ -94,8 +107,8 @@ export async function compositeVideoFrameWithWasm(
     throw new Error('WASM 合成器未就绪，请先运行 npm run build:wasm')
   }
 
-  const layers = await collectLayerRgbaPayloads(descriptor, videoSources)
-  return mod.compositeVideoFrame(JSON.stringify(descriptor), JSON.stringify(layers))
+  const { metas, blob } = await collectLayerRgbaBinary(descriptor, videoSources)
+  return mod.compositeVideoFrameBinary(JSON.stringify(descriptor), JSON.stringify(metas), blob)
 }
 
 export const blitRgbaToCanvasContext = (

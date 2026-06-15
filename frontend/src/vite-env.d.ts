@@ -23,10 +23,18 @@ declare module '*.svg?react' {
 }
 
 declare module '@/wasm/compositor/pkg/autoclip_compositor_wasm.js' {
-  export function compositeVideoFrame(
+  export function compositeVideoFrameBinary(
     descriptor_json: string,
-    layers_json: string
+    layers_meta_json: string,
+    rgba_blob: Uint8Array
   ): Uint8Array
   export function isWasmCompositorAvailable(): boolean
-  export default function initWasm(): Promise<void>
+  export default function initWasm(
+    module_or_path?: RequestInfo | URL | Response | BufferSource | WebAssembly.Module
+  ): Promise<void>
+}
+
+declare module '@/wasm/compositor/pkg/autoclip_compositor_wasm_bg.wasm?url' {
+  const url: string
+  export default url
 }
