@@ -1,4 +1,6 @@
 import type { EditBlock, EditSession } from '../../types/editSession'
+import { measureTextOverlay } from '../opencut-text/measure'
+import type { OpenCutTextOverlay } from '../opencut-text/params'
 import { buildFrameDescriptor, compileCompositionPlan } from './index'
 import {
   compositorExportCancel,
@@ -6,10 +8,7 @@ import {
   compositorExportStart,
   isTauriRuntime,
 } from './compositorClient'
-import {
-  disposeExportVideoSources,
-  loadExportVideoSources,
-} from './exportVideoSources'
+import { preloadExportFrameCache } from './exportFfmpegFrameCache'
 import { runExportRenderPipeline } from './exportRenderPipeline'
 
 export interface ExportTimelineOptions {
@@ -21,8 +20,6 @@ export interface ExportTimelineOptions {
   mutedTextTrackIds?: string[]
   onProgress?: (percent: number, message: string) => void
   signal?: AbortSignal
-  /** decode 预取深度 */
-  prefetchDepth?: number
 }
 
 export interface ExportTimelineResult {
@@ -37,7 +34,7 @@ const sanitizeFilename = (value: string): string => {
   return trimmed.replace(/[\\/:*?"<>|]/g, '_')
 }
 
-/** Compositor 逐帧导出 — Phase 2 桌面端主路径（像素无 ASS/drawtext） */
+/** Compositor 逐帧导出 — FFmpeg 预解码 + FrameDescriptor（对齐 OpenCut decode 路径） */
 export async function exportTimelineViaCompositor(
   session: EditSession,
   params: {
@@ -64,14 +61,25 @@ export async function exportTimelineViaCompositor(
   const safeName = sanitizeFilename(options.filename ?? session.name)
   const outputPath = `${options.outputDir.replace(/\\/g, '/').replace(/\/$/, '')}/${safeName}_compositor.mp4`
 
-  options.onProgress?.(0, '加载素材')
+  options.onProgress?.(0, '预解码素材')
 
   const blocksById = new Map(session.sequence.map((block) => [block.id, block]))
-  const videos = await loadExportVideoSources(plan, (blockId) => {
-    const block = blocksById.get(blockId)
-    if (!block) throw new Error(`片段不存在: ${blockId}`)
-    return params.getVideoUrlForBlock(block)
+  const rgbaFrames = await preloadExportFrameCache({
+    projectId: params.projectId,
+    sessionId: params.sessionId,
+    plan,
+    blocksById,
+    useSourceVideo,
+    fps,
+    onProgress: (message) => options.onProgress?.(5, message),
   })
+
+  const measureText = ({ element, canvasHeight }: { element: OpenCutTextOverlay; canvasHeight: number }) => {
+    const scratch = document.createElement('canvas')
+    const scratchCtx = scratch.getContext('2d')
+    if (!scratchCtx) throw new Error('Canvas 2D unavailable')
+    return measureTextOverlay({ element, canvasHeight, ctx: scratchCtx })
+  }
 
   const canvas = document.createElement('canvas')
   canvas.width = plan.canvas.width
@@ -97,15 +105,14 @@ export async function exportTimelineViaCompositor(
       totalFrames,
       burnSubtitles,
       mutedTextTrackIds: options.mutedTextTrackIds,
-      videos,
+      rgbaFrames,
       blocksById,
-      getSourceTimeForBlock: params.getSourceTimeForBlock,
+      measureTextOverlay: measureText,
       ctx,
       exportSessionId,
-      prefetchDepth: options.prefetchDepth ?? 2,
       signal: options.signal,
       onProgress: (frameIndex, total) => {
-        const percent = Math.round(((frameIndex + 1) / total) * 85)
+        const percent = 5 + Math.round(((frameIndex + 1) / total) * 80)
         options.onProgress?.(percent, `合成帧 ${frameIndex + 1}/${total}`)
       },
     })
@@ -124,7 +131,5 @@ export async function exportTimelineViaCompositor(
       await compositorExportCancel(exportSessionId).catch(() => undefined)
     }
     throw error
-  } finally {
-    disposeExportVideoSources(videos)
   }
 }

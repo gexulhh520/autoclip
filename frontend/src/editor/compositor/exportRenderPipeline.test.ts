@@ -2,15 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { runExportRenderPipeline } from './exportRenderPipeline'
 import type { CompositionPlan } from './types'
 import type { EditSession } from '../../types/editSession'
+import type { DecodedBlockFrames } from './exportFfmpegFrameCache'
 
 vi.mock('./compositorClient', () => ({
   compositorExportPushFrame: vi.fn(() => Promise.resolve()),
-}))
-
-vi.mock('./exportVideoSources', () => ({
-  syncExportVideosAtTime: vi.fn(async (_plan, timeSec: number) => {
-    return new Map([['a', { currentTime: timeSec } as HTMLVideoElement]])
-  }),
 }))
 
 vi.mock('./softwareRenderer', () => ({
@@ -22,7 +17,7 @@ vi.mock('./buildFrameDescriptor', () => ({
 }))
 
 describe('runExportRenderPipeline', () => {
-  it('renders all frames and pipelines encode', async () => {
+  it('renders all frames and pushes rgba to encoder', async () => {
     const { compositorExportPushFrame } = await import('./compositorClient')
     const { renderFrameDescriptorToCanvas } = await import('./softwareRenderer')
 
@@ -39,18 +34,29 @@ describe('runExportRenderPipeline', () => {
       totalDurationSec: 0.1,
     } as CompositionPlan
 
+    const rgbaFrames = new Map<string, DecodedBlockFrames>([
+      [
+        'a',
+        {
+          blockId: 'a',
+          width: 16,
+          height: 16,
+          frameCount: 3,
+          data: new Uint8Array(16 * 16 * 4 * 3),
+        },
+      ],
+    ])
+
     await runExportRenderPipeline({
       plan,
       session: { sequence: [{ id: 'a' }] } as EditSession,
       fps: 30,
       totalFrames: 3,
       burnSubtitles: true,
-      videos: new Map(),
-      blocksById: new Map(),
-      getSourceTimeForBlock: () => 0,
+      rgbaFrames,
+      blocksById: new Map([['a', { id: 'a' } as EditSession['sequence'][0]]]),
       ctx,
       exportSessionId: 'sess-1',
-      prefetchDepth: 2,
     })
 
     expect(renderFrameDescriptorToCanvas).toHaveBeenCalledTimes(3)

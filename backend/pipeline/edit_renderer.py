@@ -854,19 +854,7 @@ def export_edit_session(
     use_source_video: Optional[bool] = None,
     progress_callback: Optional[Callable[[int, str], None]] = None,
 ) -> Tuple[Path, Optional[Path]]:
-    """Legacy FFmpeg 合成导出（ASS/drawtext 布局）。
-
-    新默认路径：桌面 Compositor + ``mux_compositor_export``。
-    设置 ``AUTOCLIP_EXPORT_LEGACY=1`` 可显式保留此路径用于回归对比。
-    """
-    import os
-
-    if os.getenv("AUTOCLIP_EXPORT_LEGACY", "").lower() not in {"1", "true", "yes"}:
-        raise RuntimeError(
-            "Legacy FFmpeg layout export is disabled. "
-            "Use the desktop app Compositor export, or set AUTOCLIP_EXPORT_LEGACY=1 for regression tests."
-        )
-
+    """FFmpeg 合成导出（预览一致的字幕/画幅由 Compositor 路径负责；此为稳定兜底）。"""
     def report(progress: int, message: str) -> None:
         if progress_callback is not None:
             progress_callback(max(0, min(progress, 100)), message)

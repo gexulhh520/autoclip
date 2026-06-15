@@ -1,8 +1,10 @@
 import type { EditBlock, EditSession } from '../../types/editSession'
+import type { MeasuredTextOverlay } from '../opencut-text/measure'
+import type { OpenCutTextOverlay } from '../opencut-text/params'
 import type { CompositionPlan } from './types'
 import { buildFrameDescriptor } from './buildFrameDescriptor'
 import { compositorExportPushFrame } from './compositorClient'
-import { syncExportVideosAtTime } from './exportVideoSources'
+import type { DecodedBlockFrames } from './exportFfmpegFrameCache'
 import { renderFrameDescriptorToCanvas } from './softwareRenderer'
 
 export interface ExportRenderPipelineOptions {
@@ -12,13 +14,14 @@ export interface ExportRenderPipelineOptions {
   totalFrames: number
   burnSubtitles: boolean
   mutedTextTrackIds?: string[]
-  videos: Map<string, HTMLVideoElement>
+  rgbaFrames: Map<string, DecodedBlockFrames>
   blocksById: Map<string, EditBlock>
-  getSourceTimeForBlock: (block: EditBlock, relativeSec: number) => number
+  measureTextOverlay?: (args: {
+    element: OpenCutTextOverlay
+    canvasHeight: number
+  }) => MeasuredTextOverlay
   ctx: CanvasRenderingContext2D
   exportSessionId: string
-  /** decode 预取深度（帧数） */
-  prefetchDepth?: number
   onProgress?: (frameIndex: number, totalFrames: number) => void
   signal?: AbortSignal
 }
@@ -29,7 +32,7 @@ const yieldToMainThread = (): Promise<void> =>
     globalThis.setTimeout(resolve, 0)
   })
 
-/** 逐帧导出流水线：decode 预取 + render/encode 重叠 */
+/** 逐帧导出：FFmpeg 预解码帧 + FrameDescriptor 合成 + Rust 编码 */
 export async function runExportRenderPipeline(
   options: ExportRenderPipelineOptions
 ): Promise<void> {
@@ -40,57 +43,44 @@ export async function runExportRenderPipeline(
     totalFrames,
     burnSubtitles,
     mutedTextTrackIds,
-    videos,
+    rgbaFrames,
     blocksById,
-    getSourceTimeForBlock,
+    measureTextOverlay,
     ctx,
     exportSessionId,
-    prefetchDepth = 2,
     onProgress,
     signal,
   } = options
 
-  const decodeCache = new Map<number, Promise<Map<string, HTMLVideoElement>>>()
-
-  const scheduleDecode = (frameIndex: number): void => {
-    if (frameIndex < 0 || frameIndex >= totalFrames || decodeCache.has(frameIndex)) {
-      return
-    }
-    const timeSec = frameIndex / fps
-    decodeCache.set(
-      frameIndex,
-      syncExportVideosAtTime(plan, timeSec, videos, getSourceTimeForBlock, blocksById)
-    )
-  }
+  const sourceSize = { width: plan.canvas.width, height: plan.canvas.height }
 
   for (let frameIndex = 0; frameIndex < totalFrames; frameIndex += 1) {
     if (signal?.aborted) {
       throw new Error('导出已取消')
     }
 
-    for (let ahead = 1; ahead <= prefetchDepth; ahead += 1) {
-      scheduleDecode(frameIndex + ahead)
-    }
-
-    const activeVideos = await (decodeCache.get(frameIndex) ??
-      syncExportVideosAtTime(plan, frameIndex / fps, videos, getSourceTimeForBlock, blocksById))
-    decodeCache.delete(frameIndex)
-
-    const descriptor = buildFrameDescriptor(plan, frameIndex / fps, {
+    const timeSec = frameIndex / fps
+    const descriptor = buildFrameDescriptor(plan, timeSec, {
       session,
+      sourceSize,
       burnSubtitles,
       mutedTextTrackIds,
+      measureTextOverlay,
     })
 
     renderFrameDescriptorToCanvas(ctx, descriptor, {
-      videos: activeVideos,
+      rgbaFrames,
+      fps,
       showTemplateCaptions: burnSubtitles,
       showFreeText: true,
       preferGpuEffects: false,
     })
 
     const rgba = ctx.getImageData(0, 0, plan.canvas.width, plan.canvas.height).data
-    await compositorExportPushFrame(exportSessionId, new Uint8Array(rgba.buffer, rgba.byteOffset, rgba.byteLength))
+    await compositorExportPushFrame(
+      exportSessionId,
+      new Uint8Array(rgba.buffer, rgba.byteOffset, rgba.byteLength)
+    )
     onProgress?.(frameIndex, totalFrames)
     await yieldToMainThread()
   }

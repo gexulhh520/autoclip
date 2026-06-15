@@ -334,6 +334,16 @@ class EditSessionCompositorPlanResponse(BaseModel):
     plan: Dict[str, Any]
 
 
+class DecodeBlockFramesRequest(BaseModel):
+    """Compositor 导出预解码 — 单 block 批量 RGBA 帧。"""
+
+    block_id: str
+    use_source_video: Optional[bool] = None
+    fps: float = Field(default=30.0, gt=0, le=120)
+    width: int = Field(gt=0, le=7680)
+    height: int = Field(gt=0, le=4320)
+
+
 class HeadlessExportJobItemResponse(BaseModel):
     job_id: str
     project_id: str

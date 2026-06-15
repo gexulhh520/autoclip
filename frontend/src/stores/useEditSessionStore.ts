@@ -548,6 +548,26 @@ export const useEditSessionStore = create<EditSessionState>()(
             throw new Error('请选择有效的导出目录')
           }
 
+          if (!get().useCompositorExport) {
+            set({ exportProgress: 10, exportMessage: 'FFmpeg 导出中' })
+            const backendResult = await editApi.exportSession(projectId, session.id, {
+              burn_subtitles: burnSubtitles,
+              filename,
+              export_srt: options?.export_srt ?? false,
+              use_source_video: useSourceVideo,
+              write_back_to_project: options?.write_back_to_project ?? false,
+              output_dir: outputDir,
+            })
+            set({ exporting: false, exportProgress: 100, exportMessage: '导出完成' })
+            return {
+              videoUrl: backendResult.download_url,
+              srtUrl: backendResult.srt_download_url,
+              projectClipPath: backendResult.project_clip_path,
+              localOutputPath: backendResult.local_output_path,
+              localSrtPath: backendResult.local_srt_path,
+            }
+          }
+
           const result = await runCompositorExportAndMux(
             buildCompositorRuntimeParams(projectId, session, useSourceVideo),
             {

@@ -208,12 +208,10 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
     }
   }
 
-  const exportBlocked = !isTauriApp() || !useCompositorExport
+  const exportBlocked = !isTauriApp()
   const exportBlockedReason = !isTauriApp()
     ? '成片导出需使用桌面客户端，以确保与预览效果一致'
-    : !useCompositorExport
-      ? '请开启 Compositor 导出'
-      : null
+    : null
 
   const hasExportResult = Boolean(exportDone || batchExportDone.length > 0)
 
@@ -310,7 +308,7 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
               checked={useCompositorExport}
               onChange={(event) => setUseCompositorExport(event.target.checked)}
             />
-            Compositor 导出（{mode === 'batch' ? '批量分轨逐片段' : '与预览 Compositor 路径一致'}）
+            Compositor 导出（FFmpeg 预解码 + 与预览一致）
           </label>
         ) : null}
         {isTauriApp() && mode === 'single' && useCompositorExport ? (
@@ -328,9 +326,9 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
             后台导出不支持回写项目切片，请取消「导出后回写」或使用前台导出。
           </p>
         ) : null}
-        {isTauriApp() && mode === 'batch' && !useCompositorExport ? (
+        {isTauriApp() && !useCompositorExport ? (
           <p className="editor-export-preview-summary__hint">
-            批量分轨需开启 Compositor 导出。
+            未开启 Compositor 时使用 FFmpeg 稳定导出（字幕布局可能与预览略有差异）。
           </p>
         ) : null}
         {!isTauriApp() ? (

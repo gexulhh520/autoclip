@@ -5,6 +5,7 @@ import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from backend.core.database import get_db
@@ -22,6 +23,7 @@ from backend.schemas.edit_session import (
     EditSessionExportRequest,
     EditSessionCompositorMuxRequest,
     EditSessionCompositorPlanResponse,
+    DecodeBlockFramesRequest,
     EditSessionHeadlessExportRequest,
     EditSessionExportJobStatusResponse,
     EditSessionExportResponse,
@@ -393,6 +395,64 @@ async def export_edit_session_video(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("导出剪辑工程失败: %s/%s", project_id, session_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/export/decode-block-frames",
+    response_class=Response,
+)
+async def decode_block_frames_for_export(
+    project_id: str,
+    session_id: str,
+    body: DecodeBlockFramesRequest,
+    service: EditSessionService = Depends(get_edit_session_service),
+):
+    """单次 FFmpeg 解码 block 全部 RGBA 帧，供 Compositor 导出（无 HTMLVideo seek）。"""
+    from backend.core.path_utils import get_project_directory
+    from backend.utils.video_frame_decode import decode_block_frames_rgba
+
+    try:
+        session = service.get_session(project_id, session_id)
+        block = next((item for item in session.sequence if item.id == body.block_id), None)
+        if not block:
+            raise HTTPException(status_code=404, detail="片段不存在")
+
+        use_source = (
+            body.use_source_video
+            if body.use_source_video is not None
+            else bool(session.audio_settings.use_source_video)
+        )
+        project_dir = get_project_directory(project_id)
+
+        loop = asyncio.get_event_loop()
+        raw, frame_count, width, height = await loop.run_in_executor(
+            None,
+            lambda: decode_block_frames_rgba(
+                project_dir,
+                block,
+                use_source_video=use_source,
+                fps=body.fps,
+                width=body.width,
+                height=body.height,
+            ),
+        )
+        return Response(
+            content=raw,
+            media_type="application/octet-stream",
+            headers={
+                "X-Frame-Width": str(width),
+                "X-Frame-Height": str(height),
+                "X-Frame-Count": str(frame_count),
+                "X-Block-Id": body.block_id,
+            },
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("解码 block 帧失败: %s/%s block=%s", project_id, session_id, body.block_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

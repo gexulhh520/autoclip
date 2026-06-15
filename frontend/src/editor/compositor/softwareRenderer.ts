@@ -1,6 +1,7 @@
 import { applyRegisteredSceneEffect, resolveVisualFilterCss } from '../effects'
 import { renderTextOverlayToContext } from '../opencut-text/render'
 import type { OpenCutTextOverlay } from '../opencut-text/params'
+import { getDecodedFrameAtSourceTime, type DecodedBlockFrames } from './exportFfmpegFrameCache'
 import type {
   FrameDescriptor,
   FrameItem,
@@ -10,12 +11,17 @@ import type {
 } from './types'
 
 export interface SoftwareRendererVideoSources {
-  /** blockId → decoded video element */
-  videos: Map<string, HTMLVideoElement>
+  /** blockId → decoded video element（预览） */
+  videos?: Map<string, HTMLVideoElement>
+  /** blockId → FFmpeg 预解码 RGBA（导出） */
+  rgbaFrames?: Map<string, DecodedBlockFrames>
+  fps?: number
 }
 
 export interface SoftwareRendererOptions {
   videos?: SoftwareRendererVideoSources['videos']
+  rgbaFrames?: SoftwareRendererVideoSources['rgbaFrames']
+  fps?: number
   /** CSS filter string applied to video layers */
   visualFilter?: string
   /** Skip template captions (muted/hidden) */
@@ -32,6 +38,28 @@ const sortItems = (items: FrameItem[]): FrameItem[] =>
 const readZIndex = (item: FrameItem): number => {
   if (item.kind === 'layer' || item.kind === 'text') return item.zIndex
   return item.kind === 'scene_effect' ? 10_000 : 9_000
+}
+
+const drawRgbaInTransform = (
+  ctx: CanvasRenderingContext2D,
+  rgba: Uint8Array,
+  frameWidth: number,
+  frameHeight: number,
+  transform: VisualTransform,
+  opacity: number,
+  filter?: string
+): void => {
+  const scratch = document.createElement('canvas')
+  scratch.width = frameWidth
+  scratch.height = frameHeight
+  const scratchCtx = scratch.getContext('2d')
+  if (!scratchCtx) return
+  scratchCtx.putImageData(new ImageData(new Uint8ClampedArray(rgba), frameWidth, frameHeight), 0, 0)
+  ctx.save()
+  ctx.globalAlpha = opacity
+  if (filter) ctx.filter = filter
+  ctx.drawImage(scratch, transform.x, transform.y, transform.width, transform.height)
+  ctx.restore()
 }
 
 const drawVideoInTransform = (
@@ -127,6 +155,8 @@ export function renderFrameDescriptorToCanvas(
 ): void {
   const { width, height } = descriptor
   const videos = options.videos ?? new Map<string, HTMLVideoElement>()
+  const rgbaFrames = options.rgbaFrames
+  const fps = options.fps ?? 30
   const visualFilter = options.visualFilter
   const showTemplateCaptions = options.showTemplateCaptions ?? true
   const showFreeText = options.showFreeText ?? true
@@ -139,7 +169,7 @@ export function renderFrameDescriptorToCanvas(
 
   for (const item of sortItems(descriptor.items)) {
     if (item.kind === 'layer') {
-      renderLayerItem(ctx, item, videos, visualFilter)
+      renderLayerItem(ctx, item, videos, rgbaFrames, fps, visualFilter)
       continue
     }
     if (item.kind === 'text') {
@@ -166,12 +196,23 @@ function renderLayerItem(
   ctx: CanvasRenderingContext2D,
   item: FrameLayerItem,
   videos: Map<string, HTMLVideoElement>,
+  rgbaFrames: Map<string, DecodedBlockFrames> | undefined,
+  fps: number,
   visualFilter?: string
 ): void {
   const blockId = item.blockId
   const video = blockId ? videos.get(blockId) : undefined
+  const decoded = blockId && rgbaFrames ? rgbaFrames.get(blockId) : undefined
   const blurFilter =
     item.source === 'blur_backdrop' ? 'blur(18px) brightness(0.55) saturate(1.1)' : visualFilter
+
+  if (decoded && item.relativeSourceSec != null) {
+    const frame = getDecodedFrameAtSourceTime(decoded, item.relativeSourceSec, fps)
+    if (frame) {
+      drawRgbaInTransform(ctx, frame, decoded.width, decoded.height, item.transform, item.opacity, blurFilter)
+      return
+    }
+  }
 
   if (video && video.readyState >= 2) {
     drawVideoInTransform(ctx, video, item.transform, item.opacity, blurFilter)
