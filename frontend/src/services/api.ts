@@ -894,7 +894,7 @@ export const projectApi = {
     
     try {
       // 对于blob类型的响应，需要直接使用axios而不是经过拦截器
-      const response = await axios.get(`/api/v1${url}`, { 
+      const response = await axios.get(`${api.defaults.baseURL}${url}`, { 
         responseType: 'blob',
         headers: {
           'Accept': 'application/octet-stream'

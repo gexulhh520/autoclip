@@ -22,10 +22,36 @@ from backend.schemas.project import (
 from backend.schemas.base import PaginationParams
 from backend.schemas.project_source import ProjectSourcesResponse
 from pathlib import Path
+import os
 import shutil
+import tempfile
+import time
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _make_temp_download_mp4(project_id: str) -> Path:
+    """在项目 output 下创建临时 mp4（与源片同盘），并关闭 mkstemp 句柄避免 Windows 锁文件。"""
+    from backend.core.path_utils import get_project_directory
+
+    temp_dir = get_project_directory(project_id) / "output" / ".download_temp"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    fd, raw = tempfile.mkstemp(suffix=".mp4", dir=str(temp_dir))
+    os.close(fd)
+    return Path(raw)
+
+
+def _unlink_with_retry(path: Path, *, attempts: int = 8) -> None:
+    for attempt in range(attempts):
+        try:
+            path.unlink(missing_ok=True)
+            return
+        except PermissionError:
+            if attempt + 1 >= attempts:
+                logger.warning("无法删除下载临时文件: %s", path)
+                return
+            time.sleep(0.15 * (attempt + 1))
 
 
 def get_project_service(db: Session = Depends(get_db)) -> ProjectService:
@@ -2067,7 +2093,6 @@ async def download_project_file(
                 should_burn_overlay_on_download,
             )
             from ...utils.video_processor import VideoProcessor
-            import tempfile
             from starlette.background import BackgroundTask
 
             processing_config = getattr(project, "processing_config", None) or {}
@@ -2077,7 +2102,7 @@ async def download_project_file(
             temp_output: Optional[Path] = None
 
             if should_burn_overlay_on_download(processing_config) and overlay_pipeline.composer != "none":
-                temp_output = Path(tempfile.mkstemp(suffix=".mp4")[1])
+                temp_output = _make_temp_download_mp4(project_id)
                 burned = VideoProcessor.burn_overlay_on_video(
                     file_path,
                     temp_output,
@@ -2085,8 +2110,11 @@ async def download_project_file(
                     subtitle_style=overlay_pipeline.subtitle_style,
                     subtitle_config=overlay_pipeline.config,
                 )
-                if burned and temp_output.exists():
+                if burned and temp_output.exists() and temp_output.stat().st_size > 0:
                     deliver_path = temp_output
+                else:
+                    _unlink_with_retry(temp_output)
+                    temp_output = None
             
             # 生成下载文件名
             clip_title = clip.title or f"clip_{clip_id}"
@@ -2099,7 +2127,7 @@ async def download_project_file(
 
             background = None
             if temp_output is not None and deliver_path == temp_output:
-                background = BackgroundTask(lambda p=temp_output: p.unlink(missing_ok=True))
+                background = BackgroundTask(lambda p=temp_output: _unlink_with_retry(p))
             
             return FileResponse(
                 path=str(deliver_path),
