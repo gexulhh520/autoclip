@@ -1,3 +1,4 @@
+import type { TransitionOutKind } from '../../../types/transitions'
 import type { EditBlock, EditBlockOverlay } from '../../../types/editSession'
 import type { RenderScene, VideoLayer } from '../types'
 
@@ -22,6 +23,7 @@ export interface PreviewSceneViewModel {
   canvas: RenderScene['canvas']
   inDissolve: boolean
   dissolveProgress: number | null
+  activeTransitionKind: TransitionOutKind | null
   totalDurationSec: number
   timeSec: number
 }
@@ -59,6 +61,7 @@ export function renderSceneToPreviewViewModel(
     canvas: scene.canvas,
     inDissolve: scene.inDissolve,
     dissolveProgress: scene.dissolveProgress,
+    activeTransitionKind: scene.activeTransitionKind,
     totalDurationSec: scene.totalDurationSec,
     timeSec: scene.timeSec,
   }

@@ -10,9 +10,10 @@ import { blockPlaybackRate } from '../../utils/editTimeline'
 import { resolveCanvasDimensions } from './canvas'
 import {
   buildCompositionTimeline,
-  findDissolveAtTime,
+  findCrossTransitionAtTime,
   mapCompositionTimeToRelativeSource,
 } from './timelineLayout'
+import { resolveCrossTransitionLayerState } from '../transitions/crossTransitionLayers'
 import type {
   ExportScenePlan,
   RenderScene,
@@ -166,20 +167,23 @@ export function resolveSceneAt(
   const canvas = buildCanvas(session, sourceSize)
   const clampedTime = Math.max(0, Math.min(timeline.totalDurationSec, timeSec))
 
-  const dissolve = findDissolveAtTime(timeline, clampedTime)
+  const cross = findCrossTransitionAtTime(timeline, clampedTime)
   const videoLayers: VideoLayer[] = []
   const templateCaptions: RenderScene['templateCaptions'] = []
 
-  if (dissolve) {
-    const { outgoing, incoming, progress } = dissolve
+  if (cross) {
+    const { outgoing, incoming, progress, kind } = cross
     const outRelative = mapCompositionTimeToRelativeSource(outgoing, clampedTime)
     const inRelative = mapCompositionTimeToRelativeSource(incoming, clampedTime)
+    const foreground = { x: 0, y: 0, width: canvas.width, height: canvas.height }
+    const outState = resolveCrossTransitionLayerState(kind, foreground, progress, 'outgoing')
+    const inState = resolveCrossTransitionLayerState(kind, foreground, progress, 'incoming')
 
     videoLayers.push({
       blockId: outgoing.block.id,
       blockIndex: outgoing.index,
       relativeSourceSec: outRelative,
-      opacity: 1 - progress,
+      opacity: outState.opacity,
       volume: blockVolumeAtRelative(
         outgoing.block.audio.volume,
         outRelative,
@@ -194,7 +198,7 @@ export function resolveSceneAt(
       blockId: incoming.block.id,
       blockIndex: incoming.index,
       relativeSourceSec: inRelative,
-      opacity: progress,
+      opacity: inState.opacity,
       volume: blockVolumeAtRelative(
         incoming.block.audio.volume,
         inRelative,
@@ -211,14 +215,14 @@ export function resolveSceneAt(
         templateCaptions.push({
           blockId: outgoing.block.id,
           overlay: outgoing.block.overlay,
-          opacity: 1 - progress,
+          opacity: outState.opacity,
         })
       }
       if (blockHasTemplateCaption(incoming.block)) {
         templateCaptions.push({
           blockId: incoming.block.id,
           overlay: incoming.block.overlay,
-          opacity: progress,
+          opacity: inState.opacity,
         })
       }
     }
@@ -296,8 +300,9 @@ export function resolveSceneAt(
     templateCaptions,
     freeTextLayers,
     audioLayers,
-    inDissolve: Boolean(dissolve),
-    dissolveProgress: dissolve?.progress ?? null,
+    inDissolve: Boolean(cross),
+    dissolveProgress: cross?.progress ?? null,
+    activeTransitionKind: cross?.kind ?? null,
   }
 }
 

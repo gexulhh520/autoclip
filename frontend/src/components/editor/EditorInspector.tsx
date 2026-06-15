@@ -474,7 +474,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
         </div>
         <div className="editor-inspector-section">
           <div className="editor-inspector-label">
-            叠化时长 ({session.audio_settings.transition_duration_sec.toFixed(2)}s)
+            转场时长 ({session.audio_settings.transition_duration_sec.toFixed(2)}s)
           </div>
           <input
             className="editor-range"

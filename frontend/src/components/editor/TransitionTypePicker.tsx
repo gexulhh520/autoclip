@@ -1,9 +1,10 @@
 import React from 'react'
+import type { TransitionOutKind } from '../../types/transitions'
 import { listTransitionUiOptions } from '../../editor/effects'
 
 export interface TransitionTypePickerProps {
-  value: 'cut' | 'dissolve'
-  onChange: (value: 'cut' | 'dissolve') => void
+  value: TransitionOutKind
+  onChange: (value: TransitionOutKind) => void
   disabled?: boolean
 }
 
@@ -16,19 +17,19 @@ const TransitionTypePicker: React.FC<TransitionTypePickerProps> = ({
   const options = listTransitionUiOptions()
 
   return (
-    <div className="editor-transition-type-row">
+    <select
+      className="editor-select"
+      value={value}
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.value as TransitionOutKind)}
+      aria-label="转场类型"
+    >
       {options.map((option) => (
-        <button
-          key={option.effectId}
-          type="button"
-          disabled={disabled}
-          className={`editor-transition-type ${value === option.value ? 'is-active' : ''}`}
-          onClick={() => onChange(option.value)}
-        >
+        <option key={option.effectId} value={option.value}>
           {option.label}
-        </button>
+        </option>
       ))}
-    </div>
+    </select>
   )
 }
 

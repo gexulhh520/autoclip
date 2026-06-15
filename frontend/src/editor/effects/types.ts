@@ -7,10 +7,13 @@ import type {
   FrameSceneEffectItem,
   VisualTransform,
 } from '../compositor/types'
-import type { findDissolveAtTime } from '../scene/timelineLayout'
+import type { findCrossTransitionAtTime } from '../scene/timelineLayout'
+import type { TransitionOutKind } from '../../types/transitions'
 import type { EffectPassDefinition } from './effectPass'
 
-export type DissolveAtTime = NonNullable<ReturnType<typeof findDissolveAtTime>>
+export type CrossTransitionAtTime = NonNullable<ReturnType<typeof findCrossTransitionAtTime>>
+/** @deprecated 使用 CrossTransitionAtTime */
+export type DissolveAtTime = CrossTransitionAtTime
 
 export type EffectCategory = 'filter' | 'transition' | 'geometry' | 'text'
 
@@ -19,13 +22,18 @@ export interface TransitionVideoLayerSpec {
   relativeSourceSec: number
   transform: VisualTransform
   opacity: number
+  clipRect?: { left: number; top: number; right: number; bottom: number }
+  layerOffsetX?: number
+  layerOffsetY?: number
+  layerScale?: number
 }
 
 export interface TransitionResolveResult {
   videoLayers: TransitionVideoLayerSpec[]
   inDissolve: boolean
   progress: number | null
-  dissolve: DissolveAtTime | null
+  dissolve: CrossTransitionAtTime | null
+  transitionKind: TransitionOutKind | null
 }
 
 export interface EffectResolveContext {
@@ -83,6 +91,10 @@ export function frameLayerFromTransitionSpec(
     relativeSourceSec: spec.relativeSourceSec,
     transform: spec.transform,
     opacity: spec.opacity,
+    clipRect: spec.clipRect,
+    layerOffsetX: spec.layerOffsetX,
+    layerOffsetY: spec.layerOffsetY,
+    layerScale: spec.layerScale,
     zIndex,
   }
 }

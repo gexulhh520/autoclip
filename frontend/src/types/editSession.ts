@@ -1,5 +1,8 @@
 import type { OpenCutTextOverlay } from '../editor/opencut-text/params'
 import type { EditProjectV3 } from '../editor/migration/v2ToV3'
+import type { TransitionOutKind } from './transitions'
+
+export type { TransitionOutKind }
 
 export type EditOverlayElement = OpenCutTextOverlay
 
@@ -56,7 +59,7 @@ export interface EditBlock {
   trim: EditBlockTrim
   overlay: EditBlockOverlay
   audio: EditBlockAudio
-  transition_out: 'cut' | 'dissolve'
+  transition_out: TransitionOutKind
   duration_sec: number
   /** 播放倍速：1=原速，2=两倍速（时间线时长缩短） */
   playback_rate?: number

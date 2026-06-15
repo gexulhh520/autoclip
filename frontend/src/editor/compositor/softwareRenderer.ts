@@ -48,6 +48,60 @@ const readZIndex = (item: FrameItem): number => {
 const layerRgbaScratch = new OffscreenCanvas(1, 1)
 let layerRgbaCtx: OffscreenCanvasRenderingContext2D | null = null
 
+const resolveLayerDrawTransform = (
+  transform: VisualTransform,
+  layerOffsetX = 0,
+  layerOffsetY = 0,
+  layerScale = 1
+): VisualTransform => {
+  if (layerScale === 1 && layerOffsetX === 0 && layerOffsetY === 0) {
+    return transform
+  }
+  const centerX = transform.x + transform.width / 2
+  const centerY = transform.y + transform.height / 2
+  const width = transform.width * layerScale
+  const height = transform.height * layerScale
+  return {
+    ...transform,
+    x: centerX - width / 2 + layerOffsetX,
+    y: centerY - height / 2 + layerOffsetY,
+    width,
+    height,
+  }
+}
+
+const withLayerDrawState = (
+  ctx: CanvasRenderingContext2D,
+  transform: VisualTransform,
+  opacity: number,
+  options?: {
+    filter?: string
+    clipRect?: { left: number; top: number; right: number; bottom: number }
+    layerOffsetX?: number
+    layerOffsetY?: number
+    layerScale?: number
+  },
+  draw: (resolved: VisualTransform) => void
+): void => {
+  ctx.save()
+  ctx.globalAlpha = opacity
+  if (options?.filter) ctx.filter = options.filter
+  if (options?.clipRect) {
+    const clip = options.clipRect
+    ctx.beginPath()
+    ctx.rect(clip.left, clip.top, clip.right - clip.left, clip.bottom - clip.top)
+    ctx.clip()
+  }
+  const resolved = resolveLayerDrawTransform(
+    transform,
+    options?.layerOffsetX ?? 0,
+    options?.layerOffsetY ?? 0,
+    options?.layerScale ?? 1
+  )
+  draw(resolved)
+  ctx.restore()
+}
+
 const drawRgbaInTransform = (
   ctx: CanvasRenderingContext2D,
   rgba: Uint8Array,
@@ -55,7 +109,13 @@ const drawRgbaInTransform = (
   frameHeight: number,
   transform: VisualTransform,
   opacity: number,
-  filter?: string
+  filter?: string,
+  layerOptions?: {
+    clipRect?: { left: number; top: number; right: number; bottom: number }
+    layerOffsetX?: number
+    layerOffsetY?: number
+    layerScale?: number
+  }
 ): void => {
   if (layerRgbaScratch.width !== frameWidth || layerRgbaScratch.height !== frameHeight) {
     layerRgbaScratch.width = frameWidth
@@ -69,11 +129,9 @@ const drawRgbaInTransform = (
     0,
     0
   )
-  ctx.save()
-  ctx.globalAlpha = opacity
-  if (filter) ctx.filter = filter
-  ctx.drawImage(layerRgbaScratch, transform.x, transform.y, transform.width, transform.height)
-  ctx.restore()
+  withLayerDrawState(ctx, transform, opacity, { filter, ...layerOptions }, (resolved) => {
+    ctx.drawImage(layerRgbaScratch, resolved.x, resolved.y, resolved.width, resolved.height)
+  })
 }
 
 const drawVideoInTransform = (
@@ -81,14 +139,18 @@ const drawVideoInTransform = (
   video: HTMLVideoElement,
   transform: VisualTransform,
   opacity: number,
-  filter?: string
+  filter?: string,
+  layerOptions?: {
+    clipRect?: { left: number; top: number; right: number; bottom: number }
+    layerOffsetX?: number
+    layerOffsetY?: number
+    layerScale?: number
+  }
 ): void => {
   if (video.readyState < 2) return
-  ctx.save()
-  ctx.globalAlpha = opacity
-  if (filter) ctx.filter = filter
-  ctx.drawImage(video, transform.x, transform.y, transform.width, transform.height)
-  ctx.restore()
+  withLayerDrawState(ctx, transform, opacity, { filter, ...layerOptions }, (resolved) => {
+    ctx.drawImage(video, resolved.x, resolved.y, resolved.width, resolved.height)
+  })
 }
 
 const drawCanvasInTransform = (
@@ -96,26 +158,35 @@ const drawCanvasInTransform = (
   canvas: HTMLCanvasElement | OffscreenCanvas,
   transform: VisualTransform,
   opacity: number,
-  filter?: string
+  filter?: string,
+  layerOptions?: {
+    clipRect?: { left: number; top: number; right: number; bottom: number }
+    layerOffsetX?: number
+    layerOffsetY?: number
+    layerScale?: number
+  }
 ): void => {
-  ctx.save()
-  ctx.globalAlpha = opacity
-  if (filter) ctx.filter = filter
-  ctx.drawImage(canvas as CanvasImageSource, transform.x, transform.y, transform.width, transform.height)
-  ctx.restore()
+  withLayerDrawState(ctx, transform, opacity, { filter, ...layerOptions }, (resolved) => {
+    ctx.drawImage(canvas as CanvasImageSource, resolved.x, resolved.y, resolved.width, resolved.height)
+  })
 }
 
 const drawPlaceholderRect = (
   ctx: CanvasRenderingContext2D,
   transform: VisualTransform,
   opacity: number,
-  fill: string
+  fill: string,
+  layerOptions?: {
+    clipRect?: { left: number; top: number; right: number; bottom: number }
+    layerOffsetX?: number
+    layerOffsetY?: number
+    layerScale?: number
+  }
 ): void => {
-  ctx.save()
-  ctx.globalAlpha = opacity
-  ctx.fillStyle = fill
-  ctx.fillRect(transform.x, transform.y, transform.width, transform.height)
-  ctx.restore()
+  withLayerDrawState(ctx, transform, opacity, layerOptions, (resolved) => {
+    ctx.fillStyle = fill
+    ctx.fillRect(resolved.x, resolved.y, resolved.width, resolved.height)
+  })
 }
 
 const drawFreeText = (
@@ -301,6 +372,15 @@ export function renderFreeTextItemsOnCanvas(
   }
 }
 
+function layerDrawOptions(item: FrameLayerItem) {
+  return {
+    clipRect: item.clipRect,
+    layerOffsetX: item.layerOffsetX,
+    layerOffsetY: item.layerOffsetY,
+    layerScale: item.layerScale,
+  }
+}
+
 function renderLayerItemSync(
   ctx: CanvasRenderingContext2D,
   item: FrameLayerItem,
@@ -314,17 +394,27 @@ function renderLayerItemSync(
   const decoded = blockId && rgbaFrames ? rgbaFrames.get(blockId) : undefined
   const blurFilter =
     item.source === 'blur_backdrop' ? 'blur(18px) brightness(0.55) saturate(1.1)' : visualFilter
+  const layerOptions = layerDrawOptions(item)
 
   if (decoded && item.relativeSourceSec != null) {
     const frame = getDecodedFrameAtSourceTime(decoded, item.relativeSourceSec, fps)
     if (frame) {
-      drawRgbaInTransform(ctx, frame, decoded.width, decoded.height, item.transform, item.opacity, blurFilter)
+      drawRgbaInTransform(
+        ctx,
+        frame,
+        decoded.width,
+        decoded.height,
+        item.transform,
+        item.opacity,
+        blurFilter,
+        layerOptions
+      )
       return
     }
   }
 
   if (video && video.readyState >= 2) {
-    drawVideoInTransform(ctx, video, item.transform, item.opacity, blurFilter)
+    drawVideoInTransform(ctx, video, item.transform, item.opacity, blurFilter, layerOptions)
     return
   }
 
@@ -332,7 +422,8 @@ function renderLayerItemSync(
     ctx,
     item.transform,
     item.opacity,
-    item.source === 'blur_backdrop' ? '#202028' : '#303038'
+    item.source === 'blur_backdrop' ? '#202028' : '#303038',
+    layerOptions
   )
 }
 
@@ -351,11 +442,12 @@ async function renderLayerItemAsync(
   const videoSource = blockId && videoSources ? videoSources.get(blockId) : undefined
   const blurFilter =
     item.source === 'blur_backdrop' ? 'blur(18px) brightness(0.55) saturate(1.1)' : visualFilter
+  const layerOptions = layerDrawOptions(item)
 
   if (videoSource && item.relativeSourceSec != null) {
     const canvas = await videoSource.getCanvasAtSourceTime(item.relativeSourceSec)
     if (canvas) {
-      drawCanvasInTransform(ctx, canvas, item.transform, item.opacity, blurFilter)
+      drawCanvasInTransform(ctx, canvas, item.transform, item.opacity, blurFilter, layerOptions)
       return
     }
   }
@@ -363,13 +455,22 @@ async function renderLayerItemAsync(
   if (decoded && item.relativeSourceSec != null) {
     const frame = getDecodedFrameAtSourceTime(decoded, item.relativeSourceSec, fps)
     if (frame) {
-      drawRgbaInTransform(ctx, frame, decoded.width, decoded.height, item.transform, item.opacity, blurFilter)
+      drawRgbaInTransform(
+        ctx,
+        frame,
+        decoded.width,
+        decoded.height,
+        item.transform,
+        item.opacity,
+        blurFilter,
+        layerOptions
+      )
       return
     }
   }
 
   if (video && video.readyState >= 2) {
-    drawVideoInTransform(ctx, video, item.transform, item.opacity, blurFilter)
+    drawVideoInTransform(ctx, video, item.transform, item.opacity, blurFilter, layerOptions)
     return
   }
 
@@ -377,7 +478,8 @@ async function renderLayerItemAsync(
     ctx,
     item.transform,
     item.opacity,
-    item.source === 'blur_backdrop' ? '#202028' : '#303038'
+    item.source === 'blur_backdrop' ? '#202028' : '#303038',
+    layerOptions
   )
 }
 

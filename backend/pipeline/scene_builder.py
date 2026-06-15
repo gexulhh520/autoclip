@@ -10,7 +10,22 @@ from typing import List, Literal, Optional, Tuple
 from backend.pipeline.edit_renderer import target_dimensions
 from backend.schemas.edit_session import EditBlock, EditOverlayElement, EditSession
 
-TransitionKind = Literal["cut", "dissolve"]
+TransitionKind = Literal[
+    "cut",
+    "dissolve",
+    "fade_black",
+    "wipe_left",
+    "wipe_right",
+    "wipe_up",
+    "wipe_down",
+    "slide_left",
+    "slide_right",
+    "zoom",
+]
+
+
+def _is_cross_transition(kind: str) -> bool:
+    return kind != "cut"
 
 
 def _block_source_trim_duration(block: EditBlock) -> float:
@@ -117,7 +132,7 @@ def build_composition_timeline(
         has_next = index < len(blocks) - 1
         dissolve_out = (
             _compute_dissolve_duration(source_duration, transition_duration_sec)
-            if has_next and block.transition_out == "dissolve"
+            if has_next and _is_cross_transition(block.transition_out)
             else 0.0
         )
         segments.append(

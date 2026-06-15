@@ -9,10 +9,13 @@ describe('Effect Registry UI', () => {
     expect(options.find((item) => item.value === 'mono_soft')?.label).toBe('柔和单色')
   })
 
-  it('listTransitionUiOptions exposes cut and dissolve', () => {
+  it('listTransitionUiOptions exposes all builtin transitions', () => {
     const options = listTransitionUiOptions()
+    expect(options.length).toBe(10)
     expect(options.some((item) => item.value === 'dissolve')).toBe(true)
     expect(options.some((item) => item.value === 'cut')).toBe(true)
+    expect(options.some((item) => item.value === 'wipe_left')).toBe(true)
+    expect(options.some((item) => item.value === 'zoom')).toBe(true)
   })
 
   it('registers text preset slots', () => {

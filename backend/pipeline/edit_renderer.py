@@ -398,6 +398,25 @@ def concat_segments(segment_paths: List[Path], output_path: Path) -> bool:
     return result.returncode == 0 and output_path.exists()
 
 
+def _is_cross_transition(transition: str) -> bool:
+    return transition != "cut"
+
+
+def _xfade_transition_name(transition: str) -> str:
+    mapping = {
+        "dissolve": "fade",
+        "fade_black": "fadeblack",
+        "wipe_left": "wiperight",
+        "wipe_right": "wipeleft",
+        "wipe_up": "wipeup",
+        "wipe_down": "wipedown",
+        "slide_left": "slideleft",
+        "slide_right": "slideright",
+        "zoom": "zoomin",
+    }
+    return mapping.get(transition, "fade")
+
+
 def _merge_two_segments(
     path_a: Path,
     path_b: Path,
@@ -410,7 +429,7 @@ def _merge_two_segments(
     duration_a = _probe_duration(path_a)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if transition != "dissolve":
+    if transition == "cut":
         list_file = output_path.parent / f"pair_{uuid.uuid4().hex[:8]}.txt"
         list_file.write_text(
             "\n".join(
@@ -461,8 +480,9 @@ def _merge_two_segments(
 
     dissolve = max(0.1, min(float(dissolve_duration), duration_a * 0.45))
     offset = max(0.0, duration_a - dissolve)
+    xfade_name = _xfade_transition_name(transition)
     filter_complex = (
-        f"[0:v][1:v]xfade=transition=fade:duration={dissolve}:offset={offset}[vout];"
+        f"[0:v][1:v]xfade=transition={xfade_name}:duration={dissolve}:offset={offset}[vout];"
         f"[0:a][1:a]acrossfade=d={dissolve}[aout]"
     )
     cmd = [
@@ -838,7 +858,7 @@ def write_export_srt(session: EditSession, output_path: Path) -> Path:
         lines.append(str(text).strip())
         lines.append("")
         cursor = end
-        if index < len(session.sequence) and block.transition_out == "dissolve":
+        if index < len(session.sequence) and _is_cross_transition(block.transition_out):
             cursor -= min(dissolve, duration * 0.45)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text("\n".join(lines), encoding="utf-8")

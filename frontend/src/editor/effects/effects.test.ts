@@ -52,7 +52,9 @@ describe('Effect Registry', () => {
     expect(getEffect('filter.mono_soft')).toBeDefined()
     expect(getEffect('visual_filter.mono_soft')).toBe(getEffect('filter.mono_soft'))
     expect(getEffect('transition.dissolve')).toBeDefined()
+    expect(getEffect('transition.wipe_left')).toBeDefined()
     expect(listEffects('filter').length).toBeGreaterThanOrEqual(5)
+    expect(listEffects('transition').length).toBe(10)
   })
 
   it('resolvePlanSceneEffects emits visual_filter scene_effect', () => {

@@ -1,4 +1,6 @@
 import type { VisualFilterId } from './types'
+import type { TransitionOutKind } from '../../types/transitions'
+import { transitionKindFromEffectId } from '../../types/transitions'
 import { listEffects } from './registry'
 import { resolveVisualFilterCss } from './filters'
 import { TEXT_PRESET_EFFECTS } from './textPresets'
@@ -33,18 +35,24 @@ export function listVisualFilterUiOptions(): VisualFilterUiOption[] {
 }
 
 export interface TransitionUiOption {
-  value: 'cut' | 'dissolve'
+  value: TransitionOutKind
   label: string
   effectId: string
 }
 
 /** 转场效果 UI 元数据（片段 Inspector 可复用） */
 export function listTransitionUiOptions(): TransitionUiOption[] {
-  return listEffects('transition').map((def) => ({
-    value: def.id === 'transition.dissolve' ? 'dissolve' : 'cut',
-    label: def.label,
-    effectId: def.id,
-  }))
+  return listEffects('transition')
+    .map((def) => ({
+      value: transitionKindFromEffectId(def.id),
+      label: def.label,
+      effectId: def.id,
+    }))
+    .sort((a, b) => {
+      if (a.value === 'cut') return -1
+      if (b.value === 'cut') return 1
+      return a.label.localeCompare(b.label, 'zh-CN')
+    })
 }
 
 export interface TextPresetUiOption {

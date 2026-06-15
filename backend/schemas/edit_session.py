@@ -47,7 +47,18 @@ class EditBlock(BaseModel):
     trim: EditBlockTrim
     overlay: EditBlockOverlay = Field(default_factory=EditBlockOverlay)
     audio: EditBlockAudio = Field(default_factory=EditBlockAudio)
-    transition_out: Literal["cut", "dissolve"] = "cut"
+    transition_out: Literal[
+        "cut",
+        "dissolve",
+        "fade_black",
+        "wipe_left",
+        "wipe_right",
+        "wipe_up",
+        "wipe_down",
+        "slide_left",
+        "slide_right",
+        "zoom",
+    ] = "cut"
     duration_sec: float = 0.0
     playback_rate: float = 1.0
 

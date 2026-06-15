@@ -1,4 +1,5 @@
-import type { EditBlock, EditBlockMedia, EditSession } from '../types/editSession'
+import type { EditBlock, EditBlockMedia, EditSession } from '../../types/editSession'
+import type { TransitionOutKind } from '../../types/transitions'
 import { migrateToOpenCutText } from '../opencut-text/migrate'
 import { buildCompositionTimeline } from '../scene/timelineLayout'
 import { resolveCanvasDimensions } from '../scene/canvas'
@@ -42,7 +43,7 @@ export interface TrackElement {
   trim_end: number
   transform?: TrackElementTransform
   properties: Record<string, unknown>
-  transition_out?: 'cut' | 'dissolve'
+  transition_out?: TransitionOutKind
   hidden?: boolean
 }
 

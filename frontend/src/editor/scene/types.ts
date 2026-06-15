@@ -6,6 +6,7 @@ import type {
   EditSession,
   EditSessionAudioSettings,
 } from '../../types/editSession'
+import type { TransitionOutKind } from '../../types/transitions'
 
 /** 画布输出规格 — Preview CSS 与 FFmpeg final pass 共用 */
 export interface SceneCanvas {
@@ -77,9 +78,10 @@ export interface RenderScene {
   templateCaptions: TemplateCaptionLayer[]
   freeTextLayers: FreeTextLayer[]
   audioLayers: AudioLayer[]
-  /** 是否处于叠化区间 */
+  /** 是否处于转场区间 */
   inDissolve: boolean
   dissolveProgress: number | null
+  activeTransitionKind: TransitionOutKind | null
 }
 
 export interface SceneCompileOptions {

@@ -2,7 +2,7 @@ import type { CompositionPlan, FrameSceneEffectItem } from '../compositor/types'
 import { VISUAL_FILTER_EFFECTS } from './filters'
 import { applyRegisteredEffectPass } from './effectPass'
 import { TEXT_PRESET_EFFECTS } from './textPresets'
-import { TRANSITION_CUT_EFFECT, TRANSITION_DISSOLVE_EFFECT } from './transitions'
+import { ALL_TRANSITION_EFFECTS } from './transitions'
 import { loadRuntimeEffectPlugins } from './plugins'
 import type { CompositorEffectDefinition, SceneEffectApplyContext } from './types'
 
@@ -76,8 +76,9 @@ export function registerBuiltinEffects(): void {
   for (const def of VISUAL_FILTER_EFFECTS) {
     registerEffect(def)
   }
-  registerEffect(TRANSITION_DISSOLVE_EFFECT)
-  registerEffect(TRANSITION_CUT_EFFECT)
+  for (const def of ALL_TRANSITION_EFFECTS) {
+    registerEffect(def)
+  }
 
   for (const def of TEXT_PRESET_EFFECTS) {
     registerEffect(def)

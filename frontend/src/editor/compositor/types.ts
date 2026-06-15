@@ -1,4 +1,5 @@
 import type { CompositionTimeline, SceneCompileOptions } from '../scene/types'
+import type { TransitionOutKind } from '../../types/transitions'
 
 /** Compositor IR schema version — TS ↔ Rust round-trip */
 export const COMPOSITOR_SCHEMA_VERSION = 'compositor-1' as const
@@ -42,7 +43,7 @@ export interface VideoClipLayerDef {
   playbackRate: number
   compositionStartSec: number
   sourceDurationSec: number
-  transitionOut: 'cut' | 'dissolve'
+  transitionOut: TransitionOutKind
   dissolveOutSec: number
   volume: number
   fadeInSec: number
@@ -155,6 +156,10 @@ export interface FrameLayerItem {
   relativeSourceSec?: number
   transform: VisualTransform
   opacity: number
+  clipRect?: { left: number; top: number; right: number; bottom: number }
+  layerOffsetX?: number
+  layerOffsetY?: number
+  layerScale?: number
   zIndex: number
 }
 

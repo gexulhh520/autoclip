@@ -25,6 +25,7 @@ import EditorAspectRatioPicker from './EditorAspectRatioPicker'
 import PreviewVideoLayer from './EditorPreviewVideoLayer'
 import { resolveCanvasDimensions } from '../../editor/scene/canvas'
 import type { EditBlock } from '../../types/editSession'
+import { TRANSITION_OUT_LABELS } from '../../types/transitions'
 
 interface EditorPreviewProps {
   projectId: string
@@ -127,6 +128,11 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     if (!renderScene) return null
     return renderSceneToPreviewViewModel(renderScene, blocks)
   }, [renderScene, blocks])
+
+  const activeTransitionLabel =
+    previewVm?.activeTransitionKind != null
+      ? TRANSITION_OUT_LABELS[previewVm.activeTransitionKind]
+      : null
 
   const previewFps = session?.export_settings?.fps ?? 30
   const exportSettings = session?.export_settings
@@ -431,8 +437,8 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
 
             {bgmUrl ? <audio ref={bgmRef} src={bgmUrl} preload="auto" loop /> : null}
 
-            {previewVm?.inDissolve ? (
-              <div className="editor-preview-dissolve-badge">叠化</div>
+            {previewVm?.inDissolve && activeTransitionLabel ? (
+              <div className="editor-preview-dissolve-badge">{activeTransitionLabel}</div>
             ) : null}
           </div>
         </div>
@@ -520,9 +526,9 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                 文本
               </span>
             ) : null}
-            {!isAssetPreview && previewVm?.inDissolve ? (
-              <span className="editor-preview-badge" title="叠化转场预览">
-                叠化
+            {!isAssetPreview && previewVm?.inDissolve && activeTransitionLabel ? (
+              <span className="editor-preview-badge" title="转场预览">
+                {activeTransitionLabel}
               </span>
             ) : null}
           </div>

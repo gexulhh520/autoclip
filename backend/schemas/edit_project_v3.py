@@ -43,7 +43,18 @@ class TrackElement(BaseModel):
     trim_end: float = 0.0
     transform: TrackElementTransform = Field(default_factory=TrackElementTransform)
     properties: Dict[str, Any] = Field(default_factory=dict)
-    transition_out: Literal["cut", "dissolve"] = "cut"
+    transition_out: Literal[
+        "cut",
+        "dissolve",
+        "fade_black",
+        "wipe_left",
+        "wipe_right",
+        "wipe_up",
+        "wipe_down",
+        "slide_left",
+        "slide_right",
+        "zoom",
+    ] = "cut"
     hidden: bool = False
 
 

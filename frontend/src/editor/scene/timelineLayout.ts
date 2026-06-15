@@ -1,4 +1,6 @@
 import type { EditBlock } from '../../types/editSession'
+import type { TransitionOutKind } from '../../types/transitions'
+import { isCrossTransition } from '../../types/transitions'
 import { blockDuration, blockPlaybackRate, blockSourceTrimDuration } from '../../utils/editTimeline'
 import { computeDissolveDuration } from '../../utils/editDissolvePreview'
 import type { CompositionSegment, CompositionTimeline } from './types'
@@ -32,7 +34,7 @@ export function buildCompositionTimeline(
     const sourceDurationSec = blockDuration(block)
     const hasNext = index < blocks.length - 1
     const dissolveOutSec =
-      hasNext && block.transition_out === 'dissolve'
+      hasNext && isCrossTransition(block.transition_out)
         ? computeDissolveDuration(sourceDurationSec, transitionDurationSec)
         : 0
 
@@ -58,13 +60,14 @@ export function buildCompositionTimeline(
   }
 }
 
-export function findDissolveAtTime(
+export function findCrossTransitionAtTime(
   timeline: CompositionTimeline,
   timeSec: number
 ): {
   outgoing: CompositionSegment
   incoming: CompositionSegment
   progress: number
+  kind: TransitionOutKind
 } | null {
   const { segments } = timeline
   if (segments.length < 2) return null
@@ -86,11 +89,14 @@ export function findDissolveAtTime(
       1,
       Math.max(0, (timeSec - dissolveStart) / outgoing.dissolveOutSec)
     )
-    return { outgoing, incoming, progress }
+    return { outgoing, incoming, progress, kind: outgoing.transitionOut }
   }
 
   return null
 }
+
+/** @deprecated 使用 findCrossTransitionAtTime */
+export const findDissolveAtTime = findCrossTransitionAtTime
 
 /** 合成时间轴 t → 某 segment 内的源相对时间 */
 export function mapCompositionTimeToRelativeSource(

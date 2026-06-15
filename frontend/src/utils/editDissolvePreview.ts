@@ -1,4 +1,5 @@
 import type { EditBlock } from '../types/editSession'
+import { isCrossTransition } from '../types/transitions'
 import type { TimelineSegment } from './editTimeline'
 import { blockDuration } from './editTimeline'
 import { getCompositionTotalDuration } from '../editor/scene/timelineLayout'
@@ -36,7 +37,7 @@ export function resolveDissolvePreview(
   for (let index = 0; index < segments.length - 1; index += 1) {
     const segment = segments[index]
     const next = segments[index + 1]
-    if (segment.block.transition_out !== 'dissolve') continue
+    if (!isCrossTransition(segment.block.transition_out)) continue
 
     const dissolveSec = computeDissolveDuration(segment.duration, transitionDurationSec)
     const dissolveStart = segment.duration - dissolveSec
