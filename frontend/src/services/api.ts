@@ -1119,20 +1119,18 @@ export const projectApi = {
 
   // 获取切片视频URL
   getClipVideoUrl: (projectId: string, clipId: string, _clipTitle?: string): string => {
-    // 使用projects路由获取切片视频
-    return `/api/v1/projects/${projectId}/clips/${clipId}`
+    return `${api.defaults.baseURL}/projects/${projectId}/clips/${clipId}`
   },
 
   // 获取项目原片 URL（剪辑预览/重切）
   getSourceVideoUrl: (projectId: string, sourceId?: string | null): string => {
     const params = sourceId ? `?source_id=${encodeURIComponent(sourceId)}` : ''
-    return `/api/v1/projects/${projectId}/source-video${params}`
+    return `${api.defaults.baseURL}/projects/${projectId}/source-video${params}`
   },
 
   // 获取合集视频URL
   getCollectionVideoUrl: (projectId: string, collectionId: string): string => {
-    // 使用files路由获取合集视频
-    return `/api/v1/files/projects/${projectId}/collections/${collectionId}`
+    return `${api.defaults.baseURL}/files/projects/${projectId}/collections/${collectionId}`
   },
 
   // 生成项目缩略图
