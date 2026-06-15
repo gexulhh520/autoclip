@@ -5,7 +5,7 @@ vi.mock('./desktopMode', () => ({
 }))
 
 import { isTauriApp } from './desktopMode'
-import { assertCompositorExportAvailable } from './compositorExportGate'
+import { assertDesktopExportAvailable } from './compositorExportGate'
 
 describe('compositorExportGate', () => {
   afterEach(() => {
@@ -14,10 +14,10 @@ describe('compositorExportGate', () => {
 
   it('blocks web export', () => {
     vi.mocked(isTauriApp).mockReturnValue(false)
-    expect(() => assertCompositorExportAvailable(true)).toThrow(/桌面客户端/)
+    expect(() => assertDesktopExportAvailable()).toThrow(/桌面客户端/)
   })
 
-  it('blocks desktop when compositor disabled', () => {
-    expect(() => assertCompositorExportAvailable(false)).toThrow(/Compositor/)
+  it('allows desktop export', () => {
+    expect(() => assertDesktopExportAvailable()).not.toThrow()
   })
 })

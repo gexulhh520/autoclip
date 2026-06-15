@@ -75,11 +75,13 @@ export class SceneExporter {
       renderer.renderAt(timeSec)
       await videoSource.add(timeSec, frameDuration)
 
-      callbacks?.onProgress?.({
-        frameIndex,
-        totalFrames,
-        percent: Math.round(((frameIndex + 1) / totalFrames) * 100),
-      })
+      if (frameIndex % 5 === 0 || frameIndex + 1 === totalFrames) {
+        callbacks?.onProgress?.({
+          frameIndex,
+          totalFrames,
+          percent: Math.round(((frameIndex + 1) / totalFrames) * 100),
+        })
+      }
     }
 
     videoSource.close()

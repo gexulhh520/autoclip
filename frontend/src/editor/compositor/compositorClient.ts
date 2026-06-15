@@ -1,27 +1,5 @@
 import type { FrameDescriptor } from './types'
 
-export interface CompositorExportStartParams {
-  outputPath: string
-  width: number
-  height: number
-  fps: number
-  totalFrames: number
-  /** 默认 true：优先 h264 硬件编码 */
-  preferHardware?: boolean
-}
-
-export interface CompositorExportFinishParams {
-  outputPath: string
-}
-
-export interface ExportProgressPayload {
-  sessionId: string
-  frame: number
-  totalFrames: number
-  percent: number
-  message: string
-}
-
 const TAURI_GLOBAL = '__TAURI_INTERNALS__'
 
 export const isTauriRuntime = (): boolean =>
@@ -97,48 +75,3 @@ export const blitPngBase64ToCanvas = (
     image.onerror = () => reject(new Error('failed to decode png'))
     image.src = `data:image/png;base64,${base64}`
   })
-
-export async function compositorExportStart(
-  params: CompositorExportStartParams
-): Promise<string> {
-  const { invoke } = await import('@tauri-apps/api/core')
-  return invoke<string>('compositor_export_start', { options: params })
-}
-
-export async function compositorExportPushFrame(
-  sessionId: string,
-  rgba: Uint8Array
-): Promise<void> {
-  const { invoke } = await import('@tauri-apps/api/core')
-  await invoke('compositor_export_push_frame', {
-    sessionId,
-    rgba: rgba instanceof Uint8Array ? rgba : new Uint8Array(rgba),
-  })
-}
-
-export async function compositorExportFinish(
-  sessionId: string,
-  params: CompositorExportFinishParams
-): Promise<string> {
-  const { invoke } = await import('@tauri-apps/api/core')
-  return invoke<string>('compositor_export_finish', {
-    sessionId,
-    options: params,
-  })
-}
-
-export async function compositorExportCancel(sessionId: string): Promise<void> {
-  const { invoke } = await import('@tauri-apps/api/core')
-  await invoke('compositor_export_cancel', { sessionId })
-}
-
-export async function listenExportProgress(
-  handler: (payload: ExportProgressPayload) => void
-): Promise<() => void> {
-  if (!isTauriRuntime()) return () => undefined
-  const { listen } = await import('@tauri-apps/api/event')
-  const unlisten = await listen<ExportProgressPayload>('export-progress', (event) => {
-    handler(event.payload)
-  })
-  return unlisten
-}

@@ -40,6 +40,9 @@ const readZIndex = (item: FrameItem): number => {
   return item.kind === 'scene_effect' ? 10_000 : 9_000
 }
 
+const layerRgbaScratch = new OffscreenCanvas(1, 1)
+let layerRgbaCtx: OffscreenCanvasRenderingContext2D | null = null
+
 const drawRgbaInTransform = (
   ctx: CanvasRenderingContext2D,
   rgba: Uint8Array,
@@ -49,16 +52,22 @@ const drawRgbaInTransform = (
   opacity: number,
   filter?: string
 ): void => {
-  const scratch = document.createElement('canvas')
-  scratch.width = frameWidth
-  scratch.height = frameHeight
-  const scratchCtx = scratch.getContext('2d')
+  if (layerRgbaScratch.width !== frameWidth || layerRgbaScratch.height !== frameHeight) {
+    layerRgbaScratch.width = frameWidth
+    layerRgbaScratch.height = frameHeight
+    layerRgbaCtx = layerRgbaScratch.getContext('2d')
+  }
+  const scratchCtx = layerRgbaCtx ?? layerRgbaScratch.getContext('2d')
   if (!scratchCtx) return
-  scratchCtx.putImageData(new ImageData(new Uint8ClampedArray(rgba), frameWidth, frameHeight), 0, 0)
+  scratchCtx.putImageData(
+    new ImageData(new Uint8ClampedArray(rgba), frameWidth, frameHeight),
+    0,
+    0
+  )
   ctx.save()
   ctx.globalAlpha = opacity
   if (filter) ctx.filter = filter
-  ctx.drawImage(scratch, transform.x, transform.y, transform.width, transform.height)
+  ctx.drawImage(layerRgbaScratch, transform.x, transform.y, transform.width, transform.height)
   ctx.restore()
 }
 

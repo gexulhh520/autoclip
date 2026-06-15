@@ -1,20 +1,15 @@
 import { isTauriApp } from './desktopMode'
 
 const DESKTOP_EXPORT_MESSAGE =
-  '成片导出请使用 AutoClip 桌面客户端，以确保预览与导出效果一致。'
+  '成片导出请使用 AutoClip 桌面客户端（OpenCut · WebCodecs 导出）。'
 
-/** 桌面导出门禁 */
-export function assertCompositorExportAvailable(useCompositorExport: boolean): void {
+/** 桌面端唯一导出路径门禁 */
+export function assertDesktopExportAvailable(): void {
   if (!isTauriApp()) {
     throw new Error(DESKTOP_EXPORT_MESSAGE)
   }
-  void useCompositorExport
 }
 
-export function canCompositorExport(useCompositorExport: boolean): boolean {
-  return isTauriApp() && useCompositorExport
-}
-
-export function canStableBackendExport(): boolean {
+export function canDesktopExport(): boolean {
   return isTauriApp()
 }

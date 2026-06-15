@@ -44,8 +44,6 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
   const exportMessage = useEditSessionStore((state) => state.exportMessage)
   const dirty = useEditSessionStore((state) => state.dirty)
   const saveSession = useEditSessionStore((state) => state.saveSession)
-  const useCompositorExport = useEditSessionStore((state) => state.useCompositorExport)
-  const setUseCompositorExport = useEditSessionStore((state) => state.setUseCompositorExport)
 
   const [mode, setMode] = useState<'single' | 'batch'>('single')
   const [burnSubtitles, setBurnSubtitles] = useState(true)
@@ -68,9 +66,8 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
     setBurnSubtitles(preset.burn_subtitles)
     setExportSrt(preset.export_srt)
     setUseSourceVideo(preset.use_source_video)
-    setUseCompositorExport(preset.use_compositor_export ?? isTauriApp())
     void resolveInitialExportDirectory().then(setExportDir)
-  }, [open, setUseCompositorExport])
+  }, [open])
 
   if (!open || !session) return null
 
@@ -88,7 +85,7 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
       burn_subtitles: burnSubtitles,
       export_srt: exportSrt,
       use_source_video: useSourceVideo,
-      use_compositor_export: useCompositorExport,
+      use_compositor_export: true,
     })
   }
 
@@ -169,7 +166,7 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
           plan_path: '',
           status: 'pending',
           progress: 0,
-          message: '等待 Compositor 工作进程',
+          message: '等待 OpenCut 导出',
         })
         useHeadlessExportWorkerStore.getState().setPanelExpanded(true)
         void useHeadlessExportWorkerStore.getState().refreshJobs()
@@ -301,24 +298,14 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
           />
           使用原片重切（与预览「原片」一致）
         </label>
-        {isTauriApp() ? (
-          <label className="editor-modal__check" title="Compositor 逐帧合成 + FFmpeg 编码，无 ASS/drawtext 布局">
-            <input
-              type="checkbox"
-              checked={useCompositorExport}
-              onChange={(event) => setUseCompositorExport(event.target.checked)}
-            />
-            Compositor 导出（OpenCut · WebCodecs + 与预览一致）
-          </label>
-        ) : null}
-        {isTauriApp() && mode === 'single' && useCompositorExport ? (
+        {isTauriApp() && mode === 'single' ? (
           <label className="editor-modal__check" title="提交到后台队列，关闭编辑器后仍会继续导出">
             <input
               type="checkbox"
               checked={backgroundExport}
               onChange={(event) => setBackgroundExport(event.target.checked)}
             />
-            后台导出（关闭编辑器后继续）
+            后台导出（OpenCut · WebCodecs，关闭编辑器后继续）
           </label>
         ) : null}
         {backgroundExport && writeBackToProject ? (
@@ -326,19 +313,9 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
             后台导出不支持回写项目切片，请取消「导出后回写」或使用前台导出。
           </p>
         ) : null}
-        {isTauriApp() && !useCompositorExport ? (
-          <p className="editor-export-preview-summary__hint">
-            未开启 Compositor 时使用 FFmpeg 稳定导出（字幕布局可能与预览略有差异）。
-          </p>
-        ) : null}
         {!isTauriApp() ? (
           <p className="editor-export-preview-summary__hint">
             浏览器内仅支持编辑与预览；导出成片请使用 AutoClip 桌面客户端。
-          </p>
-        ) : null}
-        {isTauriApp() && !useCompositorExport ? (
-          <p className="editor-export-preview-summary__hint">
-            请开启 Compositor 导出。传统布局导出已停用，避免成片与预览不一致。
           </p>
         ) : null}
         <label className="editor-modal__check">

@@ -42,7 +42,7 @@ export async function processHeadlessExportJob(job: HeadlessExportJobItem): Prom
     throw new Error('Headless Compositor 导出仅支持桌面客户端')
   }
 
-  patchJob({ ...job, status: 'running', progress: 1, message: 'Compositor 工作进程处理中' })
+  patchJob({ ...job, status: 'running', progress: 1, message: 'OpenCut 导出处理中' })
   const claimed = await headlessExportApi.claim(job.project_id, job.session_id, job.job_id)
   patchJob(claimed)
 

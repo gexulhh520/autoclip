@@ -46,8 +46,3 @@ export {
   type CompositorExportRuntimeParams,
   type CompositorMuxOptions,
 } from './runCompositorExport'
-export {
-  loadExportVideoSources,
-  syncExportVideosAtTime,
-  disposeExportVideoSources,
-} from './exportVideoSources'

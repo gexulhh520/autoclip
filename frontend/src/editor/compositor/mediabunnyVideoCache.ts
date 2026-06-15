@@ -1,4 +1,4 @@
-import { ALL_FORMATS, CanvasSink, Input, UrlSource } from 'mediabunny'
+import { ALL_FORMATS, BufferSource, CanvasSink, Input } from 'mediabunny'
 
 import { apiConfigManager } from '../../utils/apiConfig'
 import { blockSourceTrimDuration } from '../../utils/editTimeline'
@@ -6,6 +6,8 @@ import type { EditBlock } from '../../types/editSession'
 import type { CompositionPlan } from './types'
 import type { DecodedBlockFrames } from './videoFrameCache'
 import type { CompositorExportRuntimeParams } from './runCompositorExport'
+
+const MAX_PARALLEL_DECODES = 2
 
 function toAbsoluteMediaUrl(url: string): string {
   if (/^https?:\/\//i.test(url)) return url
@@ -23,17 +25,103 @@ async function ensureApiReady(): Promise<void> {
   }
 }
 
+/** 经 fetch 拉取媒体再解码，避免 UrlSource 不带 cookie 导致 401/黑帧 */
+async function openMediaInput(url: string): Promise<Input> {
+  const absolute = toAbsoluteMediaUrl(url)
+  const response = await fetch(absolute, { credentials: 'include' })
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText)
+    throw new Error(detail || `无法读取素材 (${response.status})`)
+  }
+  const buffer = await response.arrayBuffer()
+  return new Input({
+    formats: ALL_FORMATS,
+    source: new BufferSource(new Uint8Array(buffer)),
+  })
+}
+
+const rgbaScratchCanvas = new OffscreenCanvas(1, 1)
+let rgbaScratchCtx: OffscreenCanvasRenderingContext2D | null = null
+
 function readCanvasRgba(
   canvas: HTMLCanvasElement | OffscreenCanvas,
   width: number,
   height: number
 ): Uint8Array {
-  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (canvas.width !== width || canvas.height !== height) {
+    rgbaScratchCanvas.width = width
+    rgbaScratchCanvas.height = height
+    rgbaScratchCtx = rgbaScratchCanvas.getContext('2d', { willReadFrequently: true })
+  }
+  const ctx =
+    rgbaScratchCtx ??
+    rgbaScratchCanvas.getContext('2d', { willReadFrequently: true })
   if (!ctx) throw new Error('无法读取解码帧')
+  ctx.clearRect(0, 0, width, height)
+  ctx.drawImage(canvas as CanvasImageSource, 0, 0, width, height)
   return new Uint8Array(ctx.getImageData(0, 0, width, height).data)
 }
 
-/** OpenCut 式 WebCodecs 解码：mediabunny CanvasSink，无后端 HTTP 往返 */
+async function decodeBlockFrames(options: {
+  block: EditBlock
+  runtime: CompositorExportRuntimeParams
+  width: number
+  height: number
+  fps: number
+}): Promise<DecodedBlockFrames> {
+  const { block, runtime, width, height, fps } = options
+  const sourceStart = runtime.getSourceTimeForBlock(block, 0)
+  const duration = blockSourceTrimDuration(block)
+  const frameCount = Math.max(1, Math.round(duration * fps))
+  const frameBytes = width * height * 4
+  const data = new Uint8Array(frameCount * frameBytes)
+
+  const input = await openMediaInput(runtime.getVideoUrlForBlock(block))
+  try {
+    const track = await input.getPrimaryVideoTrack()
+    if (!track) {
+      throw new Error(`素材无视频轨 (${block.title || block.id})`)
+    }
+
+    const sink = new CanvasSink(track, { width, height, fit: 'contain' })
+    let frameIndex = 0
+    for await (const wrapped of sink.canvases(sourceStart, sourceStart + duration)) {
+      if (frameIndex >= frameCount) break
+      data.set(readCanvasRgba(wrapped.canvas, width, height), frameIndex * frameBytes)
+      frameIndex += 1
+    }
+
+    if (frameIndex <= 0) {
+      throw new Error(`WebCodecs 解码无帧 (${block.title || block.id})`)
+    }
+
+    return { blockId: block.id, width, height, frameCount: frameIndex, data }
+  } finally {
+    input.dispose()
+  }
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  let cursor = 0
+
+  async function runWorker(): Promise<void> {
+    while (cursor < items.length) {
+      const index = cursor
+      cursor += 1
+      results[index] = await worker(items[index], index)
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => runWorker()))
+  return results
+}
+
+/** OpenCut 式 WebCodecs 预解码（mediabunny CanvasSink，并行解码多个 block） */
 export async function preloadMediabunnyVideoCache(options: {
   plan: CompositionPlan
   blocksById: Map<string, EditBlock>
@@ -49,58 +137,16 @@ export async function preloadMediabunnyVideoCache(options: {
     if (layer.kind === 'video_clip') blockIds.add(layer.blockId)
   }
 
-  const cache = new Map<string, DecodedBlockFrames>()
   const ids = [...blockIds].filter((id) => blocksById.has(id))
   const { width, height } = plan.canvas
+  const total = ids.length
 
-  for (let index = 0; index < ids.length; index += 1) {
-    const blockId = ids[index]
+  const decoded = await mapWithConcurrency(ids, MAX_PARALLEL_DECODES, async (blockId, index) => {
+    onProgress?.(`WebCodecs 解码 ${index + 1}/${total}`)
     const block = blocksById.get(blockId)
-    if (!block) continue
+    if (!block) throw new Error(`片段不存在 (${blockId})`)
+    return decodeBlockFrames({ block, runtime, width, height, fps })
+  })
 
-    onProgress?.(`WebCodecs 解码 ${index + 1}/${ids.length}`)
-
-    const sourceStart = runtime.getSourceTimeForBlock(block, 0)
-    const duration = blockSourceTrimDuration(block)
-    const frameCount = Math.max(1, Math.round(duration * fps))
-    const frameBytes = width * height * 4
-    const data = new Uint8Array(frameCount * frameBytes)
-
-    const url = toAbsoluteMediaUrl(runtime.getVideoUrlForBlock(block))
-    const input = new Input({ formats: ALL_FORMATS, source: new UrlSource(url) })
-    const track = await input.getPrimaryVideoTrack()
-    if (!track) {
-      await input.dispose()
-      throw new Error(`素材无视频轨 (${block.title || blockId})`)
-    }
-
-    const sink = new CanvasSink(track, {
-      width,
-      height,
-      fit: 'contain',
-    })
-
-    let frameIndex = 0
-    for await (const wrapped of sink.canvases(sourceStart, sourceStart + duration)) {
-      if (frameIndex >= frameCount) break
-      data.set(readCanvasRgba(wrapped.canvas, width, height), frameIndex * frameBytes)
-      frameIndex += 1
-    }
-
-    await input.dispose()
-
-    if (frameIndex <= 0) {
-      throw new Error(`WebCodecs 解码无帧 (${block.title || blockId})`)
-    }
-
-    cache.set(blockId, {
-      blockId,
-      width,
-      height,
-      frameCount: frameIndex,
-      data,
-    })
-  }
-
-  return cache
+  return new Map(decoded.map((item) => [item.blockId, item]))
 }
