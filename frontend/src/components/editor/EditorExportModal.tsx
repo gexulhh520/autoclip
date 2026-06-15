@@ -28,6 +28,7 @@ interface ExportDoneState {
   localOutputPath: string
   localSrtPath?: string | null
   filename: string
+  audioWarning?: string | null
 }
 
 interface BatchExportDoneItem {
@@ -197,9 +198,12 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
         filename: localOutputPath.split(/[/\\]/).pop() || `${session.name}.mp4`,
         localOutputPath,
         localSrtPath: result.localSrtPath,
+        audioWarning: result.audioMixed === false ? result.audioWarning : null,
       })
 
-      if (writeBackToProject && result.projectClipPath) {
+      if (result.audioMixed === false && result.audioWarning) {
+        message.warning(result.audioWarning)
+      } else if (writeBackToProject && result.projectClipPath) {
         message.success('导出完成，已保存到本地并回写至项目切片列表')
       } else {
         message.success(exportSrt && result.localSrtPath ? '视频与 SRT 已保存到本地' : '导出完成，已保存到本地')
@@ -362,6 +366,12 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
           <div className="editor-export-success">
             <div>已保存：{exportDone.localOutputPath}</div>
             {exportDone.localSrtPath ? <div>SRT：{exportDone.localSrtPath}</div> : null}
+            {exportDone.audioWarning ? (
+              <div className="editor-export-preview-summary__hint">{exportDone.audioWarning}</div>
+            ) : null}
+            <div className="editor-export-preview-summary__hint">
+              同目录下带 <code>_compositor</code> 后缀的文件为中间产物（仅画面、无声），请播放上方成片文件。
+            </div>
             <button
               type="button"
               className="editor-header__back"

@@ -406,6 +406,8 @@ class EditSessionExportResponse(BaseModel):
     project_clip_path: Optional[str] = None
     local_output_path: Optional[str] = None
     local_srt_path: Optional[str] = None
+    audio_mixed: bool = True
+    audio_warning: Optional[str] = None
 
 
 class EditSessionExportJobStatusResponse(BaseModel):

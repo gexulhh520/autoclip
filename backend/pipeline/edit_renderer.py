@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import uuid
 from pathlib import Path
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from backend.core.path_utils import get_project_directory
@@ -165,6 +166,26 @@ def _build_speed_audio_filter(rate: float) -> Optional[str]:
 def _probe_duration(path: Path) -> float:
     info = VideoProcessor.get_video_info(path)
     return float(info.get("duration") or 0.0)
+
+
+def _input_has_audio_stream(path: Path) -> bool:
+    info = VideoProcessor.get_video_info(path)
+    streams = info.get("streams") or []
+    return any(stream.get("codec_type") == "audio" for stream in streams)
+
+
+def _resolve_clip_render_window(
+    project_dir: Path,
+    block: EditBlock,
+) -> Tuple[Path, float, float]:
+    """从切片文件解析 trim 窗口（不读原片）。"""
+    input_video = _resolve_input_video(project_dir, block)
+    trim_in = max(0.0, float(block.trim.in_sec))
+    trim_out = float(block.trim.out_sec)
+    if trim_out <= trim_in:
+        trim_out = trim_in + (_probe_duration(input_video) or block.duration_sec or 1.0)
+    duration = max(0.1, trim_out - trim_in)
+    return input_video, trim_in, duration
 
 
 def _resolve_input_video(project_dir: Path, block: EditBlock) -> Path:
@@ -987,20 +1008,17 @@ def _safe_export_stem(value: str, fallback: str) -> str:
     return stem or fallback
 
 
-def extract_block_audio_segment(
-    project_dir: Path,
+def _extract_audio_from_window(
+    input_video: Path,
+    trim_in: float,
+    duration: float,
     block: EditBlock,
     output_path: Path,
-    *,
-    use_source_video: bool,
 ) -> bool:
-    """提取单片段音频轨（无视频滤镜）— Compositor 导出后混音用。"""
-    try:
-        input_video, trim_in, duration = _resolve_render_window(
-            project_dir, block, use_source_video=use_source_video
-        )
-    except FileNotFoundError:
+    if not _input_has_audio_stream(input_video):
+        logger.warning("输入视频无音频轨: %s", input_video)
         return False
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     af = _build_audio_filter(
         block.audio.volume,
@@ -1022,15 +1040,65 @@ def extract_block_audio_segment(
         "-t",
         str(duration),
         "-vn",
+        "-map",
+        "0:a:0",
     ]
     if af:
         cmd.extend(["-af", af])
     cmd.extend(["-c:a", "aac", "-b:a", "128k", "-y", str(output_path.resolve())])
     result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore")
     if result.returncode != 0:
-        logger.error("片段音频提取失败: %s", result.stderr[:300])
+        logger.error("片段音频提取失败 (%s): %s", input_video.name, result.stderr[:300])
+        output_path.unlink(missing_ok=True)
         return False
-    return output_path.exists()
+    return output_path.is_file() and output_path.stat().st_size > 0
+
+
+def extract_block_audio_segment(
+    project_dir: Path,
+    block: EditBlock,
+    output_path: Path,
+    *,
+    use_source_video: bool,
+) -> bool:
+    """提取单片段音频轨（无视频滤镜）— Compositor 导出后混音用。"""
+    candidates: List[Tuple[Path, float, float]] = []
+    try:
+        candidates.append(
+            _resolve_render_window(project_dir, block, use_source_video=use_source_video)
+        )
+    except FileNotFoundError:
+        pass
+
+    if use_source_video:
+        try:
+            clip_window = _resolve_clip_render_window(project_dir, block)
+            if all(clip_window[0].resolve() != existing[0].resolve() for existing in candidates):
+                candidates.append(clip_window)
+        except FileNotFoundError:
+            pass
+    elif not candidates:
+        return False
+
+    for input_video, trim_in, duration in candidates:
+        if _extract_audio_from_window(input_video, trim_in, duration, block, output_path):
+            if (
+                use_source_video
+                and len(candidates) > 1
+                and input_video.resolve() != candidates[0][0].resolve()
+            ):
+                logger.warning("原片音频提取失败，已回退至切片: %s", block.id)
+            return True
+
+    return False
+
+
+@dataclass(frozen=True)
+class CompositorMuxResult:
+    output_path: Path
+    srt_path: Optional[Path]
+    audio_mixed: bool
+    audio_warning: Optional[str] = None
 
 
 def mux_compositor_export(
@@ -1041,7 +1109,7 @@ def mux_compositor_export(
     export_srt: bool = False,
     use_source_video: Optional[bool] = None,
     block_id: Optional[str] = None,
-) -> Tuple[Path, Optional[Path]]:
+) -> CompositorMuxResult:
     """Compositor 像素 + timeline 音频/BGM → 成片（无 ASS/drawtext 布局）。
 
     ``block_id`` 仅混流单片段音频（批量分轨 Compositor 导出）。
@@ -1063,6 +1131,11 @@ def mux_compositor_export(
     safe_name = _safe_export_stem(output_filename or session.name, session.id[:8])
     output_path = export_dir / f"{safe_name}.mp4"
     audio_segments: List[Path] = []
+    blocks_for_audio = [
+        block
+        for block in session.sequence
+        if block_id is None or block.id == block_id
+    ]
 
     for index, block in enumerate(session.sequence):
         if block_id is not None and block.id != block_id:
@@ -1072,6 +1145,10 @@ def mux_compositor_export(
             project_dir, block, seg_audio, use_source_video=prefer_source
         ):
             audio_segments.append(seg_audio)
+
+    audio_mixed = False
+    audio_warning: Optional[str] = None
+    failed_count = len(blocks_for_audio) - len(audio_segments)
 
     merged_audio = export_dir / f"{safe_name}_timeline_audio.aac"
     if audio_segments:
@@ -1100,38 +1177,46 @@ def mux_compositor_export(
         for seg in audio_segments:
             seg.unlink(missing_ok=True)
         if result.returncode != 0 or not merged_audio.exists():
-            shutil.copy2(compositor_video, output_path)
-        else:
-            staged = export_dir / f"{safe_name}_with_audio.mp4"
-            mux_cmd = [
-                get_ffmpeg_path(),
-                "-i",
-                str(compositor_video.resolve()),
-                "-i",
-                str(merged_audio.resolve()),
-                "-map",
-                "0:v",
-                "-map",
-                "1:a",
-                "-c:v",
-                "copy",
-                "-c:a",
-                "aac",
-                "-shortest",
-                "-y",
-                str(staged.resolve()),
-            ]
-            mux_result = subprocess.run(
-                mux_cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore"
-            )
-            merged_audio.unlink(missing_ok=True)
-            if mux_result.returncode != 0 or not staged.exists():
-                shutil.copy2(compositor_video, output_path)
-            else:
-                shutil.copy2(staged, output_path)
-                staged.unlink(missing_ok=True)
+            raise RuntimeError(f"时间轴音频拼接失败: {result.stderr[:300]}")
+        staged = export_dir / f"{safe_name}_with_audio.mp4"
+        mux_cmd = [
+            get_ffmpeg_path(),
+            "-i",
+            str(compositor_video.resolve()),
+            "-i",
+            str(merged_audio.resolve()),
+            "-map",
+            "0:v",
+            "-map",
+            "1:a",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-shortest",
+            "-y",
+            str(staged.resolve()),
+        ]
+        mux_result = subprocess.run(
+            mux_cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore"
+        )
+        merged_audio.unlink(missing_ok=True)
+        if mux_result.returncode != 0 or not staged.exists():
+            raise RuntimeError(f"视频与音频混流失败: {mux_result.stderr[:300]}")
+        shutil.copy2(staged, output_path)
+        staged.unlink(missing_ok=True)
+        audio_mixed = _input_has_audio_stream(output_path)
+        if failed_count > 0:
+            audio_warning = f"有 {failed_count} 个片段未能提取音频，成片可能不完整。"
     else:
         shutil.copy2(compositor_video, output_path)
+        if blocks_for_audio:
+            audio_warning = (
+                "未能从时间轴片段提取任何音频。"
+                "请确认切片/原片文件存在且含音轨，或取消「使用原片重切」后重试。"
+            )
+        else:
+            audio_warning = "时间轴无片段，导出为无声视频。"
 
     bgm_rel = session.audio_settings.bgm_path
     if bgm_rel:
@@ -1150,6 +1235,7 @@ def mux_compositor_export(
             ):
                 output_path.unlink(missing_ok=True)
                 shutil.move(str(final_with_bgm), str(output_path))
+                audio_mixed = _input_has_audio_stream(output_path)
 
     srt_path: Optional[Path] = None
     if export_srt:
@@ -1159,7 +1245,15 @@ def mux_compositor_export(
             srt_session.sequence = [b for b in session.sequence if b.id == block_id]
         srt_path = write_export_srt(srt_session, export_dir / f"{safe_name}.srt")
 
-    return output_path, srt_path
+    if not audio_mixed and audio_warning is None:
+        audio_warning = "导出文件未检测到音频轨。"
+
+    return CompositorMuxResult(
+        output_path=output_path,
+        srt_path=srt_path,
+        audio_mixed=audio_mixed,
+        audio_warning=audio_warning,
+    )
 
 
 def export_single_block(

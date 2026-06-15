@@ -420,7 +420,7 @@ async def mux_compositor_export_video(
             raise HTTPException(status_code=400, detail="Compositor 视频文件不存在")
 
         loop = asyncio.get_event_loop()
-        output_path, srt_path = await loop.run_in_executor(
+        mux_result = await loop.run_in_executor(
             None,
             lambda: run_mux(
                 session,
@@ -437,29 +437,31 @@ async def mux_compositor_export_video(
             project_clip_path = service.write_export_to_project(
                 project_id,
                 session,
-                output_path,
+                mux_result.output_path,
                 title=body.filename or session.name,
             )
 
-        rel = output_path.relative_to(get_project_directory(project_id)).as_posix()
+        rel = mux_result.output_path.relative_to(get_project_directory(project_id)).as_posix()
         srt_rel: str | None = None
         srt_download_url: str | None = None
-        if srt_path is not None:
-            srt_rel = srt_path.relative_to(get_project_directory(project_id)).as_posix()
+        if mux_result.srt_path is not None:
+            srt_rel = mux_result.srt_path.relative_to(get_project_directory(project_id)).as_posix()
             srt_download_url = (
-                f"/api/v1/projects/{project_id}/edit-sessions/{session_id}/exports/{srt_path.name}"
+                f"/api/v1/projects/{project_id}/edit-sessions/{session_id}/exports/{mux_result.srt_path.name}"
             )
 
-        local_video, local_srt = copy_export_outputs(output_path, srt_path, body.output_dir)
+        local_video, local_srt = copy_export_outputs(mux_result.output_path, mux_result.srt_path, body.output_dir)
         return EditSessionExportResponse(
             success=True,
             output_path=rel,
-            download_url=f"/api/v1/projects/{project_id}/edit-sessions/{session_id}/exports/{output_path.name}",
+            download_url=f"/api/v1/projects/{project_id}/edit-sessions/{session_id}/exports/{mux_result.output_path.name}",
             srt_path=srt_rel,
             srt_download_url=srt_download_url,
             project_clip_path=project_clip_path,
             local_output_path=str(local_video),
             local_srt_path=str(local_srt) if local_srt else None,
+            audio_mixed=mux_result.audio_mixed,
+            audio_warning=mux_result.audio_warning,
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

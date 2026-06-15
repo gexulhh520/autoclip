@@ -66,6 +66,8 @@ export async function runCompositorExportAndMux(
   projectClipPath?: string | null
   localOutputPath?: string | null
   localSrtPath?: string | null
+  audioMixed?: boolean
+  audioWarning?: string | null
 }> {
   const compositorResult = await exportTimelineViaCompositor(
     runtime.session,
@@ -76,6 +78,8 @@ export async function runCompositorExportAndMux(
         muxOptions.compositorBackend ?? timelineOptions.compositorBackend ?? 'canvas',
     }
   )
+
+  timelineOptions.onProgress?.(92, '正在混音（时间轴音频与 BGM）')
 
   const muxResult = await editApi.muxCompositorExport(runtime.projectId, runtime.sessionId, {
     compositor_video_path: compositorResult.compositorVideoPath,
@@ -94,5 +98,7 @@ export async function runCompositorExportAndMux(
     projectClipPath: muxResult.project_clip_path,
     localOutputPath: muxResult.local_output_path,
     localSrtPath: muxResult.local_srt_path,
+    audioMixed: muxResult.audio_mixed ?? true,
+    audioWarning: muxResult.audio_warning ?? null,
   }
 }

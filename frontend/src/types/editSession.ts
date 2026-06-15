@@ -310,6 +310,10 @@ export interface EditSessionExportResponse {
   local_output_path?: string | null
   local_srt_path?: string | null
   job_id?: string | null
+  download_url?: string
+  srt_download_url?: string | null
+  audio_mixed?: boolean
+  audio_warning?: string | null
 }
 
 export interface EditSessionBatchExportFile {

@@ -127,6 +127,28 @@ def _extract_frame_rgba_hash(path: Path, time_sec: float = 1.0) -> str:
     return hashlib.sha256(result.stdout).hexdigest()
 
 
+def _probe_has_audio(path: Path) -> bool:
+    result = subprocess.run(
+        [
+            get_ffprobe_path(),
+            "-v",
+            "error",
+            "-select_streams",
+            "a",
+            "-show_entries",
+            "stream=codec_type",
+            "-of",
+            "csv=p=0",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="ignore",
+    )
+    return result.returncode == 0 and "audio" in result.stdout
+
+
 def _load_session(name: str) -> EditSession:
     data = json.loads((FIXTURES_ROOT / name).read_text(encoding="utf-8"))
     return EditSession.model_validate(data)
@@ -146,21 +168,23 @@ def test_compositor_mux_e2e_minimal_session(tmp_path, monkeypatch, ffmpeg_availa
         lambda _project_id: project_dir,
     )
 
-    output_path, srt_path = mux_compositor_export(
+    mux_result = mux_compositor_export(
         session,
         compositor_video,
         export_srt=False,
         use_source_video=False,
     )
 
-    assert output_path.is_file()
-    assert srt_path is None
-    duration = _probe_duration(output_path)
+    assert mux_result.output_path.is_file()
+    assert mux_result.srt_path is None
+    assert mux_result.audio_mixed is True
+    duration = _probe_duration(mux_result.output_path)
     assert 3.5 <= duration <= 4.5
+    assert _probe_has_audio(mux_result.output_path)
 
-    frame_hash = _extract_frame_rgba_hash(output_path, time_sec=1.0)
+    frame_hash = _extract_frame_rgba_hash(mux_result.output_path, time_sec=1.0)
     assert len(frame_hash) == 64
-    assert frame_hash == _extract_frame_rgba_hash(output_path, time_sec=1.0)
+    assert frame_hash == _extract_frame_rgba_hash(mux_result.output_path, time_sec=1.0)
 
 
 def test_compositor_mux_e2e_dissolve_session(tmp_path, monkeypatch, ffmpeg_available):
@@ -178,12 +202,14 @@ def test_compositor_mux_e2e_dissolve_session(tmp_path, monkeypatch, ffmpeg_avail
         lambda _project_id: project_dir,
     )
 
-    output_path, _ = mux_compositor_export(
+    mux_result = mux_compositor_export(
         session,
         compositor_video,
         export_srt=False,
         use_source_video=False,
     )
 
-    duration = _probe_duration(output_path)
+    duration = _probe_duration(mux_result.output_path)
     assert 6.0 <= duration <= 7.0
+    assert mux_result.audio_mixed is True
+    assert _probe_has_audio(mux_result.output_path)

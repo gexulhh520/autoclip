@@ -135,6 +135,8 @@ interface EditSessionState {
     projectClipPath?: string | null
     localOutputPath?: string | null
     localSrtPath?: string | null
+    audioMixed?: boolean
+    audioWarning?: string | null
   }>
   batchExportSession: (
     projectId: string,
@@ -632,6 +634,8 @@ export const useEditSessionStore = create<EditSessionState>()(
             projectClipPath: result.projectClipPath,
             localOutputPath: result.localOutputPath,
             localSrtPath: result.localSrtPath,
+            audioMixed: result.audioMixed,
+            audioWarning: result.audioWarning,
           }
         } catch (error: unknown) {
           set({
