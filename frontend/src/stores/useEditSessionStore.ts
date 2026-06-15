@@ -215,6 +215,10 @@ interface EditSessionState {
     updates: Array<{ elementId: string; positionX: number; positionY: number }>,
     options?: { recordHistory?: boolean }
   ) => void
+  moveCaptionOffsets: (
+    updates: Array<{ blockId: string; position_offset_x_pct: number; position_offset_y_pct: number }>,
+    options?: { recordHistory?: boolean }
+  ) => void
   removeOverlayElement: (elementId: string) => void
   removeOverlayElements: (elementIds: string[]) => void
   clearBlockCaption: (blockId: string) => void
@@ -536,6 +540,26 @@ export const useEditSessionStore = create<EditSessionState>()(
               ...element.params,
               'transform.positionX': update.positionX,
               'transform.positionY': update.positionY,
+            }
+          }
+          state.dirty = true
+        })
+      },
+
+      moveCaptionOffsets: (updates, options) => {
+        if (options?.recordHistory !== false && updates.length > 0) {
+          pushHistory()
+        }
+        if (updates.length === 0) return
+        set((state) => {
+          if (!state.session) return
+          for (const update of updates) {
+            const block = state.session.sequence.find((item) => item.id === update.blockId)
+            if (!block?.overlay) continue
+            block.overlay = {
+              ...block.overlay,
+              position_offset_x_pct: update.position_offset_x_pct,
+              position_offset_y_pct: update.position_offset_y_pct,
             }
           }
           state.dirty = true

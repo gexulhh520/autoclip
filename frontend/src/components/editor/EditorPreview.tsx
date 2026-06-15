@@ -58,9 +58,14 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const overlayElements = useEditSessionStore((state) => state.session?.overlay_elements)
   const selectedOverlayId = useEditSessionStore((state) => state.selectedOverlayId)
   const selectedOverlayIds = useEditSessionStore((state) => state.selectedOverlayIds)
+  const selectedCaptionBlockIds = useEditSessionStore((state) => state.selectedCaptionBlockIds)
   const setSelectedOverlayId = useEditSessionStore((state) => state.setSelectedOverlayId)
+  const setSelectedCaptionBlockId = useEditSessionStore((state) => state.setSelectedCaptionBlockId)
+  const setBoxSelection = useEditSessionStore((state) => state.setBoxSelection)
+  const clearEditorSelection = useEditSessionStore((state) => state.clearEditorSelection)
   const beginOverlayDragHistory = useEditSessionStore((state) => state.beginOverlayDragHistory)
   const moveOverlayPositions = useEditSessionStore((state) => state.moveOverlayPositions)
+  const moveCaptionOffsets = useEditSessionStore((state) => state.moveCaptionOffsets)
   const textTrackMuted = useEditSessionStore((state) => state.textTrackMuted)
   const setPreviewVideoNaturalSize = useEditSessionStore((state) => state.setPreviewVideoNaturalSize)
 
@@ -404,6 +409,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                 captionsMuted={captionsMuted}
                 selectedOverlayId={selectedOverlayId}
                 selectedOverlayIds={selectedOverlayIds}
+                selectedCaptionBlockIds={selectedCaptionBlockIds}
                 mutedTextTrackIds={mutedTextTrackIds}
                 getVideoUrlForBlock={getVideoUrlForBlock}
                 getSourceTimeForBlock={getSourceTimeForBlock}
@@ -412,8 +418,12 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                 onTimeUpdate={handleOutgoingTimeUpdate}
                 onEnded={handleVideoEnded}
                 onSelectOverlay={setSelectedOverlayId}
+                onSelectCaption={setSelectedCaptionBlockId}
+                setBoxSelection={setBoxSelection}
+                clearEditorSelection={clearEditorSelection}
                 beginOverlayDragHistory={beginOverlayDragHistory}
                 moveOverlayPositions={moveOverlayPositions}
+                moveCaptionOffsets={moveCaptionOffsets}
               />
             ) : (
               <div className="editor-empty-hint">点击左侧素材预览，或选择时间线片段</div>

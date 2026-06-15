@@ -7,6 +7,7 @@ import {
 } from '../../../editor/compositor'
 import { renderFrameDescriptorToCanvas } from '../../../editor/compositor/softwareRenderer'
 import { usePreviewTextDrag } from '../../../editor/compositor/usePreviewTextDrag'
+import type { BoxSelectableItem } from '../../../editor/selection/boxSelect'
 import { measureTextOverlay } from '../../../editor/opencut-text/measure'
 import type { OpenCutTextOverlay } from '../../../editor/opencut-text/params'
 import type { PreviewSceneViewModel } from '../../../editor/scene/adapters/previewAdapter'
@@ -26,6 +27,7 @@ export interface CompositorPreviewProps {
   captionsMuted: boolean
   selectedOverlayId: string | null
   selectedOverlayIds: string[]
+  selectedCaptionBlockIds?: string[]
   mutedTextTrackIds: string[]
   getVideoUrlForBlock: (block: EditBlock) => string
   getSourceTimeForBlock: (block: EditBlock, relativeSec: number) => number
@@ -37,9 +39,16 @@ export interface CompositorPreviewProps {
     overlayId: string | null,
     options?: { additive?: boolean; seekPlayhead?: boolean }
   ) => void
+  onSelectCaption?: (blockId: string | null, options?: { additive?: boolean }) => void
+  setBoxSelection?: (items: BoxSelectableItem[], options?: { additive?: boolean }) => void
+  clearEditorSelection?: () => void
   beginOverlayDragHistory?: () => void
   moveOverlayPositions?: (
     updates: Array<{ elementId: string; positionX: number; positionY: number }>,
+    options?: { recordHistory?: boolean }
+  ) => void
+  moveCaptionOffsets?: (
+    updates: Array<{ blockId: string; position_offset_x_pct: number; position_offset_y_pct: number }>,
     options?: { recordHistory?: boolean }
   ) => void
 }
@@ -59,6 +68,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   captionsMuted,
   selectedOverlayId,
   selectedOverlayIds,
+  selectedCaptionBlockIds = [],
   mutedTextTrackIds,
   getVideoUrlForBlock,
   getSourceTimeForBlock,
@@ -67,8 +77,12 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   onTimeUpdate,
   onEnded,
   onSelectOverlay,
+  onSelectCaption,
+  setBoxSelection,
+  clearEditorSelection,
   beginOverlayDragHistory,
   moveOverlayPositions,
+  moveCaptionOffsets,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const primaryVideoRef = useRef<HTMLVideoElement>(null)
@@ -212,14 +226,19 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     return () => window.cancelAnimationFrame(raf)
   }, [isPlaying, paint])
 
-  const dragHandlers = usePreviewTextDrag({
+  const { selectionBoxStyle, ...dragHandlers } = usePreviewTextDrag({
     canvasRef,
     descriptor,
     session,
     selectedOverlayIds,
+    selectedCaptionBlockIds,
     onSelectOverlay,
+    onSelectCaption,
+    setBoxSelection,
+    clearEditorSelection,
     beginOverlayDragHistory: beginOverlayDragHistory ?? (() => undefined),
     moveOverlayPositions: moveOverlayPositions ?? (() => undefined),
+    moveCaptionOffsets: moveCaptionOffsets ?? (() => undefined),
   })
 
   return (
@@ -232,6 +251,9 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         style={{ touchAction: 'none' }}
         {...dragHandlers}
       />
+      {selectionBoxStyle ? (
+        <div className="editor-preview-selection-box" style={selectionBoxStyle} />
+      ) : null}
 
       <div className="compositor-preview__decoders" aria-hidden>
         {primaryLayer ? (

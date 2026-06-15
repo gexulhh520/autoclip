@@ -1219,6 +1219,11 @@
   object-fit: contain;
 }
 
+.compositor-preview .editor-preview-selection-box {
+  position: absolute;
+  z-index: 2;
+}
+
 .editor-preview-frame--compositor .quote-overlay-preview {
   z-index: 2;
 }
