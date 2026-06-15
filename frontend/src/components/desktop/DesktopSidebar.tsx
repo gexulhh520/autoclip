@@ -8,6 +8,7 @@ import {
   MoonOutlined,
 } from '@ant-design/icons'
 import { useTheme } from '../../context/ThemeContext'
+import DesktopSidebarHeadlessExport from './DesktopSidebarHeadlessExport'
 
 const NAV_ITEMS = [
   { key: 'home', path: '/', label: '首页', icon: <HomeOutlined /> },
@@ -50,6 +51,7 @@ const DesktopSidebar: React.FC = () => {
       </nav>
 
       <div className="desktop-sidebar__footer">
+        <DesktopSidebarHeadlessExport />
         <button
           type="button"
           className="desktop-nav-item"

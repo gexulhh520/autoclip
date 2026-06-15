@@ -77,6 +77,19 @@
   opacity: 0.85;
 }
 
+.desktop-nav-item--headless-export .desktop-nav-item__badge {
+  margin-left: auto;
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--ac-line-2);
+  color: var(--ac-accent);
+  font-family: var(--ac-font-mono);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
 .desktop-sidebar__footer {
   padding-top: 12px;
   border-top: 1px solid var(--ac-line);

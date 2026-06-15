@@ -39,7 +39,7 @@ export default function HeadlessExportWorkerPanel() {
   const activeJobs = visibleJobs.filter(isActiveJob)
   const primaryJob = activeJobs[0] ?? visibleJobs[0]
 
-  if (visibleJobs.length === 0) {
+  if (visibleJobs.length === 0 && !panelExpanded) {
     return null
   }
 

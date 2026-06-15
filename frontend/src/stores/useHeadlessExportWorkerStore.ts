@@ -21,6 +21,7 @@ interface HeadlessExportWorkerState {
   workerBusy: boolean
   panelExpanded: boolean
   dismissedJobIds: string[]
+  notifiedTerminalKeys: string[]
   lastFetchedAt: number | null
   setWorkerBusy: (busy: boolean) => void
   setPanelExpanded: (expanded: boolean) => void
@@ -28,6 +29,8 @@ interface HeadlessExportWorkerState {
   refreshJobs: () => Promise<void>
   dismissJob: (jobId: string) => void
   clearDismissed: () => void
+  markTerminalNotified: (key: string) => void
+  openPanel: () => void
   visibleJobs: () => HeadlessExportJobItem[]
   activeJobCount: () => number
 }
@@ -37,6 +40,7 @@ export const useHeadlessExportWorkerStore = create<HeadlessExportWorkerState>((s
   workerBusy: false,
   panelExpanded: false,
   dismissedJobIds: [],
+  notifiedTerminalKeys: [],
   lastFetchedAt: null,
 
   setWorkerBusy: (busy) => set({ workerBusy: busy }),
@@ -68,6 +72,16 @@ export const useHeadlessExportWorkerStore = create<HeadlessExportWorkerState>((s
   },
 
   clearDismissed: () => set({ dismissedJobIds: [] }),
+
+  markTerminalNotified: (key) => {
+    set((state) => ({
+      notifiedTerminalKeys: state.notifiedTerminalKeys.includes(key)
+        ? state.notifiedTerminalKeys
+        : [...state.notifiedTerminalKeys, key],
+    }))
+  },
+
+  openPanel: () => set({ panelExpanded: true }),
 
   visibleJobs: () => {
     const { jobs, dismissedJobIds } = get()
