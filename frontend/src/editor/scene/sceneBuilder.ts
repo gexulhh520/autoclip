@@ -14,7 +14,7 @@ import {
   mapCompositionTimeToRelativeSource,
 } from './timelineLayout'
 import { resolveCrossTransitionLayerState } from '../transitions/crossTransitionLayers'
-import { easeInOutCubic } from './previewPlayhead'
+import { easeInOutCubic } from '../compositor/previewPlayhead'
 import type {
   ExportScenePlan,
   RenderScene,
