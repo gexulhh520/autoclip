@@ -25,6 +25,12 @@ class HeadlessExportJobItem:
     output_dir: Optional[str]
     plan_path: str
     status: str = "pending"
+    progress: int = 0
+    message: str = "等待 Compositor 工作进程"
+    error: Optional[str] = None
+    local_output_path: Optional[str] = None
+    local_srt_path: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 def _plan_files() -> List[Path]:
@@ -73,6 +79,7 @@ def _item_from_plan(path: Path, payload: Dict[str, Any]) -> Optional[HeadlessExp
         rel = path.relative_to(project_dir).as_posix()
     except ValueError:
         rel = path.as_posix()
+    result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
     return HeadlessExportJobItem(
         job_id=job_id,
         project_id=project_id,
@@ -84,24 +91,44 @@ def _item_from_plan(path: Path, payload: Dict[str, Any]) -> Optional[HeadlessExp
         output_dir=payload.get("output_dir"),
         plan_path=rel,
         status=str(payload.get("status") or "pending"),
+        progress=int(payload.get("progress") or 0),
+        message=str(payload.get("message") or "等待 Compositor 工作进程"),
+        error=payload.get("error"),
+        local_output_path=result.get("local_output_path"),
+        local_srt_path=result.get("local_srt_path"),
+        updated_at=payload.get("updated_at"),
     )
 
 
 def list_pending_headless_jobs(limit: int = 20) -> List[HeadlessExportJobItem]:
-    pending: List[HeadlessExportJobItem] = []
+    return list_headless_export_jobs(limit=limit, active_only=True)
+
+
+def list_headless_export_jobs(
+    *,
+    limit: int = 20,
+    active_only: bool = False,
+) -> List[HeadlessExportJobItem]:
+    rows: List[tuple[str, float, HeadlessExportJobItem]] = []
     for path in _plan_files():
         payload = _read_plan(path)
         if not payload:
             continue
         status = str(payload.get("status") or "pending")
-        if status != "pending":
+        if active_only and status not in {"pending", "running"}:
             continue
         item = _item_from_plan(path, payload)
-        if item:
-            pending.append(item)
-        if len(pending) >= limit:
-            break
-    return pending
+        if not item:
+            continue
+        updated_at = str(payload.get("updated_at") or "")
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        rows.append((updated_at, mtime, item))
+
+    rows.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    return [row[2] for row in rows[: max(1, limit)]]
 
 
 def _resolve_plan_path(project_id: str, session_id: str, job_id: str) -> Path:

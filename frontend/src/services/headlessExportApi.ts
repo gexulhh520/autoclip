@@ -3,6 +3,7 @@ import type {
   HeadlessExportCompleteRequest,
   HeadlessExportFailRequest,
   HeadlessExportJobItem,
+  HeadlessExportJobsResponse,
   HeadlessExportPendingResponse,
   HeadlessExportProgressRequest,
 } from '../types/editSession'
@@ -12,6 +13,16 @@ export const headlessExportApi = {
     const response = (await api.get('/editor/headless-export/pending', {
       params: { limit },
     })) as HeadlessExportPendingResponse
+    return response.jobs
+  },
+
+  listJobs: async (options?: { limit?: number; activeOnly?: boolean }): Promise<HeadlessExportJobItem[]> => {
+    const response = (await api.get('/editor/headless-export/jobs', {
+      params: {
+        limit: options?.limit ?? 20,
+        active_only: options?.activeOnly ?? false,
+      },
+    })) as HeadlessExportJobsResponse
     return response.jobs
   },
 

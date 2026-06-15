@@ -5,6 +5,7 @@ from pathlib import Path
 from backend.services.headless_export_service import (
     claim_headless_job,
     complete_headless_job,
+    list_headless_export_jobs,
     list_pending_headless_jobs,
 )
 
@@ -65,3 +66,30 @@ def test_headless_queue_claim_and_complete(tmp_path, monkeypatch):
     assert saved["result"]["local_output_path"] == "C:/exports/out.mp4"
 
     assert list_pending_headless_jobs() == []
+
+
+def test_list_headless_export_jobs_includes_terminal(tmp_path, monkeypatch):
+    project_id = "p-headless-list"
+    session_id = "s-headless-list"
+    job_id = "job-list"
+    project_dir = tmp_path / "projects" / project_id
+    _write_plan(project_dir, project_id, session_id, job_id)
+
+    monkeypatch.setattr(
+        "backend.services.headless_export_service.get_projects_directory",
+        lambda: tmp_path / "projects",
+    )
+
+    complete_headless_job(
+        project_id,
+        session_id,
+        job_id,
+        output_path="edit_exports/out.mp4",
+        download_url="/api/v1/download/out.mp4",
+    )
+
+    jobs = list_headless_export_jobs(limit=10, active_only=False)
+    assert len(jobs) == 1
+    assert jobs[0].status == "completed"
+    assert jobs[0].progress == 100
+    assert list_headless_export_jobs(limit=10, active_only=True) == []

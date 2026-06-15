@@ -345,9 +345,19 @@ class HeadlessExportJobItemResponse(BaseModel):
     output_dir: Optional[str] = None
     plan_path: str
     status: str = "pending"
+    progress: int = 0
+    message: str = "等待 Compositor 工作进程"
+    error: Optional[str] = None
+    local_output_path: Optional[str] = None
+    local_srt_path: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 class HeadlessExportPendingResponse(BaseModel):
+    jobs: List[HeadlessExportJobItemResponse]
+
+
+class HeadlessExportJobsResponse(BaseModel):
     jobs: List[HeadlessExportJobItemResponse]
 
 

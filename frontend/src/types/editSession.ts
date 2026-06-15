@@ -244,10 +244,20 @@ export interface HeadlessExportJobItem {
   use_source_video?: boolean | null
   output_dir?: string | null
   plan_path: string
-  status: string
+  status: 'pending' | 'running' | 'completed' | 'failed' | string
+  progress?: number
+  message?: string
+  error?: string | null
+  local_output_path?: string | null
+  local_srt_path?: string | null
+  updated_at?: string | null
 }
 
 export interface HeadlessExportPendingResponse {
+  jobs: HeadlessExportJobItem[]
+}
+
+export interface HeadlessExportJobsResponse {
   jobs: HeadlessExportJobItem[]
 }
 

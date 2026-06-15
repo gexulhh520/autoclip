@@ -14,6 +14,7 @@ from backend.schemas.edit_session import (
     HeadlessExportCompleteRequest,
     HeadlessExportFailRequest,
     HeadlessExportJobItemResponse,
+    HeadlessExportJobsResponse,
     HeadlessExportPendingResponse,
     HeadlessExportProgressRequest,
 )
@@ -23,6 +24,27 @@ from backend.services.editor_workspace_service import EditorWorkspaceService
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _headless_job_response(item) -> HeadlessExportJobItemResponse:
+    return HeadlessExportJobItemResponse(
+        job_id=item.job_id,
+        project_id=item.project_id,
+        session_id=item.session_id,
+        filename=item.filename,
+        burn_subtitles=item.burn_subtitles,
+        export_srt=item.export_srt,
+        use_source_video=item.use_source_video,
+        output_dir=item.output_dir,
+        plan_path=item.plan_path,
+        status=item.status,
+        progress=item.progress,
+        message=item.message,
+        error=item.error,
+        local_output_path=item.local_output_path,
+        local_srt_path=item.local_srt_path,
+        updated_at=item.updated_at,
+    )
 
 
 def get_workspace_service(db: Session = Depends(get_db)) -> EditorWorkspaceService:
@@ -111,23 +133,18 @@ async def list_pending_headless_exports(limit: int = 20):
     from backend.services.headless_export_service import list_pending_headless_jobs
 
     jobs = list_pending_headless_jobs(limit=max(1, min(limit, 50)))
-    return HeadlessExportPendingResponse(
-        jobs=[
-            HeadlessExportJobItemResponse(
-                job_id=item.job_id,
-                project_id=item.project_id,
-                session_id=item.session_id,
-                filename=item.filename,
-                burn_subtitles=item.burn_subtitles,
-                export_srt=item.export_srt,
-                use_source_video=item.use_source_video,
-                output_dir=item.output_dir,
-                plan_path=item.plan_path,
-                status=item.status,
-            )
-            for item in jobs
-        ]
+    return HeadlessExportPendingResponse(jobs=[_headless_job_response(item) for item in jobs])
+
+
+@router.get("/headless-export/jobs", response_model=HeadlessExportJobsResponse)
+async def list_headless_export_jobs(limit: int = 20, active_only: bool = False):
+    from backend.services.headless_export_service import list_headless_export_jobs
+
+    jobs = list_headless_export_jobs(
+        limit=max(1, min(limit, 50)),
+        active_only=active_only,
     )
+    return HeadlessExportJobsResponse(jobs=[_headless_job_response(item) for item in jobs])
 
 
 @router.post(
@@ -139,18 +156,7 @@ async def claim_headless_export_job(project_id: str, session_id: str, job_id: st
 
     try:
         item = claim_headless_job(project_id, session_id, job_id)
-        return HeadlessExportJobItemResponse(
-            job_id=item.job_id,
-            project_id=item.project_id,
-            session_id=item.session_id,
-            filename=item.filename,
-            burn_subtitles=item.burn_subtitles,
-            export_srt=item.export_srt,
-            use_source_video=item.use_source_video,
-            output_dir=item.output_dir,
-            plan_path=item.plan_path,
-            status=item.status,
-        )
+        return _headless_job_response(item)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Headless 任务不存在") from exc
     except ValueError as exc:

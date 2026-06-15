@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { message } from 'antd'
+import editApi from '../../services/editApi'
 import { useEditSessionStore } from '../../stores/useEditSessionStore'
+import { useHeadlessExportWorkerStore } from '../../stores/useHeadlessExportWorkerStore'
 import {
   DEFAULT_EXPORT_PRESET,
   loadExportPreset,
@@ -54,6 +56,7 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
   const [exportDir, setExportDir] = useState('')
   const [exportDone, setExportDone] = useState<ExportDoneState | null>(null)
   const [batchExportDone, setBatchExportDone] = useState<BatchExportDoneItem[]>([])
+  const [backgroundExport, setBackgroundExport] = useState(false)
 
   useEffect(() => {
     if (!open) {
@@ -140,6 +143,38 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
           }))
         )
         message.success(`已导出 ${files.length} 个文件到本地目录`)
+        return
+      }
+
+      if (backgroundExport) {
+        const response = await editApi.startHeadlessCompositorExport(projectId, session.id, {
+          burn_subtitles: burnSubtitles,
+          filename: session.name,
+          export_srt: exportSrt,
+          use_source_video: useSourceVideo,
+          output_dir: outputDir,
+        })
+        if (!response.job_id) {
+          throw new Error('后台导出任务创建失败')
+        }
+        useHeadlessExportWorkerStore.getState().upsertJob({
+          job_id: response.job_id,
+          project_id: projectId,
+          session_id: session.id,
+          filename: session.name,
+          burn_subtitles: burnSubtitles,
+          export_srt: exportSrt,
+          use_source_video: useSourceVideo,
+          output_dir: outputDir,
+          plan_path: '',
+          status: 'pending',
+          progress: 0,
+          message: '等待 Compositor 工作进程',
+        })
+        useHeadlessExportWorkerStore.getState().setPanelExpanded(true)
+        void useHeadlessExportWorkerStore.getState().refreshJobs()
+        message.success('已加入后台导出队列，可关闭编辑器继续其他操作')
+        onClose()
         return
       }
 
@@ -278,6 +313,21 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
             Compositor 导出（{mode === 'batch' ? '批量分轨逐片段' : '与预览 Compositor 路径一致'}）
           </label>
         ) : null}
+        {isTauriApp() && mode === 'single' && useCompositorExport ? (
+          <label className="editor-modal__check" title="提交到后台队列，关闭编辑器后仍会继续导出">
+            <input
+              type="checkbox"
+              checked={backgroundExport}
+              onChange={(event) => setBackgroundExport(event.target.checked)}
+            />
+            后台导出（关闭编辑器后继续）
+          </label>
+        ) : null}
+        {backgroundExport && writeBackToProject ? (
+          <p className="editor-export-preview-summary__hint">
+            后台导出不支持回写项目切片，请取消「导出后回写」或使用前台导出。
+          </p>
+        ) : null}
         {isTauriApp() && mode === 'batch' && !useCompositorExport ? (
           <p className="editor-export-preview-summary__hint">
             批量分轨需开启 Compositor 导出。
@@ -348,11 +398,20 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
           <button
             type="button"
             className="editor-header__export"
-            disabled={exporting || session.sequence.length === 0 || exportBlocked}
-            title={exportBlockedReason ?? undefined}
+            disabled={
+              exporting ||
+              session.sequence.length === 0 ||
+              exportBlocked ||
+              (backgroundExport && writeBackToProject)
+            }
+            title={
+              backgroundExport && writeBackToProject
+                ? '后台导出不支持回写项目切片'
+                : (exportBlockedReason ?? undefined)
+            }
             onClick={() => void handleExport()}
           >
-            {exporting ? '导出中…' : '开始导出'}
+            {exporting ? '导出中…' : backgroundExport ? '加入后台队列' : '开始导出'}
           </button>
         </div>
       </div>

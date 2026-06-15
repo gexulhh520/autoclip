@@ -433,6 +433,7 @@ EditSession → edit_renderer.export_edit_session
 - [x] **P4.4** Headless HTTP：`GET .../export/compositor-plan` + `POST .../export/headless`
 - [x] **P4.5** 桌面 Headless worker：轮询 `GET /editor/headless-export/pending` → claim → Compositor 导出 + mux → complete
 - [x] **P4.6** Export render pipeline：`exportRenderPipeline` decode 预取 + encode 流水线
+- [x] **P4.7** Headless worker 状态 UI：右下角面板 + 导出弹窗「后台导出」
 - [ ] 多线程 Rust/wgpu render（远期）
 
 **里程碑 M4**：批量出片 API 可用；导出编码默认硬件；插件可扩展滤镜槽位。
