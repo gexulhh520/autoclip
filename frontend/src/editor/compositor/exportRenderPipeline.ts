@@ -24,6 +24,12 @@ export interface ExportRenderPipelineOptions {
   rgbaToBase64: (rgba: Uint8ClampedArray) => string
 }
 
+/** 让出主线程，避免导出占满 JS 事件循环导致 UI / API 无响应 */
+const yieldToMainThread = (): Promise<void> =>
+  new Promise((resolve) => {
+    globalThis.setTimeout(resolve, 0)
+  })
+
 /** 逐帧导出流水线：decode 预取 + render/encode 重叠 */
 export async function runExportRenderPipeline(
   options: ExportRenderPipelineOptions
@@ -59,8 +65,6 @@ export async function runExportRenderPipeline(
     )
   }
 
-  let encodeChain: Promise<void> = Promise.resolve()
-
   for (let frameIndex = 0; frameIndex < totalFrames; frameIndex += 1) {
     if (signal?.aborted) {
       throw new Error('导出已取消')
@@ -91,10 +95,8 @@ export async function runExportRenderPipeline(
       ctx.getImageData(0, 0, plan.canvas.width, plan.canvas.height).data
     )
     const base64 = rgbaToBase64(rgbaCopy)
-    encodeChain = encodeChain.then(() => compositorExportPushFrame(exportSessionId, base64))
-
+    await compositorExportPushFrame(exportSessionId, base64)
     onProgress?.(frameIndex, totalFrames)
+    await yieldToMainThread()
   }
-
-  await encodeChain
 }

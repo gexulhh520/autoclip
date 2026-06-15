@@ -1,6 +1,7 @@
 """剪辑工程 API。"""
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -417,13 +418,17 @@ async def mux_compositor_export_video(
         if not compositor_video.is_file():
             raise HTTPException(status_code=400, detail="Compositor 视频文件不存在")
 
-        output_path, srt_path = run_mux(
-            session,
-            compositor_video,
-            output_filename=body.filename or session.name,
-            export_srt=body.export_srt,
-            use_source_video=body.use_source_video,
-            block_id=body.block_id,
+        loop = asyncio.get_event_loop()
+        output_path, srt_path = await loop.run_in_executor(
+            None,
+            lambda: run_mux(
+                session,
+                compositor_video,
+                output_filename=body.filename or session.name,
+                export_srt=body.export_srt,
+                use_source_video=body.use_source_video,
+                block_id=body.block_id,
+            ),
         )
 
         project_clip_path: str | None = None
