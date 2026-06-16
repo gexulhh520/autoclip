@@ -146,6 +146,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
         <OpenCutTextParamsPanel
           element={overlayItem}
           onChange={(key, value) => updateOverlayParams(overlayItem.id, { [key]: value })}
+          onParamsChange={(patch) => updateOverlayParams(overlayItem.id, patch)}
         />
         <div className="editor-inspector-section">
           <div className="editor-inspector-label">

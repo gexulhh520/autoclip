@@ -13,14 +13,78 @@ import { MIN_FONT_SIZE, MAX_FONT_SIZE } from '../../editor/opencut-text/typograp
 interface OpenCutTextParamsPanelProps {
   element: OpenCutTextOverlay
   onChange: (key: string, value: string | number | boolean) => void
+  /** 等比缩放等需同时改多个 param 时使用（单次历史记录） */
+  onParamsChange?: (patch: Record<string, string | number | boolean>) => void
 }
 
 const FONT_OPTIONS = ['Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', 'Arial']
 
-const OpenCutTextParamsPanel: React.FC<OpenCutTextParamsPanelProps> = ({ element, onChange }) => {
+const SCALE_MIN = 0.1
+const SCALE_MAX = 3
+const SCALE_STEP = 0.05
+
+const OpenCutTextParamsPanel: React.FC<OpenCutTextParamsPanelProps> = ({
+  element,
+  onChange,
+  onParamsChange,
+}) => {
   const params = element.params
 
+  const renderScaleSlider = (
+    label: string,
+    value: number,
+    onValue: (next: number) => void
+  ) => (
+    <div className="editor-inspector-section">
+      <div className="editor-inspector-label">
+        {label} ({value.toFixed(2)})
+      </div>
+      <input
+        className="editor-range"
+        type="range"
+        min={SCALE_MIN}
+        max={SCALE_MAX}
+        step={SCALE_STEP}
+        value={value}
+        onChange={(event) => onValue(Number(event.target.value))}
+      />
+    </div>
+  )
+
+  const renderScaleControls = () => {
+    const scaleX = readNumberParam(params, 'transform.scaleX', 1)
+    const scaleY = readNumberParam(params, 'transform.scaleY', 1)
+    const uniformScale =
+      Math.abs(scaleX - scaleY) < SCALE_STEP / 2 ? scaleX : (scaleX + scaleY) / 2
+
+    const applyUniformScale = (value: number) => {
+      const patch = {
+        'transform.scaleX': value,
+        'transform.scaleY': value,
+      }
+      if (onParamsChange) {
+        onParamsChange(patch)
+      } else {
+        onChange('transform.scaleX', value)
+        onChange('transform.scaleY', value)
+      }
+    }
+
+    return (
+      <>
+        {renderScaleSlider('等比缩放', uniformScale, applyUniformScale)}
+        {renderScaleSlider('缩放 X', scaleX, (value) => onChange('transform.scaleX', value))}
+        {renderScaleSlider('缩放 Y', scaleY, (value) => onChange('transform.scaleY', value))}
+      </>
+    )
+  }
+
   const renderField = (key: OpenCutTextParamKey) => {
+    if (key === 'transform.scaleX') {
+      return <React.Fragment key="scale-controls">{renderScaleControls()}</React.Fragment>
+    }
+    if (key === 'transform.scaleY') return null
+
     if (key === 'background.color' && !readBooleanParam(params, 'background.enabled', false)) {
       return null
     }
@@ -180,8 +244,6 @@ const OpenCutTextParamsPanel: React.FC<OpenCutTextParamsPanelProps> = ({ element
       key === 'background.paddingY' ||
       key === 'transform.positionX' ||
       key === 'transform.positionY' ||
-      key === 'transform.scaleX' ||
-      key === 'transform.scaleY' ||
       key === 'transform.rotate'
     ) {
       const value = readNumberParam(params, key, 0)
@@ -194,9 +256,7 @@ const OpenCutTextParamsPanel: React.FC<OpenCutTextParamsPanelProps> = ({ element
               ? 0.8
               : key === 'transform.rotate'
                 ? -180
-                : key === 'transform.scaleX' || key === 'transform.scaleY'
-                  ? 0.1
-                  : 0
+                : 0
       const max =
         key === 'fontSize'
           ? MAX_FONT_SIZE
@@ -206,13 +266,10 @@ const OpenCutTextParamsPanel: React.FC<OpenCutTextParamsPanelProps> = ({ element
               ? 2.5
               : key === 'transform.rotate'
                 ? 180
-                : key === 'transform.scaleX' || key === 'transform.scaleY'
-                  ? 3
-                  : key === 'transform.positionX' || key === 'transform.positionY'
-                    ? 2000
-                    : 100
-      const step =
-        key === 'opacity' || key === 'lineHeight' || key.startsWith('transform.scale') ? 0.05 : 1
+                : key === 'transform.positionX' || key === 'transform.positionY'
+                  ? 2000
+                  : 100
+      const step = key === 'opacity' || key === 'lineHeight' ? 0.05 : 1
       return (
         <div key={key} className="editor-inspector-section">
           <div className="editor-inspector-label">
