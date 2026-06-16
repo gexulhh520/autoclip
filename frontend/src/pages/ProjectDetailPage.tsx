@@ -121,7 +121,7 @@ const ProjectDetailPage: React.FC = () => {
       const [project, pipeline] = await Promise.all([
         projectApi.getProject(id),
         projectApi
-          .getPipelineSteps(id, effectiveSourceId ?? undefined, { syncArtifacts: true })
+          .getPipelineSteps(id, effectiveSourceId ?? undefined)
           .catch(() => null),
       ])
 

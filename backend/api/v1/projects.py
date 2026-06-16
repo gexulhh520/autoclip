@@ -521,10 +521,17 @@ async def get_projects(
     status: Optional[str] = Query(None, description="Filter by status"),
     project_type: Optional[str] = Query(None, description="Filter by project type"),
     search: Optional[str] = Query(None, description="Search in name and description"),
-    project_service: ProjectService = Depends(get_project_service)
+    project_service: ProjectService = Depends(get_project_service),
+    db: Session = Depends(get_db),
 ):
     """Get paginated projects with optional filtering."""
     try:
+        from ...core.config import get_data_directory
+        from ...services.data_sync_service import DataSyncService
+
+        sync_service = DataSyncService(db)
+        sync_service.register_missing_projects_from_filesystem(get_data_directory())
+
         pagination = PaginationParams(page=page, size=size)
         
         filters = None

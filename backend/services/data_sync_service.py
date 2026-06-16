@@ -149,6 +149,31 @@ def _load_deleted_clip_records(project_dir: Path) -> tuple[set[str], set[str]]:
     return deleted_pipeline_ids, deleted_clip_keys
 
 
+_SLICE_PROJECT_DIR_BLOCKLIST = frozenset(
+    {
+        "edit-block-media",
+        "headless-export",
+        "p1",
+        "proj-clear",
+        "proj_test_multi",
+        "test-proj",
+        "tpl-test",
+    }
+)
+
+
+def _is_slice_project_directory(project_dir: Path) -> bool:
+    """判断目录是否为 AI 切片项目（排除测试 fixture 与纯剪辑草稿目录）。"""
+    name = project_dir.name
+    if name.startswith(".") or name in _SLICE_PROJECT_DIR_BLOCKLIST:
+        return False
+    if (project_dir / "editor_workspace.json").exists():
+        return False
+    return any(
+        (project_dir / sub).exists() for sub in ("raw", "metadata", "output")
+    )
+
+
 STEPS_RESET_DELETED_CLIPS = frozenset(
     {
         "step1_outline",
@@ -310,6 +335,56 @@ class DataSyncService:
     
     def __init__(self, db: Session):
         self.db = db
+
+    def register_missing_projects_from_filesystem(self, data_dir: Path) -> int:
+        """将磁盘上存在但数据库缺失的切片项目注册进 DB（不扫 clip 明细）。"""
+        projects_dir = data_dir / "projects"
+        if not projects_dir.exists():
+            return 0
+
+        existing_ids = {row[0] for row in self.db.query(Project.id).all()}
+        registered = 0
+        for project_dir in sorted(projects_dir.iterdir(), key=lambda p: p.name):
+            if not _is_slice_project_directory(project_dir):
+                continue
+            project_id = project_dir.name
+            if project_id in existing_ids:
+                continue
+            try:
+                if self._create_project_record_from_directory(project_id, project_dir):
+                    registered += 1
+                    existing_ids.add(project_id)
+            except Exception as exc:
+                logger.warning("注册项目 %s 失败: %s", project_id, exc)
+                self.db.rollback()
+
+        if registered:
+            logger.info("已从磁盘注册 %d 个缺失项目", registered)
+        return registered
+
+    def _create_project_record_from_directory(
+        self, project_id: str, project_dir: Path
+    ) -> bool:
+        """从项目目录创建数据库记录（仅项目行，不同步切片）。"""
+        project_metadata = self._read_project_metadata(project_dir) or {}
+        processing_config = project_metadata.get("processing_config") or {}
+        if processing_config.get("editor_workspace"):
+            return False
+
+        project = Project(
+            id=project_id,
+            name=project_metadata.get("project_name", f"项目_{project_id[:8]}"),
+            description=project_metadata.get("description", ""),
+            project_type=ProjectType.KNOWLEDGE,
+            status=ProjectStatus.PENDING,
+            processing_config=processing_config,
+            project_metadata=project_metadata,
+        )
+        self.db.add(project)
+        self.db.commit()
+        self.db.refresh(project)
+        self._update_project_status_if_completed(project_id, project_dir)
+        return True
     
     def sync_all_projects_from_filesystem(self, data_dir: Path) -> Dict[str, Any]:
         """从文件系统同步所有项目到数据库"""
@@ -326,17 +401,18 @@ class DataSyncService:
             
             # 遍历所有项目目录
             for project_dir in projects_dir.iterdir():
-                if project_dir.is_dir() and not project_dir.name.startswith('.'):
-                    project_id = project_dir.name
-                    try:
-                        result = self.sync_project_from_filesystem(project_id, project_dir)
-                        if result["success"]:
-                            synced_projects.append(project_id)
-                        else:
-                            failed_projects.append({"project_id": project_id, "error": result.get("error")})
-                    except Exception as e:
-                        logger.error(f"同步项目 {project_id} 失败: {str(e)}")
-                        failed_projects.append({"project_id": project_id, "error": str(e)})
+                if not _is_slice_project_directory(project_dir):
+                    continue
+                project_id = project_dir.name
+                try:
+                    result = self.sync_project_from_filesystem(project_id, project_dir)
+                    if result["success"]:
+                        synced_projects.append(project_id)
+                    else:
+                        failed_projects.append({"project_id": project_id, "error": result.get("error")})
+                except Exception as e:
+                    logger.error(f"同步项目 {project_id} 失败: {str(e)}")
+                    failed_projects.append({"project_id": project_id, "error": str(e)})
             
             logger.info(f"同步完成: 成功 {len(synced_projects)} 个, 失败 {len(failed_projects)} 个")
             

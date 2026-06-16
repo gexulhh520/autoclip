@@ -109,26 +109,39 @@ class ProjectService(BaseService[Project, ProjectCreate, ProjectUpdate, ProjectR
         filters: Optional[ProjectFilter] = None
     ) -> ProjectListResponse:
         """Get paginated projects with filtering."""
-        # Convert filters to dict
-        filter_dict = {}
+        from ..services.editor_workspace_service import is_editor_workspace_project
+        from sqlalchemy import desc
+
+        query = self.db.query(Project).order_by(desc(Project.updated_at))
         if filters:
             filter_data = filters.model_dump()
-            filter_dict = {k: v for k, v in filter_data.items() if v is not None}
-        
-        items, pagination_response = self.get_paginated(pagination, filter_dict)
-        
-        # Convert to response schemas
-        from ..services.editor_workspace_service import is_editor_workspace_project
+            if filter_data.get("status") is not None:
+                query = query.filter(Project.status == filter_data["status"])
+            if filter_data.get("project_type") is not None:
+                query = query.filter(Project.project_type == filter_data["project_type"])
+            if filter_data.get("search"):
+                keyword = str(filter_data["search"])
+                query = query.filter(
+                    Project.name.contains(keyword) | Project.description.contains(keyword)
+                )
+
+        all_projects = query.all()
+        visible_projects = [
+            project for project in all_projects if not is_editor_workspace_project(project)
+        ]
+
+        total = len(visible_projects)
+        skip = (pagination.page - 1) * pagination.size
+        page_items = visible_projects[skip : skip + pagination.size]
+        pages = (total + pagination.size - 1) // pagination.size if pagination.size else 0
+
+        from ..models.clip import Clip
+        from ..models.collection import Collection
+        from ..models.task import Task
+        from ..schemas.base import PaginationResponse
 
         project_responses = []
-        for project in items:
-            if is_editor_workspace_project(project):
-                continue
-            # Get actual statistics for each project
-            from ..models.clip import Clip
-            from ..models.collection import Collection
-            from ..models.task import Task
-            
+        for project in page_items:
             project_id = str(project.id)
             total_clips = self.db.query(Clip).filter(Clip.project_id == project_id).count()
             total_collections = self.db.query(Collection).filter(Collection.project_id == project_id).count()
@@ -142,8 +155,8 @@ class ProjectService(BaseService[Project, ProjectCreate, ProjectUpdate, ProjectR
                 status=ProjectStatus(getattr(project, 'status').value) if hasattr(project, 'status') and hasattr(getattr(project, 'status'), 'value') else ProjectStatus.PENDING,
                 source_url=project.project_metadata.get("source_url") if getattr(project, 'project_metadata', None) else None,
                 source_file=str(getattr(project, 'video_path', '')) if getattr(project, 'video_path', None) is not None else None,
-                video_path=str(getattr(project, 'video_path', '')) if getattr(project, 'video_path', None) is not None else None,  # 添加video_path字段供前端使用
-                thumbnail=getattr(project, 'thumbnail', None),  # 从数据库获取缩略图
+                video_path=str(getattr(project, 'video_path', '')) if getattr(project, 'video_path', None) is not None else None,
+                thumbnail=getattr(project, 'thumbnail', None),
                 settings=getattr(project, 'processing_config', {}) or {},
                 created_at=self._convert_utc_to_local(getattr(project, 'created_at', None)),
                 updated_at=self._convert_utc_to_local(getattr(project, 'updated_at', None)),
@@ -153,6 +166,15 @@ class ProjectService(BaseService[Project, ProjectCreate, ProjectUpdate, ProjectR
                 total_tasks=total_tasks
             ))
         
+        pagination_response = PaginationResponse(
+            page=pagination.page,
+            size=pagination.size,
+            total=total,
+            pages=pages,
+            has_next=pagination.page < pages,
+            has_prev=pagination.page > 1,
+        )
+
         return ProjectListResponse(
             items=project_responses,
             pagination=pagination_response
