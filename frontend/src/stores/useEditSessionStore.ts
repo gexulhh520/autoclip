@@ -69,6 +69,7 @@ import { applyTextPresetToParams } from '../editor/effects'
 import {
   blockHasMigratedTemplateOverlays,
   blockHasTemplateCaption,
+  cleanupImportedClipCaptions,
   ensureTemplateCaptionOverlays,
   getTemplateBlockId,
   getTemplateOverlaysForBlock,
@@ -521,6 +522,9 @@ export const useEditSessionStore = create<EditSessionState>()(
               session: { ...document.session, project_v3: project, schema_version: 3 },
             }
           }
+          if (cleanupImportedClipCaptions(document.session)) {
+            migrated = true
+          }
           const finalSession = document.session
           if (!finalSession.bookmarks) {
             finalSession.bookmarks = []
@@ -966,6 +970,8 @@ export const useEditSessionStore = create<EditSessionState>()(
         set({ saving: true, error: null })
         try {
           const result = await editApi.importMedia(projectId, session.id, file)
+          cleanupImportedClipCaptions(result.session)
+          ensureTemplateCaptionOverlays(result.session)
           const transitionDur = transitionDurationSec(result.session)
           const segments = buildCompositionTimelineSegments(
             result.session.sequence,

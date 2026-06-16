@@ -5,6 +5,7 @@ import { migrateSessionToV3, normalizeEditDocument } from './v2ToV3'
 import {
   blockHasMigratedTemplateOverlays,
   blockHasTemplateCaption,
+  cleanupImportedClipCaptions,
   ensureTemplateCaptionOverlays,
   getTemplateOverlaysForBlock,
   normalizeBlockOverlay,
@@ -106,6 +107,35 @@ describe('templateCaptionOverlays', () => {
       (layer) => layer.kind === 'free_text' && layer.source === 'template_preset'
     )
     expect(templateLayers).toHaveLength(0)
+  })
+
+  it('cleanupImportedClipCaptions removes stale template overlays from imported clips', () => {
+    const imported: EditBlock = {
+      ...block(),
+      id: 'import-1',
+      title: 'my-video',
+      media: { type: 'imported_clip', path: 'media/import-1.mp4' },
+      overlay: { outline: '', content: [], recommend_reason: '' },
+    }
+    const editSession = session()
+    editSession.sequence = [imported]
+    editSession.overlay_elements = [
+      {
+        id: 'template:import-1:headline',
+        type: 'text',
+        start_sec: 0,
+        duration_sec: 4,
+        params: {
+          content: 'my-video',
+          'template.blockId': 'import-1',
+          'template.role': 'headline',
+        },
+      },
+    ]
+
+    expect(cleanupImportedClipCaptions(editSession)).toBe(true)
+    expect(editSession.overlay_elements).toHaveLength(0)
+    expect(imported.overlay.caption_suppressed).toBe(true)
   })
 
   it('ensureTemplateCaptionOverlays creates free-layer overlays for template caption blocks', () => {

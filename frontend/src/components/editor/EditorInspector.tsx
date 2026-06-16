@@ -87,6 +87,8 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   const applyTextPreset = useEditSessionStore((state) => state.applyTextPreset)
   const applyTextPresetToOverlays = useEditSessionStore((state) => state.applyTextPresetToOverlays)
   const applyBatchTextAnimation = useEditSessionStore((state) => state.applyBatchTextAnimation)
+  const clearBlockCaption = useEditSessionStore((state) => state.clearBlockCaption)
+  const deleteSelectedCaption = useEditSessionStore((state) => state.deleteSelectedCaption)
 
   const [regenerating, setRegenerating] = useState(false)
   const [uniformVideoScale, setUniformVideoScale] = useState(true)
@@ -304,6 +306,21 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
       >
         {regenerating ? 'AI 生成中…' : 'AI 写旁白'}
       </button>
+    </div>
+  )
+
+  const renderRemoveBlockCaptionButton = (blockId: string, label = '删除字幕') => (
+    <div className="editor-inspector-section">
+      <button
+        type="button"
+        className="editor-header__back"
+        onClick={() => clearBlockCaption(blockId)}
+      >
+        {label}
+      </button>
+      <div className="editor-inspector-muted" style={{ marginTop: 8 }}>
+        移除该片段的模板字幕，不会删除视频本身
+      </div>
     </div>
   )
 
@@ -675,18 +692,54 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
           ) : null}
           {renderOverlayTextEditor(selectedOverlays)}
           {templateBlockId ? renderAiNarrationButton(templateBlockId) : null}
+          {templateBlockId ? renderRemoveBlockCaptionButton(templateBlockId) : null}
         </>
       )
     }
 
     if (multiCaptionCount > 1) {
       return (
-        <div className="editor-inspector-section">
-          <div className="editor-inspector-label">已选中 {multiCaptionCount} 条模板字幕</div>
-          <div className="editor-inspector-muted">
-            可在预览区框选或 Shift/Ctrl 多选，拖拽可成组调整位置；在「动画」Tab 批量设置动效
+        <>
+          <div className="editor-inspector-section">
+            <div className="editor-inspector-label">已选中 {multiCaptionCount} 条模板字幕</div>
+            <div className="editor-inspector-muted">
+              可在预览区框选或 Shift/Ctrl 多选，拖拽可成组调整位置；在「动画」Tab 批量设置动效
+            </div>
           </div>
-        </div>
+          <div className="editor-inspector-section">
+            <button
+              type="button"
+              className="editor-header__back"
+              onClick={() => deleteSelectedCaption()}
+            >
+              删除 {multiCaptionCount} 条字幕
+            </button>
+          </div>
+        </>
+      )
+    }
+
+    if (captionEditingBlock) {
+      const captionOverlays = getTemplateOverlaysForBlock(session, captionEditingBlock.id)
+      if (captionOverlays.length > 0) {
+        return (
+          <>
+            {captionOverlays.map((overlayItem) => renderOverlayTextEditor([overlayItem]))}
+            {renderAiNarrationButton(captionEditingBlock.id)}
+            {renderRemoveBlockCaptionButton(captionEditingBlock.id)}
+          </>
+        )
+      }
+      return (
+        <>
+          <div className="editor-inspector-section">
+            <div className="editor-inspector-label">{captionEditingBlock.title}</div>
+            <div className="editor-inspector-muted" style={{ marginTop: 6 }}>
+              模板字幕轨
+            </div>
+          </div>
+          {renderRemoveBlockCaptionButton(captionEditingBlock.id)}
+        </>
       )
     }
 
@@ -711,6 +764,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
             </React.Fragment>
           ))}
           {renderAiNarrationButton(selectedBlock!.id)}
+          {renderRemoveBlockCaptionButton(selectedBlock!.id)}
         </>
       )
     }
@@ -730,6 +784,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
         <>
           {pendingOverlays.map((overlayItem) => renderOverlayTextEditor([overlayItem]))}
           {renderAiNarrationButton(captionBlock.id)}
+          {renderRemoveBlockCaptionButton(captionBlock.id)}
         </>
       )
     }

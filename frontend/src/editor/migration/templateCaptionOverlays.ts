@@ -392,6 +392,20 @@ export function ensureTemplateCaptionOverlays(session: EditSession): boolean {
   return changed
 }
 
+/** 清理手动导入片段上误生成的模板字幕（旧版用文件名当字幕） */
+export function cleanupImportedClipCaptions(session: EditSession): boolean {
+  let changed = false
+  for (const block of session.sequence) {
+    if (block.media.type !== 'imported_clip') continue
+    if (blockHasTemplateCaption(block)) continue
+    if (removeTemplateOverlaysForBlock(session, block.id)) {
+      block.overlay = { ...block.overlay, caption_suppressed: true }
+      changed = true
+    }
+  }
+  return changed
+}
+
 /** @deprecated 使用 ensureTemplateCaptionOverlays */
 export function migrateTemplateCaptionsToOverlayElements(session: EditSession): boolean {
   return ensureTemplateCaptionOverlays(session)
