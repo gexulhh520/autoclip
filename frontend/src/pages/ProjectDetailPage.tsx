@@ -108,10 +108,21 @@ const ProjectDetailPage: React.FC = () => {
   const loadProject = async () => {
     if (!id) return
     try {
-      const [project, pipeline, sourceInfo] = await Promise.all([
+      const sourceInfo = await loadMultiSourceInfo(id)
+      const effectiveSourceId = sourceInfo?.enabled
+        ? (selectedSourceId ??
+            sourceInfo.active_source_id ??
+            sourceInfo.sources[0]?.id ??
+            null)
+        : null
+      const clipsSourceId =
+        sourceInfo?.enabled && selectedSourceId ? selectedSourceId : undefined
+
+      const [project, pipeline] = await Promise.all([
         projectApi.getProject(id),
-        projectApi.getPipelineSteps(id, selectedSourceId ?? undefined).catch(() => null),
-        loadMultiSourceInfo(id),
+        projectApi
+          .getPipelineSteps(id, effectiveSourceId ?? undefined, { syncArtifacts: true })
+          .catch(() => null),
       ])
 
       const step6 = pipeline?.steps?.find((s) => s.id === 'step6_video')
@@ -125,7 +136,7 @@ const ProjectDetailPage: React.FC = () => {
 
       if (shouldLoadMedia && (project.status !== 'processing' || step6Ready)) {
         try {
-          const { clips, collections } = await loadProjectMedia(id, selectedSourceId)
+          const { clips, collections } = await loadProjectMedia(id, clipsSourceId)
 
           const projectWithData = {
             ...project,
@@ -501,7 +512,9 @@ const ProjectDetailPage: React.FC = () => {
                 null)
             : null
         }
-        onPipelineFinished={() => loadProject()}
+        onPipelineFinished={async () => {
+          await handleManualSyncFromDisk()
+        }}
       />
 
       {/* 主要内容：已完成或已有切片产物时展示片段区 */}

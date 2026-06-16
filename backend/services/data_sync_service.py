@@ -279,24 +279,19 @@ class DataSyncService:
         return None
     
     def _find_existing_clip(self, project_id: str, clip_data: Dict[str, Any]) -> Optional[Any]:
-        """按 pipeline id 或标题匹配已有切片记录。"""
+        """按 pipeline id 匹配已有切片记录。"""
         from ..models.clip import Clip
 
         pipeline_id = str(clip_data.get("id") or "")
-        if pipeline_id:
-            candidates = self.db.query(Clip).filter(Clip.project_id == project_id).all()
-            for clip in candidates:
-                meta = clip.clip_metadata or {}
-                meta_id = str(meta.get("id") or meta.get("original_id") or "")
-                if meta_id == pipeline_id:
-                    return clip
-
-        title = clip_data.get("generated_title", clip_data.get("title", ""))
-        return (
-            self.db.query(Clip)
-            .filter(Clip.project_id == project_id, Clip.title == title)
-            .first()
-        )
+        if not pipeline_id:
+            return None
+        candidates = self.db.query(Clip).filter(Clip.project_id == project_id).all()
+        for clip in candidates:
+            meta = clip.clip_metadata or {}
+            meta_id = str(meta.get("id") or meta.get("original_id") or "")
+            if meta_id == pipeline_id:
+                return clip
+        return None
 
     @staticmethod
     def _clip_metadata_from_pipeline_row(clip_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -304,6 +299,7 @@ class DataSyncService:
         return {
             "id": pipeline_id,
             "original_id": pipeline_id,
+            "source_id": clip_data.get("source_id"),
             "outline": clip_data.get("outline"),
             "content": clip_data.get("content", []),
             "recommend_reason": clip_data.get("recommend_reason"),

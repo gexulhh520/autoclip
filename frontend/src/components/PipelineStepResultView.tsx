@@ -796,12 +796,21 @@ const ExportSummaryView: React.FC<{ result: PipelineStepResultResponse }> = ({ r
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {clips.map((item, i) => (
               <div key={i} style={{ ...cardStyle, padding: '8px 10px' }}>
-                <span style={{ ...mono, fontSize: 11, color: 'var(--ac-muted)', marginRight: 8 }}>
-                  {String(item.index ?? i + 1)}
-                </span>
-                <span style={{ ...mono, fontSize: 12, color: 'var(--ac-sub)', wordBreak: 'break-all' }}>
-                  {String(item.path ?? '')}
-                </span>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                  <span style={{ ...mono, fontSize: 11, color: 'var(--ac-muted)' }}>
+                    {String(item.index ?? i + 1)}
+                  </span>
+                  {item.title ? (
+                    <span style={{ fontSize: 13, color: 'var(--ac-ink)', fontWeight: 500, flex: 1, minWidth: 120 }}>
+                      {String(item.title)}
+                    </span>
+                  ) : null}
+                </div>
+                {item.path ? (
+                  <span style={{ ...mono, fontSize: 12, color: 'var(--ac-sub)', wordBreak: 'break-all' }}>
+                    {String(item.path)}
+                  </span>
+                ) : null}
               </div>
             ))}
           </div>

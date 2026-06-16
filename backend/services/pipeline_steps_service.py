@@ -706,11 +706,6 @@ def _resolve_step_artifact_path(
     if source_id:
         if defn.id == "download":
             return project_dir / "raw" / "sources" / source_id / "input.mp4"
-        if defn.id == "step6_video":
-            per_source = project_dir / "metadata" / "sources" / source_id / "clips_metadata.json"
-            if per_source.exists():
-                return per_source
-            return project_dir / defn.output_rel
         if defn.output_rel.startswith("metadata/"):
             rel = defn.output_rel[len("metadata/") :]
             per_source = project_dir / "metadata" / "sources" / source_id / rel
@@ -718,6 +713,176 @@ def _resolve_step_artifact_path(
                 return per_source
             return project_dir / defn.output_rel
     return project_dir / defn.output_rel
+
+
+def _count_exported_clips(project_dir: Path, source_id: Optional[str] = None) -> int:
+    """统计已导出的切片数量（优先 clip_paths / mp4 文件，避免 metadata 与 DB 不一致）。"""
+    clips_dir = project_dir / "output" / "clips"
+
+    if source_id:
+        per_source_meta = project_dir / "metadata" / "sources" / source_id / "clips_metadata.json"
+        if per_source_meta.exists():
+            data = _load_json_file(per_source_meta)
+            if isinstance(data, list) and data:
+                return len(data)
+        if clips_dir.exists():
+            prefixed = list(clips_dir.glob(f"{source_id}_*.mp4"))
+            if prefixed:
+                return len(prefixed)
+        return 0
+
+    step6_path = project_dir / "output" / "step6_video_output.json"
+    if step6_path.exists():
+        data = _load_json_file(step6_path)
+        if isinstance(data, dict):
+            clip_paths = data.get("clip_paths") or []
+            if clip_paths:
+                return len(clip_paths)
+            generated = int(data.get("clips_generated") or 0)
+            if generated > 0:
+                return generated
+
+    if clips_dir.exists():
+        mp4_files = [p for p in clips_dir.glob("*.mp4") if p.is_file()]
+        if mp4_files:
+            return len(mp4_files)
+
+    metadata_path = project_dir / "metadata" / "clips_metadata.json"
+    if metadata_path.exists():
+        data = _load_json_file(metadata_path)
+        if isinstance(data, list):
+            return len(data)
+    return 0
+
+
+def _build_step6_export_items(
+    project_dir: Path, source_id: Optional[str] = None
+) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+    """构建 step6 导出摘要条目（含标题与路径，按源过滤）。"""
+    clips_rows: List[Dict[str, Any]] = []
+    if source_id:
+        per_source_meta = project_dir / "metadata" / "sources" / source_id / "clips_metadata.json"
+        if per_source_meta.exists():
+            data = _load_json_file(per_source_meta)
+            if isinstance(data, list):
+                clips_rows = [row for row in data if isinstance(row, dict)]
+
+    if not clips_rows:
+        metadata_path = project_dir / "metadata" / "clips_metadata.json"
+        if metadata_path.exists():
+            data = _load_json_file(metadata_path)
+            if isinstance(data, list):
+                clips_rows = [
+                    row
+                    for row in data
+                    if isinstance(row, dict)
+                    and (not source_id or row.get("source_id") == source_id)
+                ]
+
+    path_by_id: Dict[str, str] = {}
+    step6_path = project_dir / "output" / "step6_video_output.json"
+    collections_info: List[Dict[str, Any]] = []
+    collection_paths: List[str] = []
+    if step6_path.exists():
+        step6_data = _load_json_file(step6_path)
+        if isinstance(step6_data, dict):
+            for raw_path in step6_data.get("clip_paths") or []:
+                name = Path(str(raw_path)).name
+                clip_id = name.split("_", 1)[0] if "_" in name else name.rsplit(".", 1)[0]
+                path_by_id[str(clip_id)] = str(raw_path)
+            collections_info = step6_data.get("collections_info") or []
+            collection_paths = step6_data.get("collection_paths") or []
+
+    clips_dir = project_dir / "output" / "clips"
+    items: List[Dict[str, Any]] = []
+    for i, row in enumerate(clips_rows):
+        clip_id = str(row.get("id") or i + 1)
+        video_path = path_by_id.get(clip_id)
+        if not video_path and clips_dir.exists():
+            matches = list(clips_dir.glob(f"{clip_id}_*.mp4"))
+            if not matches and source_id:
+                matches = list(clips_dir.glob(f"{source_id}_{clip_id}_*.mp4"))
+            if matches:
+                video_path = str(matches[0])
+        title = row.get("generated_title") or row.get("title") or row.get("outline") or f"切片 {clip_id}"
+        items.append(
+            {
+                "type": "clip",
+                "index": i + 1,
+                "id": clip_id,
+                "title": title,
+                "path": video_path or "",
+            }
+        )
+
+    if not items and path_by_id:
+        for i, (clip_id, video_path) in enumerate(sorted(path_by_id.items(), key=lambda x: x[0])):
+            items.append(
+                {
+                    "type": "clip",
+                    "index": i + 1,
+                    "id": clip_id,
+                    "title": f"切片 {clip_id}",
+                    "path": video_path,
+                }
+            )
+
+    for i, info in enumerate(collections_info):
+        if not isinstance(info, dict):
+            continue
+        items.append(
+            {
+                "type": "collection",
+                "index": i + 1,
+                "title": info.get("title") or info.get("collection_title") or f"合集 {i + 1}",
+                "path": info.get("video_path") or (collection_paths[i] if i < len(collection_paths) else ""),
+                "clip_count": len(info.get("clip_ids") or []),
+            }
+        )
+
+    clip_count = sum(1 for item in items if item.get("type") == "clip")
+    collection_count = sum(1 for item in items if item.get("type") == "collection")
+    return items, {"clips_generated": clip_count, "collections_generated": collection_count}
+
+
+def _maybe_sync_clips_if_behind(
+    db: Session,
+    project_id: str,
+    project_dir: Path,
+    effective_source_id: Optional[str],
+    processing_config: Dict[str, Any],
+) -> None:
+    """磁盘切片多于 DB 时自动同步，避免步骤显示数量与「视频片段」列表不一致。"""
+    from backend.repositories.clip_repository import ClipRepository
+    from backend.services.data_sync_service import DataSyncService
+    from backend.services.project_source_service import is_multi_source_project
+
+    fs_count = _count_exported_clips(
+        project_dir,
+        effective_source_id if is_multi_source_project(processing_config) else None,
+    )
+    if fs_count <= 0:
+        return
+
+    if is_multi_source_project(processing_config) and effective_source_id:
+        db_count = ClipRepository(db).count_by_project_and_source(
+            project_id, effective_source_id
+        )
+    else:
+        from backend.models.clip import Clip
+
+        db_count = db.query(Clip).filter(Clip.project_id == project_id).count()
+
+    if fs_count <= db_count:
+        return
+
+    logger.info(
+        "项目 %s 磁盘切片 %d 条、数据库 %d 条，自动同步",
+        project_id,
+        fs_count,
+        db_count,
+    )
+    DataSyncService(db).sync_project_from_filesystem(project_id, project_dir)
 
 
 def _video_ready_for_source(
@@ -742,15 +907,11 @@ def _step_completed(
     if not defn.output_rel:
         return False, 0, "未知步骤"
     path = _resolve_step_artifact_path(project_dir, defn, source_id)
-    if defn.id == "step6_video" and source_id:
-        ok, count, detail = _read_json_output(path, True)
-        if ok and count > 0:
-            return ok, count, detail
-        clips_dir = project_dir / "output" / "clips"
-        clip_files = list(clips_dir.glob(f"{source_id}_*.mp4")) if clips_dir.exists() else []
-        if clip_files:
-            return True, len(clip_files), f"已导出 {len(clip_files)} 个切片"
-        return False, 0, detail or "尚未导出切片"
+    if defn.id == "step6_video":
+        count = _count_exported_clips(project_dir, source_id)
+        if count > 0:
+            return True, count, f"已导出 {count} 个切片"
+        return _read_json_output(path, defn.output_is_array)
     return _read_json_output(path, defn.output_is_array)
 
 
@@ -837,6 +998,14 @@ def get_pipeline_steps(
     source_pipeline_active = _source_pipeline_is_active(
         processing_config, effective_source_id, source_record
     )
+
+    if db is not None and not is_pipeline_running:
+        try:
+            _maybe_sync_clips_if_behind(
+                db, project_id, project_dir, effective_source_id, processing_config
+            )
+        except Exception as exc:
+            logger.warning("自动同步切片失败 %s: %s", project_id, exc)
 
     effective_step_ids = _effective_pipeline_step_ids(processing_config)
     template_id = processing_config.get("template_id")
@@ -1097,6 +1266,17 @@ def get_pipeline_step_result(
     if not defn.output_rel:
         raise ValueError("该步骤无输出结果")
 
+    if step_id == "step6_video":
+        items, summary = _build_step6_export_items(project_dir, effective_source_id)
+        return {
+            "step_id": step_id,
+            "step_name": defn.name,
+            "result_type": "export_summary",
+            "available": bool(items),
+            "summary": summary,
+            "items": items,
+        }
+
     output_path = _resolve_step_artifact_path(project_dir, defn, effective_source_id)
     if not output_path.exists():
         return {
@@ -1246,38 +1426,6 @@ def get_pipeline_step_result(
             "step_name": defn.name,
             "result_type": "collection_list",
             "available": len(items) > 0,
-            "items": items,
-        }
-
-    if step_id == "step6_video":
-        data = _load_json_file(output_path)
-        if not isinstance(data, dict):
-            raise ValueError("导出数据格式无效")
-        clip_paths = data.get("clip_paths") or []
-        collection_paths = data.get("collection_paths") or []
-        collections_info = data.get("collections_info") or []
-        items: List[Dict[str, Any]] = []
-        for i, path in enumerate(clip_paths):
-            items.append({"type": "clip", "index": i + 1, "path": path})
-        for i, info in enumerate(collections_info):
-            items.append(
-                {
-                    "type": "collection",
-                    "index": i + 1,
-                    "title": info.get("title") or info.get("collection_title") or f"合集 {i + 1}",
-                    "path": info.get("video_path") or (collection_paths[i] if i < len(collection_paths) else ""),
-                    "clip_count": len(info.get("clip_ids") or []),
-                }
-            )
-        return {
-            "step_id": step_id,
-            "step_name": defn.name,
-            "result_type": "export_summary",
-            "available": bool(items),
-            "summary": {
-                "clips_generated": int(data.get("clips_generated") or 0),
-                "collections_generated": int(data.get("collections_generated") or 0),
-            },
             "items": items,
         }
 
