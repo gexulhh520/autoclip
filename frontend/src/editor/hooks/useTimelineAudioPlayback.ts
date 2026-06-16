@@ -112,9 +112,7 @@ export function useTimelineAudioPlayback({
   }
 
   const stopClip = (audio: HTMLAudioElement, clipId: string) => {
-    if (clipModeRef.current.get(clipId) === 'playing') {
-      audio.pause()
-    }
+    audio.pause()
     audio.playbackRate = 1
     clipModeRef.current.set(clipId, 'idle')
   }
@@ -188,8 +186,8 @@ export function useTimelineAudioPlayback({
       syncPlayingTransport()
       return
     }
-    clipModeRef.current.clear()
     syncPausedAtPlayhead()
+    clipModeRef.current.clear()
   }, [isPlaying, clips])
 
   useEffect(() => {
