@@ -22,3 +22,56 @@ export function compositionTimeFromVideo(
   const rate = Math.max(0.25, Math.min(4, block.playback_rate ?? 1))
   return segmentStartSec + Math.max(0, relative) / rate
 }
+
+export const PREVIEW_PRIMARY_VIDEO_SELECTOR = '.compositor-preview__decoder'
+
+export interface ResolvePreviewLivePlayheadOptions {
+  isPlaying: boolean
+  storePlayheadSec: number
+  totalDurationSec: number
+  primaryBlock: EditBlock | null
+  segmentStartSec: number
+  useSourceVideo: boolean
+  videoSelector?: string
+}
+
+/** 与 CompositorPreview 一致：播放中从 video.currentTime 推算平滑 composition 时间 */
+export function resolvePreviewLivePlayheadSec(
+  options: ResolvePreviewLivePlayheadOptions
+): number {
+  const {
+    isPlaying,
+    storePlayheadSec,
+    totalDurationSec,
+    primaryBlock,
+    segmentStartSec,
+    useSourceVideo,
+    videoSelector = PREVIEW_PRIMARY_VIDEO_SELECTOR,
+  } = options
+
+  if (!isPlaying || !primaryBlock) {
+    return Math.max(0, Math.min(totalDurationSec, storePlayheadSec))
+  }
+
+  const video = document.querySelector<HTMLVideoElement>(videoSelector)
+  if (!video || video.readyState < 2) {
+    return Math.max(0, Math.min(totalDurationSec, storePlayheadSec))
+  }
+
+  const live = compositionTimeFromVideo(
+    video,
+    primaryBlock,
+    segmentStartSec,
+    useSourceVideo
+  )
+  return Math.max(0, Math.min(totalDurationSec, live))
+}
+
+/** 播放中微调 playbackRate 消化漂移，避免频繁 seek */
+export function playbackRateForDrift(driftSec: number): number {
+  const deadbandSec = 0.025
+  const maxAdjust = 0.006
+  if (Math.abs(driftSec) <= deadbandSec) return 1
+  const gain = 0.35
+  return 1 + Math.max(-maxAdjust, Math.min(maxAdjust, driftSec * gain))
+}

@@ -23,6 +23,7 @@ import CompositorPreview from './preview/CompositorPreview'
 import EditorAspectRatioPicker from './EditorAspectRatioPicker'
 import PreviewVideoLayer from './EditorPreviewVideoLayer'
 import { useTimelineAudioPlayback } from '../../editor/hooks/useTimelineAudioPlayback'
+import { resolvePreviewLivePlayheadSec } from '../../editor/compositor/previewPlayhead'
 import { resolveCanvasDimensions } from '../../editor/scene/canvas'
 import type { EditBlock } from '../../types/editSession'
 import { TRANSITION_OUT_LABELS } from '../../types/transitions'
@@ -179,7 +180,31 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     )
   }, [assetPreviewClip, projectId])
 
-  const hasTimelineAudio = (session?.audio_elements?.length ?? 0) > 0
+  const primaryVideoLayer = previewVm?.videoLayers[0] ?? null
+  const primaryCompositionSegment = useMemo(() => {
+    if (!primaryVideoLayer) return null
+    return (
+      compositionSegments.find((item) => item.block.id === primaryVideoLayer.block.id) ?? null
+    )
+  }, [primaryVideoLayer, compositionSegments])
+
+  const resolveLivePlayheadSec = useCallback(() => {
+    return resolvePreviewLivePlayheadSec({
+      isPlaying,
+      storePlayheadSec: sequencePlayheadSec,
+      totalDurationSec: totalDuration,
+      primaryBlock: primaryVideoLayer?.block ?? null,
+      segmentStartSec: primaryCompositionSegment?.startSec ?? 0,
+      useSourceVideo: useSourcePreview,
+    })
+  }, [
+    isPlaying,
+    sequencePlayheadSec,
+    totalDuration,
+    primaryVideoLayer?.block,
+    primaryCompositionSegment?.startSec,
+    useSourcePreview,
+  ])
 
   useTimelineAudioPlayback({
     projectId,
@@ -189,9 +214,9 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     isPlaying,
     isAssetPreview,
     audioTrackMuted,
+    resolveLivePlayheadSec,
   })
 
-  const primaryVideoLayer = previewVm?.videoLayers[0] ?? null
 
   useEffect(() => {
     const blockId = primaryVideoLayer?.block.id

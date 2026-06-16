@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import editApi from '../../services/editApi'
+import { playbackRateForDrift } from '../compositor/previewPlayhead'
 import { findAudioAsset, getAudioClipTrackId } from '../audioTracks'
 import type { EditSession } from '../../types/editSession'
 
@@ -11,52 +12,12 @@ interface UseTimelineAudioPlaybackOptions {
   isPlaying: boolean
   isAssetPreview: boolean
   audioTrackMuted: Record<string, boolean>
+  /** 播放中返回与画面一致的平滑 composition 时间（通常来自 video.currentTime） */
+  resolveLivePlayheadSec?: () => number
 }
 
-/** 播放中用墙钟推算平滑 playhead，并用视频 timeupdate 定期重锚，避免 4Hz 阶梯导致音频卡顿 */
-function useLivePlayheadClock(playheadSec: number, isPlaying: boolean) {
-  const playheadRef = useRef(playheadSec)
-  playheadRef.current = playheadSec
-
-  const clockRef = useRef<{ anchorPlayhead: number; anchorWallMs: number } | null>(null)
-
-  useEffect(() => {
-    if (isPlaying) {
-      clockRef.current = {
-        anchorPlayhead: playheadRef.current,
-        anchorWallMs: performance.now(),
-      }
-    } else {
-      clockRef.current = null
-    }
-  }, [isPlaying])
-
-  useEffect(() => {
-    if (!isPlaying || !clockRef.current) return
-    const estimated =
-      clockRef.current.anchorPlayhead +
-      (performance.now() - clockRef.current.anchorWallMs) / 1000
-    if (Math.abs(playheadSec - estimated) > 0.06) {
-      clockRef.current = {
-        anchorPlayhead: playheadSec,
-        anchorWallMs: performance.now(),
-      }
-    }
-  }, [playheadSec, isPlaying])
-
-  const resolvePlayheadSec = useCallback(() => {
-    if (!isPlaying || !clockRef.current) {
-      return playheadRef.current
-    }
-    const { anchorPlayhead, anchorWallMs } = clockRef.current
-    return anchorPlayhead + (performance.now() - anchorWallMs) / 1000
-  }, [isPlaying])
-
-  return { resolvePlayheadSec, playheadRef }
-}
-
-const PLAYING_SEEK_THRESHOLD_SEC = 0.35
-const PAUSED_SEEK_THRESHOLD_SEC = 0.05
+const PAUSED_SEEK_THRESHOLD_SEC = 0.04
+const PLAYING_HARD_SEEK_THRESHOLD_SEC = 0.9
 
 /** 时间线多音频轨预览：每个 clip 独立 audio 元素，与主时间轴同步 */
 export function useTimelineAudioPlayback({
@@ -67,9 +28,20 @@ export function useTimelineAudioPlayback({
   isPlaying,
   isAssetPreview,
   audioTrackMuted = {},
+  resolveLivePlayheadSec,
 }: UseTimelineAudioPlaybackOptions): void {
-  const { resolvePlayheadSec } = useLivePlayheadClock(playheadSec, isPlaying)
+  const playheadRef = useRef(playheadSec)
+  playheadRef.current = playheadSec
+
+  const resolvePlayheadSec = useCallback(() => {
+    if (isPlaying && resolveLivePlayheadSec) {
+      return resolveLivePlayheadSec()
+    }
+    return playheadRef.current
+  }, [isPlaying, resolveLivePlayheadSec])
+
   const syncedClipIdsRef = useRef<Set<string>>(new Set())
+  const playingClipIdsRef = useRef<Set<string>>(new Set())
 
   const clips = useMemo(() => {
     if (!session || isAssetPreview) return []
@@ -96,6 +68,7 @@ export function useTimelineAudioPlayback({
   useEffect(() => {
     if (!isPlaying) {
       syncedClipIdsRef.current.clear()
+      playingClipIdsRef.current.clear()
     }
   }, [isPlaying])
 
@@ -120,6 +93,7 @@ export function useTimelineAudioPlayback({
       if (audio.src !== item.url) {
         audio.src = item.url
         syncedClipIdsRef.current.delete(item.clip.id)
+        playingClipIdsRef.current.delete(item.clip.id)
       }
       elements.set(item.clip.id, audio)
     }
@@ -128,13 +102,13 @@ export function useTimelineAudioPlayback({
       const id = node.dataset.clipId
       if (id && !elements.has(id)) {
         syncedClipIdsRef.current.delete(id)
+        playingClipIdsRef.current.delete(id)
         node.remove()
       }
     })
 
     const syncAll = () => {
       const playhead = resolvePlayheadSec()
-      const seekThreshold = isPlaying ? PLAYING_SEEK_THRESHOLD_SEC : PAUSED_SEEK_THRESHOLD_SEC
 
       for (const item of clips) {
         const audio = elements.get(item.clip.id)
@@ -146,22 +120,50 @@ export function useTimelineAudioPlayback({
         const sourceTime = playhead - clip.start_sec + (clip.trim_start_sec ?? 0)
 
         if (inRange) {
-          const neverSyncedThisPlay = isPlaying && !syncedClipIdsRef.current.has(item.clip.id)
-          const drifted = Math.abs(audio.currentTime - sourceTime) > seekThreshold
-          if (!isPlaying || neverSyncedThisPlay || drifted) {
-            audio.currentTime = Math.max(0, sourceTime)
-            if (isPlaying) {
-              syncedClipIdsRef.current.add(item.clip.id)
+          const drift = sourceTime - audio.currentTime
+          const needsInitialSeek = isPlaying && !syncedClipIdsRef.current.has(item.clip.id)
+
+          if (!isPlaying) {
+            audio.playbackRate = 1
+            if (Math.abs(drift) > PAUSED_SEEK_THRESHOLD_SEC) {
+              audio.currentTime = Math.max(0, sourceTime)
             }
-          }
-          if (isPlaying && !item.muted) {
-            void audio.play().catch(() => undefined)
-          } else {
             audio.pause()
+            playingClipIdsRef.current.delete(item.clip.id)
+          } else if (item.muted) {
+            audio.playbackRate = 1
+            audio.pause()
+            playingClipIdsRef.current.delete(item.clip.id)
+          } else if (needsInitialSeek) {
+            audio.currentTime = Math.max(0, sourceTime)
+            audio.playbackRate = 1
+            syncedClipIdsRef.current.add(item.clip.id)
+            if (audio.paused) {
+              void audio.play().catch(() => undefined)
+            }
+            playingClipIdsRef.current.add(item.clip.id)
+          } else if (Math.abs(drift) > PLAYING_HARD_SEEK_THRESHOLD_SEC) {
+            audio.currentTime = Math.max(0, sourceTime)
+            audio.playbackRate = 1
+            syncedClipIdsRef.current.add(item.clip.id)
+            if (audio.paused) {
+              void audio.play().catch(() => undefined)
+            }
+            playingClipIdsRef.current.add(item.clip.id)
+          } else {
+            audio.playbackRate = playbackRateForDrift(drift)
+            if (audio.paused) {
+              void audio.play().catch(() => undefined)
+            }
+            playingClipIdsRef.current.add(item.clip.id)
           }
         } else {
           syncedClipIdsRef.current.delete(item.clip.id)
-          audio.pause()
+          audio.playbackRate = 1
+          if (!audio.paused) {
+            audio.pause()
+          }
+          playingClipIdsRef.current.delete(item.clip.id)
         }
       }
     }
@@ -211,5 +213,6 @@ export function syncTimelineAudioToPlayhead(
     if (!audio) continue
     const sourceTime = playheadSec - clip.start_sec + (clip.trim_start_sec ?? 0)
     audio.currentTime = Math.max(0, sourceTime)
+    audio.playbackRate = 1
   }
 }
