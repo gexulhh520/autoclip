@@ -80,6 +80,10 @@ import {
 } from '../editor/migration/templateCaptionOverlays'
 import { shiftTimelineElementsAfterVideoInsert } from '../editor/migration/shiftTimelineAfterInsert'
 import {
+  cloneEditorClipboard,
+  type EditorClipboard,
+} from '../editor/clipboard/editorClipboard'
+import {
   BASE_PX_PER_SEC,
   blockDuration,
   buildCompositionTimelineSegments,
@@ -175,7 +179,7 @@ interface EditSessionState {
   snapEnabled: boolean
   rippleTrimEnabled: boolean
   inspectorTab: 'video' | 'audio' | 'text' | 'animation' | 'transition'
-  clipboardBlock: EditBlock | null
+  editorClipboard: EditorClipboard | null
   historyPast: EditorHistorySnapshot[]
   historyFuture: EditorHistorySnapshot[]
 
@@ -229,9 +233,12 @@ interface EditSessionState {
   splitAtInternalSilence: (projectId: string, blockId: string) => Promise<number>
   appendClips: (projectId: string, clipIds: string[], sourceId?: string | null) => Promise<number>
   importMedia: (projectId: string, file: File) => Promise<void>
-  copySelectedBlock: () => void
-  pasteBlock: () => void
-  clipboardHasBlock: () => boolean
+  copySelection: () => void
+  pasteSelection: (options?: { startSec?: number; insertAfterBlockId?: string }) => void
+  clipboardHasContent: () => boolean
+  duplicateBlock: (blockId: string) => void
+  duplicateOverlay: (overlayId: string, startSec?: number) => void
+  duplicateAudioClip: (clipId: string, startSec?: number) => void
   setSnapEnabled: (enabled: boolean) => void
   rippleTrimEnabled: boolean
   setRippleTrimEnabled: (enabled: boolean) => void
@@ -487,7 +494,7 @@ export const useEditSessionStore = create<EditSessionState>()(
       snapEnabled: true,
       rippleTrimEnabled: true,
       inspectorTab: 'video',
-      clipboardBlock: null,
+      editorClipboard: null,
       historyPast: [],
       historyFuture: [],
 
@@ -1061,34 +1068,205 @@ export const useEditSessionStore = create<EditSessionState>()(
         }
       },
 
-      copySelectedBlock: () => {
-        const { session, selectedBlockId } = get()
-        if (!session || !selectedBlockId) return
+      copySelection: () => {
+        const {
+          session,
+          selectedBlockId,
+          selectedOverlayId,
+          selectedOverlayIds,
+          selectedAudioClipId,
+        } = get()
+        if (!session) return
+
+        if (selectedAudioClipId) {
+          const clip = session.audio_elements?.find((item) => item.id === selectedAudioClipId)
+          if (!clip) return
+          set({
+            editorClipboard: cloneEditorClipboard({
+              kind: 'audio_clip',
+              clip: JSON.parse(JSON.stringify(clip)) as AudioClipElement,
+            }),
+          })
+          return
+        }
+
+        const overlayId =
+          selectedOverlayIds.length > 0
+            ? selectedOverlayIds[selectedOverlayIds.length - 1]!
+            : selectedOverlayId
+        if (overlayId) {
+          const element = session.overlay_elements?.find((item) => item.id === overlayId)
+          if (!element) return
+          set({
+            editorClipboard: cloneEditorClipboard({
+              kind: 'text_overlay',
+              element: JSON.parse(JSON.stringify(element)) as EditOverlayElement,
+            }),
+          })
+          return
+        }
+
+        if (!selectedBlockId) return
         const block = session.sequence.find((item) => item.id === selectedBlockId)
         if (!block) return
-        set({ clipboardBlock: cloneSequence([block])[0] })
+        set({
+          editorClipboard: cloneEditorClipboard({
+            kind: 'video_block',
+            block: cloneSequence([block])[0]!,
+          }),
+        })
       },
 
-      pasteBlock: () => {
-        const { session, clipboardBlock, selectedBlockId } = get()
-        if (!session || !clipboardBlock) return
+      pasteSelection: (options) => {
+        const { session, editorClipboard, sequencePlayheadSec } = get()
+        if (!session || !editorClipboard) return
         pushHistory()
-        const copy: EditBlock = {
-          ...cloneSequence([clipboardBlock])[0],
-          id: nanoid(),
+
+        if (editorClipboard.kind === 'video_block') {
+          const copy: EditBlock = {
+            ...cloneSequence([editorClipboard.block])[0]!,
+            id: nanoid(),
+          }
+          const insertIndex = options?.insertAfterBlockId
+            ? session.sequence.findIndex((item) => item.id === options.insertAfterBlockId) + 1
+            : resolvePlayheadInsertIndex(
+                session,
+                options?.startSec ?? sequencePlayheadSec
+              )
+          set((state) => {
+            if (!state.session) return
+            state.session.sequence.splice(Math.max(0, insertIndex), 0, copy)
+            state.selectedBlockId = copy.id
+            state.selectedBlockIds = [copy.id]
+            state.selectedOverlayId = null
+            state.selectedOverlayIds = []
+            state.selectedCaptionBlockId = null
+            state.selectedCaptionBlockIds = []
+            state.selectedAudioClipId = null
+            state.dirty = true
+          })
+          return
         }
-        const index = selectedBlockId
-          ? session.sequence.findIndex((item) => item.id === selectedBlockId)
-          : session.sequence.length - 1
+
+        if (editorClipboard.kind === 'text_overlay') {
+          const source = editorClipboard.element
+          const id = nanoid()
+          const startSec = options?.startSec ?? sequencePlayheadSec
+          set((state) => {
+            if (!state.session) return
+            if (!state.session.overlay_elements) {
+              state.session.overlay_elements = []
+            }
+            ensureTextTracks(state.session)
+            state.session.overlay_elements.push({
+              ...JSON.parse(JSON.stringify(source)) as EditOverlayElement,
+              id,
+              start_sec: Math.max(0, startSec),
+            })
+            state.selectedOverlayId = id
+            state.selectedOverlayIds = [id]
+            state.selectedBlockId = null
+            state.selectedBlockIds = []
+            state.selectedCaptionBlockId = null
+            state.selectedCaptionBlockIds = []
+            state.selectedAudioClipId = null
+            state.activeTextTrackId = source.track_id ?? state.activeTextTrackId
+            state.dirty = true
+          })
+          return
+        }
+
+        const source = editorClipboard.clip
+        const id = nanoid()
+        const startSec = options?.startSec ?? sequencePlayheadSec
         set((state) => {
           if (!state.session) return
-          state.session.sequence.splice(index + 1, 0, copy)
-          state.selectedBlockId = copy.id
+          ensureAudioModel(state.session)
+          state.session.audio_elements!.push({
+            ...JSON.parse(JSON.stringify(source)) as AudioClipElement,
+            id,
+            start_sec: Math.max(0, startSec),
+          })
+          state.selectedAudioClipId = id
+          state.selectedBlockId = null
+          state.selectedBlockIds = []
+          state.selectedOverlayId = null
+          state.selectedOverlayIds = []
+          state.selectedCaptionBlockId = null
+          state.selectedCaptionBlockIds = []
+          state.activeAudioTrackId = source.track_id ?? state.activeAudioTrackId
           state.dirty = true
         })
       },
 
-      clipboardHasBlock: () => get().clipboardBlock !== null,
+      clipboardHasContent: () => get().editorClipboard !== null,
+
+      duplicateBlock: (blockId) => {
+        const { session } = get()
+        if (!session) return
+        const block = session.sequence.find((item) => item.id === blockId)
+        if (!block) return
+        pushHistory()
+        const copy: EditBlock = {
+          ...cloneSequence([block])[0]!,
+          id: nanoid(),
+        }
+        const index = session.sequence.findIndex((item) => item.id === blockId)
+        set((state) => {
+          if (!state.session) return
+          state.session.sequence.splice(index + 1, 0, copy)
+          state.selectedBlockId = copy.id
+          state.selectedBlockIds = [copy.id]
+          state.dirty = true
+        })
+      },
+
+      duplicateOverlay: (overlayId, startSec) => {
+        const { session } = get()
+        if (!session) return
+        const source = session.overlay_elements?.find((item) => item.id === overlayId)
+        if (!source) return
+        pushHistory()
+        const id = nanoid()
+        const nextStart =
+          startSec ??
+          source.start_sec + source.duration_sec + 0.1
+        set((state) => {
+          if (!state.session?.overlay_elements) return
+          ensureTextTracks(state.session)
+          state.session.overlay_elements.push({
+            ...JSON.parse(JSON.stringify(source)) as EditOverlayElement,
+            id,
+            start_sec: Math.max(0, nextStart),
+          })
+          state.selectedOverlayId = id
+          state.selectedOverlayIds = [id]
+          state.dirty = true
+        })
+      },
+
+      duplicateAudioClip: (clipId, startSec) => {
+        const { session } = get()
+        if (!session) return
+        const source = session.audio_elements?.find((item) => item.id === clipId)
+        if (!source) return
+        pushHistory()
+        const id = nanoid()
+        const nextStart =
+          startSec ??
+          source.start_sec + source.duration_sec + 0.1
+        set((state) => {
+          if (!state.session?.audio_elements) return
+          ensureAudioModel(state.session)
+          state.session.audio_elements.push({
+            ...JSON.parse(JSON.stringify(source)) as AudioClipElement,
+            id,
+            start_sec: Math.max(0, nextStart),
+          })
+          state.selectedAudioClipId = id
+          state.dirty = true
+        })
+      },
 
       updateExportSettings: (settings) => {
         set((state) => {
@@ -2201,7 +2379,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           previewBurnSubtitles: true,
           rippleTrimEnabled: true,
           inspectorTab: 'video',
-          clipboardBlock: null,
+          editorClipboard: null,
           historyPast: [],
           historyFuture: [],
         }),

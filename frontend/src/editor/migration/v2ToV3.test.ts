@@ -27,6 +27,57 @@ describe('EditProjectV3 migration', () => {
     expect(restored.sequence[0]?.id).toBe('a')
   })
 
+  it('flattenV3ToSession roundtrip preserves video_transform and playback_rate', () => {
+    const session = loadFixtureSession('session-minimal.json')
+    session.sequence[0] = {
+      ...session.sequence[0]!,
+      playback_rate: 1.25,
+      video_transform: {
+        scale_x: 1.4,
+        scale_y: 0.9,
+        position_x: 12,
+        position_y: -8,
+      },
+    }
+    const project = migrateSessionToV3(session)
+    expect(project.scenes[0]?.tracks.main[0]?.properties.playback_rate).toBe(1.25)
+    expect(project.scenes[0]?.tracks.main[0]?.properties.video_transform).toEqual({
+      scale_x: 1.4,
+      scale_y: 0.9,
+      position_x: 12,
+      position_y: -8,
+    })
+    const restored = flattenV3ToSession(project)
+    expect(restored.sequence[0]?.playback_rate).toBe(1.25)
+    expect(restored.sequence[0]?.video_transform).toEqual({
+      scale_x: 1.4,
+      scale_y: 0.9,
+      position_x: 12,
+      position_y: -8,
+    })
+  })
+
+  it('hydrateEditDocument merges video_transform from flat sequence when v3 lacks it', () => {
+    const session = loadFixtureSession('session-minimal.json')
+    const project = migrateSessionToV3(session)
+    const stale = {
+      ...session,
+      schema_version: 3,
+      project_v3: project,
+      sequence: session.sequence.map((block) => ({
+        ...block,
+        video_transform: {
+          scale_x: 2,
+          scale_y: 2,
+          position_x: 0,
+          position_y: 0,
+        },
+      })),
+    }
+    const document = hydrateEditDocument(stale)
+    expect(document.session.sequence[0]?.video_transform?.scale_x).toBe(2)
+  })
+
   it('normalizeEditDocument compiles same plan duration as session', () => {
     const session = loadFixtureSession('session-dissolve.json')
     const direct = compileCompositionPlan(session, COMPILE_OPTS)

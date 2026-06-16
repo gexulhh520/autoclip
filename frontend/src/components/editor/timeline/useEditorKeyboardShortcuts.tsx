@@ -10,8 +10,8 @@ export function useEditorKeyboardShortcuts(projectId: string) {
   const splitSelectedBlockAtPlayhead = useEditSessionStore(
     (state) => state.splitSelectedBlockAtPlayhead
   )
-  const copySelectedBlock = useEditSessionStore((state) => state.copySelectedBlock)
-  const pasteBlock = useEditSessionStore((state) => state.pasteBlock)
+  const copySelection = useEditSessionStore((state) => state.copySelection)
+  const pasteSelection = useEditSessionStore((state) => state.pasteSelection)
   const selectedBlockId = useEditSessionStore((state) => state.selectedBlockId)
   const selectedOverlayId = useEditSessionStore((state) => state.selectedOverlayId)
   const selectedOverlayIds = useEditSessionStore((state) => state.selectedOverlayIds)
@@ -61,12 +61,12 @@ export function useEditorKeyboardShortcuts(projectId: string) {
       }
       if (mod && event.key.toLowerCase() === 'c') {
         event.preventDefault()
-        copySelectedBlock()
+        copySelection()
         return
       }
       if (mod && event.key.toLowerCase() === 'v') {
         event.preventDefault()
-        pasteBlock()
+        pasteSelection()
         return
       }
       if (mod && event.key.toLowerCase() === 's') {
@@ -107,12 +107,12 @@ export function useEditorKeyboardShortcuts(projectId: string) {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [
     addOverlayElement,
-    copySelectedBlock,
+    copySelection,
     deleteSelectedCaption,
     deleteSelectedBlock,
     deleteSelectedOverlays,
     isPlaying,
-    pasteBlock,
+    pasteSelection,
     projectId,
     redo,
     removeAudioClip,

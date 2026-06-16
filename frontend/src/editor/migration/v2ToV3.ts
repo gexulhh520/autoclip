@@ -1,4 +1,4 @@
-import type { EditBlock, EditBlockMedia, EditSession } from '../../types/editSession'
+import type { EditBlock, EditBlockMedia, EditBlockVideoTransform, EditSession } from '../../types/editSession'
 import type { TransitionOutKind } from '../../types/transitions'
 import { migrateToOpenCutText } from '../opencut-text/migrate'
 import { buildCompositionTimeline } from '../scene/timelineLayout'
@@ -113,6 +113,23 @@ const blockMediaFromAsset = (asset: MediaAsset): EditBlockMedia => ({
   source_end_sec: asset.source_end_sec,
 })
 
+const readBlockVideoTransform = (value: unknown): EditBlockVideoTransform | undefined => {
+  if (!value || typeof value !== 'object') return undefined
+  const raw = value as Record<string, unknown>
+  return {
+    scale_x: Number(raw.scale_x ?? 1),
+    scale_y: Number(raw.scale_y ?? 1),
+    position_x: Number(raw.position_x ?? 0),
+    position_y: Number(raw.position_y ?? 0),
+  }
+}
+
+const mergeFlatBlockFields = (flatBlock: EditBlock, baseBlock: EditBlock): EditBlock => ({
+  ...baseBlock,
+  playback_rate: flatBlock.playback_rate ?? baseBlock.playback_rate,
+  video_transform: flatBlock.video_transform ?? baseBlock.video_transform,
+})
+
 export const migrateSessionToV3 = (session: EditSession): EditProjectV3 => {
   const mediaPool: MediaAsset[] = []
   const mainTrack: TrackElement[] = []
@@ -140,6 +157,13 @@ export const migrateSessionToV3 = (session: EditSession): EditProjectV3 => {
         volume: block.audio.volume,
         fade_in_sec: block.audio.fade_in_sec ?? 0,
         fade_out_sec: block.audio.fade_out_sec ?? 0,
+        playback_rate: block.playback_rate ?? 1,
+        video_transform: block.video_transform ?? {
+          scale_x: 1,
+          scale_y: 1,
+          position_x: 0,
+          position_y: 0,
+        },
       },
       transition_out: segment.transitionOut,
     })
@@ -295,6 +319,8 @@ export const flattenV3ToSession = (project: EditProjectV3): EditSession => {
         },
         transition_out: element.transition_out ?? 'cut',
         duration_sec: asset?.duration_sec ?? element.duration,
+        playback_rate: Number(element.properties.playback_rate ?? 1),
+        video_transform: readBlockVideoTransform(element.properties.video_transform),
       }
     })
 
@@ -407,10 +433,11 @@ export const hydrateEditDocument = (session: EditSession): EditDocument => {
         v3Block.overlay.content.some((line) => line.trim()) || v3Block.overlay.outline.trim()
       const flatHasCaption =
         flatBlock.overlay.content.some((line) => line.trim()) || flatBlock.overlay.outline.trim()
-      if (!v3HasCaption && flatHasCaption) {
-        return { ...v3Block, overlay: { ...flatBlock.overlay } }
-      }
-      return v3Block
+      const merged =
+        !v3HasCaption && flatHasCaption
+          ? { ...v3Block, overlay: { ...flatBlock.overlay } }
+          : v3Block
+      return mergeFlatBlockFields(flatBlock, merged)
     }
 
     const mergedSequence = flatSequenceIsAhead

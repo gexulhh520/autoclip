@@ -109,9 +109,12 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const splitSelectedBlockAtPlayhead = useEditSessionStore(
     (state) => state.splitSelectedBlockAtPlayhead
   )
-  const copySelectedBlock = useEditSessionStore((state) => state.copySelectedBlock)
-  const pasteBlock = useEditSessionStore((state) => state.pasteBlock)
-  const clipboardHasBlock = useEditSessionStore((state) => state.clipboardHasBlock)
+  const copySelection = useEditSessionStore((state) => state.copySelection)
+  const pasteSelection = useEditSessionStore((state) => state.pasteSelection)
+  const clipboardHasContent = useEditSessionStore((state) => state.clipboardHasContent)
+  const duplicateBlock = useEditSessionStore((state) => state.duplicateBlock)
+  const duplicateOverlay = useEditSessionStore((state) => state.duplicateOverlay)
+  const duplicateAudioClip = useEditSessionStore((state) => state.duplicateAudioClip)
   const undo = useEditSessionStore((state) => state.undo)
   const redo = useEditSessionStore((state) => state.redo)
   const addBookmark = useEditSessionStore((state) => state.addBookmark)
@@ -663,15 +666,13 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         removeAudioClip(element.id)
       }
     }
-    if (action === 'duplicate' && element.source.kind === 'overlay') {
-      const overlayId = element.source.overlayId
-      const sourceOverlay = session?.overlay_elements?.find((item) => item.id === overlayId)
-      if (sourceOverlay) {
-        addOverlayElement({
-          start_sec: element.startTime + element.duration + 0.1,
-          track_id: sourceOverlay.track_id,
-          params: { ...sourceOverlay.params },
-        } as never)
+    if (action === 'duplicate') {
+      if (element.source.kind === 'overlay') {
+        duplicateOverlay(element.source.overlayId, element.startTime + element.duration + 0.1)
+      } else if (element.source.kind === 'block') {
+        duplicateBlock(element.source.blockId)
+      } else if (element.source.kind === 'audio_clip') {
+        duplicateAudioClip(element.source.clipId, element.startTime + element.duration + 0.1)
       }
     }
     setContextMenu(null)
@@ -706,8 +707,8 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
             useEditSessionStore.getState().deleteSelectedOverlays()
           } else deleteSelectedBlock()
         }}
-        onCopy={copySelectedBlock}
-        onPaste={pasteBlock}
+        onCopy={copySelection}
+        onPaste={pasteSelection}
         onUndo={undo}
         onRedo={redo}
         onToggleBookmark={() => {
@@ -730,8 +731,13 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           !!selectedCaptionBlockId ||
           selectedCaptionBlockIds.length > 0
         }
-        canCopy={!!selectedBlockId}
-        canPaste={clipboardHasBlock()}
+        canCopy={
+          !!selectedBlockId ||
+          !!selectedOverlayId ||
+          selectedOverlayIds.length > 0 ||
+          !!selectedAudioClipId
+        }
+        canPaste={clipboardHasContent()}
         canUndo={historyPast.length > 0}
         canRedo={historyFuture.length > 0}
       />
