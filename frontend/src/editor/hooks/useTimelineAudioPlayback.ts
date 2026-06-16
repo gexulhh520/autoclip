@@ -21,7 +21,7 @@ export function useTimelineAudioPlayback({
   playheadSec,
   isPlaying,
   isAssetPreview,
-  audioTrackMuted,
+  audioTrackMuted = {},
 }: UseTimelineAudioPlaybackOptions): void {
   const playheadRef = useRef(playheadSec)
   playheadRef.current = playheadSec

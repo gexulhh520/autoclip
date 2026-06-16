@@ -308,8 +308,6 @@ export function resolveSceneAt(
     if (!asset) continue
     audioLayers.push({
       kind: 'bgm',
-      clipId: clip.id,
-      assetId: asset.id,
       timelineSec: clampedTime - clip.start_sec + (clip.trim_start_sec ?? 0),
       volume: clip.volume ?? bgmSettings.bgm_volume,
       ducking: bgmSettings.bgm_duck_enabled ?? true,

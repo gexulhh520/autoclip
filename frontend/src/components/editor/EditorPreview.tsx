@@ -67,6 +67,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const moveOverlayPositions = useEditSessionStore((state) => state.moveOverlayPositions)
   const moveCaptionOffsets = useEditSessionStore((state) => state.moveCaptionOffsets)
   const textTrackMuted = useEditSessionStore((state) => state.textTrackMuted)
+  const audioTrackMuted = useEditSessionStore((state) => state.audioTrackMuted)
   const setPreviewVideoNaturalSize = useEditSessionStore((state) => state.setPreviewVideoNaturalSize)
 
   const isAssetPreview = Boolean(assetPreviewClip)

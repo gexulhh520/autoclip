@@ -329,7 +329,7 @@ export const flattenV3ToSession = (project: EditProjectV3): EditSession => {
   const audio_elements: EditSession['audio_elements'] = []
   const audio_trackIds = new Set<string>()
 
-  for (const item of scene.tracks.audio) {
+  for (const item of scene.tracks.audio ?? []) {
     const path = String(item.properties.path ?? '')
     if (!path) continue
     const assetId = String(item.asset_id ?? item.id)
