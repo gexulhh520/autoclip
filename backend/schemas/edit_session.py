@@ -39,6 +39,19 @@ class EditBlockTrim(BaseModel):
     out_sec: float = 0.0
 
 
+class EditBlockVideoTransform(BaseModel):
+    scale_x: float = 1.0
+    scale_y: float = 1.0
+    position_x: float = 0.0
+    position_y: float = 0.0
+
+    @model_validator(mode="after")
+    def clamp_scales(self) -> "EditBlockVideoTransform":
+        self.scale_x = max(0.1, min(4.0, float(self.scale_x or 1.0)))
+        self.scale_y = max(0.1, min(4.0, float(self.scale_y or 1.0)))
+        return self
+
+
 class EditBlock(BaseModel):
     id: str
     source_clip_id: str
@@ -61,6 +74,7 @@ class EditBlock(BaseModel):
     ] = "cut"
     duration_sec: float = 0.0
     playback_rate: float = 1.0
+    video_transform: EditBlockVideoTransform = Field(default_factory=EditBlockVideoTransform)
 
     @model_validator(mode="after")
     def normalize_playback_rate(self) -> "EditBlock":

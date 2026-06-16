@@ -160,4 +160,27 @@ describe('compositor Phase 0', () => {
       expect(layer.transform.height).toBeGreaterThan(0)
     }
   })
+
+  it('applies per-block video_transform scale in frame descriptor', () => {
+    const scaled = block('a', 4)
+    scaled.video_transform = { scale_x: 2, scale_y: 1 }
+    const plan = compileCompositionPlan(session([scaled]), {
+      burnSubtitles: true,
+      useSourceVideo: false,
+    })
+    const baselinePlan = compileCompositionPlan(session([block('a', 4)]), {
+      burnSubtitles: true,
+      useSourceVideo: false,
+    })
+    const scaledFrame = buildFrameDescriptor(plan, 0)
+    const baselineFrame = buildFrameDescriptor(baselinePlan, 0)
+    const scaledLayer = scaledFrame.items.find((item) => item.kind === 'layer')
+    const baselineLayer = baselineFrame.items.find((item) => item.kind === 'layer')
+    expect(scaledLayer?.kind).toBe('layer')
+    expect(baselineLayer?.kind).toBe('layer')
+    if (scaledLayer?.kind === 'layer' && baselineLayer?.kind === 'layer') {
+      expect(scaledLayer.transform.width).toBeCloseTo(baselineLayer.transform.width * 2, 0)
+      expect(scaledLayer.transform.height).toBeCloseTo(baselineLayer.transform.height, 0)
+    }
+  })
 })

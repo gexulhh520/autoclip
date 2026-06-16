@@ -1,4 +1,4 @@
-import type { EditSession } from '../../types/editSession'
+import type { EditBlock, EditSession } from '../../types/editSession'
 import {
   mapCompositionTimeToRelativeSource,
 } from '../scene/timelineLayout'
@@ -12,6 +12,7 @@ import {
   buildVideoCompositionSpec,
   resolveVideoLayerTransforms,
 } from './geometry'
+import { resolveBlockVideoTransform } from '../../utils/blockVideoTransform'
 import {
   frameLayerFromTransitionSpec,
   resolvePlanSceneEffects,
@@ -55,9 +56,10 @@ const resolveForegroundTransform = (
   settings: EditSession['export_settings'],
   canvas: CompositionPlan['canvas'],
   sourceWidth: number,
-  sourceHeight: number
+  sourceHeight: number,
+  block?: EditBlock | null
 ): { foreground: VisualTransform; blurBackdrop?: VisualTransform } => {
-  const spec = buildVideoCompositionSpec(
+  const baseSpec = buildVideoCompositionSpec(
     {
       aspect: canvas.aspect as EditSession['export_settings']['aspect'],
       height: canvas.height,
@@ -68,7 +70,24 @@ const resolveForegroundTransform = (
     sourceWidth,
     sourceHeight
   )
+  const videoTransform = resolveBlockVideoTransform(block)
+  const spec = {
+    ...baseSpec,
+    canvasSize: { width: canvas.width, height: canvas.height },
+    scaleX: videoTransform.scale_x,
+    scaleY: videoTransform.scale_y,
+    positionX: videoTransform.position_x,
+    positionY: videoTransform.position_y,
+  }
   return resolveVideoLayerTransforms(spec)
+}
+
+const findBlockInTimeline = (
+  timeline: CompositionPlan['timeline'],
+  blockId: string | undefined
+): EditBlock | undefined => {
+  if (!blockId) return undefined
+  return timeline.segments.find((segment) => segment.block.id === blockId)?.block
 }
 
 const blockVolumeAtRelative = (
@@ -244,6 +263,7 @@ export function buildFrameDescriptor(
   }
 
   for (const layerSpec of transitionResult.videoLayers) {
+    const block = findBlockInTimeline(timeline, layerSpec.blockId)
     const blockSize = resolveBlockSourceSize(
       layerSpec.blockId,
       context,
@@ -254,7 +274,8 @@ export function buildFrameDescriptor(
       exportSettingsStub,
       canvas,
       blockSize.width,
-      blockSize.height
+      blockSize.height,
+      block
     )
     items.push(
       frameLayerFromTransitionSpec({ ...layerSpec, transform: layerForeground }, zIndex++)

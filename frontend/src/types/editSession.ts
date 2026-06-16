@@ -79,6 +79,16 @@ export interface EditBlockTrim {
   out_sec: number
 }
 
+export interface EditBlockVideoTransform {
+  /** 相对 contain 基准的横向缩放，1=默认 */
+  scale_x?: number
+  /** 相对 contain 基准的纵向缩放，1=默认 */
+  scale_y?: number
+  /** 画布像素偏移（正=向右/向下） */
+  position_x?: number
+  position_y?: number
+}
+
 export interface EditBlock {
   id: string
   source_clip_id: string
@@ -91,6 +101,8 @@ export interface EditBlock {
   duration_sec: number
   /** 播放倍速：1=原速，2=两倍速（时间线时长缩短） */
   playback_rate?: number
+  /** 片段画面缩放/位移（预览与 compositor 导出） */
+  video_transform?: EditBlockVideoTransform
 }
 
 import type { EditAspectPresetId } from '../utils/editAspectRatios'

@@ -4,6 +4,7 @@ import { nanoid } from 'nanoid'
 import editApi from '../services/editApi'
 import type {
   EditBlock,
+  EditBlockVideoTransform,
   EditOverlayElement,
   EditSession,
   EditSessionAudioSettings,
@@ -11,6 +12,10 @@ import type {
   TimelineBookmark,
   AudioClipElement,
 } from '../types/editSession'
+import {
+  clampBlockVideoScale,
+  resolveBlockVideoTransform,
+} from '../utils/blockVideoTransform'
 import {
   DEFAULT_TRACK_COLLAPSED,
   DEFAULT_TRACK_HIDDEN,
@@ -202,6 +207,10 @@ interface EditSessionState {
   updateExportSettings: (settings: Partial<EditExportSettings>) => void
   updateAudioSettings: (settings: Partial<EditSessionAudioSettings>) => void
   updateBlockAudio: (blockId: string, audio: Partial<EditBlock['audio']>) => void
+  updateBlockVideoTransform: (
+    blockId: string,
+    patch: Partial<EditBlockVideoTransform>
+  ) => void
   updateBlockPlaybackRate: (blockId: string, rate: number) => void
   updateBlockTransition: (blockId: string, transition: EditBlock['transition_out']) => void
   uploadBgm: (projectId: string, file: File) => Promise<void>
@@ -1710,6 +1719,24 @@ export const useEditSessionStore = create<EditSessionState>()(
           const block = state.session.sequence.find((item) => item.id === blockId)
           if (!block) return
           block.audio = { ...block.audio, ...audio }
+        })
+      },
+
+      updateBlockVideoTransform: (blockId, patch) => {
+        pushHistory()
+        set((state) => {
+          if (!state.session) return
+          const block = state.session.sequence.find((item) => item.id === blockId)
+          if (!block) return
+          const current = resolveBlockVideoTransform(block)
+          const next = { ...current, ...patch }
+          block.video_transform = {
+            scale_x: clampBlockVideoScale(next.scale_x),
+            scale_y: clampBlockVideoScale(next.scale_y),
+            position_x: next.position_x,
+            position_y: next.position_y,
+          }
+          state.dirty = true
         })
       },
 

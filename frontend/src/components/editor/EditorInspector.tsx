@@ -4,6 +4,12 @@ import { Film, Music2, Sparkles, Type, Workflow } from 'lucide-react'
 import OpenCutPropertiesEmpty from './opencut/OpenCutPropertiesEmpty'
 import { blockDuration, useEditSessionStore } from '../../stores/useEditSessionStore'
 import { collectTrimSnapPoints, snapTime } from '../../utils/editTimeline'
+import {
+  BLOCK_VIDEO_SCALE_MAX,
+  BLOCK_VIDEO_SCALE_MIN,
+  blockVideoTransformIsUniform,
+  resolveBlockVideoTransform,
+} from '../../utils/blockVideoTransform'
 import { srtTimeToSeconds, secondsToSrtTime } from '../../utils/srtTime'
 import { projectApi } from '../../services/api'
 import EditorInspectorSelectionBanner from './EditorInspectorSelectionBanner'
@@ -61,6 +67,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   const updateBlockTrim = useEditSessionStore((state) => state.updateBlockTrim)
   const updateBlockAudio = useEditSessionStore((state) => state.updateBlockAudio)
   const updateBlockPlaybackRate = useEditSessionStore((state) => state.updateBlockPlaybackRate)
+  const updateBlockVideoTransform = useEditSessionStore((state) => state.updateBlockVideoTransform)
   const updateBlockTransition = useEditSessionStore((state) => state.updateBlockTransition)
   const updateAudioSettings = useEditSessionStore((state) => state.updateAudioSettings)
   const updateAudioClip = useEditSessionStore((state) => state.updateAudioClip)
@@ -79,6 +86,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   const applyBatchTextAnimation = useEditSessionStore((state) => state.applyBatchTextAnimation)
 
   const [regenerating, setRegenerating] = useState(false)
+  const [uniformVideoScale, setUniformVideoScale] = useState(true)
   const [srtBoundaries, setSrtBoundaries] = useState<number[]>([])
 
   const selectedBlock =
@@ -95,6 +103,11 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
       : null
   const selectedAudioAsset =
     selectedAudioClip && session ? findAudioAsset(session, selectedAudioClip.asset_id) : null
+
+  useEffect(() => {
+    if (!selectedBlock) return
+    setUniformVideoScale(blockVideoTransformIsUniform(selectedBlock.video_transform))
+  }, [selectedBlock?.id, selectedBlock?.video_transform?.scale_x, selectedBlock?.video_transform?.scale_y])
 
   useEffect(() => {
     if (!selectedBlock?.media.source_start_sec || !selectedBlock?.media.source_end_sec) {
@@ -280,11 +293,104 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
     if (!selectedBlock) {
       return <div className="editor-empty-hint">选中时间线片段后调节画面</div>
     }
+    const videoTransform = resolveBlockVideoTransform(selectedBlock)
+
     return (
       <>
         <div className="editor-inspector-section">
           <div className="editor-inspector-label">基础</div>
           <div className="editor-inspector-value">{selectedBlock.title}</div>
+        </div>
+        <div className="editor-inspector-section">
+          <div className="editor-inspector-label">缩放</div>
+          <label className="editor-modal__check">
+            <input
+              type="checkbox"
+              checked={uniformVideoScale}
+              onChange={(event) => {
+                const nextUniform = event.target.checked
+                setUniformVideoScale(nextUniform)
+                if (nextUniform) {
+                  updateBlockVideoTransform(selectedBlock.id, {
+                    scale_y: videoTransform.scale_x,
+                  })
+                }
+              }}
+            />
+            等比缩放
+          </label>
+          {uniformVideoScale ? (
+            <>
+              <div className="editor-inspector-label" style={{ marginTop: 12 }}>
+                缩放 ({videoTransform.scale_x.toFixed(2)}×)
+              </div>
+              <input
+                className="editor-range"
+                type="range"
+                min={BLOCK_VIDEO_SCALE_MIN}
+                max={BLOCK_VIDEO_SCALE_MAX}
+                step={0.05}
+                value={videoTransform.scale_x}
+                onChange={(event) => {
+                  const value = Number(event.target.value)
+                  updateBlockVideoTransform(selectedBlock.id, {
+                    scale_x: value,
+                    scale_y: value,
+                  })
+                }}
+              />
+            </>
+          ) : (
+            <>
+              <div className="editor-inspector-label" style={{ marginTop: 12 }}>
+                缩放 X ({videoTransform.scale_x.toFixed(2)}×)
+              </div>
+              <input
+                className="editor-range"
+                type="range"
+                min={BLOCK_VIDEO_SCALE_MIN}
+                max={BLOCK_VIDEO_SCALE_MAX}
+                step={0.05}
+                value={videoTransform.scale_x}
+                onChange={(event) =>
+                  updateBlockVideoTransform(selectedBlock.id, {
+                    scale_x: Number(event.target.value),
+                  })
+                }
+              />
+              <div className="editor-inspector-label" style={{ marginTop: 12 }}>
+                缩放 Y ({videoTransform.scale_y.toFixed(2)}×)
+              </div>
+              <input
+                className="editor-range"
+                type="range"
+                min={BLOCK_VIDEO_SCALE_MIN}
+                max={BLOCK_VIDEO_SCALE_MAX}
+                step={0.05}
+                value={videoTransform.scale_y}
+                onChange={(event) =>
+                  updateBlockVideoTransform(selectedBlock.id, {
+                    scale_y: Number(event.target.value),
+                  })
+                }
+              />
+            </>
+          )}
+          <button
+            type="button"
+            className="editor-import-btn"
+            style={{ marginTop: 12 }}
+            onClick={() =>
+              updateBlockVideoTransform(selectedBlock.id, {
+                scale_x: 1,
+                scale_y: 1,
+                position_x: 0,
+                position_y: 0,
+              })
+            }
+          >
+            重置缩放
+          </button>
         </div>
         <div className="editor-inspector-section">
           <div className="editor-inspector-label">
