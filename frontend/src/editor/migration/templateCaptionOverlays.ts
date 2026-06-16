@@ -10,6 +10,37 @@ import { DEFAULT_TEXT_TRACK_ID, ensureTextTracks } from '../textTracks'
 
 export const TEMPLATE_BLOCK_ID_PARAM = 'template.blockId'
 
+/** 规范化片段 overlay 字段（加载时须在旁白迁移之前执行） */
+export function normalizeBlockOverlay(block: EditBlock): void {
+  const raw = block.overlay as Record<string, unknown>
+  const rawContent = raw.content
+  const content = Array.isArray(rawContent)
+    ? rawContent.map((line) => String(line))
+    : typeof rawContent === 'string' && rawContent.trim()
+      ? [rawContent.trim()]
+      : []
+  const rawOutline = raw.outline
+  const outline =
+    typeof rawOutline === 'string'
+      ? rawOutline
+      : rawOutline && typeof rawOutline === 'object'
+        ? String(
+            (rawOutline as Record<string, unknown>).title ??
+              (rawOutline as Record<string, unknown>).outline ??
+              ''
+          )
+        : String(rawOutline ?? content[0] ?? '')
+
+  block.overlay = {
+    ...block.overlay,
+    outline,
+    content,
+    recommend_reason: String(raw.recommend_reason ?? ''),
+    position_offset_x_pct: Number(raw.position_offset_x_pct ?? 0),
+    position_offset_y_pct: Number(raw.position_offset_y_pct ?? 0),
+  }
+}
+
 export const blockHasTemplateCaption = (block: EditBlock): boolean =>
   Boolean(
     block.title.trim() ||

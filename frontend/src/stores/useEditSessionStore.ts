@@ -46,15 +46,19 @@ import { assertDesktopExportAvailable } from '../utils/compositorExportGate'
 import { loadExportPreset, saveExportPreset } from '../utils/editExportPresets'
 import {
   hydrateEditDocument,
+  migrateSessionToV3,
   normalizeEditDocument,
   type EditDocument,
   type EditProjectV3,
 } from '../editor/migration/v2ToV3'
 import { applyTextPresetToParams } from '../editor/effects'
 import {
+  blockHasMigratedTemplateOverlays,
+  blockHasTemplateCaption,
   ensureTemplateCaptionOverlays,
   getTemplateBlockId,
   getTemplateOverlaysForBlock,
+  normalizeBlockOverlay,
   removeTemplateOverlaysForBlock,
   syncBlockOverlayFromTemplateOverlays,
   syncTemplateOverlaysForBlock,
@@ -451,48 +455,45 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (ensureTextTracks(session)) {
             migrated = true
           }
-          if (ensureTemplateCaptionOverlays(session)) {
-            migrated = true
-          }
           for (const block of session.sequence) {
-            const raw = block.overlay as Record<string, unknown>
-            const rawContent = raw.content
-            const content = Array.isArray(rawContent)
-              ? rawContent.map((line) => String(line))
-              : typeof rawContent === 'string' && rawContent.trim()
-                ? [rawContent.trim()]
-                : []
-            block.overlay = {
-              outline: String(raw.outline ?? content[0] ?? ''),
-              content,
-              recommend_reason: String(raw.recommend_reason ?? ''),
-              position_offset_x_pct: Number(raw.position_offset_x_pct ?? 0),
-              position_offset_y_pct: Number(raw.position_offset_y_pct ?? 0),
+            normalizeBlockOverlay(block)
+          }
+          let document = normalizeEditDocument(session)
+          if (ensureTemplateCaptionOverlays(document.session)) {
+            migrated = true
+            const project = migrateSessionToV3(document.session)
+            document = {
+              project,
+              session: { ...document.session, project_v3: project, schema_version: 3 },
             }
           }
-          if (!session.bookmarks) {
-            session.bookmarks = []
+          const finalSession = document.session
+          if (!finalSession.bookmarks) {
+            finalSession.bookmarks = []
           }
           const exportPreset = loadExportPreset()
-          const hasTemplateOverlay = session.sequence.some(
+          const hasTemplateOverlay = finalSession.sequence.some(
             (block) =>
               block.overlay.content.some((line) => line.trim()) ||
               block.overlay.outline.trim()
           )
-          const syncedDocument = normalizeEditDocument(session)
+          const firstBlockId = finalSession.sequence[0]?.id ?? null
+          const firstBlockOverlays = firstBlockId
+            ? getTemplateOverlaysForBlock(finalSession, firstBlockId)
+            : []
           set({
-            session: syncedDocument.session,
-            editProject: syncedDocument.project,
+            session: finalSession,
+            editProject: document.project,
             loading: false,
             dirty: migrated,
             previewBurnSubtitles:
-              session.template_id && hasTemplateOverlay
+              finalSession.template_id && hasTemplateOverlay
                 ? true
                 : exportPreset.burn_subtitles,
-            selectedBlockId: session.sequence[0]?.id ?? null,
-            selectedBlockIds: session.sequence[0]?.id ? [session.sequence[0].id] : [],
-            selectedOverlayId: null,
-            selectedOverlayIds: [],
+            selectedBlockId: firstBlockId,
+            selectedBlockIds: firstBlockId ? [firstBlockId] : [],
+            selectedOverlayId: firstBlockOverlays[0]?.id ?? null,
+            selectedOverlayIds: firstBlockOverlays[0] ? [firstBlockOverlays[0].id] : [],
             selectedCaptionBlockId: null,
             selectedCaptionBlockIds: [],
             selectedBgm: false,
@@ -501,6 +502,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             timelineTrackHidden: { ...DEFAULT_TRACK_HIDDEN },
             textTrackMuted: {},
             activeTextTrackId: DEFAULT_TEXT_TRACK_ID,
+            inspectorTab: firstBlockOverlays[0] ? 'text' : 'video',
             historyPast: [],
             historyFuture: [],
             sequencePlayheadSec: 0,
@@ -865,9 +867,21 @@ export const useEditSessionStore = create<EditSessionState>()(
             clip_ids: clipIds,
             source_id: sourceId,
           })
-          const templateMigrated = ensureTemplateCaptionOverlays(result.session)
+          for (const block of result.session.sequence) {
+            normalizeBlockOverlay(block)
+          }
+          let document = normalizeEditDocument(result.session)
+          const templateMigrated = ensureTemplateCaptionOverlays(document.session)
+          if (templateMigrated) {
+            const project = migrateSessionToV3(document.session)
+            document = {
+              project,
+              session: { ...document.session, project_v3: project, schema_version: 3 },
+            }
+          }
           set({
-            session: result.session,
+            session: document.session,
+            editProject: document.project,
             saving: false,
             dirty: templateMigrated,
           })
@@ -993,6 +1007,15 @@ export const useEditSessionStore = create<EditSessionState>()(
           } else {
             state.selectedBlockId = blockId
             state.selectedBlockIds = [blockId]
+            const block = state.session.sequence.find((item) => item.id === blockId)
+            if (
+              block &&
+              !blockHasMigratedTemplateOverlays(state.session, blockId) &&
+              blockHasTemplateCaption(block)
+            ) {
+              syncTemplateOverlaysForBlock(state.session, blockId)
+              state.dirty = true
+            }
             const templateOverlays = getTemplateOverlaysForBlock(state.session, blockId)
             if (templateOverlays.length > 0) {
               const primary = templateOverlays[0]!

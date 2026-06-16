@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { EditBlock, EditSession } from '../../types/editSession'
 import { compileCompositionPlan } from '../compositor/compilePlan'
+import { migrateSessionToV3, normalizeEditDocument } from './v2ToV3'
 import {
   blockHasMigratedTemplateOverlays,
   ensureTemplateCaptionOverlays,
   getTemplateOverlaysForBlock,
+  normalizeBlockOverlay,
   syncTemplateOverlaysForBlock,
 } from './templateCaptionOverlays'
 
@@ -122,5 +124,25 @@ describe('templateCaptionOverlays', () => {
 
     expect(ensureTemplateCaptionOverlays(editSession)).toBe(true)
     expect(getTemplateOverlaysForBlock(editSession, 'block-a').length).toBeGreaterThan(0)
+  })
+
+  it('migrated overlays survive normalizeEditDocument (project_v3 re-hydrate)', () => {
+    const editSession = session()
+    for (const block of editSession.sequence) {
+      normalizeBlockOverlay(block)
+    }
+    editSession.project_v3 = migrateSessionToV3(editSession)
+
+    let document = normalizeEditDocument(editSession)
+    expect(ensureTemplateCaptionOverlays(document.session)).toBe(true)
+    const project = migrateSessionToV3(document.session)
+    document = {
+      project,
+      session: { ...document.session, project_v3: project, schema_version: 3 },
+    }
+    const reloaded = normalizeEditDocument(document.session)
+
+    expect(blockHasMigratedTemplateOverlays(reloaded.session, 'block-a')).toBe(true)
+    expect(getTemplateOverlaysForBlock(reloaded.session, 'block-a').length).toBeGreaterThan(0)
   })
 })
