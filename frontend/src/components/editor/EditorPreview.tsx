@@ -180,6 +180,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     )
   }, [assetPreviewClip, projectId])
 
+  const hasTimelineAudio = (session?.audio_elements?.length ?? 0) > 0
   const primaryVideoLayer = previewVm?.videoLayers[0] ?? null
   const primaryCompositionSegment = useMemo(() => {
     if (!primaryVideoLayer) return null
