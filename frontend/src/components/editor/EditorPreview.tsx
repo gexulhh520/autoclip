@@ -23,6 +23,7 @@ import {
 import CompositorPreview from './preview/CompositorPreview'
 import EditorAspectRatioPicker from './EditorAspectRatioPicker'
 import PreviewVideoLayer from './EditorPreviewVideoLayer'
+import { syncBgmToPlayhead, useBgmPreviewPlayback } from '../../editor/hooks/useBgmPreviewPlayback'
 import { resolveCanvasDimensions } from '../../editor/scene/canvas'
 import type { EditBlock } from '../../types/editSession'
 import { TRANSITION_OUT_LABELS } from '../../types/transitions'
@@ -187,6 +188,17 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const bgmVolume = session?.audio_settings?.bgm_volume ?? 0.28
   const bgmStartSec = session?.audio_settings?.bgm_start_sec ?? 0
 
+  useBgmPreviewPlayback({
+    bgmRef,
+    bgmUrl,
+    isPlaying,
+    isAssetPreview,
+    bgmMuted,
+    bgmVolume,
+    playheadSec: sequencePlayheadSec,
+    bgmStartSec,
+  })
+
   const primaryVideoLayer = previewVm?.videoLayers[0] ?? null
 
   useEffect(() => {
@@ -214,26 +226,6 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     setAssetPreviewTimeSec(0)
     setAssetPreviewDurationSec(0)
   }, [assetPreviewClip?.clipId, assetVideoUrl])
-
-  useEffect(() => {
-    const bgm = bgmRef.current
-    if (!bgm || !bgmUrl || isAssetPreview) return
-    bgm.volume = bgmMuted ? 0 : bgmVolume
-    if (isPlaying && !bgmMuted) {
-      void bgm.play().catch(() => undefined)
-    } else {
-      bgm.pause()
-    }
-  }, [isPlaying, bgmUrl, bgmVolume, bgmMuted, isAssetPreview])
-
-  useEffect(() => {
-    const bgm = bgmRef.current
-    if (!bgm || !bgmUrl || isPlaying || isAssetPreview) return
-    const target = Math.max(0, sequencePlayheadSec + bgmStartSec)
-    if (Math.abs(bgm.currentTime - target) > 0.35) {
-      bgm.currentTime = target
-    }
-  }, [sequencePlayheadSec, bgmUrl, bgmStartSec, isPlaying, isAssetPreview])
 
   useEffect(() => {
     const onFullscreenChange = () => {
@@ -271,17 +263,14 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
       const bgm = bgmRef.current
       if (bgm && bgmUrl) {
         bgm.pause()
-        bgm.currentTime = Math.max(0, totalDuration + bgmStartSec)
+        syncBgmToPlayhead(bgm, totalDuration, bgmStartSec)
       }
       return
     }
 
     advanceSequencePlayhead(nextPlayhead)
 
-    const bgm = bgmRef.current
-    if (bgm && bgmUrl) {
-      bgm.currentTime = Math.max(0, nextPlayhead + bgmStartSec)
-    }
+    syncBgmToPlayhead(bgmRef.current, nextPlayhead, bgmStartSec)
   }
 
   const handleVideoEnded = () => {

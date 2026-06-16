@@ -703,6 +703,8 @@ async def stream_edit_session_bgm(
 
     from backend.core.path_utils import get_project_directory
 
+    from backend.utils.bgm_audio import bgm_media_type, ensure_browser_playable_bgm
+
     try:
         session = service.get_session(project_id, session_id)
         bgm_rel = session.audio_settings.bgm_path
@@ -711,15 +713,11 @@ async def stream_edit_session_bgm(
         bgm_path = get_project_directory(project_id) / bgm_rel
         if not bgm_path.exists():
             raise HTTPException(status_code=404, detail="BGM 文件不存在")
-        media_type = "audio/mpeg"
-        if bgm_path.suffix.lower() in {".wav", ".wave"}:
-            media_type = "audio/wav"
-        elif bgm_path.suffix.lower() in {".m4a", ".aac"}:
-            media_type = "audio/mp4"
+        stream_path = ensure_browser_playable_bgm(bgm_path)
         return FileResponse(
-            path=str(bgm_path.resolve()),
-            media_type=media_type,
-            filename=bgm_path.name,
+            path=str(stream_path.resolve()),
+            media_type=bgm_media_type(stream_path),
+            filename=stream_path.name,
             headers={"Accept-Ranges": "bytes", "Cache-Control": "public, max-age=3600"},
         )
     except FileNotFoundError as exc:

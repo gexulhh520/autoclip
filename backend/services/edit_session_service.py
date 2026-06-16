@@ -21,6 +21,7 @@ from backend.schemas.edit_session import (
     EditSessionAudioSettings,
     EditSessionUpdateRequest,
 )
+from backend.utils.bgm_audio import transcode_bgm_to_m4a
 from backend.utils.clip_path_resolver import resolve_clip_video_path
 from backend.utils.video_processor import VideoProcessor
 
@@ -682,9 +683,32 @@ class EditSessionService:
         session_dir = _edit_sessions_dir(project_dir) / session_id
         session_dir.mkdir(parents=True, exist_ok=True)
         suffix = Path(file_name).suffix.lower() or ".mp3"
-        bgm_path = session_dir / f"bgm{suffix}"
-        bgm_path.write_bytes(content)
-        rel = _relative_project_path(project_dir, bgm_path)
+        upload_path = session_dir / f"bgm_upload{suffix}"
+        upload_path.write_bytes(content)
+
+        output_path = session_dir / "bgm.m4a"
+        for old in session_dir.glob("bgm*"):
+            if old != upload_path:
+                try:
+                    old.unlink()
+                except OSError:
+                    logger.warning("无法删除旧 BGM 文件: %s", old)
+
+        if transcode_bgm_to_m4a(upload_path, output_path):
+            try:
+                upload_path.unlink()
+            except OSError:
+                pass
+            stored_path = output_path
+        else:
+            logger.warning("BGM 转码失败，保留原文件: %s", upload_path.name)
+            fallback = session_dir / f"bgm{suffix}"
+            if fallback.exists():
+                fallback.unlink()
+            upload_path.replace(fallback)
+            stored_path = fallback
+
+        rel = _relative_project_path(project_dir, stored_path)
         audio_settings = session.audio_settings.model_dump()
         audio_settings["bgm_path"] = rel
         return self.update_session(

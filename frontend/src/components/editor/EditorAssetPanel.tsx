@@ -259,7 +259,7 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
             <input
               ref={fileInputRef}
               type="file"
-              accept="audio/*"
+              accept="audio/*,video/mp4,video/quicktime,.aiff,.aif"
               hidden
               onChange={async (event) => {
                 const file = event.target.files?.[0]
