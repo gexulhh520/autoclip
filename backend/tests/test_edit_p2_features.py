@@ -68,9 +68,12 @@ def test_edit_export_job_service_batch_job_type():
     assert stored.job_type == "batch"
 
 
+@patch("backend.pipeline.edit_renderer._input_has_audio_stream", return_value=True)
 @patch("backend.pipeline.edit_renderer.subprocess.run")
 @patch("backend.pipeline.edit_renderer._probe_duration", return_value=10.0)
-def test_mix_bgm_track_uses_sidechain_when_duck_enabled(mock_probe, mock_run, tmp_path):
+def test_mix_bgm_track_uses_sidechain_when_duck_enabled(
+    mock_probe, mock_run, _mock_has_audio, tmp_path
+):
     def _fake_run(cmd, *args, **kwargs):
         Path(cmd[-1]).write_bytes(b"ok")
         return MagicMock(returncode=0)
@@ -98,9 +101,12 @@ def test_mix_bgm_track_uses_sidechain_when_duck_enabled(mock_probe, mock_run, tm
     assert "sidechaincompress" in filter_arg
 
 
+@patch("backend.pipeline.edit_renderer._input_has_audio_stream", return_value=True)
 @patch("backend.pipeline.edit_renderer.subprocess.run")
 @patch("backend.pipeline.edit_renderer._probe_duration", return_value=10.0)
-def test_mix_bgm_track_plain_mix_when_duck_disabled(mock_probe, mock_run, tmp_path):
+def test_mix_bgm_track_plain_mix_when_duck_disabled(
+    mock_probe, mock_run, _mock_has_audio, tmp_path
+):
     def _fake_run(cmd, *args, **kwargs):
         Path(cmd[-1]).write_bytes(b"ok")
         return MagicMock(returncode=0)

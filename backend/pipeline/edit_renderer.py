@@ -809,19 +809,22 @@ def mix_bgm_track(
     fade_out_start = max(0.0, duration - fade_out)
     vol = max(0.0, min(float(bgm_volume), 1.0))
     ratio = max(2.0, min(float(duck_ratio), 20.0))
-    if duck_enabled:
-        filter_complex = (
-            f"[1:a]volume={vol},afade=t=in:st=0:d={fade_in},"
-            f"afade=t=out:st={fade_out_start}:d={fade_out}[bgm];"
-            f"[bgm][0:a]sidechaincompress=threshold=0.02:ratio={ratio}:attack=8:release=250[bgm_duck];"
-            f"[0:a][bgm_duck]amix=inputs=2:duration=first:dropout_transition=0[aout]"
-        )
+    has_video_audio = _input_has_audio_stream(video_path)
+    bgm_chain = (
+        f"[1:a]volume={vol},afade=t=in:st=0:d={fade_in},"
+        f"afade=t=out:st={fade_out_start}:d={fade_out}[bgm]"
+    )
+    if has_video_audio:
+        if duck_enabled:
+            filter_complex = (
+                f"{bgm_chain};"
+                f"[bgm][0:a]sidechaincompress=threshold=0.02:ratio={ratio}:attack=8:release=250[bgm_duck];"
+                f"[0:a][bgm_duck]amix=inputs=2:duration=first:dropout_transition=0[aout]"
+            )
+        else:
+            filter_complex = f"{bgm_chain};[0:a][bgm]amix=inputs=2:duration=first:dropout_transition=0[aout]"
     else:
-        filter_complex = (
-            f"[1:a]volume={vol},afade=t=in:st=0:d={fade_in},"
-            f"afade=t=out:st={fade_out_start}:d={fade_out}[bgm];"
-            f"[0:a][bgm]amix=inputs=2:duration=first:dropout_transition=0[aout]"
-        )
+        filter_complex = f"{bgm_chain};[bgm]anull[aout]"
     cmd = [
         get_ffmpeg_path(),
         "-i",
@@ -848,6 +851,164 @@ def mix_bgm_track(
         logger.error("BGM 混音失败: %s", result.stderr[:300])
         return False
     return output_path.exists()
+
+
+def _mux_video_with_audio(video_path: Path, audio_path: Path, output_path: Path) -> bool:
+    cmd = [
+        get_ffmpeg_path(),
+        "-i",
+        str(video_path.resolve()),
+        "-i",
+        str(audio_path.resolve()),
+        "-map",
+        "0:v",
+        "-map",
+        "1:a",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-shortest",
+        "-y",
+        str(output_path.resolve()),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore")
+    if result.returncode != 0:
+        logger.error("视频与音频混流失败: %s", result.stderr[:300])
+        return False
+    return output_path.is_file()
+
+
+def _amix_audio_files(inputs: List[Path], output_path: Path) -> bool:
+    if not inputs:
+        return False
+    if len(inputs) == 1:
+        shutil.copy2(inputs[0], output_path)
+        return output_path.is_file()
+    cmd: List[str] = [get_ffmpeg_path()]
+    for path in inputs:
+        cmd.extend(["-i", str(path.resolve())])
+    mix_inputs = "".join(f"[{index}:a]" for index in range(len(inputs)))
+    filter_complex = (
+        f"{mix_inputs}amix=inputs={len(inputs)}:duration=longest:dropout_transition=0[aout]"
+    )
+    cmd.extend(
+        [
+            "-filter_complex",
+            filter_complex,
+            "-map",
+            "[aout]",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-y",
+            str(output_path.resolve()),
+        ]
+    )
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore")
+    if result.returncode != 0:
+        logger.error("多轨音频混合失败: %s", result.stderr[:300])
+        return False
+    return output_path.is_file()
+
+
+def _render_timeline_audio_clips(
+    session: EditSession,
+    project_dir: Path,
+    output_path: Path,
+    *,
+    total_duration: float,
+) -> bool:
+    """将 audio_elements 时间轴音频轨渲染为单条 AAC。"""
+    clips = [clip for clip in (session.audio_elements or []) if not clip.hidden]
+    if not clips:
+        return False
+
+    assets_by_id = {asset.id: asset for asset in (session.audio_assets or [])}
+    defaults = session.audio_settings
+    cmd: List[str] = [get_ffmpeg_path()]
+    filter_parts: List[str] = []
+    mix_labels: List[str] = []
+    input_index = 0
+
+    for clip_idx, clip in enumerate(clips):
+        asset = assets_by_id.get(clip.asset_id)
+        if asset is None:
+            logger.warning("时间轴音频缺少 asset: %s", clip.asset_id)
+            continue
+        asset_path = project_dir / asset.path
+        if not asset_path.is_file():
+            logger.warning("时间轴音频文件不存在: %s", asset.path)
+            continue
+
+        trim_start = max(0.0, float(clip.trim_start_sec or 0.0))
+        clip_duration = max(0.05, float(clip.duration_sec))
+        trim_end = clip.trim_end_sec
+        if trim_end is None:
+            trim_end = trim_start + clip_duration
+        else:
+            trim_end = min(float(trim_end), trim_start + clip_duration)
+
+        vol = defaults.bgm_volume if clip.volume is None else clip.volume
+        fade_in = defaults.fade_in_sec if clip.fade_in_sec is None else clip.fade_in_sec
+        fade_out = defaults.fade_out_sec if clip.fade_out_sec is None else clip.fade_out_sec
+        fade_out_start = max(0.0, clip_duration - fade_out)
+        delay_ms = int(round(max(0.0, clip.start_sec) * 1000))
+        label = f"tclip{clip_idx}"
+
+        af = _build_audio_filter(
+            vol,
+            fade_in_sec=fade_in,
+            fade_out_sec=fade_out,
+            duration_sec=clip_duration,
+        )
+        af_suffix = f",{af}" if af else ""
+        filter_parts.append(
+            f"[{input_index}:a]atrim=start={trim_start:.3f}:end={trim_end:.3f},"
+            f"asetpts=PTS-STARTPTS,aformat=sample_rates=48000:channel_layouts=stereo"
+            f"{af_suffix},adelay={delay_ms}|{delay_ms}[{label}]"
+        )
+        mix_labels.append(f"[{label}]")
+        cmd.extend(["-i", str(asset_path.resolve())])
+        input_index += 1
+
+    if not mix_labels:
+        return False
+
+    if len(mix_labels) == 1:
+        filter_parts.append(f"{mix_labels[0]}anull[aout]")
+    else:
+        filter_parts.append(
+            "".join(mix_labels)
+            + f"amix=inputs={len(mix_labels)}:duration=longest:dropout_transition=0[aout]"
+        )
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    cmd.extend(
+        [
+            "-filter_complex",
+            ";".join(filter_parts),
+            "-map",
+            "[aout]",
+            "-t",
+            str(max(0.1, total_duration)),
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-y",
+            str(output_path.resolve()),
+        ]
+    )
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore")
+    if result.returncode != 0:
+        logger.error("时间轴 BGM 渲染失败: %s", result.stderr[:400])
+        output_path.unlink(missing_ok=True)
+        return False
+    return output_path.is_file() and output_path.stat().st_size > 0
 
 
 def _seconds_to_srt_timestamp(total_seconds: float) -> str:
@@ -1159,8 +1320,10 @@ def mux_compositor_export(
     audio_mixed = False
     audio_warning: Optional[str] = None
     failed_count = len(blocks_for_audio) - len(audio_segments)
+    video_duration = _probe_duration(compositor_video)
 
-    merged_audio = export_dir / f"{safe_name}_timeline_audio.aac"
+    block_timeline_audio = export_dir / f"{safe_name}_block_timeline.aac"
+    has_block_audio = False
     if audio_segments:
         concat_list = export_dir / f"{safe_name}_audio_concat.txt"
         concat_lines = [f"file '{path.resolve().as_posix()}'" for path in audio_segments]
@@ -1178,7 +1341,7 @@ def mux_compositor_export(
             "-b:a",
             "128k",
             "-y",
-            str(merged_audio.resolve()),
+            str(block_timeline_audio.resolve()),
         ]
         result = subprocess.run(
             concat_cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore"
@@ -1186,50 +1349,64 @@ def mux_compositor_export(
         concat_list.unlink(missing_ok=True)
         for seg in audio_segments:
             seg.unlink(missing_ok=True)
-        if result.returncode != 0 or not merged_audio.exists():
+        if result.returncode != 0 or not block_timeline_audio.exists():
             raise RuntimeError(f"时间轴音频拼接失败: {result.stderr[:300]}")
+        has_block_audio = True
+
+    timeline_clips_audio = export_dir / f"{safe_name}_timeline_clips.aac"
+    has_timeline_clips = _render_timeline_audio_clips(
+        session,
+        project_dir,
+        timeline_clips_audio,
+        total_duration=video_duration,
+    )
+
+    audio_parts: List[Path] = []
+    if has_block_audio:
+        audio_parts.append(block_timeline_audio)
+    if has_timeline_clips:
+        audio_parts.append(timeline_clips_audio)
+
+    merged_audio = export_dir / f"{safe_name}_timeline_audio.aac"
+    if audio_parts:
+        if not _amix_audio_files(audio_parts, merged_audio):
+            raise RuntimeError("时间轴音频混合失败")
+        for part in audio_parts:
+            part.unlink(missing_ok=True)
+
         staged = export_dir / f"{safe_name}_with_audio.mp4"
-        mux_cmd = [
-            get_ffmpeg_path(),
-            "-i",
-            str(compositor_video.resolve()),
-            "-i",
-            str(merged_audio.resolve()),
-            "-map",
-            "0:v",
-            "-map",
-            "1:a",
-            "-c:v",
-            "copy",
-            "-c:a",
-            "aac",
-            "-shortest",
-            "-y",
-            str(staged.resolve()),
-        ]
-        mux_result = subprocess.run(
-            mux_cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore"
-        )
+        if not _mux_video_with_audio(compositor_video, merged_audio, staged):
+            raise RuntimeError("视频与音频混流失败")
         merged_audio.unlink(missing_ok=True)
-        if mux_result.returncode != 0 or not staged.exists():
-            raise RuntimeError(f"视频与音频混流失败: {mux_result.stderr[:300]}")
         shutil.copy2(staged, output_path)
         staged.unlink(missing_ok=True)
         audio_mixed = _input_has_audio_stream(output_path)
         if failed_count > 0:
-            audio_warning = f"有 {failed_count} 个片段未能提取音频，成片可能不完整。"
+            if has_timeline_clips:
+                audio_warning = (
+                    f"有 {failed_count} 个视频片段未能提取原声，"
+                    "成片已混入时间轴 BGM/音频轨。"
+                )
+            else:
+                audio_warning = f"有 {failed_count} 个片段未能提取音频，成片可能不完整。"
     else:
         shutil.copy2(compositor_video, output_path)
         if blocks_for_audio:
-            audio_warning = (
-                "未能从时间轴片段提取任何音频。"
-                "请确认切片/原片文件存在且含音轨，或取消「使用原片重切」后重试。"
-            )
+            if session.audio_elements:
+                audio_warning = (
+                    "未能从视频片段提取原声，且时间轴 BGM/音频轨渲染失败。"
+                    "请确认音频文件仍在工程目录中。"
+                )
+            else:
+                audio_warning = (
+                    "未能从时间轴片段提取任何音频。"
+                    "请确认切片/原片文件存在且含音轨，或取消「使用原片重切」后重试。"
+                )
         else:
             audio_warning = "时间轴无片段，导出为无声视频。"
 
     bgm_rel = session.audio_settings.bgm_path
-    if bgm_rel:
+    if bgm_rel and not session.audio_elements:
         bgm_path = project_dir / bgm_rel
         if bgm_path.exists():
             final_with_bgm = export_dir / f"{safe_name}_final.mp4"

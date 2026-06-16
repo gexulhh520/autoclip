@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from backend.pipeline.edit_renderer import mux_compositor_export
-from backend.schemas.edit_session import EditSession
+from backend.schemas.edit_session import AudioClipElement, AudioAssetMeta, EditSession
 from backend.utils.ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path
 
 FIXTURES_ROOT = Path(__file__).resolve().parents[2] / "fixtures" / "compositor"
@@ -185,6 +185,76 @@ def test_compositor_mux_e2e_minimal_session(tmp_path, monkeypatch, ffmpeg_availa
     frame_hash = _extract_frame_rgba_hash(mux_result.output_path, time_sec=1.0)
     assert len(frame_hash) == 64
     assert frame_hash == _extract_frame_rgba_hash(mux_result.output_path, time_sec=1.0)
+
+
+def test_compositor_mux_with_timeline_audio_clips_only(tmp_path, monkeypatch, ffmpeg_available):
+    session = _load_session("session-minimal.json")
+    project_dir = tmp_path / "projects" / session.project_id
+    session_dir = project_dir / "edit_sessions" / session.id
+    session_dir.mkdir(parents=True)
+    bgm_path = session_dir / "bgm.m4a"
+    _run_ffmpeg(
+        [
+            get_ffmpeg_path(),
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=f=880:d=4",
+            "-c:a",
+            "aac",
+            "-t",
+            "4",
+            "-y",
+            str(bgm_path),
+        ]
+    )
+    session = session.model_copy(
+        update={
+            "sequence": [],
+            "audio_elements": [
+                AudioClipElement(
+                    id="clip-1",
+                    asset_id="asset-1",
+                    track_id="default-audio",
+                    start_sec=0.0,
+                    duration_sec=4.0,
+                    trim_start_sec=0.0,
+                    trim_end_sec=4.0,
+                    volume=0.5,
+                    fade_in_sec=0.1,
+                    fade_out_sec=0.1,
+                    hidden=False,
+                )
+            ],
+            "audio_assets": [
+                AudioAssetMeta(
+                    id="asset-1",
+                    name="bgm",
+                    path=f"edit_sessions/{session.id}/bgm.m4a",
+                    duration_sec=4.0,
+                )
+            ],
+        }
+    )
+
+    compositor_video = tmp_path / "compositor_bgm_only.mp4"
+    _make_compositor_mp4(compositor_video, duration=4.0)
+
+    monkeypatch.setattr(
+        "backend.pipeline.edit_renderer.get_project_directory",
+        lambda _project_id: project_dir,
+    )
+
+    mux_result = mux_compositor_export(
+        session,
+        compositor_video,
+        export_srt=False,
+        use_source_video=False,
+    )
+
+    assert mux_result.output_path.is_file()
+    assert mux_result.audio_mixed is True
+    assert _probe_has_audio(mux_result.output_path)
 
 
 def test_compositor_mux_e2e_dissolve_session(tmp_path, monkeypatch, ffmpeg_available):
