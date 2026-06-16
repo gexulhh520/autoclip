@@ -429,7 +429,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (!rawSession.export_settings.visual_filter) {
             rawSession.export_settings.visual_filter = 'none'
           }
-          const document = hydrateEditDocument(rawSession)
+          let document = hydrateEditDocument(rawSession)
           const session = document.session
           for (const block of session.sequence) {
             if (!block.transition_out) {
@@ -458,7 +458,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           for (const block of session.sequence) {
             normalizeBlockOverlay(block)
           }
-          let document = normalizeEditDocument(session)
+          document = normalizeEditDocument(session)
           if (ensureTemplateCaptionOverlays(document.session)) {
             migrated = true
             const project = migrateSessionToV3(document.session)
