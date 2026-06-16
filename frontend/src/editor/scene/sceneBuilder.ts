@@ -1,6 +1,7 @@
 import type { EditBlock, EditBlockOverlay, EditSession } from '../../types/editSession'
 import type { OpenCutTextOverlay } from '../opencut-text/params'
 import { readStringParam } from '../opencut-text/params'
+import { findAudioAsset, getAudioClipTrackId, resolveAudioTracks } from '../audioTracks'
 import {
   getOverlayTrackId,
   resolveTextTracks,
@@ -285,11 +286,32 @@ export function resolveSceneAt(
     })
   }
 
-  if (bgmSettings.bgm_path) {
+  if ((session.audio_elements ?? []).length === 0 && bgmSettings.bgm_path) {
     audioLayers.push({
       kind: 'bgm',
       timelineSec: clampedTime + (bgmSettings.bgm_start_sec ?? 0),
       volume: bgmSettings.bgm_volume,
+      ducking: bgmSettings.bgm_duck_enabled ?? true,
+    })
+  }
+
+  const mutedAudioTrackIds = new Set(
+    resolveAudioTracks(session).filter((track) => track.hidden).map((track) => track.id)
+  )
+  for (const clip of session.audio_elements ?? []) {
+    if (clip.hidden) continue
+    const trackId = getAudioClipTrackId(clip)
+    if (mutedAudioTrackIds.has(trackId)) continue
+    const clipEnd = clip.start_sec + clip.duration_sec
+    if (clampedTime < clip.start_sec || clampedTime > clipEnd) continue
+    const asset = findAudioAsset(session, clip.asset_id)
+    if (!asset) continue
+    audioLayers.push({
+      kind: 'bgm',
+      clipId: clip.id,
+      assetId: asset.id,
+      timelineSec: clampedTime - clip.start_sec + (clip.trim_start_sec ?? 0),
+      volume: clip.volume ?? bgmSettings.bgm_volume,
       ducking: bgmSettings.bgm_duck_enabled ?? true,
     })
   }

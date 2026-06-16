@@ -86,10 +86,15 @@ export interface FreeTextLayerDef {
 
 export interface AudioBgmLayerDef {
   kind: 'audio_bgm'
+  clipId?: string
   path: string
   volume: number
+  /** 时间线上片段起始秒 */
+  timelineStartSec?: number
+  /** 源文件内 trim 起点 */
   startSec: number
   endSec?: number | null
+  durationSec?: number
   duckEnabled: boolean
   duckRatio?: number
   fadeInSec: number

@@ -17,7 +17,7 @@ export function useEditorKeyboardShortcuts(projectId: string) {
   const selectedOverlayIds = useEditSessionStore((state) => state.selectedOverlayIds)
   const selectedCaptionBlockId = useEditSessionStore((state) => state.selectedCaptionBlockId)
   const selectedCaptionBlockIds = useEditSessionStore((state) => state.selectedCaptionBlockIds)
-  const selectedBgm = useEditSessionStore((state) => state.selectedBgm)
+  const selectedAudioClipId = useEditSessionStore((state) => state.selectedAudioClipId)
   const isPlaying = useEditSessionStore((state) => state.isPlaying)
   const setPlaying = useEditSessionStore((state) => state.setPlaying)
   const saveSession = useEditSessionStore((state) => state.saveSession)
@@ -25,7 +25,7 @@ export function useEditorKeyboardShortcuts(projectId: string) {
   const removeOverlayElement = useEditSessionStore((state) => state.removeOverlayElement)
   const deleteSelectedOverlays = useEditSessionStore((state) => state.deleteSelectedOverlays)
   const deleteSelectedCaption = useEditSessionStore((state) => state.deleteSelectedCaption)
-  const removeBgm = useEditSessionStore((state) => state.removeBgm)
+  const removeAudioClip = useEditSessionStore((state) => state.removeAudioClip)
   const sequencePlayheadSec = useEditSessionStore((state) => state.sequencePlayheadSec)
   const setInspectorTab = useEditSessionStore((state) => state.setInspectorTab)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
@@ -79,9 +79,9 @@ export function useEditorKeyboardShortcuts(projectId: string) {
         const hasOverlaySelection = !!selectedOverlayId || selectedOverlayIds.length > 0
         const hasCaptionSelection =
           !!selectedCaptionBlockId || selectedCaptionBlockIds.length > 0
-        if (!selectedBgm && !selectedBlockId && !hasOverlaySelection && !hasCaptionSelection) return
+        if (!selectedAudioClipId && !selectedBlockId && !hasOverlaySelection && !hasCaptionSelection) return
         event.preventDefault()
-        if (selectedBgm) removeBgm()
+        if (selectedAudioClipId) removeAudioClip(selectedAudioClipId)
         else if (hasOverlaySelection) deleteSelectedOverlays()
         else if (hasCaptionSelection) deleteSelectedCaption()
         else deleteSelectedBlock()
@@ -115,10 +115,10 @@ export function useEditorKeyboardShortcuts(projectId: string) {
     pasteBlock,
     projectId,
     redo,
-    removeBgm,
+    removeAudioClip,
     saveSession,
+    selectedAudioClipId,
     selectedBlockId,
-    selectedBgm,
     selectedCaptionBlockId,
     selectedCaptionBlockIds,
     selectedOverlayId,

@@ -970,23 +970,33 @@ def export_edit_session(
     merged_path.unlink(missing_ok=True)
     merged_path = overlay_path
 
+    bgm_path: Optional[Path] = None
+    bgm_volume = session.audio_settings.bgm_volume
+    fade_in = session.audio_settings.fade_in_sec
+    fade_out = session.audio_settings.fade_out_sec
     bgm_rel = session.audio_settings.bgm_path
     if bgm_rel:
         bgm_path = project_dir / bgm_rel
-        if bgm_path.exists():
-            report(92, "混音 BGM")
-            if not mix_bgm_track(
-                merged_path,
-                bgm_path,
-                output_path,
-                bgm_volume=session.audio_settings.bgm_volume,
-                fade_in_sec=session.audio_settings.fade_in_sec,
-                fade_out_sec=session.audio_settings.fade_out_sec,
-                duck_enabled=session.audio_settings.bgm_duck_enabled,
-                duck_ratio=session.audio_settings.bgm_duck_ratio,
-            ):
-                shutil.copy2(merged_path, output_path)
-        else:
+    elif session.audio_elements and session.audio_assets:
+        clip = session.audio_elements[0]
+        asset = next((item for item in session.audio_assets if item.id == clip.asset_id), None)
+        if asset:
+            bgm_path = project_dir / asset.path
+            bgm_volume = clip.volume if clip.volume is not None else bgm_volume
+            fade_in = clip.fade_in_sec if clip.fade_in_sec is not None else fade_in
+            fade_out = clip.fade_out_sec if clip.fade_out_sec is not None else fade_out
+    if bgm_path and bgm_path.exists():
+        report(92, "混音 BGM")
+        if not mix_bgm_track(
+            merged_path,
+            bgm_path,
+            output_path,
+            bgm_volume=bgm_volume,
+            fade_in_sec=fade_in,
+            fade_out_sec=fade_out,
+            duck_enabled=session.audio_settings.bgm_duck_enabled,
+            duck_ratio=session.audio_settings.bgm_duck_ratio,
+        ):
             shutil.copy2(merged_path, output_path)
     else:
         shutil.copy2(merged_path, output_path)

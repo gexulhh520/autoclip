@@ -131,6 +131,11 @@ export const editApi = {
     )) as EditSessionImportMediaResponse
   },
 
+  getAudioAssetUrl: (projectId: string, sessionId: string, assetId: string): string => {
+    const base = api.defaults.baseURL || '/api/v1'
+    return `${base}/projects/${projectId}/edit-sessions/${sessionId}/audio-assets/${assetId}`
+  },
+
   getBgmUrl: (projectId: string, sessionId: string): string => {
     const base = api.defaults.baseURL || '/api/v1'
     return `${base}/projects/${projectId}/edit-sessions/${sessionId}/bgm`

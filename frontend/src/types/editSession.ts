@@ -13,6 +13,34 @@ export interface TextTrackMeta {
   order: number
 }
 
+export interface AudioTrackMeta {
+  id: string
+  name: string
+  hidden?: boolean
+  order: number
+}
+
+export interface AudioAssetMeta {
+  id: string
+  name: string
+  path: string
+  duration_sec?: number
+}
+
+export interface AudioClipElement {
+  id: string
+  asset_id: string
+  track_id?: string
+  start_sec: number
+  duration_sec: number
+  trim_start_sec?: number
+  trim_end_sec?: number
+  volume?: number
+  fade_in_sec?: number
+  fade_out_sec?: number
+  hidden?: boolean
+}
+
 export interface EditBlockMedia {
   type: 'step6_clip' | 'source_range' | 'imported_clip'
   path: string
@@ -107,6 +135,9 @@ export interface EditSession {
   sequence: EditBlock[]
   overlay_elements?: EditOverlayElement[]
   text_tracks?: TextTrackMeta[]
+  audio_assets?: AudioAssetMeta[]
+  audio_tracks?: AudioTrackMeta[]
+  audio_elements?: AudioClipElement[]
   bookmarks?: TimelineBookmark[]
   export_settings: EditExportSettings
   audio_settings: EditSessionAudioSettings
@@ -140,6 +171,9 @@ export interface EditSessionUpdateRequest {
   sequence?: EditBlock[]
   overlay_elements?: EditOverlayElement[]
   text_tracks?: TextTrackMeta[]
+  audio_assets?: AudioAssetMeta[]
+  audio_tracks?: AudioTrackMeta[]
+  audio_elements?: AudioClipElement[]
   bookmarks?: TimelineBookmark[]
   export_settings?: EditExportSettings
   audio_settings?: EditSessionAudioSettings

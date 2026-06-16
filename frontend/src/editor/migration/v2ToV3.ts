@@ -180,7 +180,29 @@ export const migrateSessionToV3 = (session: EditSession): EditProjectV3 => {
   }
 
   const audioTrack: TrackElement[] = []
-  if (session.audio_settings.bgm_path) {
+  for (const clip of session.audio_elements ?? []) {
+    const asset = session.audio_assets?.find((item) => item.id === clip.asset_id)
+    if (!asset) continue
+    audioTrack.push({
+      id: clip.id,
+      type: 'audio',
+      asset_id: clip.asset_id,
+      start_time: clip.start_sec,
+      duration: clip.duration_sec,
+      trim_start: clip.trim_start_sec ?? 0,
+      trim_end: clip.trim_end_sec ?? clip.duration_sec,
+      properties: {
+        path: asset.path,
+        track_id: clip.track_id,
+        volume: clip.volume ?? session.audio_settings.bgm_volume,
+        fade_in_sec: clip.fade_in_sec ?? session.audio_settings.fade_in_sec,
+        fade_out_sec: clip.fade_out_sec ?? session.audio_settings.fade_out_sec,
+        duck_enabled: session.audio_settings.bgm_duck_enabled,
+      },
+      hidden: clip.hidden,
+    })
+  }
+  if (audioTrack.length === 0 && session.audio_settings.bgm_path) {
     audioTrack.push({
       id: 'bgm_main',
       type: 'audio',
@@ -303,6 +325,50 @@ export const flattenV3ToSession = (project: EditProjectV3): EditSession => {
       return trackId ? { ...migrated, track_id: String(trackId) } : migrated
     })
 
+  const audio_assets: EditSession['audio_assets'] = []
+  const audio_elements: EditSession['audio_elements'] = []
+  const audio_trackIds = new Set<string>()
+
+  for (const item of scene.tracks.audio) {
+    const path = String(item.properties.path ?? '')
+    if (!path) continue
+    const assetId = String(item.asset_id ?? item.id)
+    if (!audio_assets.some((asset) => asset.id === assetId)) {
+      audio_assets.push({
+        id: assetId,
+        name: path.split('/').pop() ?? 'Audio',
+        path,
+      })
+    }
+    const trackId = item.properties.track_id
+    if (typeof trackId === 'string') {
+      audio_trackIds.add(trackId)
+    }
+    audio_elements.push({
+      id: item.id,
+      asset_id: assetId,
+      track_id: typeof trackId === 'string' ? trackId : undefined,
+      start_sec: item.start_time,
+      duration_sec: item.duration,
+      trim_start_sec: item.trim_start,
+      trim_end_sec: item.trim_end,
+      volume: Number(item.properties.volume ?? project.audio_settings.bgm_volume),
+      fade_in_sec: Number(item.properties.fade_in_sec ?? project.audio_settings.fade_in_sec),
+      fade_out_sec: Number(item.properties.fade_out_sec ?? project.audio_settings.fade_out_sec),
+      hidden: Boolean(item.hidden),
+    })
+  }
+
+  const audio_tracks =
+    audio_trackIds.size > 0
+      ? [...audio_trackIds].map((id, index) => ({
+          id,
+          name: index === 0 ? 'Audio' : `Audio ${index + 1}`,
+          order: index,
+          hidden: false,
+        }))
+      : undefined
+
   return {
     schema_version: 3,
     id: project.id,
@@ -314,6 +380,9 @@ export const flattenV3ToSession = (project: EditProjectV3): EditSession => {
     sequence,
     bookmarks: scene.bookmarks ?? [],
     overlay_elements,
+    audio_assets,
+    audio_tracks,
+    audio_elements,
     export_settings: project.export_settings,
     audio_settings: project.audio_settings,
     project_v3: project,
@@ -351,6 +420,21 @@ export const hydrateEditDocument = (session: EditSession): EditDocument => {
         ? session.text_tracks
         : fromV3.text_tracks
 
+    const audio_assets =
+      session.audio_assets && session.audio_assets.length > 0
+        ? session.audio_assets
+        : fromV3.audio_assets
+
+    const audio_tracks =
+      session.audio_tracks && session.audio_tracks.length > 0
+        ? session.audio_tracks
+        : fromV3.audio_tracks
+
+    const audio_elements =
+      session.audio_elements && session.audio_elements.length > 0
+        ? session.audio_elements
+        : fromV3.audio_elements
+
     const bookmarks =
       session.bookmarks && session.bookmarks.length > 0 ? session.bookmarks : fromV3.bookmarks
 
@@ -365,6 +449,9 @@ export const hydrateEditDocument = (session: EditSession): EditDocument => {
       sequence: mergedSequence,
       overlay_elements,
       text_tracks,
+      audio_assets,
+      audio_tracks,
+      audio_elements,
       bookmarks,
       export_settings: session.export_settings ?? fromV3.export_settings,
       audio_settings: session.audio_settings ?? fromV3.audio_settings,

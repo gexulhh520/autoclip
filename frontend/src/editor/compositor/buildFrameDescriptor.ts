@@ -316,13 +316,16 @@ export function buildFrameDescriptor(
     }
   }
 
-  const bgmLayer = plan.layers.find(
+  const bgmLayers = plan.layers.filter(
     (layer): layer is Extract<typeof layer, { kind: 'audio_bgm' }> => layer.kind === 'audio_bgm'
   )
-  if (bgmLayer) {
+  for (const bgmLayer of bgmLayers) {
+    const timelineStart = bgmLayer.timelineStartSec ?? 0
+    const clipEnd = timelineStart + (bgmLayer.durationSec ?? plan.totalDurationSec)
+    if (clampedTime < timelineStart || clampedTime > clipEnd) continue
     audio.push({
       kind: 'bgm',
-      timelineSec: clampedTime + bgmLayer.startSec,
+      timelineSec: clampedTime - timelineStart + bgmLayer.startSec,
       volume: bgmLayer.volume,
       ducking: bgmLayer.duckEnabled,
     })

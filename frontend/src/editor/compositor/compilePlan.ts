@@ -2,6 +2,7 @@ import type { EditSession } from '../../types/editSession'
 import type { EditDocument, EditProjectV3 } from '../migration/v2ToV3'
 import { flattenV3ToSession } from '../migration/v2ToV3'
 import { blockPlaybackRate } from '../../utils/editTimeline'
+import { findAudioAsset } from '../audioTracks'
 import {
   getOverlayTrackId,
   resolveTextTracks,
@@ -110,18 +111,38 @@ export function compileCompositionPlan(
     })
   }
 
-  const bgm = session.audio_settings
-  if (bgm.bgm_path) {
+  const bgmDefaults = session.audio_settings
+  for (const clip of session.audio_elements ?? []) {
+    if (clip.hidden) continue
+    const asset = findAudioAsset(session, clip.asset_id)
+    if (!asset) continue
     layers.push({
       kind: 'audio_bgm',
-      path: bgm.bgm_path,
-      volume: bgm.bgm_volume,
-      startSec: bgm.bgm_start_sec ?? 0,
-      endSec: bgm.bgm_end_sec ?? null,
-      duckEnabled: bgm.bgm_duck_enabled ?? true,
-      duckRatio: bgm.bgm_duck_ratio,
-      fadeInSec: bgm.fade_in_sec,
-      fadeOutSec: bgm.fade_out_sec,
+      clipId: clip.id,
+      path: asset.path,
+      volume: clip.volume ?? bgmDefaults.bgm_volume,
+      timelineStartSec: clip.start_sec,
+      startSec: clip.trim_start_sec ?? 0,
+      endSec: clip.trim_end_sec ?? null,
+      durationSec: clip.duration_sec,
+      duckEnabled: bgmDefaults.bgm_duck_enabled ?? true,
+      duckRatio: bgmDefaults.bgm_duck_ratio,
+      fadeInSec: clip.fade_in_sec ?? bgmDefaults.fade_in_sec,
+      fadeOutSec: clip.fade_out_sec ?? bgmDefaults.fade_out_sec,
+    })
+  }
+  if ((session.audio_elements ?? []).length === 0 && bgmDefaults.bgm_path) {
+    layers.push({
+      kind: 'audio_bgm',
+      path: bgmDefaults.bgm_path,
+      volume: bgmDefaults.bgm_volume,
+      timelineStartSec: 0,
+      startSec: bgmDefaults.bgm_start_sec ?? 0,
+      endSec: bgmDefaults.bgm_end_sec ?? null,
+      duckEnabled: bgmDefaults.bgm_duck_enabled ?? true,
+      duckRatio: bgmDefaults.bgm_duck_ratio,
+      fadeInSec: bgmDefaults.fade_in_sec,
+      fadeOutSec: bgmDefaults.fade_out_sec,
     })
   }
 

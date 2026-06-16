@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { projectApi } from '../../services/api'
-import editApi from '../../services/editApi'
 import {
   buildCompositionTimelineSegments,
   renderSceneToPreviewViewModel,
@@ -23,7 +22,7 @@ import {
 import CompositorPreview from './preview/CompositorPreview'
 import EditorAspectRatioPicker from './EditorAspectRatioPicker'
 import PreviewVideoLayer from './EditorPreviewVideoLayer'
-import { syncBgmToPlayhead, useBgmPreviewPlayback } from '../../editor/hooks/useBgmPreviewPlayback'
+import { useTimelineAudioPlayback } from '../../editor/hooks/useTimelineAudioPlayback'
 import { resolveCanvasDimensions } from '../../editor/scene/canvas'
 import type { EditBlock } from '../../types/editSession'
 import { TRANSITION_OUT_LABELS } from '../../types/transitions'
@@ -34,7 +33,6 @@ interface EditorPreviewProps {
 }
 
 const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) => {
-  const bgmRef = useRef<HTMLAudioElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [assetPreviewTimeSec, setAssetPreviewTimeSec] = useState(0)
@@ -75,7 +73,6 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const clipAudioMuted = timelineTrackMuted.mainVideo || timelineTrackMuted.audioWave
   const captionsMuted = timelineTrackMuted.overlayCaption
   const captionsHidden = useEditSessionStore((state) => state.timelineTrackHidden.overlayCaption)
-  const bgmMuted = timelineTrackMuted.audioBgm
   const mutedTextTrackIds = useMemo(
     () => Object.entries(textTrackMuted).filter(([, muted]) => muted).map(([id]) => id),
     [textTrackMuted]
@@ -181,22 +178,16 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     )
   }, [assetPreviewClip, projectId])
 
-  const bgmUrl =
-    !isAssetPreview && session?.audio_settings?.bgm_path
-      ? editApi.getBgmUrl(projectId, sessionId)
-      : null
-  const bgmVolume = session?.audio_settings?.bgm_volume ?? 0.28
-  const bgmStartSec = session?.audio_settings?.bgm_start_sec ?? 0
+  const hasTimelineAudio = (session?.audio_elements?.length ?? 0) > 0
 
-  useBgmPreviewPlayback({
-    bgmRef,
-    bgmUrl,
+  useTimelineAudioPlayback({
+    projectId,
+    sessionId,
+    session,
+    playheadSec: sequencePlayheadSec,
     isPlaying,
     isAssetPreview,
-    bgmMuted,
-    bgmVolume,
-    playheadSec: sequencePlayheadSec,
-    bgmStartSec,
+    audioTrackMuted,
   })
 
   const primaryVideoLayer = previewVm?.videoLayers[0] ?? null
@@ -260,17 +251,10 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
 
     if (nextPlayhead >= totalDuration - 0.05) {
       setSequencePlayheadSec(totalDuration)
-      const bgm = bgmRef.current
-      if (bgm && bgmUrl) {
-        bgm.pause()
-        syncBgmToPlayhead(bgm, totalDuration, bgmStartSec)
-      }
       return
     }
 
     advanceSequencePlayhead(nextPlayhead)
-
-    syncBgmToPlayhead(bgmRef.current, nextPlayhead, bgmStartSec)
   }
 
   const handleVideoEnded = () => {
@@ -424,8 +408,6 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
               <div className="editor-empty-hint">点击左侧素材预览，或选择时间线片段</div>
             )}
 
-            {bgmUrl ? <audio ref={bgmRef} src={bgmUrl} preload="auto" loop /> : null}
-
             {previewVm?.inDissolve && activeTransitionLabel ? (
               <div className="editor-preview-dissolve-badge">{activeTransitionLabel}</div>
             ) : null}
@@ -505,8 +487,8 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                 原片
               </span>
             ) : null}
-            {!isAssetPreview && bgmUrl && !bgmMuted ? (
-              <span className="editor-preview-badge" title="预览含 BGM">
+            {!isAssetPreview && hasTimelineAudio ? (
+              <span className="editor-preview-badge" title="预览含时间线音频">
                 BGM
               </span>
             ) : null}

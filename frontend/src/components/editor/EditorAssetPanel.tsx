@@ -42,7 +42,9 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
   const updateExportSettings = useEditSessionStore((state) => state.updateExportSettings)
   const updateBlockTransition = useEditSessionStore((state) => state.updateBlockTransition)
   const uploadBgm = useEditSessionStore((state) => state.uploadBgm)
-  const removeBgm = useEditSessionStore((state) => state.removeBgm)
+  const removeAudioAsset = useEditSessionStore((state) => state.removeAudioAsset)
+  const addAudioClipToTimeline = useEditSessionStore((state) => state.addAudioClipToTimeline)
+  const activeAudioTrackId = useEditSessionStore((state) => state.activeAudioTrackId)
   const appendClips = useEditSessionStore((state) => state.appendClips)
   const importMedia = useEditSessionStore((state) => state.importMedia)
   const importSrtCaptions = useEditSessionStore((state) => state.importSrtCaptions)
@@ -58,6 +60,7 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
 
   const blocks = session?.sequence ?? []
   const sessionId = session?.id ?? ''
+  const audioAssets = session?.audio_assets ?? []
   const audioSettings = session?.audio_settings
   const addedClipIds = useMemo(
     () => new Set(blocks.map((block) => block.source_clip_id)),
@@ -267,9 +270,9 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
                 if (!file) return
                 try {
                   await uploadBgm(projectId, file)
-                  message.success('BGM 已导入')
+                  message.success('已导入到音频库，拖到时间线或点击「添加」')
                 } catch {
-                  message.error('BGM 导入失败')
+                  message.error('音频导入失败')
                 }
               }}
             />
@@ -279,7 +282,7 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
               disabled={saving}
               onClick={() => fileInputRef.current?.click()}
             >
-              <PlusOutlined /> 导入 BGM
+              <PlusOutlined /> 导入音频
             </button>
           </>
         }
@@ -296,99 +299,70 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
             />
             导出从原片重切
           </label>
+          <label className="editor-modal__check" style={{ marginTop: 8 }}>
+            <input
+              type="checkbox"
+              checked={audioSettings.bgm_duck_enabled ?? true}
+              onChange={(event) =>
+                updateAudioSettings({ bgm_duck_enabled: event.target.checked })
+              }
+            />
+            人声 Ducking（导出时压低 BGM）
+          </label>
         </div>
-        {audioSettings.bgm_path ? (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 8 }}>
-              <div className="editor-inspector-muted">{audioSettings.bgm_path.split('/').pop()}</div>
-              <button
-                type="button"
-                className="editor-import-btn"
-                disabled={saving}
-                onClick={() => removeBgm()}
-              >
-                移除 BGM
-              </button>
-            </div>
-            <div className="editor-inspector-section" style={{ marginTop: 16 }}>
-              <div className="editor-inspector-label">
-                BGM 音量 ({Math.round(audioSettings.bgm_volume * 100)}%)
-              </div>
-              <input
-                className="editor-range"
-                type="range"
-                min={0}
-                max={1}
-                step={0.02}
-                value={audioSettings.bgm_volume}
-                onChange={(event) =>
-                  updateAudioSettings({ bgm_volume: Number(event.target.value) })
-                }
-              />
-            </div>
-            <div className="editor-inspector-section">
-              <div className="editor-inspector-label">
-                淡入 ({audioSettings.fade_in_sec.toFixed(1)}s)
-              </div>
-              <input
-                className="editor-range"
-                type="range"
-                min={0}
-                max={3}
-                step={0.1}
-                value={audioSettings.fade_in_sec}
-                onChange={(event) =>
-                  updateAudioSettings({ fade_in_sec: Number(event.target.value) })
-                }
-              />
-              <div className="editor-inspector-label" style={{ marginTop: 12 }}>
-                淡出 ({audioSettings.fade_out_sec.toFixed(1)}s)
-              </div>
-              <input
-                className="editor-range"
-                type="range"
-                min={0}
-                max={3}
-                step={0.1}
-                value={audioSettings.fade_out_sec}
-                onChange={(event) =>
-                  updateAudioSettings({ fade_out_sec: Number(event.target.value) })
-                }
-              />
-            </div>
-            <div className="editor-inspector-section">
-              <label className="editor-modal__check">
-                <input
-                  type="checkbox"
-                  checked={audioSettings.bgm_duck_enabled ?? true}
-                  onChange={(event) =>
-                    updateAudioSettings({ bgm_duck_enabled: event.target.checked })
-                  }
-                />
-                人声 Ducking（导出时压低 BGM）
-              </label>
-              {audioSettings.bgm_duck_enabled !== false ? (
-                <>
-                  <div className="editor-inspector-label" style={{ marginTop: 12 }}>
-                    Duck 比例 ({(audioSettings.bgm_duck_ratio ?? 8).toFixed(1)})
-                  </div>
-                  <input
-                    className="editor-range"
-                    type="range"
-                    min={2}
-                    max={16}
-                    step={0.5}
-                    value={audioSettings.bgm_duck_ratio ?? 8}
-                    onChange={(event) =>
-                      updateAudioSettings({ bgm_duck_ratio: Number(event.target.value) })
-                    }
-                  />
-                </>
-              ) : null}
-            </div>
-          </>
+        <div className="editor-inspector-label" style={{ marginTop: 16 }}>
+          音频库 ({audioAssets.length})
+        </div>
+        {audioAssets.length === 0 ? (
+          <div className="editor-empty-hint">
+            导入后仅进入音频库，不会自动上时间线。拖到下方音频轨，或点击「添加」。
+          </div>
         ) : (
-          <div className="editor-empty-hint">导入 BGM 后可在时间线音频轨调节</div>
+          <div className="editor-clip-list">
+            {audioAssets.map((asset) => {
+              const usedOnTimeline = (session.audio_elements ?? []).some(
+                (item) => item.asset_id === asset.id
+              )
+              return (
+                <div
+                  key={asset.id}
+                  className="editor-clip-item editor-clip-item--audio"
+                  draggable
+                  onDragStart={(event) => {
+                    event.dataTransfer.setData('application/x-autoclip-audio-asset', asset.id)
+                    event.dataTransfer.effectAllowed = 'copy'
+                  }}
+                >
+                  <div className="editor-clip-meta" style={{ flex: 1 }}>
+                    <div className="editor-clip-title">{asset.name}</div>
+                    <div className="editor-clip-sub">
+                      {usedOnTimeline ? '已在时间线' : '拖入音频轨或添加'}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      type="button"
+                      className="editor-import-btn"
+                      onClick={() => {
+                        addAudioClipToTimeline(asset.id, { trackId: activeAudioTrackId ?? undefined })
+                        message.success('已添加到时间线')
+                      }}
+                    >
+                      添加
+                    </button>
+                    <button
+                      type="button"
+                      className="editor-import-btn"
+                      disabled={usedOnTimeline}
+                      onClick={() => removeAudioAsset(asset.id)}
+                    >
+                      删除
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         )}
       </OpenCutPanelView>
     )

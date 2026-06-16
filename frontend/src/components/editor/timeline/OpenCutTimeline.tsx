@@ -8,7 +8,7 @@ import {
 import { getBlockVideoUrl } from '../../../utils/editBlockMedia'
 import { extractWaveformPeaks } from '../../../utils/audioWaveform'
 import editApi from '../../../services/editApi'
-import { buildAdaptedTracks, findElementInTracks, findTrackAtY, isUserTextAdaptedTrack, mapTrackIdToStoreKey, ADAPTED_TRACK_IDS } from './adapter'
+import { buildAdaptedTracks, findAudioTrackAtY, findElementInTracks, findTrackAtY, isUserAudioAdaptedTrack, isUserTextAdaptedTrack, mapTrackIdToStoreKey, ADAPTED_TRACK_IDS } from './adapter'
 import TimelineToolbar from './TimelineToolbar'
 import TimelineRuler from './TimelineRuler'
 import TimelineElementView from './TimelineElementView'
@@ -60,13 +60,15 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const selectedOverlayIds = useEditSessionStore((state) => state.selectedOverlayIds)
   const selectedCaptionBlockId = useEditSessionStore((state) => state.selectedCaptionBlockId)
   const selectedCaptionBlockIds = useEditSessionStore((state) => state.selectedCaptionBlockIds)
-  const selectedBgm = useEditSessionStore((state) => state.selectedBgm)
+  const selectedAudioClipId = useEditSessionStore((state) => state.selectedAudioClipId)
   const sequencePlayheadSec = useEditSessionStore((state) => state.sequencePlayheadSec)
   const snapEnabled = useEditSessionStore((state) => state.snapEnabled)
   const rippleTrimEnabled = useEditSessionStore((state) => state.rippleTrimEnabled)
   const timelineTrackMuted = useEditSessionStore((state) => state.timelineTrackMuted)
   const timelineTrackHidden = useEditSessionStore((state) => state.timelineTrackHidden)
   const textTrackMuted = useEditSessionStore((state) => state.textTrackMuted)
+  const audioTrackMuted = useEditSessionStore((state) => state.audioTrackMuted)
+  const activeAudioTrackId = useEditSessionStore((state) => state.activeAudioTrackId)
   const activeTextTrackId = useEditSessionStore((state) => state.activeTextTrackId)
   const historyPast = useEditSessionStore((state) => state.historyPast)
   const historyFuture = useEditSessionStore((state) => state.historyFuture)
@@ -88,13 +90,20 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const moveOverlayToTrack = useEditSessionStore((state) => state.moveOverlayToTrack)
   const updateBlockTrim = useEditSessionStore((state) => state.updateBlockTrim)
   const updateOverlayElement = useEditSessionStore((state) => state.updateOverlayElement)
+  const addAudioTrack = useEditSessionStore((state) => state.addAudioTrack)
+  const addAudioClipToTimeline = useEditSessionStore((state) => state.addAudioClipToTimeline)
+  const updateAudioClip = useEditSessionStore((state) => state.updateAudioClip)
+  const moveAudioClipToTrack = useEditSessionStore((state) => state.moveAudioClipToTrack)
+  const removeAudioClip = useEditSessionStore((state) => state.removeAudioClip)
+  const toggleAudioTrackMuted = useEditSessionStore((state) => state.toggleAudioTrackMuted)
+  const toggleAudioTrackHidden = useEditSessionStore((state) => state.toggleAudioTrackHidden)
+  const setActiveAudioTrackId = useEditSessionStore((state) => state.setActiveAudioTrackId)
+  const setSelectedAudioClipId = useEditSessionStore((state) => state.setSelectedAudioClipId)
   const updateAudioSettings = useEditSessionStore((state) => state.updateAudioSettings)
   const reorderBlocks = useEditSessionStore((state) => state.reorderBlocks)
   const removeOverlayElement = useEditSessionStore((state) => state.removeOverlayElement)
   const clearBlockCaption = useEditSessionStore((state) => state.clearBlockCaption)
   const setSelectedCaptionBlockId = useEditSessionStore((state) => state.setSelectedCaptionBlockId)
-  const setSelectedBgm = useEditSessionStore((state) => state.setSelectedBgm)
-  const removeBgm = useEditSessionStore((state) => state.removeBgm)
   const deleteSelectedCaption = useEditSessionStore((state) => state.deleteSelectedCaption)
   const deleteSelectedBlock = useEditSessionStore((state) => state.deleteSelectedBlock)
   const splitSelectedBlockAtPlayhead = useEditSessionStore(
@@ -112,7 +121,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const timelineRef = useRef<HTMLDivElement>(null)
   const tracksScrollRef = useRef<HTMLDivElement>(null)
   const trackLabelsScrollRef = useRef<HTMLDivElement>(null)
-  const [bgmDurationSec, setBgmDurationSec] = useState(0)
+  const [assetDurations, setAssetDurations] = useState<Record<string, number>>({})
   const [waveforms, setWaveforms] = useState<WaveformMap>({})
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(
@@ -144,10 +153,10 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       trackMuted: timelineTrackMuted,
       trackHidden: timelineTrackHidden,
       textTrackMuted,
-      bgmLabel: session.audio_settings?.bgm_path?.split('/').pop() ?? null,
-      bgmDurationSec,
+      audioTrackMuted,
+      assetDurations,
     })
-  }, [session, segments, projectId, sessionId, timelineTrackMuted, timelineTrackHidden, textTrackMuted, bgmDurationSec])
+  }, [session, segments, projectId, sessionId, timelineTrackMuted, timelineTrackHidden, textTrackMuted, audioTrackMuted, assetDurations])
 
   const totalDuration = Math.max(compositionDuration, calculateTotalDuration(tracks), 1)
   const sequenceSnapPoints = useMemo(
@@ -236,21 +245,32 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   useScrollSync(tracksScrollRef, trackLabelsScrollRef)
 
   useEffect(() => {
-    const bgmPath = session?.audio_settings?.bgm_path
-    if (!bgmPath || !sessionId) {
-      setBgmDurationSec(0)
+    const assets = session?.audio_assets ?? []
+    if (!assets.length || !sessionId) {
+      setAssetDurations({})
       return
     }
-    const audio = document.createElement('audio')
-    audio.preload = 'metadata'
-    audio.src = editApi.getBgmUrl(projectId, sessionId)
-    const onMeta = () => setBgmDurationSec(Number.isFinite(audio.duration) ? audio.duration : 0)
-    audio.addEventListener('loadedmetadata', onMeta)
-    return () => {
-      audio.removeEventListener('loadedmetadata', onMeta)
-      audio.src = ''
+    let cancelled = false
+    const load = async () => {
+      const next: Record<string, number> = {}
+      for (const asset of assets) {
+        const audio = document.createElement('audio')
+        audio.preload = 'metadata'
+        audio.src = editApi.getAudioAssetUrl(projectId, sessionId, asset.id)
+        await new Promise<void>((resolve) => {
+          const done = () => resolve()
+          audio.addEventListener('loadedmetadata', done, { once: true })
+          audio.addEventListener('error', done, { once: true })
+        })
+        next[asset.id] = Number.isFinite(audio.duration) ? audio.duration : asset.duration_sec ?? 0
+      }
+      if (!cancelled) setAssetDurations(next)
     }
-  }, [session?.audio_settings?.bgm_path, projectId, sessionId])
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [session?.audio_assets, projectId, sessionId])
 
   useEffect(() => {
     if (blocks.length === 0) {
@@ -315,8 +335,11 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         selectedOverlayIds.includes(element.source.overlayId)
       )
     }
+    if (element.source.kind === 'audio_clip') {
+      return selectedAudioClipId === element.source.clipId
+    }
     if (element.source.kind === 'bgm') {
-      return selectedBgm
+      return selectedAudioClipId === element.id
     }
     return false
   }
@@ -363,9 +386,15 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       }
       return
     }
-    if (element.source.kind === 'bgm') {
-      setSelectedBgm(true)
+    if (element.source.kind === 'audio_clip' || element.source.kind === 'bgm') {
+      const clipId =
+        element.source.kind === 'audio_clip' ? element.source.clipId : element.id
+      setSelectedAudioClipId(clipId)
       setInspectorTab('audio')
+      if (element.source.kind === 'audio_clip') {
+        const track = tracks.find((item) => item.id === _trackId)
+        if (track?.audioTrackId) setActiveAudioTrackId(track.audioTrackId)
+      }
     }
   }
 
@@ -379,6 +408,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     const startX = event.clientX
     const initialStart = element.startTime
     const sourceTrack = tracks.find((item) => item.id === trackId)
+    let pendingTargetAudioTrackId: string | null = null
     let pendingTargetTextTrackId: string | null = null
 
     const groupOverlayIds =
@@ -432,6 +462,20 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
             setDragTargetTrackId(null)
           }
         }
+      } else if (element.source.kind === 'audio_clip') {
+        updateAudioClip(element.source.clipId, { start_sec: snapped })
+        const canvasEl = tracksCanvasRef.current
+        if (canvasEl) {
+          const y = moveEvent.clientY - canvasEl.getBoundingClientRect().top
+          const targetTrack = findAudioTrackAtY(tracks, y)
+          if (targetTrack?.audioTrackId) {
+            pendingTargetAudioTrackId = targetTrack.audioTrackId
+            setDragTargetTrackId(targetTrack.id)
+          } else {
+            pendingTargetAudioTrackId = null
+            setDragTargetTrackId(null)
+          }
+        }
       } else if (element.source.kind === 'bgm') {
         updateAudioSettings({ bgm_start_sec: snapped })
       } else if (element.source.kind === 'block') {
@@ -456,6 +500,14 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         pendingTargetTextTrackId !== sourceTrack.textTrackId
       ) {
         moveOverlayToTrack(element.source.overlayId, pendingTargetTextTrackId)
+      }
+      if (
+        element.source.kind === 'audio_clip' &&
+        pendingTargetAudioTrackId &&
+        sourceTrack?.audioTrackId &&
+        pendingTargetAudioTrackId !== sourceTrack.audioTrackId
+      ) {
+        moveAudioClipToTrack(element.source.clipId, pendingTargetAudioTrackId)
       }
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
@@ -532,10 +584,45 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       return
     }
 
+    if (element.source.kind === 'audio_clip') {
+      const clipId = element.source.clipId
+      const clip = session?.audio_elements?.find((item) => item.id === clipId)
+      if (!clip) return
+      const assetDuration = assetDurations[element.source.assetId] ?? element.duration
+      const initialStart = element.startTime
+      const initialDuration = element.duration
+      const initialTrimStart = clip.trim_start_sec ?? 0
+      const onMove = (moveEvent: PointerEvent) => {
+        const deltaSec = (moveEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
+        if (side === 'left') {
+          const nextStart = Math.max(0, initialStart + deltaSec)
+          const trimDelta = nextStart - initialStart
+          updateAudioClip(clipId, {
+            start_sec: nextStart,
+            duration_sec: Math.max(0.2, initialDuration - trimDelta),
+            trim_start_sec: Math.max(0, initialTrimStart + trimDelta),
+          })
+        } else {
+          const nextDuration = Math.max(0.2, initialDuration + deltaSec)
+          updateAudioClip(clipId, {
+            duration_sec: nextDuration,
+            trim_end_sec: Math.min(assetDuration, initialTrimStart + nextDuration),
+          })
+        }
+      }
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+      }
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
+      return
+    }
+
     if (element.source.kind === 'bgm') {
       const initialIn = session?.audio_settings?.bgm_start_sec ?? 0
-      const initialOut = session?.audio_settings?.bgm_end_sec ?? bgmDurationSec
-      const maxDur = bgmDurationSec || totalDuration
+      const initialOut = session?.audio_settings?.bgm_end_sec ?? totalDuration
+      const maxDur = totalDuration
       const onMove = (moveEvent: PointerEvent) => {
         const deltaSec = (moveEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
         if (side === 'left') {
@@ -567,8 +654,10 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       else if (element.source.kind === 'block') {
         setSelectedBlockId(element.source.blockId)
         deleteSelectedBlock()
+      } else if (element.source.kind === 'audio_clip') {
+        removeAudioClip(element.source.clipId)
       } else if (element.source.kind === 'bgm') {
-        removeBgm()
+        removeAudioClip(element.id)
       }
     }
     if (action === 'duplicate' && element.source.kind === 'overlay') {
@@ -608,7 +697,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         onToggleRipple={() => setRippleTrimEnabled(!rippleTrimEnabled)}
         onSplit={splitSelectedBlockAtPlayhead}
         onDelete={() => {
-          if (selectedBgm) removeBgm()
+          if (selectedAudioClipId) removeAudioClip(selectedAudioClipId)
           else if (selectedCaptionBlockIds.length > 0 || selectedCaptionBlockId) deleteSelectedCaption()
           else if (selectedOverlayIds.length > 0 || selectedOverlayId) {
             useEditSessionStore.getState().deleteSelectedOverlays()
@@ -631,7 +720,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         bookmarkActive={bookmarkAtPlayhead}
         canSplit={!!selectedBlockId}
         canDelete={
-          selectedBgm ||
+          !!selectedAudioClipId ||
           !!selectedBlockId ||
           !!selectedOverlayId ||
           selectedOverlayIds.length > 0 ||
@@ -653,19 +742,24 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           <div className="oc-timeline__labels-tracks">
             {tracks.map((track, index) => {
               const isUserText = isUserTextAdaptedTrack(track)
+              const isUserAudio = isUserAudioAdaptedTrack(track)
               const isLastUserText =
                 isUserText &&
                 !tracks.slice(index + 1).some((item) => isUserTextAdaptedTrack(item))
+              const isLastUserAudio =
+                isUserAudio &&
+                !tracks.slice(index + 1).some((item) => isUserAudioAdaptedTrack(item))
               return (
                 <div
                   key={track.id}
-                  className={`oc-timeline__label-row${activeTextTrackId === track.textTrackId ? ' is-active' : ''}`}
+                  className={`oc-timeline__label-row${activeTextTrackId === track.textTrackId || activeAudioTrackId === track.audioTrackId ? ' is-active' : ''}`}
                   style={{ height: TRACK_HEIGHTS[track.type] }}
                   onClick={() => {
                     if (track.textTrackId) setActiveTextTrackId(track.textTrackId)
+                    if (track.audioTrackId) setActiveAudioTrackId(track.audioTrackId)
                   }}
                 >
-                  {canTrackHaveAudio(track) ? (
+                  {canTrackHaveAudio(track) && !isUserAudio ? (
                     <button
                       type="button"
                       className={`oc-timeline__label-toggle${track.muted ? ' is-off' : ''}`}
@@ -674,6 +768,18 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                         event.stopPropagation()
                         const key = mapTrackIdToStoreKey(track.id)
                         if (key) toggleTimelineTrackMuted(key)
+                      }}
+                    >
+                      {track.muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                    </button>
+                  ) : isUserAudio ? (
+                    <button
+                      type="button"
+                      className={`oc-timeline__label-toggle${track.muted ? ' is-off' : ''}`}
+                      title={track.muted ? '取消静音' : '静音'}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        if (track.audioTrackId) toggleAudioTrackMuted(track.audioTrackId)
                       }}
                     >
                       {track.muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
@@ -703,6 +809,18 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                     >
                       {track.hidden ? <EyeOff size={14} /> : <Eye size={14} />}
                     </button>
+                  ) : isUserAudio ? (
+                    <button
+                      type="button"
+                      className={`oc-timeline__label-toggle${track.hidden ? ' is-off' : ''}`}
+                      title={track.hidden ? '显示轨道' : '隐藏轨道'}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        if (track.audioTrackId) toggleAudioTrackHidden(track.audioTrackId)
+                      }}
+                    >
+                      {track.hidden ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
                   ) : track.id === ADAPTED_TRACK_IDS.caption ? (
                     <button
                       type="button"
@@ -717,7 +835,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                     </button>
                   ) : null}
                   {TRACK_ICONS[track.type]}
-                  {isUserText ? (
+                  {isUserText || isUserAudio ? (
                     <span className="oc-timeline__label-name" title={track.name}>
                       {track.name}
                     </span>
@@ -730,6 +848,19 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                       onClick={(event) => {
                         event.stopPropagation()
                         addTextTrack()
+                      }}
+                    >
+                      +
+                    </button>
+                  ) : null}
+                  {isLastUserAudio ? (
+                    <button
+                      type="button"
+                      className="oc-timeline__add-track-btn"
+                      title="新建音频轨"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        addAudioTrack()
                       }}
                     >
                       +
@@ -826,6 +957,35 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                     }}
                     onClick={() => {
                       if (track.textTrackId) setActiveTextTrackId(track.textTrackId)
+                      if (track.audioTrackId) setActiveAudioTrackId(track.audioTrackId)
+                    }}
+                    onDragOver={(event) => {
+                      if (!isUserAudioAdaptedTrack(track)) return
+                      if (event.dataTransfer.types.includes('application/x-autoclip-audio-asset')) {
+                        event.preventDefault()
+                        setDragTargetTrackId(track.id)
+                      }
+                    }}
+                    onDragLeave={() => {
+                      if (dragTargetTrackId === track.id) setDragTargetTrackId(null)
+                    }}
+                    onDrop={(event) => {
+                      if (!isUserAudioAdaptedTrack(track) || !track.audioTrackId) return
+                      const assetId = event.dataTransfer.getData('application/x-autoclip-audio-asset')
+                      if (!assetId) return
+                      event.preventDefault()
+                      event.stopPropagation()
+                      const scrollEl = tracksScrollRef.current
+                      if (!scrollEl) return
+                      const rect = scrollEl.getBoundingClientRect()
+                      const x = event.clientX - rect.left + scrollEl.scrollLeft
+                      const startSec = x / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
+                      addAudioClipToTimeline(assetId, {
+                        trackId: track.audioTrackId,
+                        startSec: Math.max(0, startSec),
+                      })
+                      setInspectorTab('audio')
+                      setDragTargetTrackId(null)
                     }}
                   >
                     <button
@@ -860,7 +1020,9 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                           ? '拖入素材或从左侧添加'
                           : isUserTextAdaptedTrack(track)
                             ? '按 T 或在播放头点击 + 添加文本'
-                            : '暂无内容'}
+                            : isUserAudioAdaptedTrack(track)
+                              ? '从左侧拖入音频，或点击 + 新建轨'
+                              : '暂无内容'}
                       </div>
                     ) : (
                       track.elements.map((element) => (

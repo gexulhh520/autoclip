@@ -9,6 +9,7 @@ import type {
   EditSessionAudioSettings,
   EditExportSettings,
   TimelineBookmark,
+  AudioClipElement,
 } from '../types/editSession'
 import {
   DEFAULT_TRACK_COLLAPSED,
@@ -32,6 +33,14 @@ import {
   getOverlayTrackId,
   nextTextTrackOrder,
 } from '../editor/textTracks'
+import {
+  DEFAULT_AUDIO_TRACK_ID,
+  createAudioTrack,
+  defaultAudioTrackName,
+  ensureAudioModel,
+  findAudioAsset,
+  nextAudioTrackOrder,
+} from '../editor/audioTracks'
 import { resolveCanvasDimensions } from '../editor/scene/canvas'
 import {
   buildCompositorRuntimeParams,
@@ -106,12 +115,14 @@ interface EditSessionState {
   selectedOverlayIds: string[]
   selectedCaptionBlockId: string | null
   selectedCaptionBlockIds: string[]
-  selectedBgm: boolean
+  selectedAudioClipId: string | null
   timelineTrackCollapsed: Record<TimelineTrackId, boolean>
   timelineTrackMuted: Record<TimelineTrackId, boolean>
   timelineTrackHidden: Record<TimelineTrackId, boolean>
   textTrackMuted: Record<string, boolean>
+  audioTrackMuted: Record<string, boolean>
   activeTextTrackId: string | null
+  activeAudioTrackId: string | null
   assetPreviewClip: AssetPreviewClip | null
   previewVideoNaturalSize: { width: number; height: number } | null
   isPlaying: boolean
@@ -194,8 +205,20 @@ interface EditSessionState {
   updateBlockPlaybackRate: (blockId: string, rate: number) => void
   updateBlockTransition: (blockId: string, transition: EditBlock['transition_out']) => void
   uploadBgm: (projectId: string, file: File) => Promise<void>
-  removeBgm: () => void
-  setSelectedBgm: (selected: boolean) => void
+  removeAudioAsset: (assetId: string) => void
+  addAudioClipToTimeline: (
+    assetId: string,
+    options?: { trackId?: string; startSec?: number; durationSec?: number }
+  ) => string
+  removeAudioClip: (clipId: string) => void
+  updateAudioClip: (clipId: string, patch: Partial<AudioClipElement>) => void
+  moveAudioClipToTrack: (clipId: string, trackId: string) => void
+  setSelectedAudioClipId: (clipId: string | null) => void
+  toggleAudioTrackMuted: (audioTrackId: string) => void
+  toggleAudioTrackHidden: (audioTrackId: string) => void
+  setActiveAudioTrackId: (audioTrackId: string | null) => void
+  addAudioTrack: (name?: string) => string
+  removeAudioClipFromTimeline: (clipId: string) => void
   setSelectedBlockId: (
     blockId: string | null,
     options?: { additive?: boolean; seekPlayhead?: boolean }
@@ -394,12 +417,14 @@ export const useEditSessionStore = create<EditSessionState>()(
       selectedOverlayIds: [],
       selectedCaptionBlockId: null,
       selectedCaptionBlockIds: [],
-      selectedBgm: false,
+      selectedAudioClipId: null,
       timelineTrackCollapsed: { ...DEFAULT_TRACK_COLLAPSED },
       timelineTrackMuted: { ...DEFAULT_TRACK_MUTED },
       timelineTrackHidden: { ...DEFAULT_TRACK_HIDDEN },
       textTrackMuted: {},
+      audioTrackMuted: {},
       activeTextTrackId: DEFAULT_TEXT_TRACK_ID,
+      activeAudioTrackId: DEFAULT_AUDIO_TRACK_ID,
       assetPreviewClip: null,
       previewVideoNaturalSize: null,
       isPlaying: false,
@@ -466,6 +491,9 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (ensureTextTracks(session)) {
             migrated = true
           }
+          if (ensureAudioModel(session)) {
+            migrated = true
+          }
           for (const block of session.sequence) {
             normalizeBlockOverlay(block)
           }
@@ -507,12 +535,14 @@ export const useEditSessionStore = create<EditSessionState>()(
             selectedOverlayIds: firstBlockOverlays[0] ? [firstBlockOverlays[0].id] : [],
             selectedCaptionBlockId: null,
             selectedCaptionBlockIds: [],
-            selectedBgm: false,
+            selectedAudioClipId: null,
             timelineTrackCollapsed: { ...DEFAULT_TRACK_COLLAPSED },
             timelineTrackMuted: { ...DEFAULT_TRACK_MUTED },
             timelineTrackHidden: { ...DEFAULT_TRACK_HIDDEN },
             textTrackMuted: {},
+            audioTrackMuted: {},
             activeTextTrackId: DEFAULT_TEXT_TRACK_ID,
+            activeAudioTrackId: DEFAULT_AUDIO_TRACK_ID,
             inspectorTab: firstBlockOverlays[0] ? 'text' : 'video',
             historyPast: [],
             historyFuture: [],
@@ -538,6 +568,9 @@ export const useEditSessionStore = create<EditSessionState>()(
             sequence: sessionPayload.sequence,
             overlay_elements: sessionPayload.overlay_elements,
             text_tracks: sessionPayload.text_tracks,
+            audio_assets: sessionPayload.audio_assets,
+            audio_tracks: sessionPayload.audio_tracks,
+            audio_elements: sessionPayload.audio_elements,
             bookmarks: sessionPayload.bookmarks,
             export_settings: sessionPayload.export_settings,
             audio_settings: sessionPayload.audio_settings,
@@ -999,7 +1032,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             selectedOverlayIds: [],
             selectedCaptionBlockId: null,
             selectedCaptionBlockIds: [],
-            selectedBgm: false,
+            selectedAudioClipId: null,
             assetPreviewClip: null,
             isPlaying: false,
           })
@@ -1046,7 +1079,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           }
           state.selectedCaptionBlockId = null
           state.selectedCaptionBlockIds = []
-          state.selectedBgm = false
+          state.selectedAudioClipId = null
           state.assetPreviewClip = null
           if (options?.seekPlayhead !== false) {
             state.sequencePlayheadSec = segment?.startSec ?? 0
@@ -1077,7 +1110,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             state.selectedBlockIds = []
             state.selectedCaptionBlockId = null
             state.selectedCaptionBlockIds = []
-            state.selectedBgm = false
+            state.selectedAudioClipId = null
           }
           state.isPlaying = false
           if (options?.seekPlayhead === false || !state.session?.overlay_elements) return
@@ -1108,16 +1141,16 @@ export const useEditSessionStore = create<EditSessionState>()(
             state.selectedCaptionBlockIds = [blockId]
             state.selectedOverlayId = null
             state.selectedOverlayIds = []
-            state.selectedBgm = false
+            state.selectedAudioClipId = null
           }
           state.isPlaying = false
         })
       },
 
-      setSelectedBgm: (selected) => {
+      setSelectedAudioClipId: (clipId) => {
         set((state) => {
-          state.selectedBgm = selected
-          if (!selected) return
+          state.selectedAudioClipId = clipId
+          if (!clipId) return
           state.selectedBlockId = null
           state.selectedBlockIds = []
           state.selectedOverlayId = null
@@ -1169,7 +1202,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             state.selectedCaptionBlockId = captionIds[captionIds.length - 1] ?? null
             state.selectedOverlayId = overlayIds[overlayIds.length - 1] ?? null
           }
-          state.selectedBgm = false
+          state.selectedAudioClipId = null
           state.assetPreviewClip = null
           state.isPlaying = false
         })
@@ -1183,7 +1216,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           selectedOverlayIds: [],
           selectedCaptionBlockId: null,
           selectedCaptionBlockIds: [],
-          selectedBgm: false,
+          selectedAudioClipId: null,
           assetPreviewClip: null,
           isPlaying: false,
         })
@@ -1714,7 +1747,8 @@ export const useEditSessionStore = create<EditSessionState>()(
         set({ saving: true, error: null })
         try {
           const updated = await editApi.uploadBgm(projectId, session.id, file)
-          set({ session: updated, saving: false, dirty: false, selectedBgm: true })
+          ensureAudioModel(updated)
+          set({ session: updated, saving: false, dirty: false })
         } catch (error: unknown) {
           set({
             saving: false,
@@ -1724,19 +1758,133 @@ export const useEditSessionStore = create<EditSessionState>()(
         }
       },
 
-      removeBgm: () => {
+      removeAudioAsset: (assetId) => {
         pushHistory()
         set((state) => {
-          if (!state.session?.audio_settings?.bgm_path) return
-          state.session.audio_settings = {
-            ...state.session.audio_settings,
-            bgm_path: null,
-            bgm_start_sec: undefined,
-            bgm_end_sec: undefined,
-          }
-          state.selectedBgm = false
+          if (!state.session?.audio_assets) return
+          const used = (state.session.audio_elements ?? []).some(
+            (item) => item.asset_id === assetId
+          )
+          if (used) return
+          state.session.audio_assets = state.session.audio_assets.filter(
+            (item) => item.id !== assetId
+          )
           state.dirty = true
         })
+      },
+
+      addAudioClipToTimeline: (assetId, options) => {
+        pushHistory()
+        let clipId = nanoid()
+        set((state) => {
+          if (!state.session) return
+          ensureAudioModel(state.session)
+          const asset = findAudioAsset(state.session, assetId)
+          if (!asset) return
+          const trackId = options?.trackId ?? state.activeAudioTrackId ?? DEFAULT_AUDIO_TRACK_ID
+          const startSec = options?.startSec ?? state.sequencePlayheadSec
+          const durationSec =
+            options?.durationSec ??
+            asset.duration_sec ??
+            Math.max(1, compositionTotalDuration(state.session) - startSec)
+          const clip: AudioClipElement = {
+            id: clipId,
+            asset_id: assetId,
+            track_id: trackId,
+            start_sec: Math.max(0, startSec),
+            duration_sec: Math.max(0.1, durationSec),
+            trim_start_sec: 0,
+            volume: state.session.audio_settings.bgm_volume,
+            fade_in_sec: state.session.audio_settings.fade_in_sec,
+            fade_out_sec: state.session.audio_settings.fade_out_sec,
+          }
+          state.session.audio_elements!.push(clip)
+          state.selectedAudioClipId = clipId
+          state.activeAudioTrackId = trackId
+          state.dirty = true
+        })
+        return clipId
+      },
+
+      removeAudioClip: (clipId) => {
+        pushHistory()
+        set((state) => {
+          if (!state.session?.audio_elements) return
+          state.session.audio_elements = state.session.audio_elements.filter(
+            (item) => item.id !== clipId
+          )
+          if (state.selectedAudioClipId === clipId) {
+            state.selectedAudioClipId = null
+          }
+          state.dirty = true
+        })
+      },
+
+      removeAudioClipFromTimeline: (clipId) => {
+        get().removeAudioClip(clipId)
+      },
+
+      updateAudioClip: (clipId, patch) => {
+        pushHistory()
+        set((state) => {
+          if (!state.session?.audio_elements) return
+          const clip = state.session.audio_elements.find((item) => item.id === clipId)
+          if (!clip) return
+          Object.assign(clip, patch)
+          state.dirty = true
+        })
+      },
+
+      moveAudioClipToTrack: (clipId, trackId) => {
+        pushHistory()
+        set((state) => {
+          if (!state.session?.audio_elements || !state.session.audio_tracks) return
+          const trackExists = state.session.audio_tracks.some((item) => item.id === trackId)
+          if (!trackExists) return
+          const clip = state.session.audio_elements.find((item) => item.id === clipId)
+          if (!clip) return
+          clip.track_id = trackId
+          state.dirty = true
+        })
+      },
+
+      toggleAudioTrackMuted: (audioTrackId) => {
+        set((state) => {
+          state.audioTrackMuted[audioTrackId] = !state.audioTrackMuted[audioTrackId]
+        })
+      },
+
+      toggleAudioTrackHidden: (audioTrackId) => {
+        pushHistory()
+        set((state) => {
+          if (!state.session?.audio_tracks) return
+          const track = state.session.audio_tracks.find((item) => item.id === audioTrackId)
+          if (!track) return
+          track.hidden = !track.hidden
+          state.dirty = true
+        })
+      },
+
+      setActiveAudioTrackId: (audioTrackId) => {
+        set({ activeAudioTrackId: audioTrackId })
+      },
+
+      addAudioTrack: (name) => {
+        pushHistory()
+        let newTrackId = DEFAULT_AUDIO_TRACK_ID
+        set((state) => {
+          if (!state.session) return
+          ensureAudioModel(state.session)
+          const order = nextAudioTrackOrder(state.session.audio_tracks!)
+          const trackName =
+            name ?? defaultAudioTrackName(state.session.audio_tracks!.length)
+          const track = createAudioTrack(trackName, order)
+          newTrackId = track.id
+          state.session.audio_tracks!.push(track)
+          state.activeAudioTrackId = track.id
+          state.dirty = true
+        })
+        return newTrackId
       },
 
       updateSessionName: (name) => {
@@ -1861,7 +2009,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           selectedOverlayIds: [],
           selectedCaptionBlockId: null,
           selectedCaptionBlockIds: [],
-          selectedBgm: false,
+          selectedAudioClipId: null,
           timelineTrackCollapsed: { ...DEFAULT_TRACK_COLLAPSED },
           timelineTrackMuted: { ...DEFAULT_TRACK_MUTED },
           timelineTrackHidden: { ...DEFAULT_TRACK_HIDDEN },

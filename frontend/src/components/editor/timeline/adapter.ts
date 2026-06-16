@@ -1,4 +1,12 @@
 import type { CompositionTimelineSegment } from '../../../editor/scene/timelineLayout'
+import {
+  adaptedAudioTrackId,
+  findAudioAsset,
+  getAudioClipTrackId,
+  parseAdaptedAudioTrackId,
+  resolveAudioAssets,
+  resolveAudioTracks,
+} from '../../../editor/audioTracks'
 import type { EditBlock, EditOverlayElement, EditSession } from '../../../types/editSession'
 import type { TimelineTrackId } from '../../../types/timelineTracks'
 import { blockHasMigratedTemplateOverlays } from '../../../editor/migration/templateCaptionOverlays'
@@ -14,8 +22,10 @@ import { getCumulativeHeightBefore, getTrackHeight } from './trackUtils'
 export const ADAPTED_TRACK_IDS = {
   main: 'track-main-video',
   caption: 'track-caption-text',
-  audio: 'track-audio-bgm',
 } as const
+
+/** @deprecated 旧单 BGM 轨 id */
+export const LEGACY_AUDIO_BGM_TRACK_ID = 'track-audio-bgm'
 
 /** @deprecated 旧单文本轨 id，仅用于兼容引用 */
 export const LEGACY_OVERLAY_TRACK_ID = 'track-free-text'
@@ -26,7 +36,7 @@ export function mapTrackIdToStoreKey(trackId: string): TimelineTrackId | null {
       return 'mainVideo'
     case ADAPTED_TRACK_IDS.caption:
       return 'overlayCaption'
-    case ADAPTED_TRACK_IDS.audio:
+    case LEGACY_AUDIO_BGM_TRACK_ID:
       return 'audioBgm'
     default:
       return null
@@ -52,6 +62,10 @@ export function isUserTextAdaptedTrack(track: AdaptedTrack): boolean {
   return Boolean(track.textTrackId)
 }
 
+export function isUserAudioAdaptedTrack(track: AdaptedTrack): boolean {
+  return Boolean(track.audioTrackId)
+}
+
 export function buildAdaptedTracks(params: {
   session: EditSession
   segments: CompositionTimelineSegment[]
@@ -61,8 +75,8 @@ export function buildAdaptedTracks(params: {
   trackMuted: Record<TimelineTrackId, boolean>
   trackHidden: Record<TimelineTrackId, boolean>
   textTrackMuted: Record<string, boolean>
-  bgmLabel: string | null
-  bgmDurationSec: number
+  audioTrackMuted: Record<string, boolean>
+  assetDurations: Record<string, number>
 }): AdaptedTrack[] {
   const {
     session,
@@ -70,8 +84,8 @@ export function buildAdaptedTracks(params: {
     trackMuted,
     trackHidden,
     textTrackMuted,
-    bgmLabel,
-    bgmDurationSec,
+    audioTrackMuted,
+    assetDurations,
   } = params
 
   const videoElements: AdaptedElement[] = segments.map((segment) => ({
@@ -97,19 +111,19 @@ export function buildAdaptedTracks(params: {
         !blockHasMigratedTemplateOverlays(session, segment.block.id)
     )
     .map((segment) => ({
-    id: `cap-${segment.block.id}`,
-    elementType: 'text',
-    name: formatCaptionLabel(segment.block),
-    startTime: segment.startSec,
-    duration: segment.duration,
-    trimStart: 0,
-    trimEnd: segment.duration,
-    source: {
-      kind: 'caption',
-      blockId: segment.block.id,
-      content: formatCaptionLabel(segment.block),
-    },
-  }))
+      id: `cap-${segment.block.id}`,
+      elementType: 'text',
+      name: formatCaptionLabel(segment.block),
+      startTime: segment.startSec,
+      duration: segment.duration,
+      trimStart: 0,
+      trimEnd: segment.duration,
+      source: {
+        kind: 'caption',
+        blockId: segment.block.id,
+        content: formatCaptionLabel(segment.block),
+      },
+    }))
 
   const textTracks = resolveTextTracks(session)
   const overlaysByTrack = new Map<string, AdaptedElement[]>()
@@ -126,26 +140,39 @@ export function buildAdaptedTracks(params: {
     bucket?.push(overlayToAdapted(element))
   }
 
-  const totalDuration = segments.reduce((sum, seg) => sum + seg.duration, 0)
-  const bgmStart = session.audio_settings?.bgm_start_sec ?? 0
-  const bgmEnd = session.audio_settings?.bgm_end_sec ?? (bgmDurationSec || totalDuration)
-  const bgmDuration = Math.max(0.1, bgmEnd - bgmStart)
+  const audioTracks = resolveAudioTracks(session)
+  const clipsByTrack = new Map<string, AdaptedElement[]>()
+  for (const meta of audioTracks) {
+    clipsByTrack.set(meta.id, [])
+  }
 
-  const audioElements: AdaptedElement[] =
-    bgmLabel && bgmDuration > 0
-      ? [
-          {
-            id: 'bgm-main',
-            elementType: 'audio',
-            name: bgmLabel,
-            startTime: bgmStart,
-            duration: bgmDuration,
-            trimStart: bgmStart,
-            trimEnd: bgmEnd,
-            source: { kind: 'bgm', label: bgmLabel },
-          },
-        ]
-      : []
+  for (const clip of session.audio_elements ?? []) {
+    if (clip.hidden) continue
+    const asset = findAudioAsset(session, clip.asset_id)
+    if (!asset) continue
+    const trackId = getAudioClipTrackId(clip)
+    const meta = audioTracks.find((track) => track.id === trackId)
+    if (meta?.hidden) continue
+    const trimStart = clip.trim_start_sec ?? 0
+    const assetDuration = assetDurations[asset.id] ?? asset.duration_sec ?? clip.duration_sec
+    const trimEnd = clip.trim_end_sec ?? assetDuration
+    const bucket = clipsByTrack.get(trackId) ?? clipsByTrack.get(audioTracks[0]?.id ?? '')
+    bucket?.push({
+      id: clip.id,
+      elementType: 'audio',
+      name: asset.name,
+      startTime: clip.start_sec,
+      duration: clip.duration_sec,
+      trimStart,
+      trimEnd,
+      source: {
+        kind: 'audio_clip',
+        clipId: clip.id,
+        assetId: asset.id,
+        label: asset.name,
+      },
+    })
+  }
 
   const tracks: AdaptedTrack[] = [
     {
@@ -181,15 +208,16 @@ export function buildAdaptedTracks(params: {
     })
   }
 
-  if (session.audio_settings?.bgm_path) {
+  for (const meta of audioTracks) {
     tracks.push({
-      id: ADAPTED_TRACK_IDS.audio,
+      id: adaptedAudioTrackId(meta.id),
       type: 'audio',
-      name: 'Audio',
+      name: meta.name,
       isMain: false,
-      muted: trackMuted.audioBgm,
-      hidden: false,
-      elements: audioElements,
+      muted: audioTrackMuted[meta.id] ?? false,
+      hidden: meta.hidden ?? false,
+      audioTrackId: meta.id,
+      elements: clipsByTrack.get(meta.id) ?? [],
     })
   }
 
@@ -232,4 +260,9 @@ export function findTrackAtY(tracks: AdaptedTrack[], y: number): AdaptedTrack | 
     }
   }
   return tracks[tracks.length - 1] ?? null
+}
+
+export function findAudioTrackAtY(tracks: AdaptedTrack[], y: number): AdaptedTrack | null {
+  const track = findTrackAtY(tracks, y)
+  return track && isUserAudioAdaptedTrack(track) ? track : null
 }

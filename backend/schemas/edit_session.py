@@ -177,6 +177,34 @@ class TextTrackMeta(BaseModel):
     order: int = 0
 
 
+class AudioTrackMeta(BaseModel):
+    id: str
+    name: str = "Audio"
+    hidden: bool = False
+    order: int = 0
+
+
+class AudioAssetMeta(BaseModel):
+    id: str
+    name: str
+    path: str
+    duration_sec: Optional[float] = None
+
+
+class AudioClipElement(BaseModel):
+    id: str
+    asset_id: str
+    track_id: Optional[str] = None
+    start_sec: float = 0
+    duration_sec: float = 1
+    trim_start_sec: Optional[float] = None
+    trim_end_sec: Optional[float] = None
+    volume: Optional[float] = None
+    fade_in_sec: Optional[float] = None
+    fade_out_sec: Optional[float] = None
+    hidden: bool = False
+
+
 EditAspectPreset = Literal[
     "original",
     "custom",
@@ -253,6 +281,9 @@ class EditSession(BaseModel):
     sequence: List[EditBlock] = Field(default_factory=list)
     overlay_elements: List[EditOverlayElement] = Field(default_factory=list)
     text_tracks: List[TextTrackMeta] = Field(default_factory=list)
+    audio_assets: List[AudioAssetMeta] = Field(default_factory=list)
+    audio_tracks: List[AudioTrackMeta] = Field(default_factory=list)
+    audio_elements: List[AudioClipElement] = Field(default_factory=list)
     bookmarks: List[TimelineBookmark] = Field(default_factory=list)
     export_settings: EditExportSettings = Field(default_factory=EditExportSettings)
     audio_settings: EditSessionAudioSettings = Field(default_factory=EditSessionAudioSettings)
@@ -289,6 +320,9 @@ class EditSessionUpdateRequest(BaseModel):
     sequence: Optional[List[EditBlock]] = None
     overlay_elements: Optional[List[EditOverlayElement]] = None
     text_tracks: Optional[List[TextTrackMeta]] = None
+    audio_assets: Optional[List[AudioAssetMeta]] = None
+    audio_tracks: Optional[List[AudioTrackMeta]] = None
+    audio_elements: Optional[List[AudioClipElement]] = None
     bookmarks: Optional[List[TimelineBookmark]] = None
     export_settings: Optional[EditExportSettings] = None
     audio_settings: Optional[EditSessionAudioSettings] = None

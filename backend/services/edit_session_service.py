@@ -20,6 +20,7 @@ from backend.schemas.edit_session import (
     EditSession,
     EditSessionAudioSettings,
     EditSessionUpdateRequest,
+    AudioAssetMeta,
 )
 from backend.utils.bgm_audio import transcode_bgm_to_m4a
 from backend.utils.clip_path_resolver import resolve_clip_video_path
@@ -678,6 +679,8 @@ class EditSessionService:
         file_name: str,
         content: bytes,
     ) -> EditSession:
+        import uuid
+
         session = self.get_session(project_id, session_id)
         project_dir = get_project_directory(project_id)
         session_dir = _edit_sessions_dir(project_dir) / session_id
@@ -686,13 +689,13 @@ class EditSessionService:
         upload_path = session_dir / f"bgm_upload{suffix}"
         upload_path.write_bytes(content)
 
-        output_path = session_dir / "bgm.m4a"
-        for old in session_dir.glob("bgm*"):
-            if old != upload_path:
-                try:
-                    old.unlink()
-                except OSError:
-                    logger.warning("无法删除旧 BGM 文件: %s", old)
+        asset_id = str(uuid.uuid4())
+        output_path = session_dir / f"asset_{asset_id}.m4a"
+        for old in session_dir.glob(f"asset_{asset_id}*"):
+            try:
+                old.unlink()
+            except OSError:
+                logger.warning("无法删除旧音频资源: %s", old)
 
         if transcode_bgm_to_m4a(upload_path, output_path):
             try:
@@ -702,22 +705,48 @@ class EditSessionService:
             stored_path = output_path
         else:
             logger.warning("BGM 转码失败，保留原文件: %s", upload_path.name)
-            fallback = session_dir / f"bgm{suffix}"
+            fallback = session_dir / f"asset_{asset_id}{suffix}"
             if fallback.exists():
                 fallback.unlink()
             upload_path.replace(fallback)
             stored_path = fallback
 
         rel = _relative_project_path(project_dir, stored_path)
-        audio_settings = session.audio_settings.model_dump()
-        audio_settings["bgm_path"] = rel
         return self.update_session(
             project_id,
             session_id,
             EditSessionUpdateRequest(
-                audio_settings=EditSessionAudioSettings.model_validate(audio_settings)
+                audio_assets=[
+                    *(session.audio_assets or []),
+                    AudioAssetMeta(
+                        id=asset_id,
+                        name=Path(file_name).name or stored_path.name,
+                        path=rel,
+                    ),
+                ]
             ),
         )
+
+    def resolve_audio_asset_path(
+        self,
+        project_id: str,
+        session_id: str,
+        asset_id: str,
+    ) -> Path:
+        session = self.get_session(project_id, session_id)
+        project_dir = get_project_directory(project_id)
+        for asset in session.audio_assets:
+            if asset.id == asset_id:
+                path = project_dir / asset.path
+                if path.exists():
+                    return path
+                raise FileNotFoundError(f"音频资源不存在: {asset.path}")
+        legacy = session.audio_settings.bgm_path
+        if legacy and asset_id.startswith("legacy-"):
+            path = project_dir / legacy
+            if path.exists():
+                return path
+        raise FileNotFoundError(f"未找到音频资源: {asset_id}")
 
     @staticmethod
     def _save_session(project_dir: Path, session: EditSession) -> None:

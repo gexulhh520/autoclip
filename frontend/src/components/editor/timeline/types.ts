@@ -5,6 +5,7 @@ export type AdaptedElementSource =
   | { kind: 'caption'; blockId: string; content: string }
   | { kind: 'overlay'; overlayId: string; content: string }
   | { kind: 'bgm'; label: string }
+  | { kind: 'audio_clip'; clipId: string; assetId: string; label: string }
 
 export interface AdaptedElement {
   id: string
@@ -27,6 +28,8 @@ export interface AdaptedTrack {
   hidden: boolean
   /** 用户文本轨 meta id，字幕/视频轨为空 */
   textTrackId?: string
+  /** 用户音频轨 meta id */
+  audioTrackId?: string
   elements: AdaptedElement[]
 }
 

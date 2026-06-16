@@ -693,6 +693,30 @@ async def stream_edit_session_block_media(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@router.get("/{project_id}/edit-sessions/{session_id}/audio-assets/{asset_id}")
+async def stream_edit_session_audio_asset(
+    project_id: str,
+    session_id: str,
+    asset_id: str,
+    service: EditSessionService = Depends(get_edit_session_service),
+):
+    from fastapi.responses import FileResponse
+
+    from backend.utils.bgm_audio import bgm_media_type, ensure_browser_playable_bgm
+
+    try:
+        asset_path = service.resolve_audio_asset_path(project_id, session_id, asset_id)
+        stream_path = ensure_browser_playable_bgm(asset_path)
+        return FileResponse(
+            path=str(stream_path.resolve()),
+            media_type=bgm_media_type(stream_path),
+            filename=stream_path.name,
+            headers={"Accept-Ranges": "bytes", "Cache-Control": "public, max-age=3600"},
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/{project_id}/edit-sessions/{session_id}/bgm")
 async def stream_edit_session_bgm(
     project_id: str,
