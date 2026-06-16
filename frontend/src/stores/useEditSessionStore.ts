@@ -84,6 +84,12 @@ import {
   type EditorClipboard,
 } from '../editor/clipboard/editorClipboard'
 import {
+  resolveSplitSelectionTarget,
+  resolveVideoBlockSplitAt,
+  splitAudioClipElement,
+  splitOverlayElement,
+} from '../editor/timeline/splitAtPlayhead'
+import {
   BASE_PX_PER_SEC,
   blockDuration,
   buildCompositionTimelineSegments,
@@ -361,7 +367,8 @@ interface EditSessionState {
   ) => void
   updateSessionName: (name: string) => void
   deleteSelectedBlock: (options?: { ripple?: boolean }) => void
-  splitSelectedBlockAtPlayhead: () => void
+  splitSelectionAtPlayhead: () => void
+  canSplitSelectionAtPlayhead: () => boolean
   undo: () => void
   redo: () => void
   canUndo: () => boolean
@@ -2277,33 +2284,83 @@ export const useEditSessionStore = create<EditSessionState>()(
         })
       },
 
-      splitSelectedBlockAtPlayhead: () => {
-        const { session, sequencePlayheadSec, timelineZoom } = get()
+      splitSelectionAtPlayhead: () => {
+        const state = get()
+        const { session, sequencePlayheadSec, timelineZoom } = state
         if (!session) return
+
         const pxPerSec = (timelineZoom / 100) * BASE_PX_PER_SEC
+        const target = resolveSplitSelectionTarget({
+          session,
+          playheadSec: sequencePlayheadSec,
+          pxPerSec,
+          transitionDurationSec: transitionDurationSec(session),
+          selectedAudioClipId: state.selectedAudioClipId,
+          selectedOverlayId: state.selectedOverlayId,
+          selectedOverlayIds: state.selectedOverlayIds,
+          selectedCaptionBlockId: state.selectedCaptionBlockId,
+          selectedCaptionBlockIds: state.selectedCaptionBlockIds,
+          selectedBlockId: state.selectedBlockId,
+        })
+        if (!target) return
+
+        pushHistory()
+
+        if (target.kind === 'text_overlay') {
+          const index = session.overlay_elements?.findIndex((item) => item.id === target.overlayId) ?? -1
+          const overlay = session.overlay_elements?.[index]
+          if (!overlay) return
+          const split = splitOverlayElement(overlay, sequencePlayheadSec)
+          if (!split) return
+          const secondId = nanoid()
+          set((draft) => {
+            if (!draft.session?.overlay_elements) return
+            draft.session.overlay_elements[index] = split.first
+            draft.session.overlay_elements.push({ ...split.second, id: secondId })
+            draft.selectedOverlayId = secondId
+            draft.selectedOverlayIds = [secondId]
+            draft.dirty = true
+          })
+          return
+        }
+
+        if (target.kind === 'audio_clip') {
+          const index = session.audio_elements?.findIndex((item) => item.id === target.clipId) ?? -1
+          const clip = session.audio_elements?.[index]
+          if (!clip) return
+          const split = splitAudioClipElement(clip, sequencePlayheadSec)
+          if (!split) return
+          const secondId = nanoid()
+          set((draft) => {
+            if (!draft.session?.audio_elements) return
+            ensureAudioModel(draft.session)
+            draft.session.audio_elements[index] = split.first
+            draft.session.audio_elements.push({ ...split.second, id: secondId })
+            draft.selectedAudioClipId = secondId
+            draft.dirty = true
+          })
+          return
+        }
+
+        const index = session.sequence.findIndex((item) => item.id === target.blockId)
+        if (index < 0) return
+        const block = session.sequence[index]!
         const segments = buildCompositionTimelineSegments(
           session.sequence,
           pxPerSec,
           transitionDurationSec(session)
         )
-        const resolved = resolveCompositionPlayhead(sequencePlayheadSec, segments)
-        if (!resolved) return
+        const segment = segments.find((item) => item.block.id === target.blockId)
+        if (!segment) return
+        const splitAt = resolveVideoBlockSplitAt(block, segment.startSec, sequencePlayheadSec)
+        if (splitAt == null) return
 
-        const block = resolved.segment.block
-        const index = session.sequence.findIndex((item) => item.id === block.id)
-        if (index < 0) return
-
-        const splitAt = block.trim.in_sec + resolved.relativeSec
-        if (splitAt <= block.trim.in_sec + 0.2 || splitAt >= block.trim.out_sec - 0.2) {
-          return
-        }
-
-        pushHistory()
-        set((state) => {
-          if (!state.session) return
-          const current = state.session.sequence[index]
+        set((draft) => {
+          if (!draft.session) return
+          const current = draft.session.sequence[index]
+          if (!current) return
           const second: EditBlock = {
-            ...cloneSequence([current])[0],
+            ...cloneSequence([current])[0]!,
             id: nanoid(),
             trim: {
               in_sec: splitAt,
@@ -2311,10 +2368,31 @@ export const useEditSessionStore = create<EditSessionState>()(
             },
           }
           current.trim.out_sec = splitAt
-          state.session.sequence.splice(index + 1, 0, second)
-          state.selectedBlockId = second.id
-          state.sequencePlayheadSec = resolved.segment.startSec + resolved.relativeSec
+          draft.session.sequence.splice(index + 1, 0, second)
+          draft.selectedBlockId = second.id
+          draft.selectedBlockIds = [second.id]
+          draft.dirty = true
         })
+      },
+
+      canSplitSelectionAtPlayhead: () => {
+        const state = get()
+        if (!state.session) return false
+        const pxPerSec = (state.timelineZoom / 100) * BASE_PX_PER_SEC
+        return (
+          resolveSplitSelectionTarget({
+            session: state.session,
+            playheadSec: state.sequencePlayheadSec,
+            pxPerSec,
+            transitionDurationSec: transitionDurationSec(state.session),
+            selectedAudioClipId: state.selectedAudioClipId,
+            selectedOverlayId: state.selectedOverlayId,
+            selectedOverlayIds: state.selectedOverlayIds,
+            selectedCaptionBlockId: state.selectedCaptionBlockId,
+            selectedCaptionBlockIds: state.selectedCaptionBlockIds,
+            selectedBlockId: state.selectedBlockId,
+          }) !== null
+        )
       },
 
       undo: () => {

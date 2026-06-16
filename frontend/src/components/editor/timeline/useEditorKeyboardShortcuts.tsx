@@ -7,9 +7,7 @@ export function useEditorKeyboardShortcuts(projectId: string) {
   const undo = useEditSessionStore((state) => state.undo)
   const redo = useEditSessionStore((state) => state.redo)
   const deleteSelectedBlock = useEditSessionStore((state) => state.deleteSelectedBlock)
-  const splitSelectedBlockAtPlayhead = useEditSessionStore(
-    (state) => state.splitSelectedBlockAtPlayhead
-  )
+  const splitSelectionAtPlayhead = useEditSessionStore((state) => state.splitSelectionAtPlayhead)
   const copySelection = useEditSessionStore((state) => state.copySelection)
   const pasteSelection = useEditSessionStore((state) => state.pasteSelection)
   const selectedBlockId = useEditSessionStore((state) => state.selectedBlockId)
@@ -89,7 +87,7 @@ export function useEditorKeyboardShortcuts(projectId: string) {
       }
       if (event.key.toLowerCase() === 'b' && !mod) {
         event.preventDefault()
-        splitSelectedBlockAtPlayhead()
+        splitSelectionAtPlayhead()
         return
       }
       if (event.key.toLowerCase() === 't' && !mod) {
@@ -126,7 +124,7 @@ export function useEditorKeyboardShortcuts(projectId: string) {
     sequencePlayheadSec,
     setInspectorTab,
     setPlaying,
-    splitSelectedBlockAtPlayhead,
+    splitSelectionAtPlayhead,
     undo,
   ])
 

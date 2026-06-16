@@ -106,9 +106,8 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const setSelectedCaptionBlockId = useEditSessionStore((state) => state.setSelectedCaptionBlockId)
   const deleteSelectedCaption = useEditSessionStore((state) => state.deleteSelectedCaption)
   const deleteSelectedBlock = useEditSessionStore((state) => state.deleteSelectedBlock)
-  const splitSelectedBlockAtPlayhead = useEditSessionStore(
-    (state) => state.splitSelectedBlockAtPlayhead
-  )
+  const splitSelectionAtPlayhead = useEditSessionStore((state) => state.splitSelectionAtPlayhead)
+  const canSplitSelectionAtPlayhead = useEditSessionStore((state) => state.canSplitSelectionAtPlayhead)
   const copySelection = useEditSessionStore((state) => state.copySelection)
   const pasteSelection = useEditSessionStore((state) => state.pasteSelection)
   const clipboardHasContent = useEditSessionStore((state) => state.clipboardHasContent)
@@ -653,7 +652,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     const found = findElementInTracks(tracks, contextMenu.trackId, contextMenu.elementId)
     if (!found) return
     const { element } = found
-    if (action === 'split') splitSelectedBlockAtPlayhead()
+    if (action === 'split') splitSelectionAtPlayhead()
     if (action === 'delete') {
       if (element.source.kind === 'overlay') removeOverlayElement(element.source.overlayId)
       else if (element.source.kind === 'caption') clearBlockCaption(element.source.blockId)
@@ -699,7 +698,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         rippleEnabled={rippleTrimEnabled}
         onToggleSnap={() => setSnapEnabled(!snapEnabled)}
         onToggleRipple={() => setRippleTrimEnabled(!rippleTrimEnabled)}
-        onSplit={splitSelectedBlockAtPlayhead}
+        onSplit={splitSelectionAtPlayhead}
         onDelete={() => {
           if (selectedAudioClipId) removeAudioClip(selectedAudioClipId)
           else if (selectedCaptionBlockIds.length > 0 || selectedCaptionBlockId) deleteSelectedCaption()
@@ -722,7 +721,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           }
         }}
         bookmarkActive={bookmarkAtPlayhead}
-        canSplit={!!selectedBlockId}
+        canSplit={canSplitSelectionAtPlayhead()}
         canDelete={
           !!selectedAudioClipId ||
           !!selectedBlockId ||
@@ -1081,7 +1080,15 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           }}
           onClick={(event) => event.stopPropagation()}
         >
-          {contextMenu.elementId.startsWith('cap-') ? null : (
+          {contextMenu.elementId.startsWith('cap-') ? (
+            <button
+              type="button"
+              className="oc-timeline__context-item"
+              onClick={() => handleContextAction('split')}
+            >
+              分割
+            </button>
+          ) : (
             <>
               <button
                 type="button"

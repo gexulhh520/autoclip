@@ -19,7 +19,7 @@ const SHORTCUT_GROUPS: Array<{ title: string; items: Array<{ keys: string; actio
       title: '编辑',
       items: [
         { keys: 'T', action: '在播放头添加自由文本层' },
-        { keys: 'S', action: '在播放头分割' },
+        { keys: 'B', action: '在播放头分割选中元素' },
         { keys: 'Q / W', action: '删左 / 删右' },
         { keys: 'Delete', action: '删除选中片段' },
         { keys: 'N', action: '切换磁吸' },
