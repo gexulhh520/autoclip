@@ -390,11 +390,11 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       const clipId =
         element.source.kind === 'audio_clip' ? element.source.clipId : element.id
       setSelectedAudioClipId(clipId)
-      setInspectorTab('audio')
       if (element.source.kind === 'audio_clip') {
         const track = tracks.find((item) => item.id === _trackId)
         if (track?.audioTrackId) setActiveAudioTrackId(track.audioTrackId)
       }
+      return
     }
   }
 

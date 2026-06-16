@@ -1151,6 +1151,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           state.selectedCaptionBlockId = null
           state.selectedCaptionBlockIds = []
           state.assetPreviewClip = null
+          state.inspectorTab = 'audio'
           state.isPlaying = false
         })
       },

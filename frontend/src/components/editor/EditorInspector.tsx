@@ -19,7 +19,7 @@ import {
   getTemplateOverlaysForBlock,
 } from '../../editor/migration/templateCaptionOverlays'
 import { readStringParam } from '../../editor/opencut-text/params'
-import type { EditOverlayElement } from '../../types/editSession'
+import { findAudioAsset } from '../../editor/audioTracks'
 import {
   patchBlockOverlayAnimation,
   readTextAnimationFromBlockOverlay,
@@ -27,6 +27,7 @@ import {
   writeTextAnimationToParams,
 } from '../../editor/textAnimation/params'
 import { DEFAULT_TEXT_ANIMATION_CONFIG, type TextAnimationConfig } from '../../editor/textAnimation/types'
+import type { EditOverlayElement } from '../../types/editSession'
 
 interface EditorInspectorProps {
   projectId: string
@@ -53,6 +54,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   const selectedOverlayId = useEditSessionStore((state) => state.selectedOverlayId)
   const selectedOverlayIds = useEditSessionStore((state) => state.selectedOverlayIds)
   const selectedCaptionBlockIds = useEditSessionStore((state) => state.selectedCaptionBlockIds)
+  const selectedAudioClipId = useEditSessionStore((state) => state.selectedAudioClipId)
   const inspectorTab = useEditSessionStore((state) => state.inspectorTab)
   const setInspectorTab = useEditSessionStore((state) => state.setInspectorTab)
   const updateBlockOverlay = useEditSessionStore((state) => state.updateBlockOverlay)
@@ -61,6 +63,8 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   const updateBlockPlaybackRate = useEditSessionStore((state) => state.updateBlockPlaybackRate)
   const updateBlockTransition = useEditSessionStore((state) => state.updateBlockTransition)
   const updateAudioSettings = useEditSessionStore((state) => state.updateAudioSettings)
+  const updateAudioClip = useEditSessionStore((state) => state.updateAudioClip)
+  const removeAudioClip = useEditSessionStore((state) => state.removeAudioClip)
   const regenerateBlockContent = useEditSessionStore((state) => state.regenerateBlockContent)
   const snapEnabled = useEditSessionStore((state) => state.snapEnabled)
   const updateOverlayElement = useEditSessionStore((state) => state.updateOverlayElement)
@@ -78,11 +82,19 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   const [srtBoundaries, setSrtBoundaries] = useState<number[]>([])
 
   const selectedBlock =
-    session?.sequence.find((block) => block.id === selectedBlockId) ?? session?.sequence[0]
+    selectedBlockId != null
+      ? session?.sequence.find((block) => block.id === selectedBlockId) ?? null
+      : null
   const captionEditingBlock =
     session?.sequence.find((block) => block.id === selectedCaptionBlockId) ?? null
   const selectedOverlay =
     session?.overlay_elements?.find((item) => item.id === selectedOverlayId) ?? null
+  const selectedAudioClip =
+    selectedAudioClipId != null
+      ? session?.audio_elements?.find((item) => item.id === selectedAudioClipId) ?? null
+      : null
+  const selectedAudioAsset =
+    selectedAudioClip && session ? findAudioAsset(session, selectedAudioClip.asset_id) : null
 
   useEffect(() => {
     if (!selectedBlock?.media.source_start_sec || !selectedBlock?.media.source_end_sec) {
@@ -336,8 +348,84 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   }
 
   const renderAudioTab = () => {
+    if (selectedAudioClip) {
+      const volume =
+        selectedAudioClip.volume ?? session.audio_settings.bgm_volume ?? 0.28
+      const maxFade = Math.max(0, selectedAudioClip.duration_sec / 2)
+      const fadeIn = selectedAudioClip.fade_in_sec ?? 0
+      const fadeOut = selectedAudioClip.fade_out_sec ?? 0
+      return (
+        <>
+          <div className="editor-inspector-section">
+            <div className="editor-inspector-label">素材</div>
+            <div className="editor-inspector-value">
+              {selectedAudioAsset?.name ?? '音频片段'}
+            </div>
+            <div className="editor-inspector-muted" style={{ marginTop: 6 }}>
+              {selectedAudioClip.start_sec.toFixed(1)}s · {selectedAudioClip.duration_sec.toFixed(1)}s
+            </div>
+          </div>
+          <div className="editor-inspector-section">
+            <div className="editor-inspector-label">音量 ({Math.round(volume * 100)}%)</div>
+            <input
+              className="editor-range"
+              type="range"
+              min={0}
+              max={2}
+              step={0.05}
+              value={volume}
+              onChange={(event) =>
+                updateAudioClip(selectedAudioClip.id, { volume: Number(event.target.value) })
+              }
+            />
+          </div>
+          <div className="editor-inspector-section">
+            <div className="editor-inspector-label">淡入 ({fadeIn.toFixed(1)}s)</div>
+            <input
+              className="editor-range"
+              type="range"
+              min={0}
+              max={maxFade}
+              step={0.1}
+              value={fadeIn}
+              onChange={(event) =>
+                updateAudioClip(selectedAudioClip.id, {
+                  fade_in_sec: Number(event.target.value),
+                })
+              }
+            />
+          </div>
+          <div className="editor-inspector-section">
+            <div className="editor-inspector-label">淡出 ({fadeOut.toFixed(1)}s)</div>
+            <input
+              className="editor-range"
+              type="range"
+              min={0}
+              max={maxFade}
+              step={0.1}
+              value={fadeOut}
+              onChange={(event) =>
+                updateAudioClip(selectedAudioClip.id, {
+                  fade_out_sec: Number(event.target.value),
+                })
+              }
+            />
+          </div>
+          <div className="editor-inspector-section">
+            <button
+              type="button"
+              className="editor-header__back"
+              onClick={() => removeAudioClip(selectedAudioClip.id)}
+            >
+              从时间线移除
+            </button>
+          </div>
+        </>
+      )
+    }
+
     if (!selectedBlock) {
-      return <div className="editor-empty-hint">选中片段调节音量与淡入淡出</div>
+      return <div className="editor-empty-hint">选中视频或音频片段后调节音量</div>
     }
     const blockDurationSec = blockDuration(selectedBlock)
     const maxFade = Math.max(0, blockDurationSec / 2)
@@ -645,14 +733,15 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
     )
   }
 
-  const visibleTabs: InspectorTab[] =
-    selectedOverlay ||
-    selectedOverlayIds.length > 0 ||
-    selectedCaptionBlockIds.length > 0 ||
-    Boolean(captionEditingBlock)
+  const visibleTabs: InspectorTab[] = selectedAudioClip
+    ? ['audio']
+    : selectedOverlay ||
+        selectedOverlayIds.length > 0 ||
+        selectedCaptionBlockIds.length > 0 ||
+        Boolean(captionEditingBlock)
       ? ['text', 'animation']
       : selectedBlock
-        ? ['video', 'audio', 'text', 'animation', 'transition']
+        ? ['video', 'audio', 'transition']
         : []
 
   const activeInspectorTab: InspectorTab =
@@ -672,10 +761,9 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
     selectedOverlayIds.length > 0 ||
     selectedCaptionBlockIds.length > 0 ||
     Boolean(selectedOverlay) ||
-    Boolean(captionEditingBlock) ||
-    (selectedBlock ? getTemplateOverlaysForBlock(session, selectedBlock.id).length > 0 : false)
+    Boolean(captionEditingBlock)
 
-  if (!selectedBlock && !selectedOverlay && !hasTextSelection) {
+  if (!selectedBlock && !selectedOverlay && !selectedAudioClip && !hasTextSelection) {
     return (
       <aside className="editor-inspector-panel oc-panel">
         <OpenCutPropertiesEmpty />
@@ -706,7 +794,12 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
           })}
         </nav>
         <div className="oc-panel__content">
-          {selectedOverlay ? (
+          {selectedAudioClip ? (
+            <EditorInspectorSelectionBanner
+              label="时间线音频"
+              subLabel={selectedAudioAsset?.name ?? '音频片段'}
+            />
+          ) : selectedOverlay ? (
             <EditorInspectorSelectionBanner
               label="自由文本层"
               subLabel={`${selectedOverlay.start_sec.toFixed(1)}s · ${selectedOverlay.duration_sec.toFixed(1)}s`}
