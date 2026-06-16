@@ -84,6 +84,7 @@ import {
   buildCompositionTimelineSegments,
   getCompositionTotalDuration,
   resolveCompositionPlayhead,
+  resolveInsertIndexForPlayhead,
 } from '../utils/editTimeline'
 
 const MAX_HISTORY = 50
@@ -96,6 +97,39 @@ const cloneSequence = (sequence: EditBlock[]): EditBlock[] =>
 
 const transitionDurationSec = (session: EditSession): number =>
   session.audio_settings.transition_duration_sec ?? 0.35
+
+interface EditorHistorySnapshot {
+  sequence: EditBlock[]
+  overlay_elements: EditOverlayElement[]
+}
+
+const cloneHistorySnapshot = (session: EditSession): EditorHistorySnapshot => ({
+  sequence: cloneSequence(session.sequence),
+  overlay_elements: JSON.parse(
+    JSON.stringify(session.overlay_elements ?? [])
+  ) as EditOverlayElement[],
+})
+
+const applyHistorySnapshot = (session: EditSession, snapshot: EditorHistorySnapshot): void => {
+  session.sequence = snapshot.sequence
+  session.overlay_elements = snapshot.overlay_elements
+}
+
+const resolvePlayheadInsertIndex = (session: EditSession, playheadSec: number): number =>
+  resolveInsertIndexForPlayhead(
+    session.sequence,
+    playheadSec,
+    transitionDurationSec(session)
+  )
+
+const playheadSecForBlock = (session: EditSession, blockId: string): number => {
+  const segments = buildCompositionTimelineSegments(
+    session.sequence,
+    BASE_PX_PER_SEC,
+    transitionDurationSec(session)
+  )
+  return segments.find((segment) => segment.block.id === blockId)?.startSec ?? 0
+}
 
 const compositionTotalDuration = (session: EditSession): number =>
   getCompositionTotalDuration(session.sequence, transitionDurationSec(session))
@@ -141,8 +175,8 @@ interface EditSessionState {
   rippleTrimEnabled: boolean
   inspectorTab: 'video' | 'audio' | 'text' | 'animation' | 'transition'
   clipboardBlock: EditBlock | null
-  historyPast: EditBlock[][]
-  historyFuture: EditBlock[][]
+  historyPast: EditorHistorySnapshot[]
+  historyFuture: EditorHistorySnapshot[]
 
   loadSession: (projectId: string, sessionId: string) => Promise<void>
   saveSession: (projectId: string) => Promise<void>
@@ -333,7 +367,7 @@ export const useEditSessionStore = create<EditSessionState>()(
     const pushHistory = () => {
       set((state) => {
         if (!state.session) return
-        state.historyPast.push(cloneSequence(state.session.sequence))
+        state.historyPast.push(cloneHistorySnapshot(state.session))
         if (state.historyPast.length > MAX_HISTORY) {
           state.historyPast.shift()
         }
@@ -928,13 +962,15 @@ export const useEditSessionStore = create<EditSessionState>()(
       setInspectorTab: (tab) => set({ inspectorTab: tab }),
 
       appendClips: async (projectId, clipIds, sourceId) => {
-        const { session } = get()
+        const { session, sequencePlayheadSec } = get()
         if (!session) throw new Error('无剪辑工程')
+        const insertIndex = resolvePlayheadInsertIndex(session, sequencePlayheadSec)
         set({ saving: true, error: null })
         try {
           const result = await editApi.appendClips(projectId, session.id, {
             clip_ids: clipIds,
             source_id: sourceId,
+            insert_index: insertIndex,
           })
           for (const block of result.session.sequence) {
             normalizeBlockOverlay(block)
@@ -948,11 +984,23 @@ export const useEditSessionStore = create<EditSessionState>()(
               session: { ...document.session, project_v3: project, schema_version: 3 },
             }
           }
+          cleanupImportedClipCaptions(document.session)
+          const newBlockId = document.session.sequence[insertIndex]?.id ?? null
           set({
             session: document.session,
             editProject: document.project,
             saving: false,
             dirty: templateMigrated,
+            selectedBlockId: newBlockId,
+            selectedBlockIds: newBlockId ? [newBlockId] : [],
+            selectedOverlayId: null,
+            selectedOverlayIds: [],
+            selectedCaptionBlockId: null,
+            selectedCaptionBlockIds: [],
+            sequencePlayheadSec: newBlockId
+              ? playheadSecForBlock(document.session, newBlockId)
+              : sequencePlayheadSec,
+            isPlaying: false,
           })
           return result.added_count
         } catch (error: unknown) {
@@ -965,11 +1013,14 @@ export const useEditSessionStore = create<EditSessionState>()(
       },
 
       importMedia: async (projectId, file) => {
-        const { session } = get()
+        const { session, sequencePlayheadSec } = get()
         if (!session) throw new Error('无剪辑工程')
+        const insertIndex = resolvePlayheadInsertIndex(session, sequencePlayheadSec)
         set({ saving: true, error: null })
         try {
-          const result = await editApi.importMedia(projectId, session.id, file)
+          const result = await editApi.importMedia(projectId, session.id, file, {
+            insertIndex,
+          })
           cleanupImportedClipCaptions(result.session)
           ensureTemplateCaptionOverlays(result.session)
           const transitionDur = transitionDurationSec(result.session)
@@ -2084,10 +2135,10 @@ export const useEditSessionStore = create<EditSessionState>()(
       undo: () => {
         set((state) => {
           if (!state.session || state.historyPast.length === 0) return
-          state.historyFuture.push(cloneSequence(state.session.sequence))
+          state.historyFuture.push(cloneHistorySnapshot(state.session))
           const previous = state.historyPast.pop()
           if (previous) {
-            state.session.sequence = previous
+            applyHistorySnapshot(state.session, previous)
             state.dirty = true
           }
         })
@@ -2096,10 +2147,10 @@ export const useEditSessionStore = create<EditSessionState>()(
       redo: () => {
         set((state) => {
           if (!state.session || state.historyFuture.length === 0) return
-          state.historyPast.push(cloneSequence(state.session.sequence))
+          state.historyPast.push(cloneHistorySnapshot(state.session))
           const next = state.historyFuture.pop()
           if (next) {
-            state.session.sequence = next
+            applyHistorySnapshot(state.session, next)
             state.dirty = true
           }
         })

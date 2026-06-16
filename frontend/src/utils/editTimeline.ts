@@ -1,4 +1,13 @@
 import type { EditBlock, TimelineBookmark } from '../types/editSession'
+import {
+  buildCompositionTimelineSegments,
+  getCompositionTotalDuration,
+  resolveCompositionPlayhead,
+  type CompositionTimelineSegment,
+} from '../editor/scene/timelineLayout'
+
+export type { CompositionTimelineSegment }
+export { buildCompositionTimelineSegments, getCompositionTotalDuration, resolveCompositionPlayhead }
 
 export const BASE_PX_PER_SEC = 24
 export const TRACK_GAP_PX = 8
@@ -57,13 +66,6 @@ export function getTotalDuration(blocks: EditBlock[]): number {
   return blocks.reduce((sum, block) => sum + blockDuration(block), 0)
 }
 
-export {
-  buildCompositionTimelineSegments,
-  getCompositionTotalDuration,
-  resolveCompositionPlayhead,
-  type CompositionTimelineSegment,
-} from '../editor/scene/timelineLayout'
-
 export function resolveSequencePlayhead(
   sequencePlayheadSec: number,
   segments: TimelineSegment[]
@@ -81,6 +83,29 @@ export function resolveSequencePlayhead(
   }
   const last = segments[segments.length - 1]
   return { segment: last, relativeSec: last.duration }
+}
+
+/** 根据播放头在片段左/右半区，决定新视频插入到 sequence 的下标 */
+export function resolveInsertIndexForPlayhead(
+  blocks: EditBlock[],
+  playheadSec: number,
+  transitionDurationSec: number
+): number {
+  if (blocks.length === 0) return 0
+
+  const segments = buildCompositionTimelineSegments(
+    blocks,
+    BASE_PX_PER_SEC,
+    transitionDurationSec
+  )
+  const resolved = resolveCompositionPlayhead(playheadSec, segments)
+  if (!resolved) return blocks.length
+
+  const index = blocks.findIndex((block) => block.id === resolved.segment.block.id)
+  if (index < 0) return blocks.length
+
+  const midpoint = resolved.segment.duration / 2
+  return resolved.relativeSec < midpoint ? index : index + 1
 }
 
 /** 轨道内容列内：时间 → 像素（片段/标尺/书签 left） */

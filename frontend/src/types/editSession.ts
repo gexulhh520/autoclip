@@ -195,6 +195,25 @@ export interface EditSessionUpdateRequest {
   project_v3?: EditProjectV3 | null
 }
 
+export interface EditSessionAppendRequest {
+  clip_ids: string[]
+  source_id?: string | null
+  /** 插入到 sequence 的下标；缺省追加到末尾 */
+  insert_index?: number | null
+}
+
+export interface EditSessionAppendResponse {
+  session: EditSession
+  added_count: number
+}
+
+export interface EditSessionImportMediaResponse {
+  session: EditSession
+  block_id: string
+  title: string
+  duration_sec: number
+}
+
 export interface EditSessionRegenerateRequest {
   block_id: string
   mode?: 'outline' | 'content' | 'both'

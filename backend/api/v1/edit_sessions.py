@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -113,6 +113,7 @@ async def append_edit_session_clips(
             session_id,
             body.clip_ids,
             source_id=body.source_id,
+            insert_index=body.insert_index,
         )
         return EditSessionAppendResponse(session=session, added_count=added)
     except FileNotFoundError as exc:
@@ -656,6 +657,7 @@ async def import_edit_session_media(
     project_id: str,
     session_id: str,
     file: UploadFile = File(...),
+    insert_index: int | None = Form(default=None),
     service: EditSessionService = Depends(get_edit_session_service),
 ):
     try:
@@ -669,6 +671,7 @@ async def import_edit_session_media(
             session_id,
             file.filename,
             content,
+            insert_index=insert_index,
         )
         return EditSessionImportMediaResponse(
             session=session,

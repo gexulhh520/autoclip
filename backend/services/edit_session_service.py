@@ -440,6 +440,7 @@ class EditSessionService:
         clip_ids: List[str],
         *,
         source_id: Optional[str] = None,
+        insert_index: Optional[int] = None,
     ) -> tuple[EditSession, int]:
         if not clip_ids:
             raise ValueError("clip_ids 不能为空")
@@ -487,7 +488,15 @@ class EditSessionService:
         if not new_blocks:
             return session, 0
 
-        updated_sequence = [*session.sequence, *new_blocks]
+        if insert_index is None:
+            at = len(session.sequence)
+        else:
+            at = max(0, min(int(insert_index), len(session.sequence)))
+        updated_sequence = [
+            *session.sequence[:at],
+            *new_blocks,
+            *session.sequence[at:],
+        ]
         updated = self.update_session(
             project_id,
             session_id,
@@ -639,6 +648,8 @@ class EditSessionService:
         session_id: str,
         file_name: str,
         content: bytes,
+        *,
+        insert_index: Optional[int] = None,
     ) -> tuple[EditSession, EditBlock]:
         if not content:
             raise ValueError("视频文件为空")
@@ -676,10 +687,16 @@ class EditSessionService:
             playback_rate=1.0,
         )
 
+        if insert_index is None:
+            at = len(session.sequence)
+        else:
+            at = max(0, min(int(insert_index), len(session.sequence)))
+        updated_sequence = [*session.sequence[:at], block, *session.sequence[at:]]
+
         updated = self.update_session(
             project_id,
             session_id,
-            EditSessionUpdateRequest(sequence=[*session.sequence, block]),
+            EditSessionUpdateRequest(sequence=updated_sequence),
         )
         saved_block = next((item for item in updated.sequence if item.id == block.id), block)
         return updated, saved_block

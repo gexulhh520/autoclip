@@ -310,6 +310,10 @@ class EditSession(BaseModel):
 class EditSessionAppendRequest(BaseModel):
     clip_ids: List[str] = Field(min_length=1)
     source_id: Optional[str] = None
+    insert_index: Optional[int] = Field(
+        default=None,
+        description="插入到 sequence 的下标；缺省追加到末尾",
+    )
 
 
 class EditSessionAppendResponse(BaseModel):

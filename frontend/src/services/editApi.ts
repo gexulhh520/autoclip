@@ -121,10 +121,14 @@ export const editApi = {
   importMedia: async (
     projectId: string,
     sessionId: string,
-    file: File
+    file: File,
+    options?: { insertIndex?: number }
   ): Promise<EditSessionImportMediaResponse> => {
     const formData = new FormData()
     formData.append('file', file)
+    if (options?.insertIndex != null) {
+      formData.append('insert_index', String(options.insertIndex))
+    }
     return (await api.post(
       `/projects/${projectId}/edit-sessions/${sessionId}/import-media`,
       formData
