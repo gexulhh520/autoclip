@@ -228,7 +228,18 @@ interface EditSessionState {
     patch: Record<string, string | number | boolean>,
     options?: { recordHistory?: boolean }
   ) => void
+  updateOverlaysParams: (
+    elementIds: string[],
+    patch: Record<string, string | number | boolean>,
+    options?: { recordHistory?: boolean }
+  ) => void
+  updateOverlayElements: (
+    elementIds: string[],
+    patch: Partial<EditOverlayElement>,
+    options?: { recordHistory?: boolean }
+  ) => void
   applyTextPreset: (elementId: string, presetId: string) => void
+  applyTextPresetToOverlays: (elementIds: string[], presetId: string) => void
   applyBatchTextAnimation: (
     target: { overlayIds?: string[]; captionBlockIds?: string[] },
     config: TextAnimationConfig,
@@ -1366,6 +1377,46 @@ export const useEditSessionStore = create<EditSessionState>()(
         })
       },
 
+      updateOverlaysParams: (elementIds, patch, options) => {
+        if (elementIds.length === 0 || Object.keys(patch).length === 0) return
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
+        set((state) => {
+          if (!state.session?.overlay_elements) return
+          const idSet = new Set(elementIds)
+          const touchedBlocks = new Set<string>()
+          for (const element of state.session.overlay_elements) {
+            if (!idSet.has(element.id)) continue
+            element.params = { ...element.params, ...patch }
+            if ('content' in patch) {
+              const blockId = getTemplateBlockId(element)
+              if (blockId) touchedBlocks.add(blockId)
+            }
+          }
+          for (const blockId of touchedBlocks) {
+            syncBlockOverlayFromTemplateOverlays(state.session, blockId)
+          }
+          state.dirty = true
+        })
+      },
+
+      updateOverlayElements: (elementIds, patch, options) => {
+        if (elementIds.length === 0 || Object.keys(patch).length === 0) return
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
+        set((state) => {
+          if (!state.session?.overlay_elements) return
+          const idSet = new Set(elementIds)
+          for (const element of state.session.overlay_elements) {
+            if (!idSet.has(element.id)) continue
+            Object.assign(element, patch)
+          }
+          state.dirty = true
+        })
+      },
+
       applyTextPreset: (elementId, presetId) => {
         const { session } = get()
         if (!session?.overlay_elements) return
@@ -1373,6 +1424,21 @@ export const useEditSessionStore = create<EditSessionState>()(
         if (!element?.params) return
         const nextParams = applyTextPresetToParams(element.params, presetId)
         get().updateOverlayParams(elementId, nextParams)
+      },
+
+      applyTextPresetToOverlays: (elementIds, presetId) => {
+        const { session } = get()
+        if (!session?.overlay_elements || elementIds.length === 0) return
+        pushHistory()
+        set((state) => {
+          if (!state.session?.overlay_elements) return
+          const idSet = new Set(elementIds)
+          for (const element of state.session.overlay_elements) {
+            if (!idSet.has(element.id) || !element.params) continue
+            element.params = applyTextPresetToParams(element.params, presetId)
+          }
+          state.dirty = true
+        })
       },
 
       applyBatchTextAnimation: (target, config, options) => {

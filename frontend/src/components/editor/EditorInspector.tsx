@@ -65,10 +65,13 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   const snapEnabled = useEditSessionStore((state) => state.snapEnabled)
   const updateOverlayElement = useEditSessionStore((state) => state.updateOverlayElement)
   const updateOverlayParams = useEditSessionStore((state) => state.updateOverlayParams)
+  const updateOverlaysParams = useEditSessionStore((state) => state.updateOverlaysParams)
+  const updateOverlayElements = useEditSessionStore((state) => state.updateOverlayElements)
   const removeOverlayElement = useEditSessionStore((state) => state.removeOverlayElement)
   const deleteSelectedOverlays = useEditSessionStore((state) => state.deleteSelectedOverlays)
   const setSelectedOverlayId = useEditSessionStore((state) => state.setSelectedOverlayId)
   const applyTextPreset = useEditSessionStore((state) => state.applyTextPreset)
+  const applyTextPresetToOverlays = useEditSessionStore((state) => state.applyTextPresetToOverlays)
   const applyBatchTextAnimation = useEditSessionStore((state) => state.applyBatchTextAnimation)
 
   const [regenerating, setRegenerating] = useState(false)
@@ -132,25 +135,59 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
     0
   )
 
-  const renderOverlayTextEditor = (overlayItem: EditOverlayElement) => {
-    const activePresetId = readTextPresetId(overlayItem.params ?? {})
+  const resolveSelectedOverlays = (): EditOverlayElement[] => {
+    const ids =
+      selectedOverlayIds.length > 0
+        ? selectedOverlayIds
+        : selectedOverlayId
+          ? [selectedOverlayId]
+          : []
+    return ids
+      .map((id) => session?.overlay_elements?.find((item) => item.id === id))
+      .filter((item): item is EditOverlayElement => Boolean(item))
+  }
+
+  const renderOverlayTextEditor = (overlayItems: EditOverlayElement[]) => {
+    if (overlayItems.length === 0) return null
+    const isBatch = overlayItems.length > 1
+    const overlayIds = overlayItems.map((item) => item.id)
+    const seed = overlayItems[0]!
+    const presetIds = overlayItems.map((item) => readTextPresetId(item.params ?? {}))
+    const activePresetId = presetIds.every((id) => id === presetIds[0]) ? presetIds[0] : null
+
+    const applyParams = (patch: Record<string, string | number | boolean>) => {
+      if (isBatch) updateOverlaysParams(overlayIds, patch)
+      else updateOverlayParams(seed.id, patch)
+    }
+    const applyParamKey = (key: string, value: string | number | boolean) => {
+      applyParams({ [key]: value })
+    }
+
+    const startMixed =
+      isBatch && overlayItems.some((item) => item.start_sec !== seed.start_sec)
+    const durationMixed =
+      isBatch && overlayItems.some((item) => item.duration_sec !== seed.duration_sec)
+
     return (
-      <React.Fragment key={overlayItem.id}>
+      <React.Fragment key={isBatch ? 'batch' : seed.id}>
         <div className="editor-inspector-section">
           <div className="editor-inspector-label">花字预设</div>
           <TextPresetPicker
             activePresetId={activePresetId}
-            onSelect={(presetId) => applyTextPreset(overlayItem.id, presetId)}
+            onSelect={(presetId) => {
+              if (isBatch) applyTextPresetToOverlays(overlayIds, presetId)
+              else applyTextPreset(seed.id, presetId)
+            }}
           />
         </div>
         <OpenCutTextParamsPanel
-          element={overlayItem}
-          onChange={(key, value) => updateOverlayParams(overlayItem.id, { [key]: value })}
-          onParamsChange={(patch) => updateOverlayParams(overlayItem.id, patch)}
+          elements={overlayItems}
+          onChange={applyParamKey}
+          onParamsChange={applyParams}
         />
         <div className="editor-inspector-section">
           <div className="editor-inspector-label">
-            起始 ({overlayItem.start_sec.toFixed(1)}s)
+            起始 ({seed.start_sec.toFixed(1)}s{startMixed ? ' · 多种' : ''})
           </div>
           <input
             className="editor-range"
@@ -158,15 +195,15 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
             min={0}
             max={Math.max(totalTimelineSec - 0.5, 0.5)}
             step={0.1}
-            value={overlayItem.start_sec}
-            onChange={(event) =>
-              updateOverlayElement(overlayItem.id, {
-                start_sec: Number(event.target.value),
-              })
-            }
+            value={seed.start_sec}
+            onChange={(event) => {
+              const value = Number(event.target.value)
+              if (isBatch) updateOverlayElements(overlayIds, { start_sec: value })
+              else updateOverlayElement(seed.id, { start_sec: value })
+            }}
           />
           <div className="editor-inspector-label" style={{ marginTop: 12 }}>
-            时长 ({overlayItem.duration_sec.toFixed(1)}s)
+            时长 ({seed.duration_sec.toFixed(1)}s{durationMixed ? ' · 多种' : ''})
           </div>
           <input
             className="editor-range"
@@ -174,12 +211,12 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
             min={0.5}
             max={Math.max(totalTimelineSec, 1)}
             step={0.1}
-            value={overlayItem.duration_sec}
-            onChange={(event) =>
-              updateOverlayElement(overlayItem.id, {
-                duration_sec: Number(event.target.value),
-              })
-            }
+            value={seed.duration_sec}
+            onChange={(event) => {
+              const value = Number(event.target.value)
+              if (isBatch) updateOverlayElements(overlayIds, { duration_sec: value })
+              else updateOverlayElement(seed.id, { duration_sec: value })
+            }}
           />
         </div>
         <div className="editor-inspector-section">
@@ -187,13 +224,16 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
             type="button"
             className="editor-header__back"
             onClick={() => {
-              removeOverlayElement(overlayItem.id)
-              if (selectedOverlayId === overlayItem.id) {
-                setSelectedOverlayId(null)
+              if (isBatch) deleteSelectedOverlays()
+              else {
+                removeOverlayElement(seed.id)
+                if (selectedOverlayId === seed.id) {
+                  setSelectedOverlayId(null)
+                }
               }
             }}
           >
-            删除文本层
+            {isBatch ? `删除 ${overlayItems.length} 个文本层` : '删除文本层'}
           </button>
         </div>
       </React.Fragment>
@@ -363,25 +403,23 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   }
 
   const renderTextTab = () => {
-    const multiOverlayCount = selectedOverlayIds.length
     const multiCaptionCount = selectedCaptionBlockIds.length
+    const selectedOverlays = resolveSelectedOverlays()
 
-    if (multiOverlayCount > 1) {
+    if (selectedOverlays.length > 0 && multiCaptionCount === 0) {
+      const single = selectedOverlays.length === 1 ? selectedOverlays[0]! : null
+      const roleLabel = single ? readStringParam(single.params, 'template.role', '') : ''
+      const templateBlockId = single ? getTemplateBlockId(single) : null
       return (
-        <div className="editor-inspector-section">
-          <div className="editor-inspector-label">已选中 {multiOverlayCount} 个自由文本层</div>
-          <div className="editor-inspector-muted">
-            可在预览区框选或 Shift/Ctrl 多选，拖拽可成组移动位置；在「动画」Tab 批量设置动效
-          </div>
-          <button
-            type="button"
-            className="editor-header__back"
-            style={{ marginTop: 12 }}
-            onClick={() => deleteSelectedOverlays()}
-          >
-            删除选中文本层
-          </button>
-        </div>
+        <>
+          {roleLabel ? (
+            <div className="editor-inspector-section">
+              <div className="editor-inspector-label">模板旁白 · {roleLabel}</div>
+            </div>
+          ) : null}
+          {renderOverlayTextEditor(selectedOverlays)}
+          {templateBlockId ? renderAiNarrationButton(templateBlockId) : null}
+        </>
       )
     }
 
@@ -393,23 +431,6 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
             可在预览区框选或 Shift/Ctrl 多选，拖拽可成组调整位置；在「动画」Tab 批量设置动效
           </div>
         </div>
-      )
-    }
-
-    if (selectedOverlay) {
-      const roleLabel = readStringParam(selectedOverlay.params, 'template.role', '')
-      return (
-        <>
-          {roleLabel ? (
-            <div className="editor-inspector-section">
-              <div className="editor-inspector-label">模板旁白 · {roleLabel}</div>
-            </div>
-          ) : null}
-          {renderOverlayTextEditor(selectedOverlay)}
-          {getTemplateBlockId(selectedOverlay) ? (
-            renderAiNarrationButton(getTemplateBlockId(selectedOverlay)!)
-          ) : null}
-        </>
       )
     }
 
@@ -430,7 +451,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
                   </div>
                 </div>
               ) : null}
-              {renderOverlayTextEditor(overlayItem)}
+              {renderOverlayTextEditor([overlayItem])}
             </React.Fragment>
           ))}
           {renderAiNarrationButton(selectedBlock!.id)}
@@ -451,7 +472,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
     if (pendingOverlays.length > 0) {
       return (
         <>
-          {pendingOverlays.map((overlayItem) => renderOverlayTextEditor(overlayItem))}
+          {pendingOverlays.map((overlayItem) => renderOverlayTextEditor([overlayItem]))}
           {renderAiNarrationButton(captionBlock.id)}
         </>
       )
