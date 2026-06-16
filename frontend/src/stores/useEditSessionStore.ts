@@ -53,8 +53,10 @@ import {
 import { applyTextPresetToParams } from '../editor/effects'
 import {
   ensureTemplateCaptionOverlays,
+  getTemplateBlockId,
   getTemplateOverlaysForBlock,
   removeTemplateOverlaysForBlock,
+  syncBlockOverlayFromTemplateOverlays,
   syncTemplateOverlaysForBlock,
 } from '../editor/migration/templateCaptionOverlays'
 import {
@@ -769,7 +771,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             if (!block) return
             block.overlay.outline = result.outline
             block.overlay.content = result.content
-            syncTemplateOverlaysForBlock(state.session, blockId, { preservePosition: false })
+            syncTemplateOverlaysForBlock(state.session, blockId, { preserveUserEdits: false })
             state.dirty = true
             state.saving = false
           })
@@ -986,12 +988,22 @@ export const useEditSessionStore = create<EditSessionState>()(
               : [...state.selectedBlockIds, blockId]
             state.selectedBlockIds = ids
             state.selectedBlockId = ids[ids.length - 1] ?? blockId
+            state.selectedOverlayId = null
+            state.selectedOverlayIds = []
           } else {
             state.selectedBlockId = blockId
             state.selectedBlockIds = [blockId]
+            const templateOverlays = getTemplateOverlaysForBlock(state.session, blockId)
+            if (templateOverlays.length > 0) {
+              const primary = templateOverlays[0]!
+              state.selectedOverlayId = primary.id
+              state.selectedOverlayIds = [primary.id]
+              state.inspectorTab = 'text'
+            } else {
+              state.selectedOverlayId = null
+              state.selectedOverlayIds = []
+            }
           }
-          state.selectedOverlayId = null
-          state.selectedOverlayIds = []
           state.selectedCaptionBlockId = null
           state.selectedCaptionBlockIds = []
           state.selectedBgm = false
@@ -1323,6 +1335,10 @@ export const useEditSessionStore = create<EditSessionState>()(
           const element = state.session.overlay_elements.find((item) => item.id === elementId)
           if (!element) return
           element.params = { ...element.params, ...patch }
+          const blockId = getTemplateBlockId(element)
+          if (blockId && 'content' in patch) {
+            syncBlockOverlayFromTemplateOverlays(state.session, blockId)
+          }
           state.dirty = true
         })
       },

@@ -1,11 +1,11 @@
 import type { EditBlock, EditOverlayElement, EditSession } from '../../types/editSession'
+import { OPENCUT_TEXT_DEFAULTS } from '../opencut-text/defaults'
+import { normalizedToPosition } from '../opencut-text/transform'
 import { resolveCanvasDimensions } from '../scene/canvas'
 import { buildCompositionTimeline } from '../scene/timelineLayout'
-import {
-  compileTemplateCaptionToFreeTextLayers,
-} from '../compositor/templateCaptionOpenCut'
+import { compileTemplateCaptionToFreeTextLayers } from '../compositor/templateCaptionOpenCut'
 import type { FreeTextLayerDef } from '../compositor/types'
-import { readNumberParam, readStringParam, type TextElementParams } from '../opencut-text/params'
+import { readStringParam, type TextElementParams } from '../opencut-text/params'
 import { DEFAULT_TEXT_TRACK_ID, ensureTextTracks } from '../textTracks'
 
 export const TEMPLATE_BLOCK_ID_PARAM = 'template.blockId'
@@ -76,8 +76,8 @@ export function removeTemplateOverlaysForBlock(
 }
 
 export interface SyncTemplateOverlayOptions {
-  /** 保留用户在预览区拖拽后的位置 */
-  preservePosition?: boolean
+  /** 保留用户已调的字号、花字、位置等样式 */
+  preserveUserEdits?: boolean
 }
 
 const transitionDurationSec = (session: EditSession): number =>
@@ -87,23 +87,6 @@ const findSegmentForBlock = (session: EditSession, blockId: string) => {
   const timeline = buildCompositionTimeline(session.sequence, transitionDurationSec(session))
   return timeline.segments.find((segment) => segment.block.id === blockId) ?? null
 }
-
-const mergePreservingPosition = (
-  existing: TextElementParams,
-  fresh: TextElementParams
-): TextElementParams => ({
-  ...fresh,
-  'transform.positionX': readNumberParam(
-    existing,
-    'transform.positionX',
-    readNumberParam(fresh, 'transform.positionX', 0)
-  ),
-  'transform.positionY': readNumberParam(
-    existing,
-    'transform.positionY',
-    readNumberParam(fresh, 'transform.positionY', 0)
-  ),
-})
 
 const layerToOverlayElement = (
   layer: FreeTextLayerDef,
@@ -128,7 +111,7 @@ const compileLayersForBlock = (
   const segment = findSegmentForBlock(session, blockId)
   if (!segment) return []
   const { width, height } = resolveCanvasDimensions(session.export_settings)
-  return compileTemplateCaptionToFreeTextLayers(
+  const fromTemplate = compileTemplateCaptionToFreeTextLayers(
     segment.block,
     segment.index,
     segment.compositionStartSec,
@@ -137,6 +120,76 @@ const compileLayersForBlock = (
     width,
     height
   )
+  if (fromTemplate.length > 0) return fromTemplate
+  return buildFallbackTemplateLayers(session, segment.block, segment)
+}
+
+/** 模板编译无层时，用片段标题/旁白文案生成标准自由层文本 */
+const buildFallbackTemplateLayers = (
+  session: EditSession,
+  block: EditBlock,
+  segment: {
+    index: number
+    compositionStartSec: number
+    sourceDurationSec: number
+  }
+): FreeTextLayerDef[] => {
+  const { width, height } = resolveCanvasDimensions(session.export_settings)
+  const lines = block.overlay.content.map((line) => line.trim()).filter(Boolean)
+  if (lines.length === 0) {
+    const fallback = block.overlay.outline.trim() || block.title.trim()
+    if (fallback) lines.push(fallback)
+  }
+  if (lines.length === 0) return []
+
+  return lines.map((text, index) => {
+    const role = index === 0 ? 'headline' : `body${index}`
+    const { positionX, positionY } = normalizedToPosition(
+      0.5,
+      0.82 - index * 0.08,
+      width,
+      height
+    )
+    return {
+      kind: 'free_text' as const,
+      elementId: `template:${block.id}:${role}`,
+      trackId: DEFAULT_TEXT_TRACK_ID,
+      startSec: segment.compositionStartSec,
+      durationSec: Math.max(segment.sourceDurationSec, 0.05),
+      hidden: false,
+      params: {
+        ...OPENCUT_TEXT_DEFAULTS.params,
+        content: text,
+        'transform.positionX': positionX,
+        'transform.positionY': positionY,
+        'template.role': role,
+      },
+      source: 'user' as const,
+      blockId: block.id,
+      role,
+      zOrder: index,
+    }
+  })
+}
+
+const mergeOverlayParams = (
+  existing: TextElementParams,
+  fresh: TextElementParams,
+  blockId: string,
+  preserveUserEdits: boolean
+): TextElementParams => {
+  if (!preserveUserEdits) {
+    return { ...fresh, [TEMPLATE_BLOCK_ID_PARAM]: blockId }
+  }
+  return {
+    ...fresh,
+    ...existing,
+    content: fresh.content,
+    [TEMPLATE_BLOCK_ID_PARAM]: blockId,
+    'template.role':
+      readStringParam(existing, 'template.role', '') ||
+      readStringParam(fresh, 'template.role', ''),
+  }
 }
 
 /** 同步单个片段的模板旁白到 overlay_elements（创建 / 更新 / 清理） */
@@ -146,7 +199,7 @@ export function syncTemplateOverlaysForBlock(
   options: SyncTemplateOverlayOptions = {}
 ): boolean {
   if (!session.overlay_elements) session.overlay_elements = []
-  const preservePosition = options.preservePosition ?? true
+  const preserveUserEdits = options.preserveUserEdits ?? true
 
   const block = session.sequence.find((item) => item.id === blockId)
   if (!block || !blockHasTemplateCaption(block)) {
@@ -169,13 +222,12 @@ export function syncTemplateOverlaysForBlock(
       continue
     }
 
-    const nextParams = preservePosition
-      ? mergePreservingPosition(existing.params, layer.params)
-      : layer.params
-    const fullParams: TextElementParams = {
-      ...nextParams,
-      [TEMPLATE_BLOCK_ID_PARAM]: blockId,
-    }
+    const fullParams = mergeOverlayParams(
+      existing.params,
+      layer.params,
+      blockId,
+      preserveUserEdits
+    )
     if (JSON.stringify(existing.params) !== JSON.stringify(fullParams)) {
       existing.params = fullParams
       changed = true
@@ -203,6 +255,44 @@ export function syncTemplateOverlaysForBlock(
   }
 
   return changed
+}
+
+/** 将自由层文本改动回写片段 overlay（供 AI / 导出元数据） */
+export function syncBlockOverlayFromTemplateOverlays(
+  session: EditSession,
+  blockId: string
+): boolean {
+  const block = session.sequence.find((item) => item.id === blockId)
+  if (!block) return false
+  const overlays = getTemplateOverlaysForBlock(session, blockId)
+  if (overlays.length === 0) return false
+
+  const sorted = [...overlays].sort((a, b) => {
+    const roleA = readStringParam(a.params, 'template.role', 'z')
+    const roleB = readStringParam(b.params, 'template.role', 'z')
+    if (roleA === 'headline') return -1
+    if (roleB === 'headline') return 1
+    return roleA.localeCompare(roleB)
+  })
+
+  const content = sorted
+    .map((element) => readStringParam(element.params, 'content', '').trim())
+    .filter(Boolean)
+  if (content.length === 0) return false
+
+  const nextOutline = content[0] ?? ''
+  const sameOutline = block.overlay.outline === nextOutline
+  const sameContent =
+    block.overlay.content.length === content.length &&
+    block.overlay.content.every((line, index) => line === content[index])
+  if (sameOutline && sameContent) return false
+
+  block.overlay = {
+    ...block.overlay,
+    outline: nextOutline,
+    content,
+  }
+  return true
 }
 
 /** 加载 / 重排 / 裁剪后，确保所有模板旁白以自由层文本形式存在且时间对齐 */

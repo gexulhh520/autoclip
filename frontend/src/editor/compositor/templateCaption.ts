@@ -179,6 +179,8 @@ function composeHeadlineAndBody(
   const bodyLines: string[] = []
   const seen = new Set<string>()
 
+  const generatedTitle = String(clipData.generated_title ?? '').trim()
+
   if (content.length > 0) {
     headline = truncate(content[0], maxHeadline)
     if (headline) seen.add(normalizeForCompare(headline))
@@ -189,6 +191,12 @@ function composeHeadlineAndBody(
       bodyLines.push(line)
       seen.add(norm)
     }
+    return [headline, bodyLines]
+  }
+
+  if (generatedTitle) {
+    headline = truncate(generatedTitle, maxHeadline)
+    if (headline) seen.add(normalizeForCompare(headline))
     return [headline, bodyLines]
   }
 

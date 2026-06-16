@@ -446,76 +446,20 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
     }
 
     const captionBlock = captionEditingBlock ?? selectedBlock!
-
-    if (
-      captionEditingBlock &&
-      blockHasMigratedTemplateOverlays(session, captionEditingBlock.id)
-    ) {
-      const migratedOverlays = getTemplateOverlaysForBlock(session, captionEditingBlock.id)
+    const pendingOverlays = getTemplateOverlaysForBlock(session, captionBlock.id)
+    if (pendingOverlays.length > 0) {
       return (
         <>
-          {migratedOverlays.map((overlayItem) => renderOverlayTextEditor(overlayItem))}
-          {renderAiNarrationButton(captionEditingBlock.id)}
+          {pendingOverlays.map((overlayItem) => renderOverlayTextEditor(overlayItem))}
+          {renderAiNarrationButton(captionBlock.id)}
         </>
       )
     }
 
     return (
-      <>
-        <div className="editor-inspector-section">
-          <textarea
-            className="editor-textarea"
-            value={overlay.content.join('\n') || overlay.outline}
-            onChange={(event) => {
-              const lines = event.target.value.split('\n')
-              updateBlockOverlay(captionBlock.id, {
-                content: lines,
-                outline: lines[0] || '',
-              })
-            }}
-            rows={5}
-            placeholder="输入字幕文案…"
-          />
-          <div className="editor-inspector-muted" style={{ marginTop: 8 }}>
-            可在预览区点击字幕并拖拽调整位置，导出时会同步偏移
-          </div>
-        </div>
-        <div className="editor-inspector-section">
-          <div className="editor-inspector-label">
-            横向位置 ({(overlay.position_offset_x_pct ?? 0).toFixed(1)}%)
-          </div>
-          <input
-            className="editor-range"
-            type="range"
-            min={-25}
-            max={25}
-            step={0.5}
-            value={overlay.position_offset_x_pct ?? 0}
-            onChange={(event) =>
-              updateBlockOverlay(captionBlock.id, {
-                position_offset_x_pct: Number(event.target.value),
-              })
-            }
-          />
-          <div className="editor-inspector-label" style={{ marginTop: 12 }}>
-            纵向位置 ({(overlay.position_offset_y_pct ?? 0).toFixed(1)}%)
-          </div>
-          <input
-            className="editor-range"
-            type="range"
-            min={-25}
-            max={25}
-            step={0.5}
-            value={overlay.position_offset_y_pct ?? 0}
-            onChange={(event) =>
-              updateBlockOverlay(captionBlock.id, {
-                position_offset_y_pct: Number(event.target.value),
-              })
-            }
-          />
-        </div>
-        {renderAiNarrationButton(captionBlock.id)}
-      </>
+      <div className="editor-empty-hint">
+        该片段暂无旁白文本层，可在预览区按 T 添加自由文本
+      </div>
     )
   }
 
@@ -642,6 +586,24 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
 
     const captionBlock =
       session.sequence.find((block) => block.id === captionIds[0]) ?? captionEditingBlock ?? selectedBlock
+    const migratedForCaption = captionBlock
+      ? getTemplateOverlaysForBlock(session, captionBlock.id)
+      : []
+    if (migratedForCaption.length > 0) {
+      const element = migratedForCaption[0]!
+      const config = readTextAnimationFromParams(element.params ?? {})
+      return (
+        <TextAnimationPanel
+          config={config}
+          onChange={(next) =>
+            updateOverlayParams(
+              element.id,
+              writeTextAnimationToParams(element.params ?? {}, next)
+            )
+          }
+        />
+      )
+    }
     if (!captionBlock?.overlay) {
       return (
         <div className="editor-empty-hint">

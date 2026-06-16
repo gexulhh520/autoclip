@@ -98,16 +98,29 @@ describe('templateCaptionOverlays', () => {
     expect(overlays[0]?.duration_sec).toBeCloseTo(2, 1)
   })
 
-  it('syncTemplateOverlaysForBlock preserves dragged position by default', () => {
+  it('syncTemplateOverlaysForBlock preserves user style edits by default', () => {
     const editSession = session()
     ensureTemplateCaptionOverlays(editSession)
 
     const overlays = getTemplateOverlaysForBlock(editSession, 'block-a')
-    overlays[0]!.params['transform.positionX'] = 999
+    overlays[0]!.params.fontSize = 99
     editSession.sequence[0]!.overlay.content = ['new headline', 'new body']
 
     syncTemplateOverlaysForBlock(editSession, 'block-a')
-    expect(overlays[0]?.params['transform.positionX']).toBe(999)
+    expect(overlays[0]?.params.fontSize).toBe(99)
     expect(String(overlays[0]?.params.content)).toContain('new headline')
+  })
+
+  it('creates fallback overlay when only block title exists', () => {
+    const editSession = session()
+    editSession.sequence[0]!.overlay = {
+      outline: '',
+      content: [],
+      recommend_reason: '',
+    }
+    editSession.sequence[0]!.title = '仅标题旁白'
+
+    expect(ensureTemplateCaptionOverlays(editSession)).toBe(true)
+    expect(getTemplateOverlaysForBlock(editSession, 'block-a').length).toBeGreaterThan(0)
   })
 })

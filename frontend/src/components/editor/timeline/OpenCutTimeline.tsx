@@ -25,6 +25,7 @@ import { useScrollSync } from './hooks/useScrollSync'
 import { usePlayheadDrag, useTimelineSeek } from './hooks/useTimelineSeek'
 import { useTimelineBoxSelect } from './hooks/useTimelineBoxSelect'
 import { resolveContextMenuPosition } from './contextMenuPosition'
+import { getTemplateOverlayIdsForBlock } from '../../../editor/migration/templateCaptionOverlays'
 import { collectSequenceSnapPoints, snapTime } from '../../../utils/editTimeline'
 import type { AdaptedElement, SnapPoint } from './types'
 import { EditorShortcutsHost } from './useEditorKeyboardShortcuts'
@@ -331,6 +332,16 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       return
     }
     if (element.source.kind === 'caption') {
+      const migratedIds = getTemplateOverlayIdsForBlock(session, element.source.blockId)
+      if (migratedIds.length > 0) {
+        if (!additive) {
+          setSelectedBlockId(element.source.blockId, { seekPlayhead: false })
+          setSelectedCaptionBlockId(null)
+        }
+        setSelectedOverlayId(migratedIds[0]!, { additive, seekPlayhead: false })
+        setInspectorTab('text')
+        return
+      }
       if (!additive) {
         setSelectedOverlayId(null)
         setSelectedBlockId(element.source.blockId)
