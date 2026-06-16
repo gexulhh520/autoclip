@@ -72,13 +72,11 @@ export function normalizeBlockOverlay(block: EditBlock): void {
 }
 
 export const blockHasTemplateCaption = (block: EditBlock): boolean => {
-  const hasOverlayText =
+  if (block.overlay.caption_suppressed) return false
+  return (
     block.overlay.outline.trim().length > 0 ||
     block.overlay.content.some((line) => line.trim())
-  if (block.media.type === 'imported_clip') {
-    return hasOverlayText
-  }
-  return Boolean(block.title.trim() || hasOverlayText)
+  )
 }
 
 export function getTemplateBlockId(element: EditOverlayElement): string | null {
@@ -202,9 +200,8 @@ const buildFallbackTemplateLayers = (
 ): FreeTextLayerDef[] => {
   const { width, height } = resolveCanvasDimensions(session.export_settings)
   const lines = block.overlay.content.map((line) => line.trim()).filter(Boolean)
-  if (lines.length === 0) {
-    const fallback = block.overlay.outline.trim() || block.title.trim()
-    if (fallback) lines.push(fallback)
+  if (lines.length === 0 && block.overlay.outline.trim()) {
+    lines.push(block.overlay.outline.trim())
   }
   if (lines.length === 0) return []
 

@@ -236,7 +236,7 @@ interface EditSessionState {
   removeAudioClipFromTimeline: (clipId: string) => void
   setSelectedBlockId: (
     blockId: string | null,
-    options?: { additive?: boolean; seekPlayhead?: boolean }
+    options?: { additive?: boolean; seekPlayhead?: boolean; skipTemplateCaptionSync?: boolean }
   ) => void
   setSelectedOverlayId: (
     overlayId: string | null,
@@ -1075,6 +1075,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             const block = state.session.sequence.find((item) => item.id === blockId)
             if (
               block &&
+              !options?.skipTemplateCaptionSync &&
               !blockHasMigratedTemplateOverlays(state.session, blockId) &&
               blockHasTemplateCaption(block)
             ) {
@@ -1523,9 +1524,29 @@ export const useEditSessionStore = create<EditSessionState>()(
         pushHistory()
         set((state) => {
           if (!state.session?.overlay_elements) return
+          const removed = state.session.overlay_elements.find((item) => item.id === elementId)
           state.session.overlay_elements = state.session.overlay_elements.filter(
             (item) => item.id !== elementId
           )
+          if (removed) {
+            const blockId = getTemplateBlockId(removed)
+            if (blockId) {
+              const stillLinked = state.session.overlay_elements.some(
+                (item) => getTemplateBlockId(item) === blockId
+              )
+              if (!stillLinked) {
+                const block = state.session.sequence.find((item) => item.id === blockId)
+                if (block) {
+                  block.overlay = {
+                    ...block.overlay,
+                    outline: '',
+                    content: [],
+                    caption_suppressed: true,
+                  }
+                }
+              }
+            }
+          }
           if (state.selectedOverlayId === elementId) {
             state.selectedOverlayId = null
           }
@@ -1557,7 +1578,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (!state.session) return
           const block = state.session.sequence.find((item) => item.id === blockId)
           if (!block) return
-          block.overlay = { ...block.overlay, content: [], outline: '' }
+          block.overlay = { ...block.overlay, content: [], outline: '', caption_suppressed: true }
           removeTemplateOverlaysForBlock(state.session, blockId)
           if (state.selectedCaptionBlockId === blockId) {
             state.selectedCaptionBlockId = null
@@ -1582,7 +1603,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           for (const blockId of ids) {
             const block = state.session.sequence.find((item) => item.id === blockId)
             if (!block) continue
-            block.overlay = { ...block.overlay, content: [], outline: '' }
+            block.overlay = { ...block.overlay, content: [], outline: '', caption_suppressed: true }
             removeTemplateOverlaysForBlock(state.session, blockId)
           }
           state.selectedCaptionBlockId = null
@@ -1671,6 +1692,12 @@ export const useEditSessionStore = create<EditSessionState>()(
           const block = state.session.sequence.find((item) => item.id === blockId)
           if (!block) return
           block.overlay = { ...block.overlay, ...overlay }
+          const hasText =
+            Boolean(String(overlay.outline ?? block.overlay.outline).trim()) ||
+            (overlay.content ?? block.overlay.content).some((line) => String(line).trim())
+          if (hasText) {
+            block.overlay.caption_suppressed = false
+          }
           syncTemplateOverlaysForBlock(state.session, blockId)
           state.dirty = true
         })

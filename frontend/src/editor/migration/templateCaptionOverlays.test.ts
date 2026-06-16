@@ -55,6 +55,34 @@ const session = (): EditSession => ({
 })
 
 describe('templateCaptionOverlays', () => {
+  it('title alone does not count as template caption', () => {
+    const titledOnly: EditBlock = {
+      ...block(),
+      title: 'Only a title',
+      overlay: { outline: '', content: [], recommend_reason: '' },
+    }
+    expect(blockHasTemplateCaption(titledOnly)).toBe(false)
+  })
+
+  it('cleared captions stay removed after ensureTemplateCaptionOverlays', () => {
+    const editSession = session()
+    ensureTemplateCaptionOverlays(editSession)
+    expect(getTemplateOverlaysForBlock(editSession, 'block-a').length).toBeGreaterThan(0)
+
+    const blockRef = editSession.sequence[0]!
+    blockRef.overlay = {
+      ...blockRef.overlay,
+      outline: '',
+      content: [],
+      caption_suppressed: true,
+    }
+    editSession.overlay_elements = []
+
+    expect(ensureTemplateCaptionOverlays(editSession)).toBe(false)
+    expect(getTemplateOverlaysForBlock(editSession, 'block-a')).toHaveLength(0)
+    expect(blockHasTemplateCaption(blockRef)).toBe(false)
+  })
+
   it('imported clips without overlay text are not treated as template captions', () => {
     const imported: EditBlock = {
       ...block(),
@@ -154,7 +182,7 @@ describe('templateCaptionOverlays', () => {
     )
   })
 
-  it('creates fallback overlay when only block title exists', () => {
+  it('does not create fallback overlay from block title alone', () => {
     const editSession = session()
     editSession.sequence[0]!.overlay = {
       outline: '',
@@ -163,8 +191,8 @@ describe('templateCaptionOverlays', () => {
     }
     editSession.sequence[0]!.title = '仅标题旁白'
 
-    expect(ensureTemplateCaptionOverlays(editSession)).toBe(true)
-    expect(getTemplateOverlaysForBlock(editSession, 'block-a').length).toBeGreaterThan(0)
+    expect(ensureTemplateCaptionOverlays(editSession)).toBe(false)
+    expect(getTemplateOverlaysForBlock(editSession, 'block-a')).toHaveLength(0)
   })
 
   it('migrated overlays survive normalizeEditDocument (project_v3 re-hydrate)', () => {

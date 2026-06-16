@@ -26,6 +26,7 @@ class EditBlockOverlay(BaseModel):
     animation_out_duration_sec: Optional[float] = None
     animation_loop_type: Optional[str] = None
     animation_loop_duration_sec: Optional[float] = None
+    caption_suppressed: bool = False
 
 
 class EditBlockAudio(BaseModel):

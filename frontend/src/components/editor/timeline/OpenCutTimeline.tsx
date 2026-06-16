@@ -358,7 +358,10 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       const migratedIds = getTemplateOverlayIdsForBlock(session, element.source.blockId)
       if (migratedIds.length > 0) {
         if (!additive) {
-          setSelectedBlockId(element.source.blockId, { seekPlayhead: false })
+          setSelectedBlockId(element.source.blockId, {
+            seekPlayhead: false,
+            skipTemplateCaptionSync: true,
+          })
           setSelectedCaptionBlockId(null)
         }
         setSelectedOverlayId(migratedIds[0]!, { additive, seekPlayhead: false })
@@ -367,7 +370,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       }
       if (!additive) {
         setSelectedOverlayId(null)
-        setSelectedBlockId(element.source.blockId)
+        setSelectedBlockId(element.source.blockId, { skipTemplateCaptionSync: true })
       }
       setSelectedCaptionBlockId(element.source.blockId, { additive })
       setInspectorTab('text')

@@ -66,6 +66,8 @@ export interface EditBlockOverlay {
   animation_out_duration_sec?: number
   animation_loop_type?: TextLoopType
   animation_loop_duration_sec?: number
+  /** 用户主动删除字幕后为 true，防止用 title 等字段再次自动生成 */
+  caption_suppressed?: boolean
 }
 
 export interface EditBlockAudio {
