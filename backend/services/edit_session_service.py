@@ -555,6 +555,12 @@ class EditSessionService:
             data["overlay_elements"] = [item.model_dump() for item in payload.overlay_elements]
         if payload.text_tracks is not None:
             data["text_tracks"] = [item.model_dump() for item in payload.text_tracks]
+        if payload.audio_assets is not None:
+            data["audio_assets"] = [item.model_dump() for item in payload.audio_assets]
+        if payload.audio_tracks is not None:
+            data["audio_tracks"] = [item.model_dump() for item in payload.audio_tracks]
+        if payload.audio_elements is not None:
+            data["audio_elements"] = [item.model_dump() for item in payload.audio_elements]
         if payload.bookmarks is not None:
             data["bookmarks"] = [item.model_dump() for item in payload.bookmarks]
         if payload.export_settings is not None:

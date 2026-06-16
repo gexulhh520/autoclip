@@ -305,6 +305,39 @@ def test_update_edit_session_persists_project_v3(tmp_path, monkeypatch):
     assert saved.get("project_v3", {}).get("id") == session.id
 
 
+def test_update_edit_session_persists_audio_assets(tmp_path, monkeypatch):
+    project_id = "edit-session-audio-lib"
+    project_dir = tmp_path / "projects" / project_id
+    _write_project_clips(project_dir)
+
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+
+    service = EditSessionService(db=None)
+    session = service.create_session(project_id, ["1"])
+    from backend.schemas.edit_session import AudioAssetMeta, EditSessionUpdateRequest
+
+    asset = AudioAssetMeta(
+        id="audio_asset_test",
+        name="test.mp3",
+        path="edit_sessions/s1/audio/test.mp3",
+        duration_sec=12.5,
+    )
+    updated = service.update_session(
+        project_id,
+        session.id,
+        EditSessionUpdateRequest(audio_assets=[asset]),
+    )
+    assert len(updated.audio_assets) == 1
+    assert updated.audio_assets[0].id == "audio_asset_test"
+
+    saved = json.loads((project_dir / "edit_sessions" / f"{session.id}.json").read_text(encoding="utf-8"))
+    assert len(saved.get("audio_assets", [])) == 1
+    assert saved["audio_assets"][0]["name"] == "test.mp3"
+
+
 def test_edit_session_accepts_imported_clip_media_type():
     from backend.schemas.edit_session import EditSession
 
