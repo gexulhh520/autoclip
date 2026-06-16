@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import editApi from '../../services/editApi'
-import { playbackRateForDrift } from '../compositor/previewPlayhead'
 import { findAudioAsset, getAudioClipTrackId } from '../audioTracks'
+import type { AudioClipElement } from '../../types/editSession'
 import type { EditSession } from '../../types/editSession'
 
 interface UseTimelineAudioPlaybackOptions {
@@ -17,9 +17,10 @@ interface UseTimelineAudioPlaybackOptions {
 }
 
 const PAUSED_SEEK_THRESHOLD_SEC = 0.04
-const PLAYING_HARD_SEEK_THRESHOLD_SEC = 0.9
 
-/** 时间线多音频轨预览：每个 clip 独立 audio 元素，与主时间轴同步 */
+type ClipRuntimeMode = 'idle' | 'playing'
+
+/** 时间线多音频轨预览：播放中不 seek、不改 playbackRate，仅在片段边界起停 */
 export function useTimelineAudioPlayback({
   projectId,
   sessionId,
@@ -33,15 +34,17 @@ export function useTimelineAudioPlayback({
   const playheadRef = useRef(playheadSec)
   playheadRef.current = playheadSec
 
+  const isPlayingRef = useRef(isPlaying)
+  isPlayingRef.current = isPlaying
+
   const resolvePlayheadSec = useCallback(() => {
-    if (isPlaying && resolveLivePlayheadSec) {
+    if (isPlayingRef.current && resolveLivePlayheadSec) {
       return resolveLivePlayheadSec()
     }
     return playheadRef.current
-  }, [isPlaying, resolveLivePlayheadSec])
+  }, [resolveLivePlayheadSec])
 
-  const syncedClipIdsRef = useRef<Set<string>>(new Set())
-  const playingClipIdsRef = useRef<Set<string>>(new Set())
+  const clipModeRef = useRef<Map<string, ClipRuntimeMode>>(new Map())
 
   const clips = useMemo(() => {
     if (!session || isAssetPreview) return []
@@ -64,23 +67,24 @@ export function useTimelineAudioPlayback({
   }, [session, isAssetPreview, projectId, sessionId, audioTrackMuted])
 
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const elementsRef = useRef<Map<string, HTMLAudioElement>>(new Map())
 
-  useEffect(() => {
-    if (!isPlaying) {
-      syncedClipIdsRef.current.clear()
-      playingClipIdsRef.current.clear()
-    }
-  }, [isPlaying])
+  const sourceTimeForClip = (clip: AudioClipElement, compositionSec: number) =>
+    compositionSec - clip.start_sec + (clip.trim_start_sec ?? 0)
 
-  useEffect(() => {
+  const ensureContainer = () => {
     if (!containerRef.current) {
       containerRef.current = document.createElement('div')
       containerRef.current.setAttribute('aria-hidden', 'true')
       containerRef.current.style.display = 'none'
       document.body.appendChild(containerRef.current)
     }
-    const container = containerRef.current
-    const elements = new Map<string, HTMLAudioElement>()
+    return containerRef.current
+  }
+
+  const syncAudioElements = () => {
+    const container = ensureContainer()
+    const elements = elementsRef.current
 
     for (const item of clips) {
       let audio = container.querySelector<HTMLAudioElement>(`[data-clip-id="${item.clip.id}"]`)
@@ -92,108 +96,125 @@ export function useTimelineAudioPlayback({
       }
       if (audio.src !== item.url) {
         audio.src = item.url
-        syncedClipIdsRef.current.delete(item.clip.id)
-        playingClipIdsRef.current.delete(item.clip.id)
+        clipModeRef.current.delete(item.clip.id)
       }
       elements.set(item.clip.id, audio)
     }
 
-    container.querySelectorAll('audio').forEach((node) => {
-      const id = node.dataset.clipId
-      if (id && !elements.has(id)) {
-        syncedClipIdsRef.current.delete(id)
-        playingClipIdsRef.current.delete(id)
-        node.remove()
+    for (const [clipId, audio] of [...elements.entries()]) {
+      if (!clips.some((item) => item.clip.id === clipId)) {
+        audio.pause()
+        clipModeRef.current.delete(clipId)
+        audio.remove()
+        elements.delete(clipId)
       }
+    }
+  }
+
+  const stopClip = (audio: HTMLAudioElement, clipId: string) => {
+    if (clipModeRef.current.get(clipId) === 'playing') {
+      audio.pause()
+    }
+    audio.playbackRate = 1
+    clipModeRef.current.set(clipId, 'idle')
+  }
+
+  const startClip = (
+    audio: HTMLAudioElement,
+    clip: AudioClipElement,
+    compositionSec: number,
+    clipId: string
+  ) => {
+    const sourceTime = Math.max(0, sourceTimeForClip(clip, compositionSec))
+    audio.playbackRate = 1
+    audio.currentTime = sourceTime
+    clipModeRef.current.set(clipId, 'playing')
+    void audio.play().catch(() => {
+      clipModeRef.current.set(clipId, 'idle')
     })
+  }
 
-    const syncAll = () => {
-      const playhead = resolvePlayheadSec()
-
-      for (const item of clips) {
-        const audio = elements.get(item.clip.id)
-        if (!audio) continue
-        const { clip } = item
-        const clipEnd = clip.start_sec + clip.duration_sec
-        const inRange = playhead >= clip.start_sec && playhead < clipEnd
-        audio.volume = item.muted ? 0 : item.volume
-        const sourceTime = playhead - clip.start_sec + (clip.trim_start_sec ?? 0)
-
-        if (inRange) {
-          const drift = sourceTime - audio.currentTime
-          const needsInitialSeek = isPlaying && !syncedClipIdsRef.current.has(item.clip.id)
-
-          if (!isPlaying) {
-            audio.playbackRate = 1
-            if (Math.abs(drift) > PAUSED_SEEK_THRESHOLD_SEC) {
-              audio.currentTime = Math.max(0, sourceTime)
-            }
-            audio.pause()
-            playingClipIdsRef.current.delete(item.clip.id)
-          } else if (item.muted) {
-            audio.playbackRate = 1
-            audio.pause()
-            playingClipIdsRef.current.delete(item.clip.id)
-          } else if (needsInitialSeek) {
-            audio.currentTime = Math.max(0, sourceTime)
-            audio.playbackRate = 1
-            syncedClipIdsRef.current.add(item.clip.id)
-            if (audio.paused) {
-              void audio.play().catch(() => undefined)
-            }
-            playingClipIdsRef.current.add(item.clip.id)
-          } else if (Math.abs(drift) > PLAYING_HARD_SEEK_THRESHOLD_SEC) {
-            audio.currentTime = Math.max(0, sourceTime)
-            audio.playbackRate = 1
-            syncedClipIdsRef.current.add(item.clip.id)
-            if (audio.paused) {
-              void audio.play().catch(() => undefined)
-            }
-            playingClipIdsRef.current.add(item.clip.id)
-          } else {
-            audio.playbackRate = playbackRateForDrift(drift)
-            if (audio.paused) {
-              void audio.play().catch(() => undefined)
-            }
-            playingClipIdsRef.current.add(item.clip.id)
-          }
-        } else {
-          syncedClipIdsRef.current.delete(item.clip.id)
-          audio.playbackRate = 1
-          if (!audio.paused) {
-            audio.pause()
-          }
-          playingClipIdsRef.current.delete(item.clip.id)
+  const syncPausedAtPlayhead = () => {
+    const playhead = playheadRef.current
+    for (const item of clips) {
+      const audio = elementsRef.current.get(item.clip.id)
+      if (!audio) continue
+      const { clip } = item
+      const clipEnd = clip.start_sec + clip.duration_sec
+      const inRange = playhead >= clip.start_sec && playhead < clipEnd
+      audio.volume = item.muted ? 0 : item.volume
+      stopClip(audio, clip.id)
+      if (inRange) {
+        const sourceTime = sourceTimeForClip(clip, playhead)
+        if (Math.abs(audio.currentTime - sourceTime) > PAUSED_SEEK_THRESHOLD_SEC) {
+          audio.currentTime = Math.max(0, sourceTime)
         }
       }
     }
+  }
 
-    syncAll()
-    for (const audio of elements.values()) {
-      audio.addEventListener('canplay', syncAll)
-    }
+  const syncPlayingTransport = () => {
+    const playhead = resolvePlayheadSec()
+    for (const item of clips) {
+      const audio = elementsRef.current.get(item.clip.id)
+      if (!audio) continue
+      const { clip } = item
+      const clipEnd = clip.start_sec + clip.duration_sec
+      const inRange = playhead >= clip.start_sec && playhead < clipEnd
+      const mode = clipModeRef.current.get(clip.id) ?? 'idle'
 
-    let raf = 0
-    if (isPlaying) {
-      const tick = () => {
-        syncAll()
-        raf = window.requestAnimationFrame(tick)
+      audio.volume = item.muted ? 0 : item.volume
+
+      if (!inRange || item.muted) {
+        if (mode === 'playing') {
+          stopClip(audio, clip.id)
+        }
+        continue
       }
+
+      if (mode === 'idle') {
+        startClip(audio, clip, playhead, clip.id)
+      }
+    }
+  }
+
+  useEffect(() => {
+    syncAudioElements()
+  }, [clips])
+
+  useEffect(() => {
+    if (isPlaying) {
+      clipModeRef.current.clear()
+      syncPlayingTransport()
+      return
+    }
+    clipModeRef.current.clear()
+    syncPausedAtPlayhead()
+  }, [isPlaying, clips])
+
+  useEffect(() => {
+    if (isPlaying) return
+    syncPausedAtPlayhead()
+  }, [playheadSec, clips, isPlaying])
+
+  useEffect(() => {
+    if (!isPlaying) return undefined
+    let raf = 0
+    const tick = () => {
+      if (!isPlayingRef.current) return
+      syncPlayingTransport()
       raf = window.requestAnimationFrame(tick)
     }
-
-    return () => {
-      window.cancelAnimationFrame(raf)
-      for (const audio of elements.values()) {
-        audio.removeEventListener('canplay', syncAll)
-      }
-    }
-  }, [clips, isPlaying, playheadSec, resolvePlayheadSec])
+    raf = window.requestAnimationFrame(tick)
+    return () => window.cancelAnimationFrame(raf)
+  }, [isPlaying, clips, resolvePlayheadSec])
 
   useEffect(() => {
     return () => {
       containerRef.current?.remove()
       containerRef.current = null
+      elementsRef.current.clear()
+      clipModeRef.current.clear()
     }
   }, [])
 }

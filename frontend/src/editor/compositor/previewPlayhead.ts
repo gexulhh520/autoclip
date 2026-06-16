@@ -66,12 +66,3 @@ export function resolvePreviewLivePlayheadSec(
   )
   return Math.max(0, Math.min(totalDurationSec, live))
 }
-
-/** 播放中微调 playbackRate 消化漂移，避免频繁 seek */
-export function playbackRateForDrift(driftSec: number): number {
-  const deadbandSec = 0.025
-  const maxAdjust = 0.006
-  if (Math.abs(driftSec) <= deadbandSec) return 1
-  const gain = 0.35
-  return 1 + Math.max(-maxAdjust, Math.min(maxAdjust, driftSec * gain))
-}
