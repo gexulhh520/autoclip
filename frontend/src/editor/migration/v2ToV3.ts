@@ -171,7 +171,10 @@ export const migrateSessionToV3 = (session: EditSession): EditProjectV3 => {
       duration: element.duration_sec,
       trim_start: 0,
       trim_end: element.duration_sec,
-      properties: { params: element.params },
+      properties: {
+        params: element.params,
+        ...(element.track_id ? { track_id: element.track_id } : {}),
+      },
       hidden: element.hidden,
     })
   }
@@ -276,8 +279,8 @@ export const flattenV3ToSession = (project: EditProjectV3): EditSession => {
   const canvasDims = resolveCanvasDimensions(project.export_settings)
   const overlay_elements = scene.tracks.overlay
     .filter((item) => item.type === 'text' || item.type === 'sticker')
-    .map((item) =>
-      migrateToOpenCutText(
+    .map((item) => {
+      const migrated = migrateToOpenCutText(
         {
           id: item.id,
           type: item.type === 'sticker' ? 'sticker' : 'text',
@@ -291,11 +294,14 @@ export const flattenV3ToSession = (project: EditProjectV3): EditSession => {
           italic: Boolean(item.properties.italic ?? item.properties.params?.fontStyle === 'italic'),
           transform: item.transform ?? { x: 0.5, y: 0.82, scale: 1, rotation: 0 },
           params: item.properties.params,
+          track_id: item.properties.track_id,
         },
         canvasDims.width,
         canvasDims.height
       )
-    )
+      const trackId = item.properties.track_id
+      return trackId ? { ...migrated, track_id: String(trackId) } : migrated
+    })
 
   return {
     schema_version: 3,
@@ -320,8 +326,8 @@ export const flattenV3ToSession = (project: EditProjectV3): EditSession => {
 export const hydrateEditDocument = (session: EditSession): EditDocument => {
   if (session.project_v3) {
     const project = session.project_v3 as EditProjectV3
-    const hydrated = flattenV3ToSession(project)
-    const mergedSequence = hydrated.sequence.map((block) => {
+    const fromV3 = flattenV3ToSession(project)
+    const mergedSequence = fromV3.sequence.map((block) => {
       const rawBlock = session.sequence.find((item) => item.id === block.id)
       if (!rawBlock) return block
       const v3HasCaption =
@@ -333,9 +339,43 @@ export const hydrateEditDocument = (session: EditSession): EditDocument => {
       }
       return block
     })
+
+    // 扁平 overlay_elements / text_tracks 是用户编辑的真实来源（project_v3 可能滞后）
+    const overlay_elements =
+      session.overlay_elements && session.overlay_elements.length > 0
+        ? session.overlay_elements
+        : fromV3.overlay_elements
+
+    const text_tracks =
+      session.text_tracks && session.text_tracks.length > 0
+        ? session.text_tracks
+        : fromV3.text_tracks
+
+    const bookmarks =
+      session.bookmarks && session.bookmarks.length > 0 ? session.bookmarks : fromV3.bookmarks
+
+    const mergedSession: EditSession = {
+      ...fromV3,
+      id: session.id,
+      project_id: session.project_id,
+      name: session.name || fromV3.name,
+      template_id: session.template_id ?? fromV3.template_id,
+      template_version: session.template_version ?? fromV3.template_version,
+      overlay_snapshot: session.overlay_snapshot ?? fromV3.overlay_snapshot,
+      sequence: mergedSequence,
+      overlay_elements,
+      text_tracks,
+      bookmarks,
+      export_settings: session.export_settings ?? fromV3.export_settings,
+      audio_settings: session.audio_settings ?? fromV3.audio_settings,
+      created_at: session.created_at || fromV3.created_at,
+      updated_at: session.updated_at || fromV3.updated_at,
+    }
+
+    const syncedProject = migrateSessionToV3(mergedSession)
     return {
-      project,
-      session: { ...hydrated, sequence: mergedSequence, project_v3: project, schema_version: 3 },
+      project: syncedProject,
+      session: { ...mergedSession, project_v3: syncedProject, schema_version: 3 },
     }
   }
   return normalizeEditDocument(session)

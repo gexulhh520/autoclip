@@ -531,19 +531,25 @@ export const useEditSessionStore = create<EditSessionState>()(
         if (!session) return
         set({ saving: true })
         try {
-          const document = normalizeEditDocument(session)
+          const project = migrateSessionToV3(session)
+          const sessionPayload = { ...session, project_v3: project, schema_version: 3 as const }
           const updated = await editApi.updateSession(projectId, session.id, {
-            name: session.name,
-            sequence: session.sequence,
-            overlay_elements: session.overlay_elements,
-            text_tracks: session.text_tracks,
-            bookmarks: session.bookmarks,
-            export_settings: session.export_settings,
-            audio_settings: session.audio_settings,
+            name: sessionPayload.name,
+            sequence: sessionPayload.sequence,
+            overlay_elements: sessionPayload.overlay_elements,
+            text_tracks: sessionPayload.text_tracks,
+            bookmarks: sessionPayload.bookmarks,
+            export_settings: sessionPayload.export_settings,
+            audio_settings: sessionPayload.audio_settings,
             schema_version: 3,
-            project_v3: document.project,
+            project_v3: project,
           })
-          set({ session: updated, editProject: document.project, saving: false, dirty: false })
+          set({
+            session: { ...updated, project_v3: project, schema_version: 3 },
+            editProject: project,
+            saving: false,
+            dirty: false,
+          })
         } catch (error: unknown) {
           set({
             saving: false,

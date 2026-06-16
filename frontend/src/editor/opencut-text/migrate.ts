@@ -16,6 +16,7 @@ export const migrateToOpenCutText = (
       start_sec: Number(raw.start_sec ?? 0),
       duration_sec: Number(raw.duration_sec ?? 3),
       hidden: Boolean(raw.hidden ?? false),
+      track_id: typeof raw.track_id === 'string' ? raw.track_id : undefined,
       params: { ...(raw.params as TextElementParams) },
     }
   }
@@ -71,6 +72,7 @@ export const migrateToOpenCutText = (
     start_sec: Number(raw.start_sec ?? 0),
     duration_sec: Number(raw.duration_sec ?? 3),
     hidden: Boolean(raw.hidden ?? false),
+    track_id: typeof raw.track_id === 'string' ? raw.track_id : undefined,
     params,
   }
 }

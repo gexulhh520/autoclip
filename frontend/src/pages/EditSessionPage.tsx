@@ -60,7 +60,13 @@ const EditSessionPage: React.FC = () => {
   useEffect(() => {
     if (!projectId || !sessionId) return
     void loadSession(projectId, sessionId)
-    return () => reset()
+    return () => {
+      const state = useEditSessionStore.getState()
+      if (state.dirty && projectId && !state.saving) {
+        void state.saveSession(projectId)
+      }
+      reset()
+    }
   }, [projectId, sessionId, loadSession, reset])
 
   useEffect(() => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compileCompositionPlan } from '../compositor'
+import { compileCompositionPlan } from '../compositor/compilePlan'
 import { loadFixtureSession } from '../compositor/goldenFixtures'
 import {
   flattenV3ToSession,
@@ -48,5 +48,23 @@ describe('EditProjectV3 migration', () => {
     const document = hydrateEditDocument(stale)
     expect(document.session.sequence[0]?.title).toBe('from-v3')
     expect(document.project.scenes[0]?.tracks.main[0]?.properties.title).toBe('from-v3')
+  })
+
+  it('hydrateEditDocument prefers flat overlay_elements over stale project_v3', () => {
+    const session = loadFixtureSession('session-free-text.json')
+    const project = migrateSessionToV3(session)
+    const staleParams = { ...(session.overlay_elements?.[0]?.params ?? {}), fontSize: 99 }
+    const stale = {
+      ...session,
+      schema_version: 3,
+      project_v3: project,
+      overlay_elements: [{ ...session.overlay_elements![0]!, params: staleParams }],
+    }
+    const document = hydrateEditDocument(stale)
+    expect(document.session.overlay_elements?.[0]?.params.fontSize).toBe(99)
+    expect(
+      document.project.scenes[0]?.tracks.overlay.find((item) => item.id === 'txt-1')?.properties
+        .params?.fontSize
+    ).toBe(99)
   })
 })
