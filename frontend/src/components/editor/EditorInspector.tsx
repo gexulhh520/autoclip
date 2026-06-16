@@ -13,6 +13,14 @@ import TextPresetPicker from './TextPresetPicker'
 import TextAnimationPanel from './TextAnimationPanel'
 import { readTextPresetId } from '../../editor/effects'
 import {
+  blockHasMigratedTemplateOverlays,
+  getTemplateBlockId,
+  getTemplateOverlayIdsForBlock,
+  getTemplateOverlaysForBlock,
+} from '../../editor/migration/templateCaptionOverlays'
+import { readStringParam } from '../../editor/opencut-text/params'
+import type { EditOverlayElement } from '../../types/editSession'
+import {
   patchBlockOverlayAnimation,
   readTextAnimationFromBlockOverlay,
   readTextAnimationFromParams,
@@ -122,6 +130,96 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   const totalTimelineSec = session.sequence.reduce(
     (sum, block) => sum + blockDuration(block),
     0
+  )
+
+  const renderOverlayTextEditor = (overlayItem: EditOverlayElement) => {
+    const activePresetId = readTextPresetId(overlayItem.params ?? {})
+    return (
+      <React.Fragment key={overlayItem.id}>
+        <div className="editor-inspector-section">
+          <div className="editor-inspector-label">花字预设</div>
+          <TextPresetPicker
+            activePresetId={activePresetId}
+            onSelect={(presetId) => applyTextPreset(overlayItem.id, presetId)}
+          />
+        </div>
+        <OpenCutTextParamsPanel
+          element={overlayItem}
+          onChange={(key, value) => updateOverlayParams(overlayItem.id, { [key]: value })}
+        />
+        <div className="editor-inspector-section">
+          <div className="editor-inspector-label">
+            起始 ({overlayItem.start_sec.toFixed(1)}s)
+          </div>
+          <input
+            className="editor-range"
+            type="range"
+            min={0}
+            max={Math.max(totalTimelineSec - 0.5, 0.5)}
+            step={0.1}
+            value={overlayItem.start_sec}
+            onChange={(event) =>
+              updateOverlayElement(overlayItem.id, {
+                start_sec: Number(event.target.value),
+              })
+            }
+          />
+          <div className="editor-inspector-label" style={{ marginTop: 12 }}>
+            时长 ({overlayItem.duration_sec.toFixed(1)}s)
+          </div>
+          <input
+            className="editor-range"
+            type="range"
+            min={0.5}
+            max={Math.max(totalTimelineSec, 1)}
+            step={0.1}
+            value={overlayItem.duration_sec}
+            onChange={(event) =>
+              updateOverlayElement(overlayItem.id, {
+                duration_sec: Number(event.target.value),
+              })
+            }
+          />
+        </div>
+        <div className="editor-inspector-section">
+          <button
+            type="button"
+            className="editor-header__back"
+            onClick={() => {
+              removeOverlayElement(overlayItem.id)
+              if (selectedOverlayId === overlayItem.id) {
+                setSelectedOverlayId(null)
+              }
+            }}
+          >
+            删除文本层
+          </button>
+        </div>
+      </React.Fragment>
+    )
+  }
+
+  const renderAiNarrationButton = (blockId: string) => (
+    <div className="editor-inspector-section">
+      <button
+        type="button"
+        className="editor-header__back"
+        disabled={regenerating || saving}
+        onClick={async () => {
+          setRegenerating(true)
+          try {
+            await regenerateBlockContent(projectId, blockId, 'both')
+            message.success('文案已重写')
+          } catch (error: unknown) {
+            message.error(error instanceof Error ? error.message : 'AI 重写失败')
+          } finally {
+            setRegenerating(false)
+          }
+        }}
+      >
+        {regenerating ? 'AI 生成中…' : 'AI 写旁白'}
+      </button>
+    </div>
   )
 
 
@@ -298,66 +396,43 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
     }
 
     if (selectedOverlay) {
-      const activePresetId = readTextPresetId(selectedOverlay.params ?? {})
+      const roleLabel = readStringParam(selectedOverlay.params, 'template.role', '')
       return (
         <>
-          <div className="editor-inspector-section">
-            <div className="editor-inspector-label">花字预设</div>
-            <TextPresetPicker
-              activePresetId={activePresetId}
-              onSelect={(presetId) => applyTextPreset(selectedOverlay.id, presetId)}
-            />
-          </div>
-          <OpenCutTextParamsPanel
-            element={selectedOverlay}
-            onChange={(key, value) => updateOverlayParams(selectedOverlay.id, { [key]: value })}
-          />
-          <div className="editor-inspector-section">
-            <div className="editor-inspector-label">
-              起始 ({selectedOverlay.start_sec.toFixed(1)}s)
+          {roleLabel ? (
+            <div className="editor-inspector-section">
+              <div className="editor-inspector-label">模板旁白 · {roleLabel}</div>
             </div>
-            <input
-              className="editor-range"
-              type="range"
-              min={0}
-              max={Math.max(totalTimelineSec - 0.5, 0.5)}
-              step={0.1}
-              value={selectedOverlay.start_sec}
-              onChange={(event) =>
-                updateOverlayElement(selectedOverlay.id, {
-                  start_sec: Number(event.target.value),
-                })
-              }
-            />
-            <div className="editor-inspector-label" style={{ marginTop: 12 }}>
-              时长 ({selectedOverlay.duration_sec.toFixed(1)}s)
-            </div>
-            <input
-              className="editor-range"
-              type="range"
-              min={0.5}
-              max={Math.max(totalTimelineSec, 1)}
-              step={0.1}
-              value={selectedOverlay.duration_sec}
-              onChange={(event) =>
-                updateOverlayElement(selectedOverlay.id, {
-                  duration_sec: Number(event.target.value),
-                })
-              }
-            />
-          </div>
-          <div className="editor-inspector-section">
-            <button
-              type="button"
-              className="editor-header__back"
-              onClick={() => {
-                removeOverlayElement(selectedOverlay.id)
-                setSelectedOverlayId(null)
-              }}
-            >
-              删除文本层
-            </button>
-          </div>
+          ) : null}
+          {renderOverlayTextEditor(selectedOverlay)}
+          {getTemplateBlockId(selectedOverlay) ? (
+            renderAiNarrationButton(getTemplateBlockId(selectedOverlay)!)
+          ) : null}
+        </>
+      )
+    }
+
+    const blockTemplateOverlays =
+      selectedBlock && !captionEditingBlock
+        ? getTemplateOverlaysForBlock(session, selectedBlock.id)
+        : []
+
+    if (blockTemplateOverlays.length > 0) {
+      return (
+        <>
+          {blockTemplateOverlays.map((overlayItem) => (
+            <React.Fragment key={overlayItem.id}>
+              {blockTemplateOverlays.length > 1 ? (
+                <div className="editor-inspector-section">
+                  <div className="editor-inspector-label">
+                    {readStringParam(overlayItem.params, 'template.role', '旁白')}
+                  </div>
+                </div>
+              ) : null}
+              {renderOverlayTextEditor(overlayItem)}
+            </React.Fragment>
+          ))}
+          {renderAiNarrationButton(selectedBlock!.id)}
         </>
       )
     }
@@ -365,12 +440,25 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
     if (!overlay || (!captionEditingBlock && !selectedBlock)) {
       return (
         <div className="editor-empty-hint">
-          选中片段编辑模板字幕，或按 T 在播放头添加自由文本层
+          选中片段或自由文本层后编辑；按 T 在播放头添加文本
         </div>
       )
     }
 
     const captionBlock = captionEditingBlock ?? selectedBlock!
+
+    if (
+      captionEditingBlock &&
+      blockHasMigratedTemplateOverlays(session, captionEditingBlock.id)
+    ) {
+      const migratedOverlays = getTemplateOverlaysForBlock(session, captionEditingBlock.id)
+      return (
+        <>
+          {migratedOverlays.map((overlayItem) => renderOverlayTextEditor(overlayItem))}
+          {renderAiNarrationButton(captionEditingBlock.id)}
+        </>
+      )
+    }
 
     return (
       <>
@@ -426,26 +514,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
             }
           />
         </div>
-        <div className="editor-inspector-section">
-          <button
-            type="button"
-            className="editor-header__back"
-            disabled={regenerating || saving}
-            onClick={async () => {
-              setRegenerating(true)
-              try {
-                await regenerateBlockContent(projectId, captionBlock.id, 'both')
-                message.success('文案已重写')
-              } catch (error: unknown) {
-                message.error(error instanceof Error ? error.message : 'AI 重写失败')
-              } finally {
-                setRegenerating(false)
-              }
-            }}
-          >
-            {regenerating ? 'AI 生成中…' : 'AI 写旁白'}
-          </button>
-        </div>
+        {renderAiNarrationButton(captionBlock.id)}
       </>
     )
   }
@@ -494,16 +563,22 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
 
 
   const renderAnimationTab = () => {
+    const blockTemplateOverlayIds = selectedBlock
+      ? getTemplateOverlayIdsForBlock(session, selectedBlock.id)
+      : []
     const overlayIds =
       selectedOverlayIds.length > 0
         ? selectedOverlayIds
         : selectedOverlay
           ? [selectedOverlay.id]
-          : []
+          : blockTemplateOverlayIds
     const captionIds =
       selectedCaptionBlockIds.length > 0
-        ? selectedCaptionBlockIds
-        : captionEditingBlock
+        ? selectedCaptionBlockIds.filter(
+            (blockId) => !blockHasMigratedTemplateOverlays(session, blockId)
+          )
+        : captionEditingBlock &&
+            !blockHasMigratedTemplateOverlays(session, captionEditingBlock.id)
           ? [captionEditingBlock.id]
           : []
     const totalSelected = overlayIds.length + captionIds.length
@@ -547,19 +622,22 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
       )
     }
 
-    if (overlayIds.length === 1 && selectedOverlay) {
-      const config = readTextAnimationFromParams(selectedOverlay.params ?? {})
-      return (
-        <TextAnimationPanel
-          config={config}
-          onChange={(next) =>
-            updateOverlayParams(
-              selectedOverlay.id,
-              writeTextAnimationToParams(selectedOverlay.params ?? {}, next)
-            )
-          }
-        />
-      )
+    if (overlayIds.length === 1) {
+      const element = session.overlay_elements?.find((item) => item.id === overlayIds[0])
+      if (element) {
+        const config = readTextAnimationFromParams(element.params ?? {})
+        return (
+          <TextAnimationPanel
+            config={config}
+            onChange={(next) =>
+              updateOverlayParams(
+                element.id,
+                writeTextAnimationToParams(element.params ?? {}, next)
+              )
+            }
+          />
+        )
+      }
     }
 
     const captionBlock =
@@ -610,7 +688,8 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
     selectedOverlayIds.length > 0 ||
     selectedCaptionBlockIds.length > 0 ||
     Boolean(selectedOverlay) ||
-    Boolean(captionEditingBlock)
+    Boolean(captionEditingBlock) ||
+    (selectedBlock ? getTemplateOverlaysForBlock(session, selectedBlock.id).length > 0 : false)
 
   if (!selectedBlock && !selectedOverlay && !hasTextSelection) {
     return (

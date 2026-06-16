@@ -1,6 +1,7 @@
 import type { CompositionTimelineSegment } from '../../../editor/scene/timelineLayout'
 import type { EditBlock, EditOverlayElement, EditSession } from '../../../types/editSession'
 import type { TimelineTrackId } from '../../../types/timelineTracks'
+import { blockHasMigratedTemplateOverlays } from '../../../editor/migration/templateCaptionOverlays'
 import { readStringParam } from '../../../editor/opencut-text/params'
 import {
   adaptedTextTrackId,
@@ -90,7 +91,11 @@ export function buildAdaptedTracks(params: {
   }))
 
   const captionElements: AdaptedElement[] = segments
-    .filter((segment) => blockHasCaption(segment.block))
+    .filter(
+      (segment) =>
+        blockHasCaption(segment.block) &&
+        !blockHasMigratedTemplateOverlays(session, segment.block.id)
+    )
     .map((segment) => ({
     id: `cap-${segment.block.id}`,
     elementType: 'text',

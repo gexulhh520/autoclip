@@ -12,6 +12,7 @@ import type { OpenCutTextOverlay } from '../opencut-text/params'
 import { compileExportPlan } from '../scene/sceneBuilder'
 import { buildCompositionTimeline } from '../scene/timelineLayout'
 import { resolveOutputCanvas } from './geometry'
+import { getPersistedTemplateCaptionBlockIds } from '../migration/templateCaptionOverlays'
 import {
   buildTemplateCaptionsIndex,
   compileTemplateCaptionToFreeTextLayers,
@@ -45,6 +46,7 @@ export function compileCompositionPlan(
 
   const layers: CompositionLayerDef[] = []
   const templateCaptions = buildTemplateCaptionsIndex(session, width, height)
+  const persistedTemplateCaptionBlocks = getPersistedTemplateCaptionBlockIds(session)
 
   for (const segment of timeline.segments) {
     const block = segment.block
@@ -65,7 +67,11 @@ export function compileCompositionPlan(
       fadeOutSec: block.audio.fade_out_sec ?? 0,
     })
 
-    if (options.burnSubtitles && blockHasTemplateCaption(block)) {
+    if (
+      options.burnSubtitles &&
+      blockHasTemplateCaption(block) &&
+      !persistedTemplateCaptionBlocks.has(block.id)
+    ) {
       layers.push(
         ...compileTemplateCaptionToFreeTextLayers(
           block,

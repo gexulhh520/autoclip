@@ -1,3 +1,4 @@
+import type { EditSession } from '../../types/editSession'
 import type { BoxSelectableItem } from '../selection/boxSelect'
 import { rectsIntersect, type SelectionRect } from '../selection/boxSelect'
 import { measureTextOverlay } from '../opencut-text/measure'
@@ -122,9 +123,15 @@ export function collectTextBounds(descriptor: FrameDescriptor): TextBoundTarget[
   return targets
 }
 
+const isPersistedTemplateOverlay = (
+  session: EditSession | null | undefined,
+  elementId: string
+): boolean => Boolean(session?.overlay_elements?.some((item) => item.id === elementId))
+
 export function resolveBoxSelectionItems(
   descriptor: FrameDescriptor,
-  box: SelectionRect
+  box: SelectionRect,
+  session?: EditSession | null
 ): BoxSelectableItem[] {
   const items: BoxSelectableItem[] = []
   const seenCaption = new Set<string>()
@@ -133,6 +140,12 @@ export function resolveBoxSelectionItems(
   for (const target of collectTextBounds(descriptor)) {
     if (!rectsIntersect(box, target.rect)) continue
     if (target.textKind === 'template' && target.blockId) {
+      if (isPersistedTemplateOverlay(session, target.elementId)) {
+        if (seenOverlay.has(target.elementId)) continue
+        seenOverlay.add(target.elementId)
+        items.push({ kind: 'overlay', id: target.elementId })
+        continue
+      }
       if (seenCaption.has(target.blockId)) continue
       seenCaption.add(target.blockId)
       items.push({ kind: 'caption', id: target.blockId })

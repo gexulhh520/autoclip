@@ -52,6 +52,12 @@ import {
 } from '../editor/migration/v2ToV3'
 import { applyTextPresetToParams } from '../editor/effects'
 import {
+  ensureTemplateCaptionOverlays,
+  getTemplateOverlaysForBlock,
+  removeTemplateOverlaysForBlock,
+  syncTemplateOverlaysForBlock,
+} from '../editor/migration/templateCaptionOverlays'
+import {
   BASE_PX_PER_SEC,
   blockDuration,
   buildCompositionTimelineSegments,
@@ -443,6 +449,9 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (ensureTextTracks(session)) {
             migrated = true
           }
+          if (ensureTemplateCaptionOverlays(session)) {
+            migrated = true
+          }
           for (const block of session.sequence) {
             const raw = block.overlay as Record<string, unknown>
             const rawContent = raw.content
@@ -760,6 +769,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             if (!block) return
             block.overlay.outline = result.outline
             block.overlay.content = result.content
+            syncTemplateOverlaysForBlock(state.session, blockId, { preservePosition: false })
             state.dirty = true
             state.saving = false
           })
@@ -827,6 +837,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           }
           if (newBlocks.length <= 1) return
           state.session.sequence.splice(index, 1, ...newBlocks)
+          ensureTemplateCaptionOverlays(state.session)
           state.selectedBlockId = newBlocks[0]?.id ?? null
         })
         return points.length
@@ -852,7 +863,12 @@ export const useEditSessionStore = create<EditSessionState>()(
             clip_ids: clipIds,
             source_id: sourceId,
           })
-          set({ session: result.session, saving: false, dirty: false })
+          const templateMigrated = ensureTemplateCaptionOverlays(result.session)
+          set({
+            session: result.session,
+            saving: false,
+            dirty: templateMigrated,
+          })
           return result.added_count
         } catch (error: unknown) {
           set({
@@ -1335,6 +1351,14 @@ export const useEditSessionStore = create<EditSessionState>()(
             element.params = writeTextAnimationToParams(element.params, config)
           }
           for (const blockId of captionBlockIds) {
+            const templateOverlays = getTemplateOverlaysForBlock(state.session, blockId)
+            if (templateOverlays.length > 0) {
+              for (const element of templateOverlays) {
+                if (!element.params) continue
+                element.params = writeTextAnimationToParams(element.params, config)
+              }
+              continue
+            }
             const block = state.session.sequence.find((item) => item.id === blockId)
             if (!block?.overlay) continue
             block.overlay = patchBlockOverlayAnimation(block.overlay, config)
@@ -1382,6 +1406,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           const block = state.session.sequence.find((item) => item.id === blockId)
           if (!block) return
           block.overlay = { ...block.overlay, content: [], outline: '' }
+          removeTemplateOverlaysForBlock(state.session, blockId)
           if (state.selectedCaptionBlockId === blockId) {
             state.selectedCaptionBlockId = null
           }
@@ -1406,6 +1431,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             const block = state.session.sequence.find((item) => item.id === blockId)
             if (!block) continue
             block.overlay = { ...block.overlay, content: [], outline: '' }
+            removeTemplateOverlaysForBlock(state.session, blockId)
           }
           state.selectedCaptionBlockId = null
           state.selectedCaptionBlockIds = []
@@ -1466,6 +1492,8 @@ export const useEditSessionStore = create<EditSessionState>()(
           const [moved] = next.splice(fromIndex, 1)
           next.splice(toIndex, 0, moved)
           state.session.sequence = next
+          ensureTemplateCaptionOverlays(state.session)
+          state.dirty = true
         })
       },
 
@@ -1491,6 +1519,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           const block = state.session.sequence.find((item) => item.id === blockId)
           if (!block) return
           block.overlay = { ...block.overlay, ...overlay }
+          syncTemplateOverlaysForBlock(state.session, blockId)
           state.dirty = true
         })
       },
@@ -1519,6 +1548,8 @@ export const useEditSessionStore = create<EditSessionState>()(
               state.sequencePlayheadSec = Math.max(0, sequencePlayheadSec - delta)
             }
           }
+          syncTemplateOverlaysForBlock(state.session, blockId)
+          state.dirty = true
         })
         set({ sequencePlayheadSec: clampPlayhead(get().sequencePlayheadSec) })
       },

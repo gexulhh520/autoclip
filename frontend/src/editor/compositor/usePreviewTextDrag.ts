@@ -179,7 +179,11 @@ export function usePreviewTextDrag({
 
       const parsed = parseTextElementId(hit.elementId)
 
-      if (parsed.textKind === 'template' && parsed.blockId) {
+      const persistedTemplateOverlay = session.overlay_elements?.some(
+        (item) => item.id === hit.elementId
+      )
+
+      if (parsed.textKind === 'template' && parsed.blockId && !persistedTemplateOverlay) {
         const blockIds = resolveCaptionDragTargets(parsed.blockId)
         const startOffsets = new Map<string, { xPct: number; yPct: number }>()
         for (const blockId of blockIds) {
@@ -267,7 +271,7 @@ export function usePreviewTextDrag({
           { x, y }
         )
         setSelectionBoxStyle(canvasRectToOverlayStyle(canvas, box))
-        setBoxSelection?.(resolveBoxSelectionItems(descriptor, box), {
+        setBoxSelection?.(resolveBoxSelectionItems(descriptor, box, session), {
           additive: drag.additive,
         })
         return
