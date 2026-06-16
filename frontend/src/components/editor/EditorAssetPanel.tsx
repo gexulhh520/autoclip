@@ -100,7 +100,11 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
       return
     }
     try {
-      await appendClips(projectId, [clipId])
+      const added = await appendClips(projectId, [clipId])
+      if (added <= 0) {
+        message.info('该片段已在时间线中或未追加新内容')
+        return
+      }
       message.success('已添加到时间线')
     } catch (error: unknown) {
       message.error(error instanceof Error ? error.message : '添加失败')

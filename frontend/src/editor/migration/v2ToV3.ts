@@ -396,18 +396,30 @@ export const hydrateEditDocument = (session: EditSession): EditDocument => {
   if (session.project_v3) {
     const project = session.project_v3 as EditProjectV3
     const fromV3 = flattenV3ToSession(project)
-    const mergedSequence = fromV3.sequence.map((block) => {
-      const rawBlock = session.sequence.find((item) => item.id === block.id)
-      if (!rawBlock) return block
+    const v3BlockIds = new Set(fromV3.sequence.map((block) => block.id))
+    const flatSequenceIsAhead =
+      session.sequence.length > fromV3.sequence.length ||
+      session.sequence.some((block) => !v3BlockIds.has(block.id)) ||
+      session.sequence.some((block, index) => fromV3.sequence[index]?.id !== block.id)
+
+    const mergeBlockOverlay = (flatBlock: EditBlock, v3Block: EditBlock): EditBlock => {
       const v3HasCaption =
-        block.overlay.content.some((line) => line.trim()) || block.overlay.outline.trim()
-      const rawHasCaption =
-        rawBlock.overlay.content.some((line) => line.trim()) || rawBlock.overlay.outline.trim()
-      if (!v3HasCaption && rawHasCaption) {
-        return { ...block, overlay: { ...rawBlock.overlay } }
+        v3Block.overlay.content.some((line) => line.trim()) || v3Block.overlay.outline.trim()
+      const flatHasCaption =
+        flatBlock.overlay.content.some((line) => line.trim()) || flatBlock.overlay.outline.trim()
+      if (!v3HasCaption && flatHasCaption) {
+        return { ...v3Block, overlay: { ...flatBlock.overlay } }
       }
-      return block
-    })
+      return v3Block
+    }
+
+    const mergedSequence = flatSequenceIsAhead
+      ? session.sequence
+      : fromV3.sequence.map((block) => {
+          const rawBlock = session.sequence.find((item) => item.id === block.id)
+          if (!rawBlock) return block
+          return mergeBlockOverlay(rawBlock, block)
+        })
 
     // 扁平 overlay_elements / text_tracks 是用户编辑的真实来源（project_v3 可能滞后）
     const overlay_elements =

@@ -35,6 +35,27 @@ describe('EditProjectV3 migration', () => {
     expect(viaProject.totalDurationSec).toBeCloseTo(direct.totalDurationSec, 2)
   })
 
+  it('hydrateEditDocument prefers flat sequence when project_v3 is stale after append', () => {
+    const session = loadFixtureSession('session-minimal.json')
+    const project = migrateSessionToV3(session)
+    const appended = {
+      ...session.sequence[0]!,
+      id: 'block-new',
+      source_clip_id: 'clip-new',
+      title: '新追加片段',
+    }
+    const stale = {
+      ...session,
+      schema_version: 3,
+      project_v3: project,
+      sequence: [...session.sequence, appended],
+    }
+    const document = hydrateEditDocument(stale)
+    expect(document.session.sequence).toHaveLength(2)
+    expect(document.session.sequence[1]?.id).toBe('block-new')
+    expect(document.session.sequence[1]?.title).toBe('新追加片段')
+  })
+
   it('hydrateEditDocument prefers project_v3 over stale flat sequence', () => {
     const session = loadFixtureSession('session-minimal.json')
     const project = migrateSessionToV3(session)
