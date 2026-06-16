@@ -100,3 +100,87 @@ class TestClipDeleteSync:
         assert deleted_file.exists()
         deleted_data = json.loads(deleted_file.read_text(encoding="utf-8"))
         assert "1" in deleted_data["deleted_pipeline_ids"]
+
+    def test_rerun_from_step4_clears_delete_blocklist(self, tmp_path, monkeypatch):
+        project_id = "clip-rerun-step4-test"
+        project_dir = tmp_path / "projects" / project_id
+        _write_project_with_clips(project_dir)
+
+        monkeypatch.setattr(
+            "backend.core.path_utils.get_project_directory",
+            lambda _pid: project_dir,
+        )
+
+        db = next(get_db())
+        db.add(
+            Project(
+                id=project_id,
+                name="重跑恢复测试",
+                project_type=ProjectType.KNOWLEDGE,
+                status=ProjectStatus.COMPLETED,
+            )
+        )
+        db.commit()
+
+        sync_service = DataSyncService(db)
+        sync_service._sync_clips_from_filesystem(project_id, project_dir)
+        clip_service = ClipService(db)
+        target = db.query(Clip).filter(Clip.project_id == project_id).first()
+        assert target is not None
+        assert clip_service.delete_clip_with_filesystem_update(target.id) is True
+
+        from backend.services.pipeline_steps_service import clear_step_outputs
+
+        clear_step_outputs(project_id, "step4_title")
+        assert not (project_dir / "deleted_clips.json").exists()
+
+        _write_project_with_clips(project_dir)
+        resynced = sync_service._sync_clips_from_filesystem(project_id, project_dir)
+        assert resynced == 1
+        assert db.query(Clip).filter(Clip.project_id == project_id).count() == 2
+
+    def test_resync_after_pipeline_regeneration_revives_deleted_clips(
+        self, tmp_path, monkeypatch
+    ):
+        import time
+
+        project_id = "clip-regen-resync-test"
+        project_dir = tmp_path / "projects" / project_id
+        _write_project_with_clips(project_dir)
+
+        monkeypatch.setattr(
+            "backend.core.path_utils.get_project_directory",
+            lambda _pid: project_dir,
+        )
+
+        db = next(get_db())
+        db.add(
+            Project(
+                id=project_id,
+                name="重导出恢复测试",
+                project_type=ProjectType.KNOWLEDGE,
+                status=ProjectStatus.COMPLETED,
+            )
+        )
+        db.commit()
+
+        sync_service = DataSyncService(db)
+        sync_service._sync_clips_from_filesystem(project_id, project_dir)
+        clip_service = ClipService(db)
+        target = next(
+            clip
+            for clip in db.query(Clip).filter(Clip.project_id == project_id).all()
+            if (clip.clip_metadata or {}).get("id") == "1"
+        )
+        assert clip_service.delete_clip_with_filesystem_update(target.id) is True
+        assert db.query(Clip).filter(Clip.project_id == project_id).count() == 1
+
+        time.sleep(0.05)
+        metadata_path = project_dir / "metadata" / "clips_metadata.json"
+        metadata_path.write_text(metadata_path.read_text(encoding="utf-8"), encoding="utf-8")
+
+        resynced = sync_service._sync_clips_from_filesystem(project_id, project_dir)
+        assert resynced == 1
+        clips = db.query(Clip).filter(Clip.project_id == project_id).all()
+        assert len(clips) == 2
+        assert { (c.clip_metadata or {}).get("id") for c in clips } == {"1", "2"}

@@ -2093,6 +2093,13 @@ def clear_step_outputs(project_id: str, from_step_id: str) -> None:
     if from_step_id not in STEP_OUTPUTS_TO_CLEAR:
         return
     project_dir = get_project_directory(project_id)
+    from backend.services.data_sync_service import (
+        STEPS_RESET_DELETED_CLIPS,
+        clear_deleted_clip_blocklist,
+    )
+
+    if from_step_id in STEPS_RESET_DELETED_CLIPS:
+        clear_deleted_clip_blocklist(project_dir)
     for rel in STEP_OUTPUTS_TO_CLEAR[from_step_id]:
         path = project_dir / rel
         if path.exists():

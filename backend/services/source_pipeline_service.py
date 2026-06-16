@@ -123,8 +123,15 @@ def clear_source_clips(project_id: str, source_id: str) -> int:
 
 def clear_source_step_outputs(project_id: str, source_id: str, from_step_id: str) -> None:
     """仅清除指定源的步骤产物，不影响其他源或项目根 metadata。"""
+    from backend.services.data_sync_service import (
+        STEPS_RESET_DELETED_CLIPS,
+        clear_deleted_clip_blocklist,
+    )
+
     if from_step_id not in _SOURCE_METADATA_FILES:
         return
+    if from_step_id in STEPS_RESET_DELETED_CLIPS:
+        clear_deleted_clip_blocklist(get_project_directory(project_id))
     meta_dir = get_project_source_metadata_directory(project_id, source_id)
     for name in _SOURCE_METADATA_FILES[from_step_id]:
         _safe_unlink(meta_dir / name)

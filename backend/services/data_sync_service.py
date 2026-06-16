@@ -149,6 +149,162 @@ def _load_deleted_clip_records(project_dir: Path) -> tuple[set[str], set[str]]:
     return deleted_pipeline_ids, deleted_clip_keys
 
 
+STEPS_RESET_DELETED_CLIPS = frozenset(
+    {
+        "step1_outline",
+        "step2_timeline",
+        "step3_scoring",
+        "step4_title",
+        "step6_video",
+    }
+)
+
+
+def _clip_start_seconds(time_str: str) -> int:
+    """将 SRT/秒数字符串转为秒（供删除屏蔽键使用）。"""
+    if not time_str:
+        return 0
+    try:
+        if isinstance(time_str, (int, float)):
+            return int(time_str)
+        text = str(time_str).strip().replace(",", ".")
+        if text.replace(".", "", 1).isdigit():
+            return int(float(text))
+        parts = text.split(":")
+        if len(parts) == 3:
+            hours, minutes, seconds = parts
+            return int(float(hours) * 3600 + float(minutes) * 60 + float(seconds))
+    except (TypeError, ValueError):
+        return 0
+    return 0
+
+
+def _clip_has_exported_video(project_dir: Path, clip_data: Dict[str, Any]) -> bool:
+    """判断切片是否已在 output/clips 下生成 mp4。"""
+    clips_dir = project_dir / "output" / "clips"
+    if not clips_dir.exists():
+        return False
+    pipeline_id = str(clip_data.get("id") or "")
+    if not pipeline_id:
+        return False
+    if list(clips_dir.glob(f"{pipeline_id}_*.mp4")):
+        return True
+    source_id = clip_data.get("source_id")
+    if source_id:
+        prefixed = list(clips_dir.glob(f"{source_id}_{pipeline_id}_*.mp4"))
+        if prefixed:
+            return True
+        prefixed = list(clips_dir.glob(f"{source_id}_*.mp4"))
+        if prefixed:
+            return True
+    return False
+
+
+def clear_deleted_clip_blocklist(project_dir: Path) -> bool:
+    """流水线重新生成切片时清除删除屏蔽名单。"""
+    deleted_clips_file = project_dir / "deleted_clips.json"
+    if not deleted_clips_file.exists():
+        return False
+    try:
+        deleted_clips_file.unlink()
+        logger.info("已清除切片删除屏蔽名单: %s", deleted_clips_file)
+        return True
+    except OSError as exc:
+        logger.warning("清除切片删除屏蔽名单失败: %s", exc)
+        return False
+
+
+def _prune_stale_deleted_clip_records(project_dir: Path) -> None:
+    """流水线重跑后移除过期的删除屏蔽（metadata/导出文件晚于删除记录）。"""
+    deleted_clips_file = project_dir / "deleted_clips.json"
+    if not deleted_clips_file.exists():
+        return
+
+    clips_data = _load_clips_data_from_project_dir(project_dir) or []
+    if not clips_data:
+        return
+
+    try:
+        deleted_data = json.loads(deleted_clips_file.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.warning("读取切片删除记录失败: %s", exc)
+        return
+
+    deleted_mtime = deleted_clips_file.stat().st_mtime
+    baseline = deleted_mtime
+    last_updated_str = deleted_data.get("last_updated")
+    if last_updated_str:
+        try:
+            baseline = datetime.fromisoformat(str(last_updated_str)).timestamp()
+        except ValueError:
+            baseline = deleted_mtime
+
+    regeneration_markers = [
+        project_dir / "metadata" / "clips_metadata.json",
+        project_dir / "output" / "step6_video_output.json",
+        project_dir / "metadata" / "step4_titles.json",
+    ]
+    pipeline_regenerated = any(
+        path.exists() and path.stat().st_mtime > baseline for path in regeneration_markers
+    )
+    if not pipeline_regenerated:
+        return
+
+    revived_pipeline_ids: set[str] = set()
+    revived_keys: set[str] = set()
+    for clip in clips_data:
+        if not isinstance(clip, dict):
+            continue
+        pipeline_id = str(clip.get("id") or "")
+        if pipeline_id and _clip_has_exported_video(project_dir, clip):
+            revived_pipeline_ids.add(pipeline_id)
+        title = clip.get(
+            "generated_title",
+            clip.get("title", clip.get("outline", "")),
+        )
+        start_time = _clip_start_seconds(str(clip.get("start_time", "00:00:00")))
+        fallback_key = f"{title}|{start_time}"
+        if pipeline_id in revived_pipeline_ids:
+            revived_keys.add(fallback_key)
+
+    if not revived_pipeline_ids:
+        return
+
+    remaining_pipeline_ids = [
+        pid
+        for pid in deleted_data.get("deleted_pipeline_ids", [])
+        if str(pid) not in revived_pipeline_ids
+    ]
+    remaining_keys = [
+        key
+        for key in deleted_data.get("deleted_clip_keys", [])
+        if str(key) not in revived_keys
+    ]
+    remaining_db_ids = deleted_data.get("deleted_db_clip_ids", [])
+
+    if not remaining_pipeline_ids and not remaining_keys and not remaining_db_ids:
+        clear_deleted_clip_blocklist(project_dir)
+        return
+
+    if (
+        remaining_pipeline_ids == deleted_data.get("deleted_pipeline_ids", [])
+        and remaining_keys == deleted_data.get("deleted_clip_keys", [])
+    ):
+        return
+
+    deleted_data["deleted_pipeline_ids"] = remaining_pipeline_ids
+    deleted_data["deleted_clip_keys"] = remaining_keys
+    deleted_data["last_updated"] = datetime.now().isoformat()
+    deleted_clips_file.write_text(
+        json.dumps(deleted_data, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    logger.info(
+        "已移除 %d 条过期删除屏蔽（流水线已重新导出对应切片）",
+        len(revived_pipeline_ids),
+    )
+
+
 class DataSyncService:
     """数据同步服务"""
     
@@ -311,6 +467,7 @@ class DataSyncService:
     def _sync_clips_from_filesystem(self, project_id: str, project_dir: Path) -> int:
         """从文件系统同步切片数据"""
         try:
+            _prune_stale_deleted_clip_records(project_dir)
             clips_data = _load_clips_data_from_project_dir(project_dir)
 
             if not clips_data:
