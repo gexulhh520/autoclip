@@ -470,7 +470,8 @@ const ScoreListView: React.FC<{
   projectId?: string
   sourceId?: string | null
   onScoreItemSaved?: (itemId: string, item: Record<string, unknown>, highScoreCount: number) => void
-}> = ({ result, projectId, sourceId, onScoreItemSaved }) => {
+  onTimelineItemSaved?: (itemId: string, item: Record<string, unknown>) => void
+}> = ({ result, projectId, sourceId, onScoreItemSaved, onTimelineItemSaved }) => {
   const threshold = Number(result.meta?.threshold ?? 0.7)
   const highCount = Number(result.meta?.high_score_count ?? 0)
   const totalCount = Number(result.meta?.total_count ?? result.items.length)
@@ -480,6 +481,7 @@ const ScoreListView: React.FC<{
   const [draftReason, setDraftReason] = useState('')
   const [draftPassed, setDraftPassed] = useState(false)
   const [savingId, setSavingId] = useState<string | null>(null)
+  const [previewItem, setPreviewItem] = useState<TimelinePreviewItem | null>(null)
 
   const canEdit = Boolean(projectId)
 
@@ -536,13 +538,14 @@ const ScoreListView: React.FC<{
   }
 
   return (
+    <>
     <div>
       <div style={{ fontSize: 12, color: 'var(--ac-muted)', marginBottom: 10 }}>
         共 {totalCount} 条评分 · 阈值 {threshold.toFixed(2)} · 通过 {highCount} 条
       </div>
       {canEdit ? (
         <div style={{ fontSize: 12, color: 'var(--ac-muted)', marginBottom: 10 }}>
-          可修改评分、推荐理由，或手动设为通过/未通过。保存后请从 Step 5 重新执行。
+          可修改评分、推荐理由，或手动设为通过/未通过；亦可用「预览校准」对照原片调整入点/出点。保存后请从 Step 5 重新执行。
         </div>
       ) : null}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -552,6 +555,7 @@ const ScoreListView: React.FC<{
           const isEditing = editingId === itemId
           const isSaving = savingId === itemId
           const manualPassed = item.manual_passed
+          const content = (item.content as string[] | undefined) ?? []
 
           return (
             <div
@@ -622,14 +626,33 @@ const ScoreListView: React.FC<{
                       {manualPassed === true || manualPassed === false ? ' · 手动' : ''}
                     </span>
                     {canEdit ? (
-                      <Button
-                        type="link"
-                        size="small"
-                        style={{ padding: 0, height: 'auto', fontSize: 12 }}
-                        onClick={() => startEdit(item)}
-                      >
-                        编辑
-                      </Button>
+                      <Space size={4}>
+                        <Button
+                          type="link"
+                          size="small"
+                          style={{ padding: 0, height: 'auto', fontSize: 12 }}
+                          onClick={() => startEdit(item)}
+                        >
+                          编辑
+                        </Button>
+                        <Button
+                          type="link"
+                          size="small"
+                          style={{ padding: 0, height: 'auto', fontSize: 12 }}
+                          onClick={() =>
+                            setPreviewItem({
+                              id: itemId,
+                              title: String(item.title ?? ''),
+                              outline: item.outline ?? item.title,
+                              content,
+                              start_time: String(item.start_time ?? ''),
+                              end_time: String(item.end_time ?? ''),
+                            })
+                          }
+                        >
+                          预览校准
+                        </Button>
+                      </Space>
                     ) : null}
                   </div>
                   {item.recommend_reason ? (
@@ -661,6 +684,21 @@ const ScoreListView: React.FC<{
         })}
       </div>
     </div>
+
+      {projectId ? (
+        <TimelinePreviewModal
+          open={Boolean(previewItem)}
+          projectId={projectId}
+          sourceId={sourceId}
+          item={previewItem}
+          onClose={() => setPreviewItem(null)}
+          onSaved={(itemId, saved) => {
+            onTimelineItemSaved?.(itemId, saved)
+            setPreviewItem(null)
+          }}
+        />
+      ) : null}
+    </>
   )
 }
 
@@ -839,6 +877,7 @@ const PipelineStepResultView: React.FC<PipelineStepResultViewProps> = ({
           projectId={projectId}
           sourceId={sourceId}
           onScoreItemSaved={onScoreItemSaved}
+          onTimelineItemSaved={onTimelineItemSaved}
         />
       )
     case 'title_list':

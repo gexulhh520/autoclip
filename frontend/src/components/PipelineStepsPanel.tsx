@@ -233,18 +233,46 @@ const PipelineStepsPanel: React.FC<PipelineStepsPanelProps> = ({
   const handleTimelineItemSaved = useCallback(
     (itemId: string, item: Record<string, unknown>) => {
       setStepResults((prev) => {
-        const current = prev.step2_timeline
-        if (!current || current.result_type !== 'timeline_list') return prev
-        const items = current.items.map((entry) =>
-          String(entry.id) === itemId ? { ...entry, ...item, title: item.title ?? entry.title } : entry
-        )
-        return {
-          ...prev,
-          step2_timeline: {
-            ...current,
+        const next: typeof prev = { ...prev }
+
+        const current2 = prev.step2_timeline
+        if (current2 && current2.result_type === 'timeline_list') {
+          const items = current2.items.map((entry) =>
+            String(entry.id) === itemId ? { ...entry, ...item, title: item.title ?? entry.title } : entry
+          )
+          next.step2_timeline = {
+            ...current2,
             items,
-          },
+          }
         }
+
+        const current3 = prev.step3_scoring
+        if (current3 && current3.result_type === 'score_list') {
+          const content = item.content as string[] | undefined
+          const contentPreview =
+            content && content.length > 0
+              ? `${content.slice(0, 3).join(' ')}${content.length > 3 ? '…' : ''}`
+              : undefined
+          const items = current3.items.map((entry) => {
+            if (String(entry.id) !== itemId) return entry
+            return {
+              ...entry,
+              ...item,
+              title: item.title ?? entry.title,
+              start_time: item.start_time ?? entry.start_time,
+              end_time: item.end_time ?? entry.end_time,
+              outline: item.outline ?? entry.outline,
+              content: content ?? entry.content,
+              content_preview: contentPreview ?? entry.content_preview,
+            }
+          })
+          next.step3_scoring = {
+            ...current3,
+            items,
+          }
+        }
+
+        return next
       })
     },
     []

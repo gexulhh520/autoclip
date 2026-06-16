@@ -1173,6 +1173,8 @@ def get_pipeline_step_result(
                 {
                     "id": item.get("id"),
                     "title": _outline_title(item.get("outline")),
+                    "outline": item.get("outline"),
+                    "content": content if isinstance(content, list) else [],
                     "score": score,
                     "passed": passed,
                     "manual_passed": item.get("manual_passed"),
@@ -1364,6 +1366,45 @@ def _validate_srt_timestamp(time_str: str, field_name: str) -> str:
     return value
 
 
+def _sync_step3_scored_from_timeline_item(
+    project_dir: Path,
+    clip_id: str,
+    timeline_item: Dict[str, Any],
+    source_id: Optional[str] = None,
+) -> None:
+    """时间线校准后同步 step3_all_scored / high_score，便于在评分步骤预览保存。"""
+    all_scored_path, high_score_path = _resolve_step3_score_paths(project_dir, source_id)
+    if not all_scored_path.exists():
+        return
+
+    data = _load_json_file(all_scored_path)
+    if not isinstance(data, list):
+        return
+
+    matched = False
+    for entry in data:
+        if str(entry.get("id")) != clip_id:
+            continue
+        entry["start_time"] = timeline_item.get("start_time")
+        entry["end_time"] = timeline_item.get("end_time")
+        if "outline" in timeline_item:
+            entry["outline"] = timeline_item["outline"]
+        if "content" in timeline_item:
+            entry["content"] = timeline_item["content"]
+        matched = True
+        break
+
+    if not matched:
+        return
+
+    high_score_clips = _rebuild_high_score_clips(data)
+    all_scored_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(all_scored_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    with open(high_score_path, "w", encoding="utf-8") as f:
+        json.dump(high_score_clips, f, ensure_ascii=False, indent=2)
+
+
 def update_pipeline_timeline_item(
     project_id: str,
     item_id: str,
@@ -1430,6 +1471,8 @@ def update_pipeline_timeline_item(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+    _sync_step3_scored_from_timeline_item(project_dir, clip_id, item, source_id)
 
     logger.info(
         "项目 %s 已更新时间线条目 %s: %s -> %s",
