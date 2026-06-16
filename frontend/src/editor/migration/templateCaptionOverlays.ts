@@ -71,12 +71,15 @@ export function normalizeBlockOverlay(block: EditBlock): void {
   }
 }
 
-export const blockHasTemplateCaption = (block: EditBlock): boolean =>
-  Boolean(
-    block.title.trim() ||
-      block.overlay.outline.trim() ||
-      block.overlay.content.some((line) => line.trim())
-  )
+export const blockHasTemplateCaption = (block: EditBlock): boolean => {
+  const hasOverlayText =
+    block.overlay.outline.trim().length > 0 ||
+    block.overlay.content.some((line) => line.trim())
+  if (block.media.type === 'imported_clip') {
+    return hasOverlayText
+  }
+  return Boolean(block.title.trim() || hasOverlayText)
+}
 
 export function getTemplateBlockId(element: EditOverlayElement): string | null {
   const fromParam = readStringParam(element.params, TEMPLATE_BLOCK_ID_PARAM, '')

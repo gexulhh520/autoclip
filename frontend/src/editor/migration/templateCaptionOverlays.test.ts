@@ -4,6 +4,7 @@ import { compileCompositionPlan } from '../compositor/compilePlan'
 import { migrateSessionToV3, normalizeEditDocument } from './v2ToV3'
 import {
   blockHasMigratedTemplateOverlays,
+  blockHasTemplateCaption,
   ensureTemplateCaptionOverlays,
   getTemplateOverlaysForBlock,
   normalizeBlockOverlay,
@@ -54,6 +55,31 @@ const session = (): EditSession => ({
 })
 
 describe('templateCaptionOverlays', () => {
+  it('imported clips without overlay text are not treated as template captions', () => {
+    const imported: EditBlock = {
+      ...block(),
+      id: 'import-1',
+      title: 'my-video',
+      media: { type: 'imported_clip', path: 'media/import-1.mp4' },
+      overlay: { outline: '', content: [], recommend_reason: '' },
+    }
+    expect(blockHasTemplateCaption(imported)).toBe(false)
+
+    const editSession = session()
+    editSession.sequence = [imported]
+    expect(ensureTemplateCaptionOverlays(editSession)).toBe(false)
+    expect(editSession.overlay_elements).toHaveLength(0)
+
+    const plan = compileCompositionPlan(editSession, {
+      burnSubtitles: true,
+      useSourceVideo: false,
+    })
+    const templateLayers = plan.layers.filter(
+      (layer) => layer.kind === 'free_text' && layer.source === 'template_preset'
+    )
+    expect(templateLayers).toHaveLength(0)
+  })
+
   it('ensureTemplateCaptionOverlays creates free-layer overlays for template caption blocks', () => {
     const editSession = session()
     expect(ensureTemplateCaptionOverlays(editSession)).toBe(true)

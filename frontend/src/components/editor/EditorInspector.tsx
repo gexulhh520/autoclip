@@ -33,7 +33,7 @@ import {
   writeTextAnimationToParams,
 } from '../../editor/textAnimation/params'
 import { DEFAULT_TEXT_ANIMATION_CONFIG, type TextAnimationConfig } from '../../editor/textAnimation/types'
-import type { EditOverlayElement } from '../../types/editSession'
+import type { EditBlock, EditOverlayElement } from '../../types/editSession'
 
 interface EditorInspectorProps {
   projectId: string
@@ -56,6 +56,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   const session = useEditSessionStore((state) => state.session)
   const saving = useEditSessionStore((state) => state.saving)
   const selectedBlockId = useEditSessionStore((state) => state.selectedBlockId)
+  const selectedBlockIds = useEditSessionStore((state) => state.selectedBlockIds)
   const selectedCaptionBlockId = useEditSessionStore((state) => state.selectedCaptionBlockId)
   const selectedOverlayId = useEditSessionStore((state) => state.selectedOverlayId)
   const selectedOverlayIds = useEditSessionStore((state) => state.selectedOverlayIds)
@@ -68,6 +69,8 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   const updateBlockAudio = useEditSessionStore((state) => state.updateBlockAudio)
   const updateBlockPlaybackRate = useEditSessionStore((state) => state.updateBlockPlaybackRate)
   const updateBlockVideoTransform = useEditSessionStore((state) => state.updateBlockVideoTransform)
+  const updateBlocksVideoTransform = useEditSessionStore((state) => state.updateBlocksVideoTransform)
+  const syncBlocksVideoScaleUniform = useEditSessionStore((state) => state.syncBlocksVideoScaleUniform)
   const updateBlockTransition = useEditSessionStore((state) => state.updateBlockTransition)
   const updateAudioSettings = useEditSessionStore((state) => state.updateAudioSettings)
   const updateAudioClip = useEditSessionStore((state) => state.updateAudioClip)
@@ -93,6 +96,16 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
     selectedBlockId != null
       ? session?.sequence.find((block) => block.id === selectedBlockId) ?? null
       : null
+  const selectedVideoBlockIds =
+    selectedBlockIds.length > 0
+      ? selectedBlockIds
+      : selectedBlockId
+        ? [selectedBlockId]
+        : []
+  const selectedVideoBlocks = selectedVideoBlockIds
+    .map((blockId) => session?.sequence.find((block) => block.id === blockId))
+    .filter((block): block is EditBlock => Boolean(block))
+  const isBatchVideoSelection = selectedVideoBlocks.length > 1
   const captionEditingBlock =
     session?.sequence.find((block) => block.id === selectedCaptionBlockId) ?? null
   const selectedOverlay =
@@ -105,9 +118,15 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
     selectedAudioClip && session ? findAudioAsset(session, selectedAudioClip.asset_id) : null
 
   useEffect(() => {
-    if (!selectedBlock) return
-    setUniformVideoScale(blockVideoTransformIsUniform(selectedBlock.video_transform))
-  }, [selectedBlock?.id, selectedBlock?.video_transform?.scale_x, selectedBlock?.video_transform?.scale_y])
+    if (selectedVideoBlocks.length === 0) return
+    const seed = selectedVideoBlocks[0]
+    setUniformVideoScale(blockVideoTransformIsUniform(seed.video_transform))
+  }, [
+    selectedVideoBlocks.length,
+    selectedVideoBlocks[0]?.id,
+    selectedVideoBlocks[0]?.video_transform?.scale_x,
+    selectedVideoBlocks[0]?.video_transform?.scale_y,
+  ])
 
   useEffect(() => {
     if (!selectedBlock?.media.source_start_sec || !selectedBlock?.media.source_end_sec) {
@@ -290,16 +309,58 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
 
 
   const renderVideoTab = () => {
-    if (!selectedBlock) {
+    if (selectedVideoBlocks.length === 0) {
       return <div className="editor-empty-hint">选中时间线片段后调节画面</div>
     }
-    const videoTransform = resolveBlockVideoTransform(selectedBlock)
+
+    const scaleTargetIds = selectedVideoBlocks.map((block) => block.id)
+    const seedBlock = selectedVideoBlocks[0]
+    const videoTransform = resolveBlockVideoTransform(seedBlock)
+    const scaleXMixed =
+      isBatchVideoSelection &&
+      selectedVideoBlocks.some(
+        (block) =>
+          resolveBlockVideoTransform(block).scale_x !== videoTransform.scale_x
+      )
+    const scaleYMixed =
+      isBatchVideoSelection &&
+      selectedVideoBlocks.some(
+        (block) =>
+          resolveBlockVideoTransform(block).scale_y !== videoTransform.scale_y
+      )
+    const mixedSuffix = (mixed: boolean) => (mixed ? ' · 多种' : '')
+
+    const applyScalePatch = (patch: Parameters<typeof updateBlockVideoTransform>[1]) => {
+      if (isBatchVideoSelection) {
+        updateBlocksVideoTransform(scaleTargetIds, patch)
+        return
+      }
+      updateBlockVideoTransform(seedBlock.id, patch)
+    }
+
+    const resetScale = () => {
+      applyScalePatch({
+        scale_x: 1,
+        scale_y: 1,
+        position_x: 0,
+        position_y: 0,
+      })
+    }
 
     return (
       <>
         <div className="editor-inspector-section">
           <div className="editor-inspector-label">基础</div>
-          <div className="editor-inspector-value">{selectedBlock.title}</div>
+          {isBatchVideoSelection ? (
+            <>
+              <div className="editor-inspector-value">已选中 {selectedVideoBlocks.length} 个片段</div>
+              <div className="editor-inspector-muted" style={{ marginTop: 6 }}>
+                缩放将批量应用到全部选中片段；裁剪与倍速请单选后调节
+              </div>
+            </>
+          ) : (
+            <div className="editor-inspector-value">{seedBlock.title}</div>
+          )}
         </div>
         <div className="editor-inspector-section">
           <div className="editor-inspector-label">缩放</div>
@@ -311,9 +372,13 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
                 const nextUniform = event.target.checked
                 setUniformVideoScale(nextUniform)
                 if (nextUniform) {
-                  updateBlockVideoTransform(selectedBlock.id, {
-                    scale_y: videoTransform.scale_x,
-                  })
+                  if (isBatchVideoSelection) {
+                    syncBlocksVideoScaleUniform(scaleTargetIds)
+                  } else {
+                    updateBlockVideoTransform(seedBlock.id, {
+                      scale_y: videoTransform.scale_x,
+                    })
+                  }
                 }
               }}
             />
@@ -322,7 +387,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
           {uniformVideoScale ? (
             <>
               <div className="editor-inspector-label" style={{ marginTop: 12 }}>
-                缩放 ({videoTransform.scale_x.toFixed(2)}×)
+                缩放 ({videoTransform.scale_x.toFixed(2)}×{mixedSuffix(scaleXMixed || scaleYMixed)})
               </div>
               <input
                 className="editor-range"
@@ -333,7 +398,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
                 value={videoTransform.scale_x}
                 onChange={(event) => {
                   const value = Number(event.target.value)
-                  updateBlockVideoTransform(selectedBlock.id, {
+                  applyScalePatch({
                     scale_x: value,
                     scale_y: value,
                   })
@@ -343,7 +408,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
           ) : (
             <>
               <div className="editor-inspector-label" style={{ marginTop: 12 }}>
-                缩放 X ({videoTransform.scale_x.toFixed(2)}×)
+                缩放 X ({videoTransform.scale_x.toFixed(2)}×{mixedSuffix(scaleXMixed)})
               </div>
               <input
                 className="editor-range"
@@ -353,13 +418,13 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
                 step={0.05}
                 value={videoTransform.scale_x}
                 onChange={(event) =>
-                  updateBlockVideoTransform(selectedBlock.id, {
+                  applyScalePatch({
                     scale_x: Number(event.target.value),
                   })
                 }
               />
               <div className="editor-inspector-label" style={{ marginTop: 12 }}>
-                缩放 Y ({videoTransform.scale_y.toFixed(2)}×)
+                缩放 Y ({videoTransform.scale_y.toFixed(2)}×{mixedSuffix(scaleYMixed)})
               </div>
               <input
                 className="editor-range"
@@ -369,7 +434,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
                 step={0.05}
                 value={videoTransform.scale_y}
                 onChange={(event) =>
-                  updateBlockVideoTransform(selectedBlock.id, {
+                  applyScalePatch({
                     scale_y: Number(event.target.value),
                   })
                 }
@@ -380,18 +445,13 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
             type="button"
             className="editor-import-btn"
             style={{ marginTop: 12 }}
-            onClick={() =>
-              updateBlockVideoTransform(selectedBlock.id, {
-                scale_x: 1,
-                scale_y: 1,
-                position_x: 0,
-                position_y: 0,
-              })
-            }
+            onClick={resetScale}
           >
             重置缩放
           </button>
         </div>
+        {!isBatchVideoSelection && selectedBlock ? (
+          <>
         <div className="editor-inspector-section">
           <div className="editor-inspector-label">
             裁剪入点 ({selectedBlock.trim.in_sec.toFixed(1)}s)
@@ -449,6 +509,8 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
             2× 表示时间线时长减半，预览与导出一致
           </div>
         </div>
+          </>
+        ) : null}
       </>
     )
   }

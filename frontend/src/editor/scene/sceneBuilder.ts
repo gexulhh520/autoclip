@@ -1,4 +1,5 @@
-import type { EditBlock, EditBlockOverlay, EditSession } from '../../types/editSession'
+import type { EditBlock, EditSession } from '../../types/editSession'
+import { blockHasTemplateCaption } from '../migration/templateCaptionOverlays'
 import type { OpenCutTextOverlay } from '../opencut-text/params'
 import { readStringParam } from '../opencut-text/params'
 import { findAudioAsset, getAudioClipTrackId, resolveAudioTracks } from '../audioTracks'
@@ -26,15 +27,6 @@ import type {
 } from './types'
 
 const clamp01 = (value: number): number => Math.min(1, Math.max(0, value))
-
-const blockOverlayHasCaption = (overlay: EditBlockOverlay): boolean =>
-  Boolean(
-    overlay.outline.trim() ||
-      overlay.content.some((line) => line.trim())
-  )
-
-const blockHasTemplateCaption = (block: EditBlock): boolean =>
-  Boolean(block.title.trim() || blockOverlayHasCaption(block.overlay))
 
 const overlayHasContent = (element: OpenCutTextOverlay): boolean =>
   readStringParam(element.params, 'content', '').trim().length > 0

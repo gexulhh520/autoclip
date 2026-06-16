@@ -13,7 +13,7 @@ import type { OpenCutTextOverlay } from '../opencut-text/params'
 import { compileExportPlan } from '../scene/sceneBuilder'
 import { buildCompositionTimeline } from '../scene/timelineLayout'
 import { resolveOutputCanvas } from './geometry'
-import { getPersistedTemplateCaptionBlockIds } from '../migration/templateCaptionOverlays'
+import { getPersistedTemplateCaptionBlockIds, blockHasTemplateCaption } from '../migration/templateCaptionOverlays'
 import {
   buildTemplateCaptionsIndex,
   compileTemplateCaptionToFreeTextLayers,
@@ -28,12 +28,6 @@ import {
 const overlayHasContent = (element: OpenCutTextOverlay): boolean =>
   readStringParam(element.params, 'content', '').trim().length > 0
 
-const blockHasTemplateCaption = (block: EditSession['sequence'][number]): boolean =>
-  Boolean(
-    block.title.trim() ||
-      block.overlay.outline.trim() ||
-      block.overlay.content.some((line) => line.trim())
-  )
 
 /** EditSession → CompositionPlan（预览/导出/Compositor 共用 IR） */
 export function compileCompositionPlan(

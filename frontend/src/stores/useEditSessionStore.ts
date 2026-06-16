@@ -211,6 +211,11 @@ interface EditSessionState {
     blockId: string,
     patch: Partial<EditBlockVideoTransform>
   ) => void
+  updateBlocksVideoTransform: (
+    blockIds: string[],
+    patch: Partial<EditBlockVideoTransform>
+  ) => void
+  syncBlocksVideoScaleUniform: (blockIds: string[]) => void
   updateBlockPlaybackRate: (blockId: string, rate: number) => void
   updateBlockTransition: (blockId: string, transition: EditBlock['transition_out']) => void
   uploadBgm: (projectId: string, file: File) => Promise<void>
@@ -1735,6 +1740,47 @@ export const useEditSessionStore = create<EditSessionState>()(
             scale_y: clampBlockVideoScale(next.scale_y),
             position_x: next.position_x,
             position_y: next.position_y,
+          }
+          state.dirty = true
+        })
+      },
+
+      updateBlocksVideoTransform: (blockIds, patch) => {
+        const uniqueIds = [...new Set(blockIds.filter(Boolean))]
+        if (uniqueIds.length === 0) return
+        pushHistory()
+        set((state) => {
+          if (!state.session) return
+          for (const blockId of uniqueIds) {
+            const block = state.session.sequence.find((item) => item.id === blockId)
+            if (!block) continue
+            const current = resolveBlockVideoTransform(block)
+            const next = { ...current, ...patch }
+            block.video_transform = {
+              scale_x: clampBlockVideoScale(next.scale_x),
+              scale_y: clampBlockVideoScale(next.scale_y),
+              position_x: next.position_x,
+              position_y: next.position_y,
+            }
+          }
+          state.dirty = true
+        })
+      },
+
+      syncBlocksVideoScaleUniform: (blockIds) => {
+        const uniqueIds = [...new Set(blockIds.filter(Boolean))]
+        if (uniqueIds.length === 0) return
+        pushHistory()
+        set((state) => {
+          if (!state.session) return
+          for (const blockId of uniqueIds) {
+            const block = state.session.sequence.find((item) => item.id === blockId)
+            if (!block) continue
+            const current = resolveBlockVideoTransform(block)
+            block.video_transform = {
+              ...current,
+              scale_y: current.scale_x,
+            }
           }
           state.dirty = true
         })

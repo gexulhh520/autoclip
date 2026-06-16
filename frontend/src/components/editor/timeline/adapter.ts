@@ -9,7 +9,7 @@ import {
 } from '../../../editor/audioTracks'
 import type { EditBlock, EditOverlayElement, EditSession } from '../../../types/editSession'
 import type { TimelineTrackId } from '../../../types/timelineTracks'
-import { blockHasMigratedTemplateOverlays } from '../../../editor/migration/templateCaptionOverlays'
+import { blockHasMigratedTemplateOverlays, blockHasTemplateCaption } from '../../../editor/migration/templateCaptionOverlays'
 import { readStringParam } from '../../../editor/opencut-text/params'
 import {
   adaptedTextTrackId,
@@ -43,12 +43,7 @@ export function mapTrackIdToStoreKey(trackId: string): TimelineTrackId | null {
   }
 }
 
-const blockHasCaption = (block: EditBlock): boolean =>
-  Boolean(
-    block.title.trim() ||
-      block.overlay.outline.trim() ||
-      block.overlay.content.some((line) => line.trim())
-  )
+const blockHasCaption = blockHasTemplateCaption
 
 function formatCaptionLabel(block: EditBlock): string {
   const lines = block.overlay.content.filter((line) => line.trim())
