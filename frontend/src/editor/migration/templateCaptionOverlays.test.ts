@@ -8,6 +8,7 @@ import {
   getTemplateOverlaysForBlock,
   normalizeBlockOverlay,
   syncTemplateOverlaysForBlock,
+  templateNarrationTrackId,
 } from './templateCaptionOverlays'
 
 const block = (): EditBlock => ({
@@ -60,7 +61,7 @@ describe('templateCaptionOverlays', () => {
 
     const overlays = getTemplateOverlaysForBlock(editSession, 'block-a')
     expect(overlays.length).toBeGreaterThan(0)
-    expect(overlays.every((item) => item.track_id === 'default-text')).toBe(true)
+    expect(overlays.every((item) => item.track_id?.startsWith('tpl-narr-'))).toBe(true)
     expect(overlays[0]?.params['template.blockId']).toBe('block-a')
     expect(overlays[0]?.start_sec).toBe(0)
     expect(overlays[0]?.duration_sec).toBeCloseTo(4, 1)
@@ -111,6 +112,20 @@ describe('templateCaptionOverlays', () => {
     syncTemplateOverlaysForBlock(editSession, 'block-a')
     expect(overlays[0]?.params.fontSize).toBe(99)
     expect(String(overlays[0]?.params.content)).toContain('new headline')
+  })
+
+  it('assigns each narration line to its own text track', () => {
+    const editSession = session()
+    ensureTemplateCaptionOverlays(editSession)
+
+    const overlays = getTemplateOverlaysForBlock(editSession, 'block-a')
+    expect(overlays.length).toBeGreaterThanOrEqual(2)
+    const trackIds = new Set(overlays.map((item) => item.track_id))
+    expect(trackIds.size).toBe(overlays.length)
+    expect(trackIds.has(templateNarrationTrackId('headline'))).toBe(true)
+    expect(editSession.text_tracks?.some((t) => t.id === templateNarrationTrackId('headline'))).toBe(
+      true
+    )
   })
 
   it('creates fallback overlay when only block title exists', () => {

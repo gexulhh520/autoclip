@@ -251,7 +251,7 @@ function composeQuoteCinemaLayers(
   }
   bodyLines.forEach((line, index) => {
     layers.push({
-      role: 'body',
+      role: bodyLines.length === 1 ? 'body' : `body${index + 1}`,
       text: line,
       color: bodyColor,
       size_scale: bodySizeScale(config, index),

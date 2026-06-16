@@ -6,9 +6,39 @@ import { buildCompositionTimeline } from '../scene/timelineLayout'
 import { compileTemplateCaptionToFreeTextLayers } from '../compositor/templateCaptionOpenCut'
 import type { FreeTextLayerDef } from '../compositor/types'
 import { readStringParam, type TextElementParams } from '../opencut-text/params'
-import { DEFAULT_TEXT_TRACK_ID, ensureTextTracks } from '../textTracks'
+import {
+  DEFAULT_TEXT_TRACK_ID,
+  ensureTemplateNarrationTrack,
+  ensureTextTracks,
+  templateNarrationTrackId,
+} from '../textTracks'
 
 export const TEMPLATE_BLOCK_ID_PARAM = 'template.blockId'
+
+export { templateNarrationTrackId, templateNarrationTrackLabel, ensureTemplateNarrationTrack } from '../textTracks'
+
+const resolveLayerRole = (layer: FreeTextLayerDef): string =>
+  layer.role ??
+  readStringParam(layer.params as TextElementParams, 'template.role', 'line')
+
+const resolveOverlayTrackId = (
+  session: EditSession,
+  layer: FreeTextLayerDef,
+  existing: EditOverlayElement | undefined,
+  preserveUserEdits: boolean
+): string => {
+  const role = resolveLayerRole(layer)
+  const roleTrackId = ensureTemplateNarrationTrack(session, role)
+  if (!existing) return roleTrackId
+  if (
+    preserveUserEdits &&
+    existing.track_id &&
+    existing.track_id !== DEFAULT_TEXT_TRACK_ID
+  ) {
+    return existing.track_id
+  }
+  return roleTrackId
+}
 
 /** 规范化片段 overlay 字段（加载时须在旁白迁移之前执行） */
 export function normalizeBlockOverlay(block: EditBlock): void {
@@ -120,6 +150,7 @@ const findSegmentForBlock = (session: EditSession, blockId: string) => {
 }
 
 const layerToOverlayElement = (
+  session: EditSession,
   layer: FreeTextLayerDef,
   blockId: string
 ): EditOverlayElement => ({
@@ -128,10 +159,11 @@ const layerToOverlayElement = (
   start_sec: layer.startSec,
   duration_sec: layer.durationSec,
   hidden: layer.hidden,
-  track_id: DEFAULT_TEXT_TRACK_ID,
+  track_id: resolveOverlayTrackId(session, layer, undefined, false),
   params: {
     ...layer.params,
     [TEMPLATE_BLOCK_ID_PARAM]: blockId,
+    'template.role': resolveLayerRole(layer),
   },
 })
 
@@ -184,7 +216,7 @@ const buildFallbackTemplateLayers = (
     return {
       kind: 'free_text' as const,
       elementId: `template:${block.id}:${role}`,
-      trackId: DEFAULT_TEXT_TRACK_ID,
+      trackId: templateNarrationTrackId(role),
       startSec: segment.compositionStartSec,
       durationSec: Math.max(segment.sourceDurationSec, 0.05),
       hidden: false,
@@ -248,7 +280,7 @@ export function syncTemplateOverlaysForBlock(
   for (const layer of freshLayers) {
     const existing = session.overlay_elements.find((element) => element.id === layer.elementId)
     if (!existing) {
-      session.overlay_elements.push(layerToOverlayElement(layer, blockId))
+      session.overlay_elements.push(layerToOverlayElement(session, layer, blockId))
       changed = true
       continue
     }
@@ -271,8 +303,9 @@ export function syncTemplateOverlaysForBlock(
       existing.duration_sec = layer.durationSec
       changed = true
     }
-    if (existing.track_id !== DEFAULT_TEXT_TRACK_ID) {
-      existing.track_id = DEFAULT_TEXT_TRACK_ID
+    const nextTrackId = resolveOverlayTrackId(session, layer, existing, preserveUserEdits)
+    if (existing.track_id !== nextTrackId) {
+      existing.track_id = nextTrackId
       changed = true
     }
   }

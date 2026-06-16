@@ -4,13 +4,12 @@ import { FONT_SIZE_SCALE_REFERENCE } from '../opencut-text/typography'
 import type { TextElementParams } from '../opencut-text/params'
 import { normalizedToPosition } from '../opencut-text/transform'
 import { mergeOverlayAnimationIntoParams } from '../textAnimation/params'
+import { templateNarrationTrackId } from '../textTracks'
 import type { FreeTextLayerDef, TemplateCaptionPreviewLayer } from './types'
 import {
   buildTemplateCaptionPreview,
   type TemplateCaptionPreview,
 } from './templateCaption'
-
-const TEMPLATE_TRACK_ID = 'template-caption'
 
 const resolveRoleShadowOutline = (
   role: string,
@@ -178,7 +177,7 @@ export function compileTemplateCaptionToFreeTextLayers(
   return lines.map((line, index) => ({
     kind: 'free_text',
     elementId: `template:${block.id}:${line.role}`,
-    trackId: TEMPLATE_TRACK_ID,
+    trackId: templateNarrationTrackId(line.role),
     startSec: compositionStartSec,
     durationSec: Math.max(sourceDurationSec, 0.05),
     hidden: false,
