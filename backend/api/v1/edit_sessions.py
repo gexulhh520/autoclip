@@ -27,6 +27,7 @@ from backend.schemas.edit_session import (
     EditSessionExportJobStatusResponse,
     EditSessionExportResponse,
     EditSessionImportMediaResponse,
+    EditSessionImportBgmUrlRequest,
     EditSessionListResponse,
     EditSessionPreviewOverlayRequest,
     EditSessionRegenerateRequest,
@@ -617,6 +618,33 @@ async def upload_edit_session_bgm(
         raise
     except Exception as exc:
         logger.exception("上传 BGM 失败: %s/%s", project_id, session_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/{project_id}/edit-sessions/{session_id}/bgm/from-url")
+async def import_edit_session_bgm_from_url(
+    project_id: str,
+    session_id: str,
+    payload: EditSessionImportBgmUrlRequest,
+    service: EditSessionService = Depends(get_edit_session_service),
+):
+    from backend.utils.link_audio_downloader import UnsupportedLinkPlatformError, LinkDownloadError
+
+    try:
+        return service.import_bgm_from_url(
+            project_id,
+            session_id,
+            payload.url.strip(),
+            platform=payload.platform,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except UnsupportedLinkPlatformError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (LinkDownloadError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("从链接导入 BGM 失败: %s/%s", project_id, session_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

@@ -205,6 +205,7 @@ interface EditSessionState {
   updateBlockPlaybackRate: (blockId: string, rate: number) => void
   updateBlockTransition: (blockId: string, transition: EditBlock['transition_out']) => void
   uploadBgm: (projectId: string, file: File) => Promise<void>
+  importBgmFromUrl: (projectId: string, url: string) => Promise<void>
   removeAudioAsset: (assetId: string) => void
   addAudioClipToTimeline: (
     assetId: string,
@@ -1753,6 +1754,23 @@ export const useEditSessionStore = create<EditSessionState>()(
           set({
             saving: false,
             error: error instanceof Error ? error.message : 'BGM 上传失败',
+          })
+          throw error
+        }
+      },
+
+      importBgmFromUrl: async (projectId, url) => {
+        const { session } = get()
+        if (!session) throw new Error('无剪辑工程')
+        set({ saving: true, error: null })
+        try {
+          const updated = await editApi.importBgmFromUrl(projectId, session.id, { url })
+          ensureAudioModel(updated)
+          set({ session: updated, saving: false, dirty: false })
+        } catch (error: unknown) {
+          set({
+            saving: false,
+            error: error instanceof Error ? error.message : '链接导入失败',
           })
           throw error
         }

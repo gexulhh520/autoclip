@@ -192,6 +192,17 @@ export const editApi = {
     )) as EditSession
   },
 
+  importBgmFromUrl: async (
+    projectId: string,
+    sessionId: string,
+    payload: { url: string; platform?: string }
+  ): Promise<EditSession> => {
+    return (await api.post(
+      `/projects/${projectId}/edit-sessions/${sessionId}/bgm/from-url`,
+      payload
+    )) as EditSession
+  },
+
   regenerateContent: async (
     projectId: string,
     sessionId: string,

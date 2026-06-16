@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { message } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { LinkOutlined, PlusOutlined } from '@ant-design/icons'
 import { projectApi } from '../../services/api'
 import { blockDuration, useEditSessionStore } from '../../stores/useEditSessionStore'
 import { getBlockVideoUrl } from '../../utils/editBlockMedia'
@@ -17,6 +17,7 @@ import TextAssetsView from './panels/assets/views/TextAssetsView'
 import StickersAssetsView from './panels/assets/views/StickersAssetsView'
 import EffectsAssetsView from './panels/assets/views/EffectsAssetsView'
 import TransitionTypePicker from './TransitionTypePicker'
+import EditorImportBgmUrlModal from './EditorImportBgmUrlModal'
 
 interface ProjectClip {
   id: string
@@ -42,6 +43,7 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
   const updateExportSettings = useEditSessionStore((state) => state.updateExportSettings)
   const updateBlockTransition = useEditSessionStore((state) => state.updateBlockTransition)
   const uploadBgm = useEditSessionStore((state) => state.uploadBgm)
+  const importBgmFromUrl = useEditSessionStore((state) => state.importBgmFromUrl)
   const removeAudioAsset = useEditSessionStore((state) => state.removeAudioAsset)
   const addAudioClipToTimeline = useEditSessionStore((state) => state.addAudioClipToTimeline)
   const activeAudioTrackId = useEditSessionStore((state) => state.activeAudioTrackId)
@@ -57,6 +59,7 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [projectClips, setProjectClips] = useState<ProjectClip[]>([])
   const [loadingClips, setLoadingClips] = useState(false)
   const [importingVideo, setImportingVideo] = useState(false)
+  const [bgmUrlModalOpen, setBgmUrlModalOpen] = useState(false)
 
   const blocks = session?.sequence ?? []
   const sessionId = session?.id ?? ''
@@ -284,9 +287,31 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
             >
               <PlusOutlined /> 导入音频
             </button>
+            <button
+              type="button"
+              className="editor-import-btn"
+              disabled={saving}
+              onClick={() => setBgmUrlModalOpen(true)}
+            >
+              <LinkOutlined /> 从链接导入
+            </button>
           </>
         }
       >
+        <EditorImportBgmUrlModal
+          open={bgmUrlModalOpen}
+          saving={saving}
+          onClose={() => setBgmUrlModalOpen(false)}
+          onSubmit={async (url) => {
+            try {
+              await importBgmFromUrl(projectId, url)
+              setBgmUrlModalOpen(false)
+              message.success('已从链接导入到音频库，拖到时间线或点击「添加」')
+            } catch {
+              message.error('链接导入失败，请检查链接是否有效')
+            }
+          }}
+        />
         <div className="editor-inspector-section">
           <div className="editor-inspector-label">会话音频</div>
           <label className="editor-modal__check">

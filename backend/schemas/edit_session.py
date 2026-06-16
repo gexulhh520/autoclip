@@ -309,6 +309,11 @@ class EditSessionImportMediaResponse(BaseModel):
     duration_sec: float
 
 
+class EditSessionImportBgmUrlRequest(BaseModel):
+    url: str = Field(min_length=1)
+    platform: Optional[str] = None
+
+
 class EditSessionCreateRequest(BaseModel):
     clip_ids: List[str] = Field(min_length=1)
     name: Optional[str] = None

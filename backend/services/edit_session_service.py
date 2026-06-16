@@ -24,6 +24,12 @@ from backend.schemas.edit_session import (
 )
 from backend.utils.bgm_audio import transcode_bgm_to_m4a
 from backend.utils.clip_path_resolver import resolve_clip_video_path
+from backend.utils.link_audio_downloader import (
+    LinkDownloadError,
+    UnsupportedLinkPlatformError,
+    detect_link_platform,
+    download_link_video,
+)
 from backend.utils.video_processor import VideoProcessor
 
 logger = logging.getLogger(__name__)
@@ -678,22 +684,17 @@ class EditSessionService:
         saved_block = next((item for item in updated.sequence if item.id == block.id), block)
         return updated, saved_block
 
-    def save_bgm_file(
+    def _import_bgm_from_local_file(
         self,
         project_id: str,
         session_id: str,
-        file_name: str,
-        content: bytes,
+        session: EditSession,
+        source_path: Path,
+        display_name: str,
     ) -> EditSession:
-        import uuid
-
-        session = self.get_session(project_id, session_id)
         project_dir = get_project_directory(project_id)
         session_dir = _edit_sessions_dir(project_dir) / session_id
         session_dir.mkdir(parents=True, exist_ok=True)
-        suffix = Path(file_name).suffix.lower() or ".mp3"
-        upload_path = session_dir / f"bgm_upload{suffix}"
-        upload_path.write_bytes(content)
 
         asset_id = str(uuid.uuid4())
         output_path = session_dir / f"asset_{asset_id}.m4a"
@@ -703,19 +704,24 @@ class EditSessionService:
             except OSError:
                 logger.warning("无法删除旧音频资源: %s", old)
 
-        if transcode_bgm_to_m4a(upload_path, output_path):
-            try:
-                upload_path.unlink()
-            except OSError:
-                pass
+        suffix = source_path.suffix.lower() or ".mp3"
+        if transcode_bgm_to_m4a(source_path, output_path):
             stored_path = output_path
         else:
-            logger.warning("BGM 转码失败，保留原文件: %s", upload_path.name)
+            logger.warning("BGM 转码失败，保留原文件: %s", source_path.name)
             fallback = session_dir / f"asset_{asset_id}{suffix}"
             if fallback.exists():
                 fallback.unlink()
-            upload_path.replace(fallback)
+            if source_path.resolve() != fallback.resolve():
+                source_path.replace(fallback)
             stored_path = fallback
+
+        duration_sec: Optional[float] = None
+        try:
+            info = VideoProcessor.get_video_info(stored_path)
+            duration_sec = float(info.get("duration") or 0) or None
+        except Exception:
+            duration_sec = None
 
         rel = _relative_project_path(project_dir, stored_path)
         return self.update_session(
@@ -726,12 +732,96 @@ class EditSessionService:
                     *(session.audio_assets or []),
                     AudioAssetMeta(
                         id=asset_id,
-                        name=Path(file_name).name or stored_path.name,
+                        name=display_name,
                         path=rel,
+                        duration_sec=duration_sec,
                     ),
                 ]
             ),
         )
+
+    def save_bgm_file(
+        self,
+        project_id: str,
+        session_id: str,
+        file_name: str,
+        content: bytes,
+    ) -> EditSession:
+        session = self.get_session(project_id, session_id)
+        project_dir = get_project_directory(project_id)
+        session_dir = _edit_sessions_dir(project_dir) / session_id
+        session_dir.mkdir(parents=True, exist_ok=True)
+        suffix = Path(file_name).suffix.lower() or ".mp3"
+        upload_path = session_dir / f"bgm_upload{suffix}"
+        upload_path.write_bytes(content)
+
+        try:
+            return self._import_bgm_from_local_file(
+                project_id,
+                session_id,
+                session,
+                upload_path,
+                Path(file_name).name or upload_path.name,
+            )
+        finally:
+            if upload_path.exists() and upload_path.name.startswith("bgm_upload"):
+                try:
+                    upload_path.unlink()
+                except OSError:
+                    pass
+
+    def import_bgm_from_url(
+        self,
+        project_id: str,
+        session_id: str,
+        url: str,
+        platform: Optional[str] = None,
+    ) -> EditSession:
+        session = self.get_session(project_id, session_id)
+        project_dir = get_project_directory(project_id)
+        session_dir = _edit_sessions_dir(project_dir) / session_id
+        import_dir = session_dir / f"url_import_{uuid.uuid4().hex[:8]}"
+        import_dir.mkdir(parents=True, exist_ok=True)
+
+        resolved_platform = platform or detect_link_platform(url)
+        if not resolved_platform:
+            raise UnsupportedLinkPlatformError("暂不支持该链接")
+
+        video_path: Optional[Path] = None
+        try:
+            video_path, title = download_link_video(url, import_dir, resolved_platform)
+            display_name = f"{title}.m4a" if title else "链接音频.m4a"
+            return self._import_bgm_from_local_file(
+                project_id,
+                session_id,
+                session,
+                video_path,
+                display_name,
+            )
+        except (UnsupportedLinkPlatformError, LinkDownloadError, ValueError):
+            raise
+        except Exception as exc:
+            logger.exception("从链接导入 BGM 失败: %s", url)
+            raise LinkDownloadError(str(exc)) from exc
+        finally:
+            if video_path and video_path.exists():
+                try:
+                    video_path.unlink()
+                except OSError:
+                    logger.warning("无法删除临时视频: %s", video_path)
+            try:
+                if import_dir.exists():
+                    import_dir.rmdir()
+            except OSError:
+                for leftover in import_dir.glob("*"):
+                    try:
+                        leftover.unlink()
+                    except OSError:
+                        pass
+                try:
+                    import_dir.rmdir()
+                except OSError:
+                    logger.warning("无法清理临时目录: %s", import_dir)
 
     def resolve_audio_asset_path(
         self,

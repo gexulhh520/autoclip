@@ -338,6 +338,47 @@ def test_update_edit_session_persists_audio_assets(tmp_path, monkeypatch):
     assert saved["audio_assets"][0]["name"] == "test.mp3"
 
 
+def test_import_bgm_from_url_persists_asset(tmp_path, monkeypatch):
+    project_id = "edit-session-bgm-url"
+    project_dir = tmp_path / "projects" / project_id
+    _write_project_clips(project_dir)
+
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+
+    service = EditSessionService(db=None)
+    session = service.create_session(project_id, ["1"])
+
+    def _fake_download(url: str, output_dir, platform_id=None):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        video_path = output_dir / "video.mp4"
+        video_path.write_bytes(b"not-a-real-video")
+        return video_path, "测试抖音标题"
+
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.download_link_video",
+        _fake_download,
+    )
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.transcode_bgm_to_m4a",
+        lambda source, output: False,
+    )
+
+    updated = service.import_bgm_from_url(
+        project_id,
+        session.id,
+        "https://v.douyin.com/RBZnW4-92WE/",
+    )
+    assert len(updated.audio_assets) == 1
+    assert "测试抖音标题" in updated.audio_assets[0].name
+
+    session_dir = project_dir / "edit_sessions" / session.id
+    assert not list(session_dir.glob("url_import_*"))
+    assert not list(session_dir.glob("video.mp4"))
+
+
 def test_edit_session_accepts_imported_clip_media_type():
     from backend.schemas.edit_session import EditSession
 
