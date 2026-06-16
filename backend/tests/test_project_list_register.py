@@ -53,3 +53,22 @@ def test_register_missing_projects_excludes_editor_workspace(tmp_path, monkeypat
     assert response.pagination.total == 1
     assert len(response.items) == 1
     assert not is_editor_workspace_project(projects[0])
+
+
+def test_ensure_project_registered_single(tmp_path, monkeypatch):
+    data_dir = tmp_path / "data"
+    project_id = "33333333-3333-4333-8333-333333333333"
+    project_dir = data_dir / "projects" / project_id
+    (project_dir / "output").mkdir(parents=True)
+    (project_dir / "output" / "step6_video_output.json").write_text(
+        json.dumps({"clips_generated": 1, "clip_paths": []}),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("AUTOCLIP_DATA_DIR", str(data_dir))
+
+    db = next(get_db())
+    sync = DataSyncService(db)
+    assert sync.ensure_project_registered(project_id) is True
+    assert db.query(Project).filter(Project.id == project_id).first() is not None
+    assert sync.ensure_project_registered(project_id) is True

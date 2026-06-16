@@ -577,6 +577,12 @@ async def get_project(
         from ...services.pipeline_steps_service import reconcile_project_status_from_artifacts
 
         db_project = db.query(Project).filter(Project.id == project_id).first()
+        if not db_project:
+            from ...services.data_sync_service import DataSyncService
+
+            sync_service = DataSyncService(db)
+            if sync_service.ensure_project_registered(project_id):
+                db_project = db.query(Project).filter(Project.id == project_id).first()
         if db_project:
             reconcile_project_status_from_artifacts(db, project_id, db_project, sync_clips=False)
 
@@ -1523,11 +1529,17 @@ async def restart_project_step(
 async def get_processing_status(
     project_id: str,
     project_service: ProjectService = Depends(get_project_service),
-    processing_service: ProcessingService = Depends(get_processing_service)
+    processing_service: ProcessingService = Depends(get_processing_service),
+    db: Session = Depends(get_db),
 ):
     """Get processing status of a project."""
     try:
-        # 获取项目信息
+        from ...services.data_sync_service import DataSyncService
+
+        sync_service = DataSyncService(db)
+        if not sync_service.ensure_project_registered(project_id):
+            raise HTTPException(status_code=404, detail="Project not found")
+
         project = project_service.get(project_id)
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
@@ -1539,6 +1551,16 @@ async def get_processing_status(
             latest_task = max(tasks, key=lambda t: t.created_at) if hasattr(tasks[0], 'created_at') else tasks[0]
         
         if not latest_task:
+            status_val = getattr(project.status, "value", str(project.status))
+            if status_val == "completed":
+                return {
+                    "status": "completed",
+                    "current_step": 6,
+                    "total_steps": 6,
+                    "step_name": "已完成",
+                    "progress": 100,
+                    "error_message": None,
+                }
             return {
                 "status": "pending",
                 "current_step": 0,
@@ -1552,6 +1574,8 @@ async def get_processing_status(
         status = processing_service.get_processing_status(project_id, str(latest_task.id))
         
         return status
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("获取处理状态失败: %s", project_id)
         raise HTTPException(status_code=500, detail="获取处理状态失败，请稍后重试")

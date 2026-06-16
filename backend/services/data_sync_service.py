@@ -362,6 +362,22 @@ class DataSyncService:
             logger.info("已从磁盘注册 %d 个缺失项目", registered)
         return registered
 
+    def ensure_project_registered(self, project_id: str) -> bool:
+        """若磁盘存在切片项目但 DB 无记录，则注册单条项目行。"""
+        if self.db.query(Project).filter(Project.id == project_id).first():
+            return True
+        from backend.core.path_utils import get_project_directory
+
+        project_dir = get_project_directory(project_id)
+        if not _is_slice_project_directory(project_dir):
+            return False
+        try:
+            return self._create_project_record_from_directory(project_id, project_dir)
+        except Exception as exc:
+            logger.warning("注册项目 %s 失败: %s", project_id, exc)
+            self.db.rollback()
+            return False
+
     def _create_project_record_from_directory(
         self, project_id: str, project_dir: Path
     ) -> bool:
