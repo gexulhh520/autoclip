@@ -78,6 +78,7 @@ import {
   syncBlockOverlayFromTemplateOverlays,
   syncTemplateOverlaysForBlock,
 } from '../editor/migration/templateCaptionOverlays'
+import { shiftTimelineElementsAfterVideoInsert } from '../editor/migration/shiftTimelineAfterInsert'
 import {
   BASE_PX_PER_SEC,
   blockDuration,
@@ -976,6 +977,11 @@ export const useEditSessionStore = create<EditSessionState>()(
             normalizeBlockOverlay(block)
           }
           let document = normalizeEditDocument(result.session)
+          const shifted = shiftTimelineElementsAfterVideoInsert(
+            document.session,
+            insertIndex,
+            result.added_count
+          )
           const templateMigrated = ensureTemplateCaptionOverlays(document.session)
           if (templateMigrated) {
             const project = migrateSessionToV3(document.session)
@@ -990,7 +996,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             session: document.session,
             editProject: document.project,
             saving: false,
-            dirty: templateMigrated,
+            dirty: templateMigrated || shifted,
             selectedBlockId: newBlockId,
             selectedBlockIds: newBlockId ? [newBlockId] : [],
             selectedOverlayId: null,
@@ -1021,8 +1027,9 @@ export const useEditSessionStore = create<EditSessionState>()(
           const result = await editApi.importMedia(projectId, session.id, file, {
             insertIndex,
           })
+          const shifted = shiftTimelineElementsAfterVideoInsert(result.session, insertIndex, 1)
           cleanupImportedClipCaptions(result.session)
-          ensureTemplateCaptionOverlays(result.session)
+          const templateMigrated = ensureTemplateCaptionOverlays(result.session)
           const transitionDur = transitionDurationSec(result.session)
           const segments = buildCompositionTimelineSegments(
             result.session.sequence,
@@ -1033,7 +1040,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           set({
             session: result.session,
             saving: false,
-            dirty: false,
+            dirty: templateMigrated || shifted,
             selectedBlockId: result.block_id,
             selectedBlockIds: [result.block_id],
             selectedOverlayId: null,
