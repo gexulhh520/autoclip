@@ -170,7 +170,10 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
                 key={block.id}
                 type="button"
                 className={`editor-clip-item ${selectedBlockId === block.id ? 'is-selected' : ''}`}
-                onClick={() => setSelectedBlockId(block.id)}
+                onClick={() => {
+                  setSelectedBlockId(block.id)
+                  setInspectorTab('audio')
+                }}
               >
                 <video
                   className="editor-clip-thumb"

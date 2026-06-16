@@ -1067,16 +1067,8 @@ export const useEditSessionStore = create<EditSessionState>()(
               syncTemplateOverlaysForBlock(state.session, blockId)
               state.dirty = true
             }
-            const templateOverlays = getTemplateOverlaysForBlock(state.session, blockId)
-            if (templateOverlays.length > 0) {
-              const primary = templateOverlays[0]!
-              state.selectedOverlayId = primary.id
-              state.selectedOverlayIds = [primary.id]
-              state.inspectorTab = 'text'
-            } else {
-              state.selectedOverlayId = null
-              state.selectedOverlayIds = []
-            }
+            state.selectedOverlayId = null
+            state.selectedOverlayIds = []
           }
           state.selectedCaptionBlockId = null
           state.selectedCaptionBlockIds = []
