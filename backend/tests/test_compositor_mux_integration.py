@@ -257,6 +257,87 @@ def test_compositor_mux_with_timeline_audio_clips_only(tmp_path, monkeypatch, ff
     assert _probe_has_audio(mux_result.output_path)
 
 
+def test_render_timeline_audio_clips_uses_amix_without_normalize(tmp_path, monkeypatch):
+    from backend.pipeline.edit_renderer import _render_timeline_audio_clips
+
+    session = _load_session("session-minimal.json")
+    project_dir = tmp_path / "projects" / session.project_id
+    session_dir = project_dir / "edit_sessions" / session.id
+    session_dir.mkdir(parents=True)
+    for name in ("a.m4a", "b.m4a"):
+        _run_ffmpeg(
+            [
+                get_ffmpeg_path(),
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=f=440:d=2",
+                "-c:a",
+                "aac",
+                "-t",
+                "2",
+                "-y",
+                str(session_dir / name),
+            ]
+        )
+    session = session.model_copy(
+        update={
+            "sequence": [],
+            "audio_elements": [
+                AudioClipElement(
+                    id="clip-a",
+                    asset_id="asset-a",
+                    start_sec=0.0,
+                    duration_sec=2.0,
+                    volume=0.5,
+                ),
+                AudioClipElement(
+                    id="clip-b",
+                    asset_id="asset-b",
+                    start_sec=0.0,
+                    duration_sec=2.0,
+                    volume=0.5,
+                ),
+            ],
+            "audio_assets": [
+                AudioAssetMeta(
+                    id="asset-a",
+                    name="a",
+                    path=f"edit_sessions/{session.id}/a.m4a",
+                    duration_sec=2.0,
+                ),
+                AudioAssetMeta(
+                    id="asset-b",
+                    name="b",
+                    path=f"edit_sessions/{session.id}/b.m4a",
+                    duration_sec=2.0,
+                ),
+            ],
+        }
+    )
+    monkeypatch.setattr(
+        "backend.pipeline.edit_renderer.get_project_directory",
+        lambda _project_id: project_dir,
+    )
+    captured: dict[str, list[str]] = {"cmds": []}
+    original_run = subprocess.run
+
+    def spy_run(cmd, *args, **kwargs):
+        if get_ffmpeg_path() in cmd[0]:
+            captured["cmds"].append(cmd)
+        return original_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr("backend.pipeline.edit_renderer.subprocess.run", spy_run)
+    out = project_dir / "mix.aac"
+    assert _render_timeline_audio_clips(session, project_dir, out, total_duration=2.0) is True
+    filter_arg = next(
+        cmd[cmd.index("-filter_complex") + 1]
+        for cmd in captured["cmds"]
+        if "-filter_complex" in cmd
+    )
+    assert "normalize=0" in filter_arg
+
+
 def test_compositor_mux_e2e_dissolve_session(tmp_path, monkeypatch, ffmpeg_available):
     session = _load_session("session-dissolve.json")
     project_dir = tmp_path / "projects" / session.project_id

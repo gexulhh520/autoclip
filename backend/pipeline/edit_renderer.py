@@ -807,7 +807,7 @@ def mix_bgm_track(
     fade_in = max(0.0, float(fade_in_sec))
     fade_out = max(0.0, float(fade_out_sec))
     fade_out_start = max(0.0, duration - fade_out)
-    vol = max(0.0, min(float(bgm_volume), 1.0))
+    vol = max(0.0, min(float(bgm_volume), 2.0))
     ratio = max(2.0, min(float(duck_ratio), 20.0))
     has_video_audio = _input_has_audio_stream(video_path)
     bgm_chain = (
@@ -892,7 +892,7 @@ def _amix_audio_files(inputs: List[Path], output_path: Path) -> bool:
         cmd.extend(["-i", str(path.resolve())])
     mix_inputs = "".join(f"[{index}:a]" for index in range(len(inputs)))
     filter_complex = (
-        f"{mix_inputs}amix=inputs={len(inputs)}:duration=longest:dropout_transition=0[aout]"
+        f"{mix_inputs}amix=inputs={len(inputs)}:duration=longest:dropout_transition=0:normalize=0[aout]"
     )
     cmd.extend(
         [
@@ -983,7 +983,7 @@ def _render_timeline_audio_clips(
     else:
         filter_parts.append(
             "".join(mix_labels)
-            + f"amix=inputs={len(mix_labels)}:duration=longest:dropout_transition=0[aout]"
+            + f"amix=inputs={len(mix_labels)}:duration=longest:dropout_transition=0:normalize=0[aout]"
         )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
