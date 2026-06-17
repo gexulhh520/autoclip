@@ -13,12 +13,9 @@ export interface AdaptedElement {
   id: string
   elementType: AdaptedTrackType
   name: string
-  /** Composition / 裁切用时间（含转场叠化重叠） */
+  /** Composition / 裁切用时间 */
   startTime: number
   duration: number
-  /** 主轨 UI 展示用；未设置则与 startTime/duration 相同 */
-  displayStartTime?: number
-  displayDuration?: number
   trimStart: number
   trimEnd: number
   source: AdaptedElementSource

@@ -1,6 +1,7 @@
 import {
   findCrossTransitionAtTime,
   mapCompositionTimeToRelativeSource,
+  mapIncomingRelativeDuringCrossTransition,
 } from '../scene/timelineLayout'
 import { resolveCrossTransitionLayerState } from '../transitions/crossTransitionLayers'
 import { easeInOutCubic } from '../compositor/previewPlayhead'
@@ -49,7 +50,11 @@ const buildCrossTransitionResult = (
   // 闪黑自带余弦缓动，避免与 easeInOutCubic 叠乘导致中段发硬
   const easedProgress = kind === 'fade_black' ? progress : easeInOutCubic(progress)
   const outRelative = mapCompositionTimeToRelativeSource(outgoing, context.clampedTime)
-  const inRelative = mapCompositionTimeToRelativeSource(incoming, context.clampedTime)
+  const inRelative = mapIncomingRelativeDuringCrossTransition(
+    outgoing,
+    incoming,
+    context.clampedTime
+  )
 
   const outState = resolveCrossTransitionLayerState(kind, context.foreground, easedProgress, 'outgoing')
   const inState = resolveCrossTransitionLayerState(kind, context.foreground, easedProgress, 'incoming')

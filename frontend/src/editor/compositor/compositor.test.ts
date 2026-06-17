@@ -60,7 +60,7 @@ describe('compositor Phase 0', () => {
     expect(plan.schema_version).toBe('compositor-1')
     expect(plan.canvas.width).toBe(608)
     expect(plan.canvas.height).toBe(1080)
-    expect(plan.totalDurationSec).toBeCloseTo(6.65, 2)
+    expect(plan.totalDurationSec).toBeCloseTo(7, 2)
     expect(plan.layers.some((layer) => layer.kind === 'video_clip')).toBe(true)
     expect(plan.layers.filter((layer) => layer.kind === 'template_caption')).toHaveLength(0)
     expect(

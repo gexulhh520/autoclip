@@ -6,7 +6,7 @@ import {
   resolveCompositionPlayhead,
 } from '../scene/timelineLayout'
 import type { EditBlock } from '../../types/editSession'
-import { blockDuration } from '../../utils/editTimeline'
+import { blockDuration, blockTimelineVisualEndSec } from '../../utils/editTimeline'
 import type {
   DeleteBlocksOptions,
   SessionEditSnapshot,
@@ -26,7 +26,8 @@ const blockEffectiveContribution = (
   const timeline = buildCompositionTimeline(blocks, transitionDurationSec)
   const segment = timeline.segments[index]
   if (!segment) return blockDuration(block)
-  return segment.sourceDurationSec - segment.dissolveOutSec
+  const visualEnd = blockTimelineVisualEndSec(segment.compositionStartSec, segment.block)
+  return visualEnd - segment.compositionStartSec
 }
 
 /** Ripple：删除后前移 overlay / bookmark */

@@ -62,7 +62,7 @@ export function buildCompositionTimeline(
     })
 
     const visualEndSec = blockTimelineVisualEndSec(compositionStartSec, block)
-    compositionCursor = visualEndSec - dissolveOutSec
+    compositionCursor = visualEndSec
   }
 
   const last = segments[segments.length - 1]
@@ -115,6 +115,20 @@ export function findCrossTransitionAtTime(
 /** @deprecated 使用 findCrossTransitionAtTime */
 export const findDissolveAtTime = findCrossTransitionAtTime
 
+/** 转场叠化区内，下一段尚未到可视起点时的源内相对时间 */
+export function mapIncomingRelativeDuringCrossTransition(
+  outgoing: CompositionSegment,
+  incoming: CompositionSegment,
+  timeSec: number
+): number {
+  const dissolveEnd = blockTimelineVisualEndSec(outgoing.compositionStartSec, outgoing.block)
+  const dissolveStart = dissolveEnd - outgoing.dissolveOutSec
+  const rate = blockPlaybackRate(incoming.block)
+  const elapsed = timeSec - dissolveStart
+  const sourceTrim = blockSourceTrimDuration(incoming.block)
+  return Math.max(0, Math.min(sourceTrim, elapsed * rate))
+}
+
 /** 合成时间轴 t → 某 segment 内的源相对时间 */
 export function mapCompositionTimeToRelativeSource(
   segment: CompositionSegment,
@@ -129,7 +143,7 @@ export function mapCompositionTimeToRelativeSource(
 
 const TRACK_OFFSET_PX = 4
 
-/** 合成时间轴上的片段布局（叠化区视觉重叠） */
+/** 合成时间轴上的片段布局（转场由独立标记展示，片段不重叠排列） */
 export function buildCompositionTimelineSegments(
   blocks: EditBlock[],
   pxPerSec: number,

@@ -30,16 +30,13 @@ export function buildVideoTrimInteractiveContext(
   let minVisualStart = 0
   if (blockIndex > 0) {
     const prev = segments[blockIndex - 1]!
-    minVisualStart =
-      blockTimelineVisualEndSec(prev.startSec, prev.block) - prev.dissolveOutSec
+    minVisualStart = blockTimelineVisualEndSec(prev.startSec, prev.block)
   }
   let maxVisualEnd = compStart + maxDur / rate
   if (blockIndex < segments.length - 1) {
     const next = segments[blockIndex + 1]!
     maxVisualEnd =
-      blockTimelineVisualStartSec(next.startSec, next.block) +
-      segment.dissolveOutSec +
-      trailingGap
+      blockTimelineVisualStartSec(next.startSec, next.block) + trailingGap
   }
   return {
     compStart,

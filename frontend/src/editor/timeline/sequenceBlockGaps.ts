@@ -54,7 +54,7 @@ export function absorbBlockDurationDeltaWithGap(
   gaps[gapIndex] = Math.max(0, availableGap - endDelta)
 }
 
-/** 主轨裁切时禁止与相邻视频片段重叠（转场叠化区除外） */
+/** 主轨裁切时禁止与相邻视频片段重叠 */
 export function applyVideoHeadTrimClamp(
   session: EditSession,
   blockIndex: number,
@@ -76,8 +76,7 @@ export function applyVideoHeadTrimClamp(
   let minVisualStart = 0
   if (blockIndex > 0) {
     const prev = timeline.segments[blockIndex - 1]!
-    const prevEnd = blockTimelineVisualEndSec(prev.compositionStartSec, prev.block)
-    minVisualStart = prevEnd - prev.dissolveOutSec
+    minVisualStart = blockTimelineVisualEndSec(prev.compositionStartSec, prev.block)
   }
 
   let visualStart =
@@ -132,7 +131,7 @@ export function applyVideoTailTrimClamp(
     const next = timeline.segments[blockIndex + 1]!
     const nextStart = blockTimelineVisualStartSec(next.compositionStartSec, next.block)
     const trailingGap = session.sequence_block_gaps?.[blockIndex] ?? 0
-    maxVisualEnd = nextStart + segment.dissolveOutSec + trailingGap
+    maxVisualEnd = nextStart + trailingGap
   }
 
   let visualEnd =
@@ -226,10 +225,9 @@ export function dropCrossTransitionsBrokenByGaps(session: EditSession): boolean 
     const incoming = timeline.segments[index + 1]!
     const prevEnd = blockTimelineVisualEndSec(outgoing.compositionStartSec, outgoing.block)
     const nextStart = blockTimelineVisualStartSec(incoming.compositionStartSec, incoming.block)
-    const overlapSec = prevEnd - nextStart
-    const requiredOverlap = outgoing.dissolveOutSec
+    const separationSec = nextStart - prevEnd
 
-    if (overlapSec < requiredOverlap - 0.001) {
+    if (separationSec > 0.001) {
       outgoing.block.transition_out = 'cut'
       changed = true
     }

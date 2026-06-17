@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { EditBlock } from '../../types/editSession'
-import { buildCompositionTimelineSegments } from '../scene/timelineLayout'
-import { buildVideoTimelineDisplayLayout } from './timelineVideoDisplay'
+import {
+  buildCompositionTimeline,
+  buildCompositionTimelineSegments,
+} from '../scene/timelineLayout'
+import { buildVideoTimelineTransitionMarkers } from './timelineVideoDisplay'
 import {
   blockTimelineVisualEndSec,
   blockTimelineVisualStartSec,
@@ -23,64 +26,45 @@ const block = (
   duration_sec: durationSec,
 })
 
-describe('buildVideoTimelineDisplayLayout', () => {
-  it('keeps adjacent video blocks from overlapping when a cross transition exists', () => {
+describe('buildVideoTimelineTransitionMarkers', () => {
+  it('does not change following segment placement when transition is added', () => {
+    const blocks = [block('a', 5), block('b', 4)]
+    const without = buildCompositionTimeline(blocks, 0.35)
+    blocks[0]!.transition_out = 'dissolve'
+    const withTransition = buildCompositionTimeline(blocks, 0.35)
+
+    expect(withTransition.segments[1]!.compositionStartSec).toBeCloseTo(
+      without.segments[1]!.compositionStartSec,
+      3
+    )
+    expect(withTransition.totalDurationSec).toBeCloseTo(without.totalDurationSec, 3)
+  })
+
+  it('emits a marker on the outgoing tail without shortening clip display', () => {
     const segments = buildCompositionTimelineSegments(
       [block('a', 5, 'dissolve'), block('b', 4, 'cut')],
       50,
       0.35
     )
-    const layout = buildVideoTimelineDisplayLayout(segments)
-    const clipA = layout.clips[0]!
-    const clipB = layout.clips[1]!
-    const dissolve = segments[0]!.dissolveOutSec
+    const markers = buildVideoTimelineTransitionMarkers(segments)
+    const segA = segments[0]!
+    const visualStart = blockTimelineVisualStartSec(segA.startSec, segA.block)
+    const visualEnd = blockTimelineVisualEndSec(segA.startSec, segA.block)
+    const dissolve = segA.dissolveOutSec
 
-    expect(clipA.displayStartSec + clipA.displayDurationSec).toBeCloseTo(
-      layout.transitions[0]!.startSec,
-      3
-    )
-    expect(clipA.displayDurationSec).toBeCloseTo(5 - dissolve, 3)
-    expect(clipB.displayStartSec).toBeGreaterThanOrEqual(
-      clipA.displayStartSec + clipA.displayDurationSec - 0.001
-    )
-    expect(layout.transitions).toHaveLength(1)
-    expect(layout.transitions[0]!.durationSec).toBeCloseTo(dissolve, 3)
+    expect(markers).toHaveLength(1)
+    expect(markers[0]!.startSec).toBeCloseTo(visualEnd - dissolve, 3)
+    expect(markers[0]!.durationSec).toBeCloseTo(dissolve, 3)
+    expect(visualEnd - visualStart).toBeCloseTo(5, 3)
   })
 
-  it('shows full visual spans when there is no cross transition', () => {
+  it('omits markers when there is no cross transition', () => {
     const segments = buildCompositionTimelineSegments(
       [block('a', 5), block('b', 4)],
       50,
       0.35,
       [1]
     )
-    const layout = buildVideoTimelineDisplayLayout(segments)
-    const segA = segments[0]!
-    const segB = segments[1]!
-
-    expect(layout.transitions).toHaveLength(0)
-    expect(layout.clips[0]!.displayDurationSec).toBeCloseTo(5, 3)
-    expect(layout.clips[1]!.displayStartSec).toBeCloseTo(
-      blockTimelineVisualStartSec(segB.startSec, segB.block),
-      3
-    )
-    expect(layout.clips[0]!.displayStartSec + layout.clips[0]!.displayDurationSec).toBeLessThan(
-      layout.clips[1]!.displayStartSec
-    )
-  })
-
-  it('places the transition marker on the dissolve overlap range', () => {
-    const segments = buildCompositionTimelineSegments(
-      [block('a', 5, 'fade_black'), block('b', 4, 'cut')],
-      50,
-      0.35
-    )
-    const layout = buildVideoTimelineDisplayLayout(segments)
-    const segA = segments[0]!
-    const visualEnd = blockTimelineVisualEndSec(segA.startSec, segA.block)
-    const marker = layout.transitions[0]!
-
-    expect(marker.startSec + marker.durationSec).toBeCloseTo(visualEnd, 3)
-    expect(marker.kind).toBe('fade_black')
+    expect(buildVideoTimelineTransitionMarkers(segments)).toHaveLength(0)
   })
 })

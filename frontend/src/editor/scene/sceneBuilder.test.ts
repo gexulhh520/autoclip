@@ -43,13 +43,13 @@ const session = (blocks: EditBlock[]): EditSession => ({
 })
 
 describe('sceneBuilder', () => {
-  it('builds composition timeline with dissolve overlap', () => {
+  it('builds composition timeline without shifting clips for dissolve', () => {
     const timeline = buildCompositionTimeline(
       [block('a', 4, 'dissolve'), block('b', 3)],
       0.35
     )
-    expect(timeline.totalDurationSec).toBeCloseTo(6.65, 2)
-    expect(timeline.segments[1].compositionStartSec).toBeCloseTo(3.65, 2)
+    expect(timeline.totalDurationSec).toBeCloseTo(7, 2)
+    expect(timeline.segments[1].compositionStartSec).toBeCloseTo(4, 2)
   })
 
   it('resolves crossfade video layers', () => {

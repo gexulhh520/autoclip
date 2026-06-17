@@ -19,7 +19,7 @@ import {
 import type { AdaptedElement, AdaptedTrack } from './types'
 import { getCumulativeHeightBefore, getTrackHeight } from './trackUtils'
 import { blockTimelineVisualStartSec } from '../../../utils/editTimeline'
-import { buildVideoTimelineDisplayLayout } from '../../../editor/timeline/timelineVideoDisplay'
+import { buildVideoTimelineTransitionMarkers } from '../../../editor/timeline/timelineVideoDisplay'
 
 export const ADAPTED_TRACK_IDS = {
   main: 'track-main-video',
@@ -85,31 +85,23 @@ export function buildAdaptedTracks(params: {
     assetDurations,
   } = params
 
-  const videoLayout = buildVideoTimelineDisplayLayout(segments)
-  const displayByBlockId = new Map(
-    videoLayout.clips.map((clip) => [clip.blockId, clip] as const)
-  )
+  const transitionMarkers = buildVideoTimelineTransitionMarkers(segments)
 
-  const videoElements: AdaptedElement[] = segments.map((segment) => {
-    const display = displayByBlockId.get(segment.block.id)
-    return {
-      id: segment.block.id,
-      elementType: 'video',
-      name: segment.block.title || '片段',
-      startTime: blockTimelineVisualStartSec(segment.startSec, segment.block),
-      duration: segment.duration,
-      displayStartTime: display?.displayStartSec,
-      displayDuration: display?.displayDurationSec,
-      trimStart: segment.block.trim.in_sec,
-      trimEnd: segment.block.trim.out_sec,
-      source: {
-        kind: 'block',
-        blockId: segment.block.id,
-        videoUrl: params.getBlockVideoUrl(segment.block),
-        dissolveOutSec: segment.dissolveOutSec,
-      },
-    }
-  })
+  const videoElements: AdaptedElement[] = segments.map((segment) => ({
+    id: segment.block.id,
+    elementType: 'video',
+    name: segment.block.title || '片段',
+    startTime: blockTimelineVisualStartSec(segment.startSec, segment.block),
+    duration: segment.duration,
+    trimStart: segment.block.trim.in_sec,
+    trimEnd: segment.block.trim.out_sec,
+    source: {
+      kind: 'block',
+      blockId: segment.block.id,
+      videoUrl: params.getBlockVideoUrl(segment.block),
+      dissolveOutSec: segment.dissolveOutSec,
+    },
+  }))
 
   const captionElements: AdaptedElement[] = segments
     .filter(
@@ -190,14 +182,7 @@ export function buildAdaptedTracks(params: {
       muted: trackMuted.mainVideo,
       hidden: false,
       elements: videoElements,
-      transitionMarkers: videoLayout.transitions.map((marker) => ({
-        id: marker.id,
-        startSec: marker.startSec,
-        durationSec: marker.durationSec,
-        kind: marker.kind,
-        fromBlockId: marker.fromBlockId,
-        toBlockId: marker.toBlockId,
-      })),
+      transitionMarkers,
     },
     {
       id: ADAPTED_TRACK_IDS.caption,

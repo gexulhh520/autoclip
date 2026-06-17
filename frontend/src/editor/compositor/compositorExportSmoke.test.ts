@@ -39,7 +39,7 @@ describe('compositor export smoke (descriptor → RGBA hash)', () => {
   })
 
   it('dissolve session key frames render deterministically', () => {
-    for (const timeSec of [0, 3.8, 6.65]) {
+    for (const timeSec of [0, 3.8, 7]) {
       const hash = layerHashAt('session-dissolve.json', timeSec)
       expect(hash).toMatch(/^[a-f0-9]{64}$/)
     }

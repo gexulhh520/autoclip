@@ -11,12 +11,12 @@ import {
 const COMPILE_OPTS = { burnSubtitles: true, useSourceVideo: false }
 
 describe('EditProjectV3 migration', () => {
-  it('migrateSessionToV3 preserves dissolve timeline overlap', () => {
+  it('migrateSessionToV3 keeps clip placement stable across dissolve', () => {
     const session = loadFixtureSession('session-dissolve.json')
     const project = migrateSessionToV3(session)
     const main = project.scenes[0]?.tracks.main ?? []
     expect(main).toHaveLength(2)
-    expect(main[1]?.start_time).toBeCloseTo(3.65, 2)
+    expect(main[1]?.start_time).toBeCloseTo(4, 2)
   })
 
   it('flattenV3ToSession roundtrip preserves sequence length', () => {

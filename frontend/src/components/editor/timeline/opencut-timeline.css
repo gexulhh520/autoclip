@@ -314,7 +314,7 @@
   position: absolute;
   top: 2px;
   bottom: 2px;
-  z-index: 8;
+  z-index: 12;
   border-radius: 6px;
   overflow: hidden;
   pointer-events: none;

@@ -34,8 +34,8 @@ describe('editDissolvePreview', () => {
     expect(state?.progress).toBeGreaterThan(0)
   })
 
-  it('shortens effective duration when dissolve transitions exist', () => {
+  it('keeps full sequence duration when dissolve transitions exist', () => {
     const blocks = [block('a', 4, 'dissolve'), block('b', 3)]
-    expect(getEffectiveSequenceDuration(blocks, 0.35)).toBeCloseTo(6.65, 2)
+    expect(getEffectiveSequenceDuration(blocks, 0.35)).toBeCloseTo(7, 2)
   })
 })

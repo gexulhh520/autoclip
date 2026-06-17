@@ -60,7 +60,7 @@ const baseSession = (): EditSession => ({
     {
       id: 'text-1',
       type: 'text',
-      start_sec: 4,
+      start_sec: 4.5,
       duration_sec: 2,
       hidden: false,
       params: writeParam(
@@ -74,7 +74,7 @@ const baseSession = (): EditSession => ({
     {
       id: 'sfx-1',
       asset_id: 'asset-sfx',
-      start_sec: 4,
+      start_sec: 4.5,
       duration_sec: 1,
       block_id: 'b2',
       block_offset_sec: 0.5,
@@ -86,12 +86,12 @@ const baseSession = (): EditSession => ({
 })
 
 describe('reconcileTimelineBlockLinks', () => {
-  it('shifts linked text and sfx when earlier block gets a cross transition', () => {
+  it('does not shift linked text and sfx when earlier block gets a cross transition', () => {
     const session = baseSession()
     session.sequence[0].transition_out = 'fade_black'
-    expect(reconcileTimelineBlockLinks(session)).toBe(true)
-    expect(session.overlay_elements![0].start_sec).toBeCloseTo(3.8, 2)
-    expect(session.audio_elements![0].start_sec).toBeCloseTo(3.8, 2)
+    expect(reconcileTimelineBlockLinks(session)).toBe(false)
+    expect(session.overlay_elements![0].start_sec).toBeCloseTo(4.5, 2)
+    expect(session.audio_elements![0].start_sec).toBeCloseTo(4.5, 2)
   })
 
   it('shifts linked text and sfx when block in point advances', () => {

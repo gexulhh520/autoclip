@@ -3,7 +3,6 @@ import { TIMELINE_CONSTANTS } from '../constants'
 import { getCumulativeHeightBefore } from '../trackUtils'
 import { TRACK_HEIGHTS } from '../constants'
 import type { AdaptedTrack } from '../types'
-import { adaptedElementTimelineDuration, adaptedElementTimelineStart } from '../trackUtils'
 import {
   normalizeSelectionRect,
   rectsIntersect,
@@ -55,11 +54,9 @@ function resolveItemsInBox(tracks: AdaptedTrack[], box: SelectionRect, zoomLevel
     const elementRectBase = { top: trackTop, bottom: trackBottom }
 
     for (const element of track.elements) {
-      const start = adaptedElementTimelineStart(element)
-      const duration = adaptedElementTimelineDuration(element)
       const elementRect: SelectionRect = {
-        left: start * pixelsPerSecond,
-        right: (start + duration) * pixelsPerSecond,
+        left: element.startTime * pixelsPerSecond,
+        right: (element.startTime + element.duration) * pixelsPerSecond,
         ...elementRectBase,
       }
       if (!rectsIntersect(box, elementRect)) continue

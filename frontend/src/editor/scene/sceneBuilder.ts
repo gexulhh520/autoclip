@@ -14,6 +14,7 @@ import {
   buildCompositionTimeline,
   findCrossTransitionAtTime,
   mapCompositionTimeToRelativeSource,
+  mapIncomingRelativeDuringCrossTransition,
 } from './timelineLayout'
 import { resolveCrossTransitionLayerState } from '../transitions/crossTransitionLayers'
 import { easeInOutCubic } from '../compositor/previewPlayhead'
@@ -177,7 +178,7 @@ export function resolveSceneAt(
     const { outgoing, incoming, progress, kind } = cross
     const easedProgress = kind === 'fade_black' ? progress : easeInOutCubic(progress)
     const outRelative = mapCompositionTimeToRelativeSource(outgoing, clampedTime)
-    const inRelative = mapCompositionTimeToRelativeSource(incoming, clampedTime)
+    const inRelative = mapIncomingRelativeDuringCrossTransition(outgoing, incoming, clampedTime)
     const foreground = { x: 0, y: 0, width: canvas.width, height: canvas.height }
     const outState = resolveCrossTransitionLayerState(kind, foreground, easedProgress, 'outgoing')
     const inState = resolveCrossTransitionLayerState(kind, foreground, easedProgress, 'incoming')
