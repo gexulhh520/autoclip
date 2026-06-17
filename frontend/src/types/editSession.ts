@@ -43,6 +43,10 @@ export interface AudioClipElement {
   fade_in_sec?: number
   fade_out_sec?: number
   hidden?: boolean
+  /** 联动：所属视频片段 id（音效默认联动） */
+  block_id?: string
+  /** 联动：相对片段 composition 起点的偏移秒 */
+  block_offset_sec?: number
 }
 
 export interface EditBlockMedia {

@@ -64,6 +64,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const sequencePlayheadSec = useEditSessionStore((state) => state.sequencePlayheadSec)
   const snapEnabled = useEditSessionStore((state) => state.snapEnabled)
   const rippleTrimEnabled = useEditSessionStore((state) => state.rippleTrimEnabled)
+  const timelineBlockLinkEnabled = useEditSessionStore((state) => state.timelineBlockLinkEnabled)
   const timelineTrackMuted = useEditSessionStore((state) => state.timelineTrackMuted)
   const timelineTrackHidden = useEditSessionStore((state) => state.timelineTrackHidden)
   const textTrackMuted = useEditSessionStore((state) => state.textTrackMuted)
@@ -81,6 +82,13 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const setSequencePlayheadSec = useEditSessionStore((state) => state.setSequencePlayheadSec)
   const setSnapEnabled = useEditSessionStore((state) => state.setSnapEnabled)
   const setRippleTrimEnabled = useEditSessionStore((state) => state.setRippleTrimEnabled)
+  const setTimelineBlockLinkEnabled = useEditSessionStore((state) => state.setTimelineBlockLinkEnabled)
+  const syncTimelineBlockLinkForOverlay = useEditSessionStore(
+    (state) => state.syncTimelineBlockLinkForOverlay
+  )
+  const syncTimelineBlockLinkForAudioClip = useEditSessionStore(
+    (state) => state.syncTimelineBlockLinkForAudioClip
+  )
   const toggleTimelineTrackMuted = useEditSessionStore((state) => state.toggleTimelineTrackMuted)
   const toggleTimelineTrackHidden = useEditSessionStore((state) => state.toggleTimelineTrackHidden)
   const toggleTextTrackMuted = useEditSessionStore((state) => state.toggleTextTrackMuted)
@@ -498,6 +506,17 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     const onUp = () => {
       setSnapPoint(null)
       setDragTargetTrackId(null)
+      if (element.source.kind === 'overlay') {
+        if (groupOverlayIds.length > 0) {
+          for (const overlayId of groupOverlayIds) {
+            syncTimelineBlockLinkForOverlay(overlayId)
+          }
+        } else {
+          syncTimelineBlockLinkForOverlay(element.source.overlayId)
+        }
+      } else if (element.source.kind === 'audio_clip') {
+        syncTimelineBlockLinkForAudioClip(element.source.clipId)
+      }
       if (
         element.source.kind === 'overlay' &&
         pendingTargetTextTrackId &&
@@ -696,8 +715,10 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         onZoomChange={setZoomLevel}
         snapEnabled={snapEnabled}
         rippleEnabled={rippleTrimEnabled}
+        blockLinkEnabled={timelineBlockLinkEnabled}
         onToggleSnap={() => setSnapEnabled(!snapEnabled)}
         onToggleRipple={() => setRippleTrimEnabled(!rippleTrimEnabled)}
+        onToggleBlockLink={() => setTimelineBlockLinkEnabled(!timelineBlockLinkEnabled)}
         onSplit={splitSelectionAtPlayhead}
         onDelete={() => {
           if (selectedAudioClipId) removeAudioClip(selectedAudioClipId)

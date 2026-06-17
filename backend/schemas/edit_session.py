@@ -219,6 +219,8 @@ class AudioClipElement(BaseModel):
     fade_in_sec: Optional[float] = None
     fade_out_sec: Optional[float] = None
     hidden: bool = False
+    block_id: Optional[str] = None
+    block_offset_sec: Optional[float] = None
 
 
 EditAspectPreset = Literal[

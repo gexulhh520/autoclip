@@ -49,9 +49,11 @@ import {
 } from '../editor/audioTracks'
 import { resolveCanvasDimensions } from '../editor/scene/canvas'
 import {
-  buildCompositorRuntimeParams,
-  runCompositorExportAndMux,
-} from '../editor/compositor/runCompositorExport'
+  attachAudioClipBlockLink,
+  attachOverlayBlockLink,
+  ensureBlockLinksForUnlinkedElements,
+  reconcileTimelineBlockLinks,
+} from '../editor/timeline/timelineBlockLink'
 import { isTauriApp } from '../utils/desktopMode'
 import {
   normalizeExportDirectory,
@@ -185,6 +187,8 @@ interface EditSessionState {
   useCompositorExport: boolean
   snapEnabled: boolean
   rippleTrimEnabled: boolean
+  /** 文本/音效随所属视频片段联动（转场导致时间轴缩短时同步移动） */
+  timelineBlockLinkEnabled: boolean
   inspectorTab: 'video' | 'audio' | 'text' | 'animation' | 'transition'
   editorClipboard: EditorClipboard | null
   historyPast: EditorHistorySnapshot[]
@@ -247,6 +251,9 @@ interface EditSessionState {
   duplicateOverlay: (overlayId: string, startSec?: number) => void
   duplicateAudioClip: (clipId: string, startSec?: number) => void
   setSnapEnabled: (enabled: boolean) => void
+  setTimelineBlockLinkEnabled: (enabled: boolean) => void
+  syncTimelineBlockLinkForOverlay: (elementId: string) => void
+  syncTimelineBlockLinkForAudioClip: (clipId: string) => void
   rippleTrimEnabled: boolean
   setRippleTrimEnabled: (enabled: boolean) => void
   previewZoom: number
@@ -502,6 +509,7 @@ export const useEditSessionStore = create<EditSessionState>()(
       useCompositorExport: isTauriApp(),
       snapEnabled: true,
       rippleTrimEnabled: true,
+      timelineBlockLinkEnabled: true,
       inspectorTab: 'video',
       editorClipboard: null,
       historyPast: [],
@@ -577,6 +585,12 @@ export const useEditSessionStore = create<EditSessionState>()(
             migrated = true
           }
           const finalSession = document.session
+          if (ensureBlockLinksForUnlinkedElements(finalSession)) {
+            migrated = true
+          }
+          if (reconcileTimelineBlockLinks(finalSession)) {
+            migrated = true
+          }
           if (!finalSession.bookmarks) {
             finalSession.bookmarks = []
           }
@@ -968,6 +982,38 @@ export const useEditSessionStore = create<EditSessionState>()(
       },
 
       setSnapEnabled: (enabled) => set({ snapEnabled: enabled }),
+      setTimelineBlockLinkEnabled: (enabled) => {
+        set((state) => {
+          state.timelineBlockLinkEnabled = enabled
+          if (enabled && state.session) {
+            if (ensureBlockLinksForUnlinkedElements(state.session)) {
+              state.dirty = true
+            }
+            if (ensureTemplateCaptionOverlays(state.session)) {
+              state.dirty = true
+            }
+            if (reconcileTimelineBlockLinks(state.session)) {
+              state.dirty = true
+            }
+          }
+        })
+      },
+      syncTimelineBlockLinkForOverlay: (elementId) => {
+        set((state) => {
+          if (!state.session?.overlay_elements || !state.timelineBlockLinkEnabled) return
+          const element = state.session.overlay_elements.find((item) => item.id === elementId)
+          if (!element) return
+          if (attachOverlayBlockLink(state.session, element)) state.dirty = true
+        })
+      },
+      syncTimelineBlockLinkForAudioClip: (clipId) => {
+        set((state) => {
+          if (!state.session?.audio_elements || !state.timelineBlockLinkEnabled) return
+          const clip = state.session.audio_elements.find((item) => item.id === clipId)
+          if (!clip) return
+          if (attachAudioClipBlockLink(state.session, clip)) state.dirty = true
+        })
+      },
       setRippleTrimEnabled: (enabled) => set({ rippleTrimEnabled: enabled }),
       setPreviewZoom: (zoom) => set({ previewZoom: Math.min(150, Math.max(50, zoom)) }),
       setPreviewBurnSubtitles: (enabled) => {
@@ -1248,6 +1294,10 @@ export const useEditSessionStore = create<EditSessionState>()(
             id,
             start_sec: Math.max(0, nextStart),
           })
+          const created = state.session.overlay_elements.find((item) => item.id === id)
+          if (created && state.timelineBlockLinkEnabled) {
+            attachOverlayBlockLink(state.session, created)
+          }
           state.selectedOverlayId = id
           state.selectedOverlayIds = [id]
           state.dirty = true
@@ -1272,6 +1322,10 @@ export const useEditSessionStore = create<EditSessionState>()(
             id,
             start_sec: Math.max(0, nextStart),
           })
+          const created = state.session.audio_elements.find((item) => item.id === id)
+          if (created && state.timelineBlockLinkEnabled) {
+            attachAudioClipBlockLink(state.session, created)
+          }
           state.selectedAudioClipId = id
           state.dirty = true
         })
@@ -1609,6 +1663,10 @@ export const useEditSessionStore = create<EditSessionState>()(
             track_id: trackId,
             params: { ...base.params, ...(partial?.params ?? {}) },
           })
+          const created = state.session.overlay_elements.find((item) => item.id === id)
+          if (created && state.timelineBlockLinkEnabled) {
+            attachOverlayBlockLink(state.session, created)
+          }
           state.selectedOverlayId = id
           state.selectedOverlayIds = [id]
           state.selectedBlockId = null
@@ -1987,9 +2045,20 @@ export const useEditSessionStore = create<EditSessionState>()(
       updateAudioSettings: (settings) => {
         set((state) => {
           if (!state.session) return
+          const prev = state.session.audio_settings
           state.session.audio_settings = {
-            ...state.session.audio_settings,
+            ...prev,
             ...settings,
+          }
+          const transitionDurationChanged =
+            settings.transition_duration_sec != null &&
+            settings.transition_duration_sec !== prev.transition_duration_sec
+          if (
+            state.timelineBlockLinkEnabled &&
+            transitionDurationChanged
+          ) {
+            ensureTemplateCaptionOverlays(state.session)
+            reconcileTimelineBlockLinks(state.session)
           }
           state.dirty = true
         })
@@ -2082,6 +2151,10 @@ export const useEditSessionStore = create<EditSessionState>()(
           const block = state.session.sequence.find((item) => item.id === blockId)
           if (!block) return
           block.transition_out = transition
+          if (state.timelineBlockLinkEnabled) {
+            ensureTemplateCaptionOverlays(state.session)
+            reconcileTimelineBlockLinks(state.session)
+          }
           state.dirty = true
         })
       },
@@ -2185,6 +2258,9 @@ export const useEditSessionStore = create<EditSessionState>()(
               category === 'sfx' ? 0.08 : state.session.audio_settings.fade_out_sec,
           }
           state.session.audio_elements!.push(clip)
+          if (state.timelineBlockLinkEnabled && category === 'sfx') {
+            attachAudioClipBlockLink(state.session, clip)
+          }
           state.selectedAudioClipId = clipId
           state.activeAudioTrackId = trackId
           state.dirty = true

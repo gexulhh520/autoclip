@@ -11,6 +11,8 @@ import {
   Trash2,
   Undo2,
   Redo2,
+  Unlink2,
+  Anchor,
 } from 'lucide-react'
 import { TIMELINE_CONSTANTS } from './constants'
 import { sliderToZoom, zoomToSlider } from './zoomUtils'
@@ -21,8 +23,10 @@ interface TimelineToolbarProps {
   onZoomChange: (zoom: number) => void
   snapEnabled: boolean
   rippleEnabled: boolean
+  blockLinkEnabled: boolean
   onToggleSnap: () => void
   onToggleRipple: () => void
+  onToggleBlockLink: () => void
   onSplit: () => void
   onDelete: () => void
   onCopy: () => void
@@ -45,8 +49,10 @@ const TimelineToolbar: React.FC<TimelineToolbarProps> = ({
   onZoomChange,
   snapEnabled,
   rippleEnabled,
+  blockLinkEnabled,
   onToggleSnap,
   onToggleRipple,
+  onToggleBlockLink,
   onSplit,
   onDelete,
   onCopy,
@@ -109,6 +115,17 @@ const TimelineToolbar: React.FC<TimelineToolbarProps> = ({
         </ToolbarButton>
         <ToolbarButton title="Ripple" active={rippleEnabled} onClick={onToggleRipple}>
           <Link2 size={16} />
+        </ToolbarButton>
+        <ToolbarButton
+          title={
+            blockLinkEnabled
+              ? '片段联动：文本/音效随视频片段移动（点击关闭）'
+              : '联动已关闭：文本/音效保持绝对时间（点击开启）'
+          }
+          active={blockLinkEnabled}
+          onClick={onToggleBlockLink}
+        >
+          {blockLinkEnabled ? <Anchor size={16} /> : <Unlink2 size={16} />}
         </ToolbarButton>
         <span className="oc-timeline__toolbar-divider" />
         <ToolbarButton title="缩小" onClick={() => handleZoom('out')}>
