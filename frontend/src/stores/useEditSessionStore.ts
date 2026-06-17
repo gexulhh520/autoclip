@@ -2037,6 +2037,9 @@ export const useEditSessionStore = create<EditSessionState>()(
             }
           }
           syncTemplateOverlaysForBlock(state.session, blockId)
+          if (state.timelineBlockLinkEnabled) {
+            reconcileTimelineBlockLinks(state.session)
+          }
           state.dirty = true
         })
         set({ sequencePlayheadSec: clampPlayhead(get().sequencePlayheadSec) })

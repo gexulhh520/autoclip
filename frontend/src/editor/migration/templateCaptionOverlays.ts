@@ -1,8 +1,9 @@
 import type { EditBlock, EditOverlayElement, EditSession } from '../../types/editSession'
 import { OPENCUT_TEXT_DEFAULTS } from '../opencut-text/defaults'
 import { normalizedToPosition } from '../opencut-text/transform'
-import { resolveCanvasDimensions } from '../scene/canvas'
+import { blockTimelineVisualStartSec } from '../../utils/editTimeline'
 import { buildCompositionTimeline } from '../scene/timelineLayout'
+import { resolveCanvasDimensions } from '../scene/canvas'
 import { compileTemplateCaptionToFreeTextLayers } from '../compositor/templateCaptionOpenCut'
 import type { FreeTextLayerDef } from '../compositor/types'
 import { readStringParam, type TextElementParams } from '../opencut-text/params'
@@ -175,10 +176,11 @@ const compileLayersForBlock = (
   const segment = findSegmentForBlock(session, blockId)
   if (!segment) return []
   const { width, height } = resolveCanvasDimensions(session.export_settings)
+  const visualStartSec = blockTimelineVisualStartSec(segment.compositionStartSec, segment.block)
   const fromTemplate = compileTemplateCaptionToFreeTextLayers(
     segment.block,
     segment.index,
-    segment.compositionStartSec,
+    visualStartSec,
     segment.sourceDurationSec,
     session,
     width,
@@ -217,7 +219,7 @@ const buildFallbackTemplateLayers = (
       kind: 'free_text' as const,
       elementId: `template:${block.id}:${role}`,
       trackId: templateNarrationTrackId(role),
-      startSec: segment.compositionStartSec,
+      startSec: blockTimelineVisualStartSec(segment.compositionStartSec, block),
       durationSec: Math.max(segment.sourceDurationSec, 0.05),
       hidden: false,
       params: {

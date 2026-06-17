@@ -1,4 +1,5 @@
 import type { AudioClipElement, EditOverlayElement, EditSession } from '../../types/editSession'
+import { blockTimelineVisualStartSec } from '../../utils/editTimeline'
 import { readNumberParam, readStringParam, writeParam } from '../opencut-text/params'
 import { buildCompositionTimeline } from '../scene/timelineLayout'
 import type { CompositionSegment } from '../scene/types'
@@ -15,6 +16,11 @@ export function buildSessionCompositionTimeline(session: EditSession) {
   return buildCompositionTimeline(session.sequence, transitionDurationSec(session))
 }
 
+/** 片段在时间轴上的可视起点（含入点裁剪），联动偏移相对此位置 */
+export function blockLinkAnchorSec(segment: CompositionSegment): number {
+  return blockTimelineVisualStartSec(segment.compositionStartSec, segment.block)
+}
+
 export function findSegmentAtCompositionTime(
   session: EditSession,
   timeSec: number
@@ -23,8 +29,9 @@ export function findSegmentAtCompositionTime(
   if (timeline.segments.length === 0) return null
 
   for (const segment of timeline.segments) {
-    const end = segment.compositionStartSec + segment.sourceDurationSec
-    if (timeSec >= segment.compositionStartSec - 0.001 && timeSec < end + 0.001) {
+    const anchor = blockLinkAnchorSec(segment)
+    const end = anchor + segment.sourceDurationSec
+    if (timeSec >= anchor - 0.001 && timeSec < end + 0.001) {
       return segment
     }
   }
@@ -53,7 +60,7 @@ export function attachOverlayBlockLink(
   const anchor = startSec ?? element.start_sec
   const segment = findSegmentAtCompositionTime(session, anchor + 0.001)
   if (!segment) return false
-  const offsetSec = Math.max(0, anchor - segment.compositionStartSec)
+  const offsetSec = Math.max(0, anchor - blockLinkAnchorSec(segment))
   element.params = writeParam(element.params, TIMELINE_BLOCK_ID_PARAM, segment.block.id)
   element.params = writeParam(element.params, TIMELINE_BLOCK_OFFSET_PARAM, offsetSec)
   return true
@@ -80,7 +87,7 @@ export function attachAudioClipBlockLink(
   const segment = findSegmentAtCompositionTime(session, anchor + 0.001)
   if (!segment) return false
   clip.block_id = segment.block.id
-  clip.block_offset_sec = Math.max(0, anchor - segment.compositionStartSec)
+  clip.block_offset_sec = Math.max(0, anchor - blockLinkAnchorSec(segment))
   return true
 }
 
@@ -119,7 +126,7 @@ export function reconcileTimelineBlockLinks(session: EditSession): boolean {
     if (!link) continue
     const segment = timeline.segments.find((item) => item.block.id === link.blockId)
     if (!segment) continue
-    const nextStart = segment.compositionStartSec + link.offsetSec
+    const nextStart = blockLinkAnchorSec(segment) + link.offsetSec
     if (Math.abs(element.start_sec - nextStart) > 0.001) {
       element.start_sec = nextStart
       changed = true
@@ -131,7 +138,7 @@ export function reconcileTimelineBlockLinks(session: EditSession): boolean {
     if (!shouldLinkAudioClip(session, clip)) continue
     const segment = timeline.segments.find((item) => item.block.id === clip.block_id)
     if (!segment) continue
-    const nextStart = segment.compositionStartSec + clip.block_offset_sec
+    const nextStart = blockLinkAnchorSec(segment) + clip.block_offset_sec
     if (Math.abs(clip.start_sec - nextStart) > 0.001) {
       clip.start_sec = nextStart
       changed = true

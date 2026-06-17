@@ -90,10 +90,43 @@ describe('reconcileTimelineBlockLinks', () => {
     expect(session.overlay_elements![0].start_sec).toBeCloseTo(3.8, 2)
     expect(session.audio_elements![0].start_sec).toBeCloseTo(3.8, 2)
   })
+
+  it('shifts linked text and sfx when block in point advances', () => {
+    const session = baseSession()
+    session.sequence = [session.sequence[0]]
+    session.overlay_elements = [
+      {
+        id: 'text-1',
+        type: 'text',
+        start_sec: 0.5,
+        duration_sec: 1,
+        hidden: false,
+        params: writeParam(
+          writeParam({}, TIMELINE_BLOCK_ID_PARAM, 'b1'),
+          TIMELINE_BLOCK_OFFSET_PARAM,
+          0.5
+        ),
+      },
+    ]
+    session.audio_elements = [
+      {
+        id: 'sfx-1',
+        asset_id: 'asset-sfx',
+        start_sec: 0.5,
+        duration_sec: 0.3,
+        block_id: 'b1',
+        block_offset_sec: 0.5,
+      },
+    ]
+    session.sequence[0].trim.in_sec = 2
+    expect(reconcileTimelineBlockLinks(session)).toBe(true)
+    expect(session.overlay_elements![0].start_sec).toBeCloseTo(2.5, 2)
+    expect(session.audio_elements![0].start_sec).toBeCloseTo(2.5, 2)
+  })
 })
 
 describe('attachOverlayBlockLink', () => {
-  it('stores block offset from composition start', () => {
+  it('stores block offset from visible clip start', () => {
     const session = baseSession()
     const element = {
       id: 't2',
