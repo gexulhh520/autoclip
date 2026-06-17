@@ -5,7 +5,7 @@ import {
   buildCompositionTimelineSegments,
   mapRelativeSourceToCompositionTime,
   renderSceneToPreviewViewModel,
-  resolveCompositionPlayhead,
+  resolveVideoEndedHandoff,
   resolveSceneAt,
 } from '../../editor/scene'
 import { getBlockVideoUrl } from '../../utils/editBlockMedia'
@@ -299,40 +299,29 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     advanceSequencePlayhead(nextPlayhead)
   }
 
-  const handleVideoEnded = () => {
+  const handleVideoEnded = (endedBlockId: string) => {
     if (isAssetPreview) {
       setPlaying(false)
       return
     }
 
     const playhead = useEditSessionStore.getState().sequencePlayheadSec
-    const atCompositionEnd = playhead >= totalDuration - 0.05
-
-    if (previewVm?.inDissolve && !atCompositionEnd) {
-      return
-    }
-
-    const resolved = resolveCompositionPlayhead(playhead, compositionSegments)
-    if (!resolved) {
-      setSequencePlayheadSec(totalDuration)
-      return
-    }
-
-    const index = compositionSegments.findIndex(
-      (item) => item.block.id === resolved.segment.block.id
+    const handoff = resolveVideoEndedHandoff(
+      compositionTimeline,
+      playhead,
+      endedBlockId,
+      totalDuration
     )
 
-    if (!atCompositionEnd && index >= 0 && index < compositionSegments.length - 1) {
-      const nextSegment = compositionSegments[index + 1]
-      // 转场结束后 incoming 已在 next 段中间播放，勿因 outgoing ended 回跳
-      if (playhead >= nextSegment.startSec + 0.05) {
-        return
-      }
-      advanceSequencePlayhead(nextSegment.startSec + 0.02)
+    if (!handoff) return
+
+    if (handoff.stopPlayback) {
+      setSequencePlayheadSec(handoff.nextPlayheadSec)
+      setPlaying(false)
       return
     }
 
-    setSequencePlayheadSec(totalDuration)
+    advanceSequencePlayhead(handoff.nextPlayheadSec)
   }
 
   const toggleFullscreen = async () => {

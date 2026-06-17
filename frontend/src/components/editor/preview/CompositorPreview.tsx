@@ -43,7 +43,7 @@ export interface CompositorPreviewProps {
   blockSourceSizes?: Record<string, { width: number; height: number }>
   onMetadata: (video: HTMLVideoElement) => void
   onTimeUpdate: (video: HTMLVideoElement) => void
-  onEnded: () => void
+  onEnded: (endedBlockId: string) => void
   onSelectOverlay?: (
     overlayId: string | null,
     options?: { additive?: boolean; seekPlayhead?: boolean }
@@ -240,7 +240,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       const target = getSourceTimeForBlock(layer.block, layer.relativeSourceSec)
 
       if (isPlaying) {
-        if (blockChanged || Math.abs(video.currentTime - target) > 0.35) {
+        if (blockChanged) {
           video.currentTime = target
           mountedSlotBlockRef.current[mountedKey] = blockId
         }
@@ -371,7 +371,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
           if (isClock) onTimeUpdate(event.currentTarget)
         }}
         onEnded={() => {
-          if (isClock) onEnded()
+          if (isClock && clockBlockId) onEnded(clockBlockId)
         }}
       />
     )
