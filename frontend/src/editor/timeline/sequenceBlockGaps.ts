@@ -1,4 +1,5 @@
 import type { EditBlock, EditSession } from '../../types/editSession'
+import { isCrossTransition } from '../../types/transitions'
 import {
   blockPlaybackRate,
   blockTimelineVisualEndSec,
@@ -202,4 +203,37 @@ export function insertSequenceBlockGapAt(session: EditSession, gapIndex: number)
 
 export function clearSequenceBlockGaps(session: EditSession): void {
   session.sequence_block_gaps = []
+}
+
+/**
+ * 主轨磁吸关闭时：相邻片段可视间距超过叠化区则移除转场（硬切），且不自动恢复。
+ * 开启磁吸时片段间距由 ripple 维持，通常不会触发。
+ */
+export function dropCrossTransitionsBrokenByGaps(session: EditSession): boolean {
+  if (session.sequence.length < 2) return false
+
+  const timeline = buildCompositionTimeline(
+    session.sequence,
+    transitionDurationSec(session),
+    session.sequence_block_gaps
+  )
+  let changed = false
+
+  for (let index = 0; index < timeline.segments.length - 1; index += 1) {
+    const outgoing = timeline.segments[index]!
+    if (!isCrossTransition(outgoing.block.transition_out)) continue
+
+    const incoming = timeline.segments[index + 1]!
+    const prevEnd = blockTimelineVisualEndSec(outgoing.compositionStartSec, outgoing.block)
+    const nextStart = blockTimelineVisualStartSec(incoming.compositionStartSec, incoming.block)
+    const overlapSec = prevEnd - nextStart
+    const requiredOverlap = outgoing.dissolveOutSec
+
+    if (overlapSec < requiredOverlap - 0.001) {
+      outgoing.block.transition_out = 'cut'
+      changed = true
+    }
+  }
+
+  return changed
 }

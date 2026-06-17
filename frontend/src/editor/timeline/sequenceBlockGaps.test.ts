@@ -8,6 +8,7 @@ import { buildCompositionTimeline } from '../scene/timelineLayout'
 import {
   absorbBlockDurationDeltaWithGap,
   applyVideoHeadTrimClamp,
+  dropCrossTransitionsBrokenByGaps,
 } from './sequenceBlockGaps'
 
 const block = (
@@ -98,5 +99,49 @@ describe('sequenceBlockGaps', () => {
     const end0 = blockTimelineVisualEndSec(seg0.compositionStartSec, seg0.block)
     const start1 = blockTimelineVisualStartSec(seg1.compositionStartSec, seg1.block)
     expect(start1).toBeGreaterThanOrEqual(end0 - 0.001)
+  })
+
+  it('removes cross transition when tail shorten opens gap beyond dissolve duration', () => {
+    const first = block('a', 5)
+    first.transition_out = 'dissolve'
+    const session = sessionWith([first, block('b', 5)])
+
+    const trimmed = session.sequence[0]!
+    const oldTrim = { in_sec: trimmed.trim.in_sec, out_sec: trimmed.trim.out_sec }
+    trimmed.trim.out_sec = 3
+    absorbBlockDurationDeltaWithGap(session, 0, oldTrim, trimmed)
+
+    expect(session.sequence_block_gaps![0]).toBeGreaterThan(0.35)
+    expect(dropCrossTransitionsBrokenByGaps(session)).toBe(true)
+    expect(session.sequence[0]!.transition_out).toBe('cut')
+  })
+
+  it('does not restore cross transition when clip is lengthened again', () => {
+    const first = block('a', 5)
+    first.transition_out = 'dissolve'
+    const session = sessionWith([first, block('b', 5)])
+
+    const trimmed = session.sequence[0]!
+    const oldTrim = { in_sec: trimmed.trim.in_sec, out_sec: trimmed.trim.out_sec }
+    trimmed.trim.out_sec = 3
+    absorbBlockDurationDeltaWithGap(session, 0, oldTrim, trimmed)
+    dropCrossTransitionsBrokenByGaps(session)
+    expect(session.sequence[0]!.transition_out).toBe('cut')
+
+    session.sequence_block_gaps![0] = 0
+    trimmed.trim.out_sec = 5
+    expect(dropCrossTransitionsBrokenByGaps(session)).toBe(false)
+    expect(session.sequence[0]!.transition_out).toBe('cut')
+  })
+
+  it('removes cross transition when head trim separates clips beyond dissolve duration', () => {
+    const first = block('a', 5)
+    first.transition_out = 'fade_black'
+    const second = block('b', 5)
+    const session = sessionWith([first, second])
+
+    second.trim.in_sec = 1
+    expect(dropCrossTransitionsBrokenByGaps(session)).toBe(true)
+    expect(session.sequence[0]!.transition_out).toBe('cut')
   })
 })

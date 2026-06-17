@@ -71,6 +71,7 @@ import {
   insertSequenceBlockGapAt,
   removeSequenceBlockGapAt,
   clearSequenceBlockGaps,
+  dropCrossTransitionsBrokenByGaps,
 } from '../editor/timeline/sequenceBlockGaps'
 import {
   applyInteractiveVideoHeadTrim,
@@ -2157,6 +2158,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           }
           if (!rippleTrimEnabled) {
             absorbBlockDurationDeltaWithGap(state.session, blockIndex, oldTrim, block)
+            dropCrossTransitionsBrokenByGaps(state.session)
           }
           if (rippleTrimEnabled && trim.out_sec !== undefined && nextOut < prevOut) {
             const delta = prevOut - block.trim.out_sec
