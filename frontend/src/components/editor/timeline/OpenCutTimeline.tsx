@@ -33,6 +33,7 @@ import {
   clampStartAvoidingOverlap,
   getTrackSiblingRanges,
 } from '../../../editor/timeline/timelineOverlap'
+import { buildVideoTrimInteractiveContext } from '../../../editor/timeline/videoTrimInteractive'
 import type { AdaptedElement, AdaptedTrack, SnapPoint } from './types'
 import { EditorShortcutsHost } from './useEditorKeyboardShortcuts'
 import './opencut-timeline.css'
@@ -50,6 +51,20 @@ interface ContextMenuState {
 
 interface WaveformMap {
   [blockId: string]: number[]
+}
+
+/** 将高频 pointermove 合并到每帧最多一次 store 更新 */
+function rafPointerMove(handler: (event: PointerEvent) => void): (event: PointerEvent) => void {
+  let rafId = 0
+  let lastEvent: PointerEvent | null = null
+  return (event: PointerEvent) => {
+    lastEvent = event
+    if (rafId) return
+    rafId = requestAnimationFrame(() => {
+      rafId = 0
+      if (lastEvent) handler(lastEvent)
+    })
+  }
 }
 
 const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
@@ -588,35 +603,83 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       const block = blocks.find((item) => item.id === blockId)
       if (!block) return
       const maxDur = block.duration_sec > 0 ? block.duration_sec : Math.max(block.trim.out_sec, 5)
-      const initialIn = block.trim.in_sec
-      const initialOut = block.trim.out_sec
-      const segment = segments.find((item) => item.block.id === blockId)
-      const compStart = segment?.startSec ?? 0
-      const initialVisualStart = blockTimelineVisualStartSec(compStart, block)
-      const initialVisualEnd = blockTimelineVisualEndSec(compStart, block)
-      updateBlockTrim(block.id, { in_sec: initialIn, out_sec: initialOut }, { recordHistory: true })
+      const blockIndex = blocks.findIndex((item) => item.id === blockId)
+      const segment = segments[blockIndex]
+      if (!segment) return
+      const initialVisualStart = blockTimelineVisualStartSec(segment.startSec, block)
+      const initialVisualEnd = blockTimelineVisualEndSec(segment.startSec, block)
+      const trimContext = buildVideoTrimInteractiveContext(
+        block,
+        blockIndex,
+        segments,
+        maxDur,
+        session?.sequence_block_gaps?.[blockIndex] ?? 0
+      )
+      if (!trimContext) return
 
-      const onMove = (moveEvent: PointerEvent) => {
-        const deltaSec = (moveEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
+      updateBlockTrim(
+        block.id,
+        { in_sec: block.trim.in_sec, out_sec: block.trim.out_sec },
+        { recordHistory: true }
+      )
+
+      const applyMove = (moveEvent: PointerEvent) => {
+        const deltaSec =
+          (moveEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
         if (side === 'left') {
-          const proposedVisualStart = initialVisualStart + deltaSec
           updateBlockTrim(
             block.id,
-            { in_sec: initialIn },
-            { recordHistory: false, proposedVisualStartSec: proposedVisualStart }
+            { in_sec: trimContext.fixedInSec },
+            {
+              recordHistory: false,
+              interactive: true,
+              trimContext,
+              proposedVisualStartSec: initialVisualStart + deltaSec,
+            }
           )
         } else {
-          const proposedVisualEnd = initialVisualEnd + deltaSec
           updateBlockTrim(
             block.id,
-            { out_sec: initialOut },
-            { recordHistory: false, proposedVisualEndSec: proposedVisualEnd }
+            { out_sec: trimContext.fixedOutSec },
+            {
+              recordHistory: false,
+              interactive: true,
+              trimContext,
+              proposedVisualEndSec: initialVisualEnd + deltaSec,
+            }
           )
         }
       }
+
+      const onMove = rafPointerMove(applyMove)
       const onUp = () => {
         window.removeEventListener('pointermove', onMove)
         window.removeEventListener('pointerup', onUp)
+        const latest = useEditSessionStore.getState().session?.sequence.find(
+          (item) => item.id === blockId
+        )
+        if (!latest) return
+        if (side === 'left') {
+          updateBlockTrim(
+            block.id,
+            { in_sec: latest.trim.in_sec },
+            {
+              recordHistory: false,
+              proposedVisualStartSec:
+                trimContext.compStart + latest.trim.in_sec / trimContext.rate,
+            }
+          )
+        } else {
+          updateBlockTrim(
+            block.id,
+            { out_sec: latest.trim.out_sec },
+            {
+              recordHistory: false,
+              proposedVisualEndSec:
+                trimContext.compStart + latest.trim.out_sec / trimContext.rate,
+            }
+          )
+        }
       }
       window.addEventListener('pointermove', onMove)
       window.addEventListener('pointerup', onUp)
@@ -628,7 +691,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       const initialStart = element.startTime
       const initialDuration = element.duration
       const siblings = getTrackSiblingRanges(elementTrack?.elements ?? [], overlayId)
-      const onMove = (moveEvent: PointerEvent) => {
+      const applyMove = (moveEvent: PointerEvent) => {
         const deltaSec = (moveEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
         if (side === 'left') {
           const fixedEnd = initialStart + initialDuration
@@ -649,6 +712,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           )
         }
       }
+      const onMove = rafPointerMove(applyMove)
       const onUp = () => {
         window.removeEventListener('pointermove', onMove)
         window.removeEventListener('pointerup', onUp)
@@ -667,28 +731,38 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       const initialDuration = element.duration
       const initialTrimStart = clip.trim_start_sec ?? 0
       const siblings = getTrackSiblingRanges(elementTrack?.elements ?? [], clipId)
-      const onMove = (moveEvent: PointerEvent) => {
+      updateAudioClip(clipId, {}, { recordHistory: true })
+      const applyMove = (moveEvent: PointerEvent) => {
         const deltaSec = (moveEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
         if (side === 'left') {
           const fixedEnd = initialStart + initialDuration
           const nextStart = Math.max(0, initialStart + deltaSec)
           const { start, duration } = clampResizeLeftAvoidingOverlap(siblings, fixedEnd, nextStart)
           const trimDelta = start - initialStart
-          updateAudioClip(clipId, {
-            start_sec: start,
-            duration_sec: duration,
-            trim_start_sec: Math.max(0, initialTrimStart + trimDelta),
-          })
+          updateAudioClip(
+            clipId,
+            {
+              start_sec: start,
+              duration_sec: duration,
+              trim_start_sec: Math.max(0, initialTrimStart + trimDelta),
+            },
+            { recordHistory: false }
+          )
         } else {
           const proposedEnd = initialStart + Math.max(0.2, initialDuration + deltaSec)
           const end = clampResizeRightAvoidingOverlap(siblings, initialStart, proposedEnd)
           const nextDuration = Math.max(0.2, end - initialStart)
-          updateAudioClip(clipId, {
-            duration_sec: nextDuration,
-            trim_end_sec: Math.min(assetDuration, initialTrimStart + nextDuration),
-          })
+          updateAudioClip(
+            clipId,
+            {
+              duration_sec: nextDuration,
+              trim_end_sec: Math.min(assetDuration, initialTrimStart + nextDuration),
+            },
+            { recordHistory: false }
+          )
         }
       }
+      const onMove = rafPointerMove(applyMove)
       const onUp = () => {
         window.removeEventListener('pointermove', onMove)
         window.removeEventListener('pointerup', onUp)

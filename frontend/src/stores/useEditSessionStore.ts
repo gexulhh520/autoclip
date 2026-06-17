@@ -69,6 +69,11 @@ import {
   removeSequenceBlockGapAt,
   clearSequenceBlockGaps,
 } from '../editor/timeline/sequenceBlockGaps'
+import {
+  applyInteractiveVideoHeadTrim,
+  applyInteractiveVideoTailTrim,
+  type VideoTrimInteractiveContext,
+} from '../editor/timeline/videoTrimInteractive'
 import { isTauriApp } from '../utils/desktopMode'
 import {
   normalizeExportDirectory,
@@ -305,7 +310,11 @@ interface EditSessionState {
     options?: { trackId?: string; startSec?: number; durationSec?: number }
   ) => string
   removeAudioClip: (clipId: string) => void
-  updateAudioClip: (clipId: string, patch: Partial<AudioClipElement>) => void
+  updateAudioClip: (
+    clipId: string,
+    patch: Partial<AudioClipElement>,
+    options?: { recordHistory?: boolean }
+  ) => void
   moveAudioClipToTrack: (clipId: string, trackId: string) => void
   setSelectedAudioClipId: (clipId: string | null) => void
   toggleAudioTrackMuted: (audioTrackId: string) => void
@@ -393,7 +402,13 @@ interface EditSessionState {
   updateBlockTrim: (
     blockId: string,
     trim: Partial<EditBlock['trim']>,
-    options?: { recordHistory?: boolean; proposedVisualStartSec?: number; proposedVisualEndSec?: number }
+    options?: {
+      recordHistory?: boolean
+      proposedVisualStartSec?: number
+      proposedVisualEndSec?: number
+      interactive?: boolean
+      trimContext?: import('../editor/timeline/videoTrimInteractive').VideoTrimInteractiveContext
+    }
   ) => void
   updateSessionName: (name: string) => void
   deleteSelectedBlock: (options?: { ripple?: boolean }) => void
@@ -404,6 +419,7 @@ interface EditSessionState {
   canUndo: () => boolean
   canRedo: () => boolean
   markDirty: () => void
+  beginTimelineGesture: () => void
   reset: () => void
 }
 
@@ -2092,6 +2108,10 @@ export const useEditSessionStore = create<EditSessionState>()(
           pushHistory()
         }
         const { rippleTrimEnabled, sequencePlayheadSec } = get()
+        const headOnly = trim.in_sec !== undefined && trim.out_sec === undefined
+        const tailOnly = trim.out_sec !== undefined && trim.in_sec === undefined
+        const interactive = options?.interactive === true && options.trimContext
+
         set((state) => {
           if (!state.session) return
           const block = state.session.sequence.find((item) => item.id === blockId)
@@ -2101,12 +2121,22 @@ export const useEditSessionStore = create<EditSessionState>()(
             block.duration_sec > 0
               ? block.duration_sec
               : Math.max(block.trim.out_sec, 5)
+
+          if (interactive && options?.trimContext) {
+            const ctx = options.trimContext
+            if (headOnly && options.proposedVisualStartSec != null) {
+              applyInteractiveVideoHeadTrim(block, ctx, options.proposedVisualStartSec)
+            } else if (tailOnly && options.proposedVisualEndSec != null) {
+              applyInteractiveVideoTailTrim(block, ctx, options.proposedVisualEndSec)
+            }
+            state.dirty = true
+            return
+          }
+
           const prevOut = block.trim.out_sec
           const oldTrim = { in_sec: block.trim.in_sec, out_sec: block.trim.out_sec }
           const nextIn = trim.in_sec ?? block.trim.in_sec
           const nextOut = trim.out_sec ?? block.trim.out_sec
-          const headOnly = trim.in_sec !== undefined && trim.out_sec === undefined
-          const tailOnly = trim.out_sec !== undefined && trim.in_sec === undefined
           block.trim.in_sec = Math.max(0, Math.min(nextIn, maxDur - 0.1))
           block.trim.out_sec = Math.max(block.trim.in_sec + 0.1, Math.min(nextOut, maxDur))
           if (headOnly) {
@@ -2137,7 +2167,9 @@ export const useEditSessionStore = create<EditSessionState>()(
           }
           state.dirty = true
         })
-        set({ sequencePlayheadSec: clampPlayhead(get().sequencePlayheadSec) })
+        if (!interactive) {
+          set({ sequencePlayheadSec: clampPlayhead(get().sequencePlayheadSec) })
+        }
       },
 
       updateAudioSettings: (settings) => {
@@ -2385,8 +2417,10 @@ export const useEditSessionStore = create<EditSessionState>()(
         get().removeAudioClip(clipId)
       },
 
-      updateAudioClip: (clipId, patch) => {
-        pushHistory()
+      updateAudioClip: (clipId, patch, options) => {
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
         set((state) => {
           if (!state.session?.audio_elements) return
           const clip = state.session.audio_elements.find((item) => item.id === clipId)
@@ -2632,6 +2666,7 @@ export const useEditSessionStore = create<EditSessionState>()(
       canUndo: () => get().historyPast.length > 0,
       canRedo: () => get().historyFuture.length > 0,
       markDirty: () => set({ dirty: true }),
+      beginTimelineGesture: () => pushHistory(),
 
       reset: () =>
         set({
