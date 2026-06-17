@@ -147,7 +147,11 @@ const transitionDurationSec = (session: EditSession): number =>
   session.audio_settings?.transition_duration_sec ?? 0.35
 
 const findSegmentForBlock = (session: EditSession, blockId: string) => {
-  const timeline = buildCompositionTimeline(session.sequence, transitionDurationSec(session))
+  const timeline = buildCompositionTimeline(
+    session.sequence,
+    transitionDurationSec(session),
+    session.sequence_block_gaps
+  )
   return timeline.segments.find((segment) => segment.block.id === blockId) ?? null
 }
 

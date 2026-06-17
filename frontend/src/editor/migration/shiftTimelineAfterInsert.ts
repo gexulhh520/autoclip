@@ -14,7 +14,11 @@ export function shiftTimelineElementsAfterVideoInsert(
 ): boolean {
   if (addedCount <= 0 || insertIndex < 0 || !session.sequence.length) return false
 
-  const timeline = buildCompositionTimeline(session.sequence, transitionDurationSec(session))
+  const timeline = buildCompositionTimeline(
+    session.sequence,
+    transitionDurationSec(session),
+    session.sequence_block_gaps
+  )
   const insertSegment = timeline.segments[insertIndex]
   if (!insertSegment) return false
 

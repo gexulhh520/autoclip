@@ -4,6 +4,7 @@ import { isCrossTransition } from '../../types/transitions'
 import { blockDuration, blockPlaybackRate, blockSourceTrimDuration } from '../../utils/editTimeline'
 import { computeDissolveDuration } from '../../utils/editDissolvePreview'
 import type { CompositionSegment, CompositionTimeline } from './types'
+import { resolveSequenceBlockGaps } from '../timeline/sequenceBlockGaps'
 
 export type { CompositionSegment, CompositionTimeline }
 
@@ -20,16 +21,22 @@ export interface CompositionTimelineSegment {
 
 export function buildCompositionTimeline(
   blocks: EditBlock[],
-  transitionDurationSec: number
+  transitionDurationSec: number,
+  blockGaps?: number[]
 ): CompositionTimeline {
   if (blocks.length === 0) {
     return { segments: [], totalDurationSec: 0, transitionDurationSec }
   }
 
+  const gaps = resolveSequenceBlockGaps(blocks, blockGaps)
   const segments: CompositionSegment[] = []
   let compositionCursor = 0
 
   for (let index = 0; index < blocks.length; index += 1) {
+    if (index > 0) {
+      compositionCursor += gaps?.[index - 1] ?? 0
+    }
+
     const block = blocks[index]
     const sourceDurationSec = blockDuration(block)
     const hasNext = index < blocks.length - 1
@@ -115,9 +122,10 @@ const TRACK_OFFSET_PX = 4
 export function buildCompositionTimelineSegments(
   blocks: EditBlock[],
   pxPerSec: number,
-  transitionDurationSec: number
+  transitionDurationSec: number,
+  blockGaps?: number[]
 ): CompositionTimelineSegment[] {
-  const timeline = buildCompositionTimeline(blocks, transitionDurationSec)
+  const timeline = buildCompositionTimeline(blocks, transitionDurationSec, blockGaps)
   return timeline.segments.map((segment) => {
     const duration = segment.sourceDurationSec
     const width = duration * pxPerSec
@@ -135,9 +143,10 @@ export function buildCompositionTimelineSegments(
 
 export function getCompositionTotalDuration(
   blocks: EditBlock[],
-  transitionDurationSec: number
+  transitionDurationSec: number,
+  blockGaps?: number[]
 ): number {
-  return buildCompositionTimeline(blocks, transitionDurationSec).totalDurationSec
+  return buildCompositionTimeline(blocks, transitionDurationSec, blockGaps).totalDurationSec
 }
 
 export function resolveCompositionPlayhead(

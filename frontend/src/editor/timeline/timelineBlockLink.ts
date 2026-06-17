@@ -13,7 +13,11 @@ const transitionDurationSec = (session: EditSession): number =>
   session.audio_settings?.transition_duration_sec ?? 0.35
 
 export function buildSessionCompositionTimeline(session: EditSession) {
-  return buildCompositionTimeline(session.sequence, transitionDurationSec(session))
+  return buildCompositionTimeline(
+    session.sequence,
+    transitionDurationSec(session),
+    session.sequence_block_gaps
+  )
 }
 
 /** 片段在时间轴上的可视起点（含入点裁剪），联动偏移相对此位置 */

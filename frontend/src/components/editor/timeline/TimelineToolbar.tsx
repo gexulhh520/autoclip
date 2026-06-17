@@ -113,7 +113,15 @@ const TimelineToolbar: React.FC<TimelineToolbarProps> = ({
         <ToolbarButton title="磁吸" active={snapEnabled} onClick={onToggleSnap}>
           <Magnet size={16} />
         </ToolbarButton>
-        <ToolbarButton title="Ripple" active={rippleEnabled} onClick={onToggleRipple}>
+        <ToolbarButton
+          title={
+            rippleEnabled
+              ? '主轨磁吸：裁切时后续片段跟随移动（点击关闭）'
+              : '主轨磁吸已关闭：裁切仅影响当前片段（点击开启）'
+          }
+          active={rippleEnabled}
+          onClick={onToggleRipple}
+        >
           <Link2 size={16} />
         </ToolbarButton>
         <ToolbarButton

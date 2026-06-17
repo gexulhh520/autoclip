@@ -95,14 +95,16 @@ export function resolveSequencePlayhead(
 export function resolveInsertIndexForPlayhead(
   blocks: EditBlock[],
   playheadSec: number,
-  transitionDurationSec: number
+  transitionDurationSec: number,
+  blockGaps?: number[]
 ): number {
   if (blocks.length === 0) return 0
 
   const segments = buildCompositionTimelineSegments(
     blocks,
     BASE_PX_PER_SEC,
-    transitionDurationSec
+    transitionDurationSec,
+    blockGaps
   )
   const resolved = resolveCompositionPlayhead(playheadSec, segments)
   if (!resolved) return blocks.length

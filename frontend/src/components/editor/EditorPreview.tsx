@@ -85,13 +85,19 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const useSourcePreview = session?.audio_settings?.use_source_video ?? false
 
   const compositionSegments = useMemo(
-    () => buildCompositionTimelineSegments(blocks, pxPerSec, transitionDurationSec),
-    [blocks, pxPerSec, transitionDurationSec]
+    () =>
+      buildCompositionTimelineSegments(
+        blocks,
+        pxPerSec,
+        transitionDurationSec,
+        session?.sequence_block_gaps
+      ),
+    [blocks, pxPerSec, transitionDurationSec, session?.sequence_block_gaps]
   )
 
   const totalDuration = useMemo(
-    () => getCompositionTotalDuration(blocks, transitionDurationSec),
-    [blocks, transitionDurationSec]
+    () => getCompositionTotalDuration(blocks, transitionDurationSec, session?.sequence_block_gaps),
+    [blocks, transitionDurationSec, session?.sequence_block_gaps]
   )
 
   const sceneBuilderInput = useMemo(

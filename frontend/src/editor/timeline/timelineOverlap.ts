@@ -1,8 +1,6 @@
 import type { AdaptedElement } from '../../components/editor/timeline/types'
-import type { EditBlock, EditSession } from '../../types/editSession'
-import { blockDuration, blockPlaybackRate, blockTimelineVisualStartSec } from '../../utils/editTimeline'
+import type { EditSession } from '../../types/editSession'
 import { getAudioClipTrackId } from '../audioTracks'
-import { buildCompositionTimeline } from '../scene/timelineLayout'
 import { getOverlayTrackId } from '../textTracks'
 
 export const MIN_TIMELINE_ELEMENT_SEC = 0.2
@@ -220,75 +218,4 @@ export function clampAudioClipStartOnTrack(
     )
     .map((clip) => toTimelineRange(clip.id, clip.start_sec, clip.duration_sec))
   return clampStartAvoidingOverlap(siblings, durationSec, proposedStartSec)
-}
-
-/** 视频入出点裁剪后避免与相邻片段在可视时间轴上重叠 */
-export function clampVideoTrimAvoidingNeighbors(
-  session: EditSession,
-  blockId: string,
-  trim: { in_sec: number; out_sec: number }
-): { in_sec: number; out_sec: number } {
-  const transitionSec = session.audio_settings?.transition_duration_sec ?? 0.35
-  const timeline = buildCompositionTimeline(session.sequence, transitionSec)
-  const index = timeline.segments.findIndex((segment) => segment.block.id === blockId)
-  if (index < 0) return trim
-
-  const segment = timeline.segments[index]
-  const maxDur =
-    segment.block.duration_sec > 0
-      ? segment.block.duration_sec
-      : Math.max(trim.out_sec, 5)
-  const rate = blockPlaybackRate(segment.block)
-  const compStart = segment.compositionStartSec
-
-  let inSec = Math.max(0, Math.min(trim.in_sec, maxDur - 0.1))
-  let outSec = Math.max(inSec + 0.1, Math.min(trim.out_sec, maxDur))
-
-  const blockWithTrim: EditBlock = {
-    ...segment.block,
-    trim: { in_sec: inSec, out_sec: outSec },
-  }
-
-  let visualStart = blockTimelineVisualStartSec(compStart, blockWithTrim)
-  let visualEnd = compStart + outSec / rate
-
-  const neighborRanges: TimelineRange[] = []
-  if (index > 0) {
-    const prev = timeline.segments[index - 1]
-    neighborRanges.push(
-      toTimelineRange(
-        prev.block.id,
-        blockTimelineVisualStartSec(prev.compositionStartSec, prev.block),
-        blockDuration(prev.block)
-      )
-    )
-  }
-  if (index < timeline.segments.length - 1) {
-    const next = timeline.segments[index + 1]
-    neighborRanges.push(
-      toTimelineRange(
-        next.block.id,
-        blockTimelineVisualStartSec(next.compositionStartSec, next.block),
-        blockDuration(next.block)
-      )
-    )
-  }
-
-  for (const neighbor of neighborRanges) {
-    const self = toTimelineRange(blockId, visualStart, visualEnd - visualStart)
-    if (!rangesOverlap(self, neighbor)) continue
-    if (neighbor.end <= visualStart + EPS) {
-      visualStart = Math.max(visualStart, neighbor.end)
-    } else if (neighbor.start >= visualEnd - EPS) {
-      visualEnd = Math.min(visualEnd, neighbor.start)
-    } else if (neighbor.start > visualStart) {
-      visualEnd = Math.min(visualEnd, neighbor.start)
-    } else {
-      visualStart = Math.max(visualStart, neighbor.end)
-    }
-  }
-
-  inSec = Math.max(0, Math.min((visualStart - compStart) * rate, maxDur - 0.1))
-  outSec = Math.max(inSec + 0.1, Math.min((visualEnd - compStart) * rate, maxDur))
-  return { in_sec: inSec, out_sec: outSec }
 }

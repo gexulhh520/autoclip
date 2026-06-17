@@ -150,12 +150,18 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const [dragTargetTrackId, setDragTargetTrackId] = useState<string | null>(null)
 
   const segments = useMemo(
-    () => buildCompositionTimelineSegments(blocks, 50, transitionDurationSec),
-    [blocks, transitionDurationSec]
+    () =>
+      buildCompositionTimelineSegments(
+        blocks,
+        50,
+        transitionDurationSec,
+        session?.sequence_block_gaps
+      ),
+    [blocks, transitionDurationSec, session?.sequence_block_gaps]
   )
   const compositionDuration = useMemo(
-    () => getCompositionTotalDuration(blocks, transitionDurationSec),
-    [blocks, transitionDurationSec]
+    () => getCompositionTotalDuration(blocks, transitionDurationSec, session?.sequence_block_gaps),
+    [blocks, transitionDurationSec, session?.sequence_block_gaps]
   )
 
   const tracks = useMemo(() => {
@@ -584,9 +590,6 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       const maxDur = block.duration_sec > 0 ? block.duration_sec : Math.max(block.trim.out_sec, 5)
       const initialIn = block.trim.in_sec
       const initialOut = block.trim.out_sec
-      const segment = segments.find((item) => item.block.id === blockId)
-      const compStart = segment?.startSec ?? 0
-      const siblings = getTrackSiblingRanges(elementTrack?.elements ?? [], blockId)
       updateBlockTrim(block.id, { in_sec: initialIn, out_sec: initialOut }, { recordHistory: true })
 
       const onMove = (moveEvent: PointerEvent) => {
@@ -594,22 +597,10 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         const rate = blockPlaybackRate(block)
         if (side === 'left') {
           const raw = Math.max(0, Math.min(initialIn + deltaSec * rate, initialOut - 0.1))
-          const fixedVisualEnd = compStart + initialOut / rate
-          const proposedVisualStart = compStart + raw / rate
-          const { start: visualStart } = clampResizeLeftAvoidingOverlap(
-            siblings,
-            fixedVisualEnd,
-            proposedVisualStart
-          )
-          const inSec = Math.max(0, Math.min((visualStart - compStart) * rate, maxDur - 0.1))
-          updateBlockTrim(block.id, { in_sec: inSec }, { recordHistory: false })
+          updateBlockTrim(block.id, { in_sec: raw }, { recordHistory: false })
         } else {
           const raw = Math.min(maxDur, Math.max(initialOut + deltaSec * rate, initialIn + 0.1))
-          const fixedVisualStart = compStart + initialIn / rate
-          const proposedVisualEnd = compStart + raw / rate
-          const visualEnd = clampResizeRightAvoidingOverlap(siblings, fixedVisualStart, proposedVisualEnd)
-          const outSec = Math.max(initialIn + 0.1, Math.min((visualEnd - compStart) * rate, maxDur))
-          updateBlockTrim(block.id, { out_sec: outSec }, { recordHistory: false })
+          updateBlockTrim(block.id, { out_sec: raw }, { recordHistory: false })
         }
       }
       const onUp = () => {

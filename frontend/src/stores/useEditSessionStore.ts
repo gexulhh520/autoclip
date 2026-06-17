@@ -59,8 +59,13 @@ import {
   applyOverlayElementTimingClamp,
   clampAudioClipStartOnTrack,
   clampOverlayStartOnTrack,
-  clampVideoTrimAvoidingNeighbors,
 } from '../editor/timeline/timelineOverlap'
+import {
+  absorbBlockDurationDeltaWithGap,
+  insertSequenceBlockGapAt,
+  removeSequenceBlockGapAt,
+  clearSequenceBlockGaps,
+} from '../editor/timeline/sequenceBlockGaps'
 import { isTauriApp } from '../utils/desktopMode'
 import {
   normalizeExportDirectory,
@@ -140,20 +145,26 @@ const resolvePlayheadInsertIndex = (session: EditSession, playheadSec: number): 
   resolveInsertIndexForPlayhead(
     session.sequence,
     playheadSec,
-    transitionDurationSec(session)
+    transitionDurationSec(session),
+    session.sequence_block_gaps
   )
 
 const playheadSecForBlock = (session: EditSession, blockId: string): number => {
   const segments = buildCompositionTimelineSegments(
     session.sequence,
     BASE_PX_PER_SEC,
-    transitionDurationSec(session)
+    transitionDurationSec(session),
+    session.sequence_block_gaps
   )
   return segments.find((segment) => segment.block.id === blockId)?.startSec ?? 0
 }
 
 const compositionTotalDuration = (session: EditSession): number =>
-  getCompositionTotalDuration(session.sequence, transitionDurationSec(session))
+  getCompositionTotalDuration(
+    session.sequence,
+    transitionDurationSec(session),
+    session.sequence_block_gaps
+  )
 
 export interface AssetPreviewClip {
   clipId: string
@@ -420,7 +431,8 @@ export const useEditSessionStore = create<EditSessionState>()(
       const segments = buildCompositionTimelineSegments(
         session.sequence,
         pxPerSec,
-        transitionDurationSec(session)
+        transitionDurationSec(session),
+        session.sequence_block_gaps
       )
       const resolved = resolveCompositionPlayhead(sec, segments)
       if (resolved) {
@@ -515,7 +527,7 @@ export const useEditSessionStore = create<EditSessionState>()(
       previewBurnSubtitles: true,
       useCompositorExport: isTauriApp(),
       snapEnabled: true,
-      rippleTrimEnabled: true,
+      rippleTrimEnabled: false,
       timelineBlockLinkEnabled: true,
       inspectorTab: 'video',
       editorClipboard: null,
@@ -1103,7 +1115,8 @@ export const useEditSessionStore = create<EditSessionState>()(
           const segments = buildCompositionTimelineSegments(
             result.session.sequence,
             BASE_PX_PER_SEC,
-            transitionDur
+            transitionDur,
+            result.session.sequence_block_gaps
           )
           const importedSegment = segments.find((item) => item.block.id === result.block_id)
           set({
@@ -1198,6 +1211,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           set((state) => {
             if (!state.session) return
             state.session.sequence.splice(Math.max(0, insertIndex), 0, copy)
+            insertSequenceBlockGapAt(state.session, Math.max(0, insertIndex))
             state.selectedBlockId = copy.id
             state.selectedBlockIds = [copy.id]
             state.selectedOverlayId = null
@@ -1297,6 +1311,7 @@ export const useEditSessionStore = create<EditSessionState>()(
         set((state) => {
           if (!state.session) return
           state.session.sequence.splice(index + 1, 0, copy)
+          insertSequenceBlockGapAt(state.session, index + 1)
           state.selectedBlockId = copy.id
           state.selectedBlockIds = [copy.id]
           state.dirty = true
@@ -1406,7 +1421,8 @@ export const useEditSessionStore = create<EditSessionState>()(
         const segments = buildCompositionTimelineSegments(
           session.sequence,
           24,
-          transitionDurationSec(session)
+          transitionDurationSec(session),
+          session.sequence_block_gaps
         )
         const segment = segments.find((item) => item.block.id === blockId)
         const additive = options?.additive ?? false
@@ -2029,6 +2045,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           const [moved] = next.splice(fromIndex, 1)
           next.splice(toIndex, 0, moved)
           state.session.sequence = next
+          clearSequenceBlockGaps(state.session)
           ensureTemplateCaptionOverlays(state.session)
           state.dirty = true
         })
@@ -2076,18 +2093,20 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (!state.session) return
           const block = state.session.sequence.find((item) => item.id === blockId)
           if (!block) return
+          const blockIndex = state.session.sequence.findIndex((item) => item.id === blockId)
           const maxDur =
             block.duration_sec > 0
               ? block.duration_sec
               : Math.max(block.trim.out_sec, 5)
           const prevOut = block.trim.out_sec
+          const oldTrim = { in_sec: block.trim.in_sec, out_sec: block.trim.out_sec }
           const nextIn = trim.in_sec ?? block.trim.in_sec
           const nextOut = trim.out_sec ?? block.trim.out_sec
           block.trim.in_sec = Math.max(0, Math.min(nextIn, maxDur - 0.1))
           block.trim.out_sec = Math.max(block.trim.in_sec + 0.1, Math.min(nextOut, maxDur))
-          const clamped = clampVideoTrimAvoidingNeighbors(state.session, blockId, block.trim)
-          block.trim.in_sec = clamped.in_sec
-          block.trim.out_sec = clamped.out_sec
+          if (!rippleTrimEnabled) {
+            absorbBlockDurationDeltaWithGap(state.session, blockIndex, oldTrim, block)
+          }
           if (rippleTrimEnabled && trim.out_sec !== undefined && nextOut < prevOut) {
             const delta = prevOut - block.trim.out_sec
             if (delta > 0.05 && sequencePlayheadSec > 0) {
@@ -2425,7 +2444,12 @@ export const useEditSessionStore = create<EditSessionState>()(
         if (!session || !selectedBlockId) return
         const pxPerSec = (timelineZoom / 100) * BASE_PX_PER_SEC
         const transitionSec = transitionDurationSec(session)
-        const segments = buildCompositionTimelineSegments(session.sequence, pxPerSec, transitionSec)
+        const segments = buildCompositionTimelineSegments(
+          session.sequence,
+          pxPerSec,
+          transitionSec,
+          session.sequence_block_gaps
+        )
         const deletedSegment = segments.find((item) => item.block.id === selectedBlockId)
         const deletedIndex = session.sequence.findIndex((block) => block.id === selectedBlockId)
         const ripple = options?.ripple !== false
@@ -2439,12 +2463,13 @@ export const useEditSessionStore = create<EditSessionState>()(
           state.session.sequence = state.session.sequence.filter(
             (block) => block.id !== selectedBlockId
           )
+          removeSequenceBlockGapAt(state.session, deletedIndex)
           const nextBlocks = state.session.sequence
           const nextIndex = Math.min(Math.max(0, deletedIndex), Math.max(0, nextBlocks.length - 1))
           state.selectedBlockId = nextBlocks[nextIndex]?.id ?? null
           state.sequencePlayheadSec = Math.min(
             nextPlayhead,
-            getCompositionTotalDuration(nextBlocks, transitionSec)
+            getCompositionTotalDuration(nextBlocks, transitionSec, state.session.sequence_block_gaps)
           )
         })
       },
@@ -2513,7 +2538,8 @@ export const useEditSessionStore = create<EditSessionState>()(
         const segments = buildCompositionTimelineSegments(
           session.sequence,
           pxPerSec,
-          transitionDurationSec(session)
+          transitionDurationSec(session),
+          session.sequence_block_gaps
         )
         const segment = segments.find((item) => item.block.id === target.blockId)
         if (!segment) return
@@ -2534,6 +2560,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           }
           current.trim.out_sec = splitAt
           draft.session.sequence.splice(index + 1, 0, second)
+          insertSequenceBlockGapAt(draft.session, index + 1)
           draft.selectedBlockId = second.id
           draft.selectedBlockIds = [second.id]
           draft.dirty = true
@@ -2620,7 +2647,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           timelineZoom: 100,
           previewZoom: 100,
           previewBurnSubtitles: true,
-          rippleTrimEnabled: true,
+          rippleTrimEnabled: false,
           inspectorTab: 'video',
           editorClipboard: null,
           historyPast: [],

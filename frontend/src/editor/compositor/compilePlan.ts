@@ -36,7 +36,11 @@ export function compileCompositionPlan(
 ): CompositionPlan {
   const exportPlan = compileExportPlan(session, options)
   const transitionDurationSec = session.audio_settings.transition_duration_sec ?? 0.35
-  const timeline = buildCompositionTimeline(session.sequence, transitionDurationSec)
+  const timeline = buildCompositionTimeline(
+    session.sequence,
+    transitionDurationSec,
+    session.sequence_block_gaps
+  )
   const { width, height } = resolveOutputCanvas(session.export_settings)
 
   const layers: CompositionLayerDef[] = []

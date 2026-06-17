@@ -1,0 +1,63 @@
+import { describe, expect, it } from 'vitest'
+import type { EditBlock, EditSession } from '../../types/editSession'
+import { buildCompositionTimeline } from '../scene/timelineLayout'
+import { absorbBlockDurationDeltaWithGap } from './sequenceBlockGaps'
+
+const block = (id: string, durationSec: number, trim?: { in: number; out: number }): EditBlock => ({
+  id,
+  source_clip_id: id,
+  title: id,
+  media: { type: 'step6_clip', path: `${id}.mp4` },
+  trim: {
+    in_sec: trim?.in ?? 0,
+    out_sec: trim?.out ?? durationSec,
+  },
+  overlay: { outline: '', content: [], recommend_reason: '' },
+  audio: { volume: 1 },
+  transition_out: 'cut',
+  duration_sec: durationSec,
+})
+
+const sessionWith = (blocks: EditBlock[]): EditSession =>
+  ({
+    schema_version: 3,
+    id: 's1',
+    project_id: 'p1',
+    name: 'test',
+    overlay_snapshot: {},
+    sequence: blocks,
+    sequence_block_gaps: [0],
+    export_settings: {
+      aspect: '16:9',
+      height: 1080,
+      fps: 30,
+      visual_filter: 'none',
+      fit_mode: 'contain',
+    },
+    audio_settings: {
+      bgm_volume: 0.3,
+      fade_in_sec: 0.3,
+      fade_out_sec: 0.3,
+      use_source_video: true,
+      transition_duration_sec: 0.35,
+    },
+    created_at: '',
+    updated_at: '',
+  }) as EditSession
+
+describe('sequenceBlockGaps', () => {
+  it('keeps the next block start fixed when ripple is off and duration shrinks', () => {
+    const session = sessionWith([block('a', 5), block('b', 5)])
+    const before = buildCompositionTimeline(session.sequence, 0.35, session.sequence_block_gaps)
+    const nextStartBefore = before.segments[1]!.compositionStartSec
+
+    const trimmed = session.sequence[0]!
+    const oldTrim = { in_sec: trimmed.trim.in_sec, out_sec: trimmed.trim.out_sec }
+    trimmed.trim.out_sec = 3
+    absorbBlockDurationDeltaWithGap(session, 0, oldTrim, trimmed)
+
+    const after = buildCompositionTimeline(session.sequence, 0.35, session.sequence_block_gaps)
+    expect(after.segments[1]!.compositionStartSec).toBeCloseTo(nextStartBefore, 3)
+    expect(session.sequence_block_gaps![0]).toBeCloseTo(2, 3)
+  })
+})

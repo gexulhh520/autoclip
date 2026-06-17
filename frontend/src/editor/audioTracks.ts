@@ -113,7 +113,11 @@ export function ensureAudioModel(session: EditSession): boolean {
       migrated = true
     }
     const transitionSec = session.audio_settings.transition_duration_sec ?? 0.35
-    const totalDuration = getCompositionTotalDuration(session.sequence, transitionSec)
+    const totalDuration = getCompositionTotalDuration(
+      session.sequence,
+      transitionSec,
+      session.sequence_block_gaps
+    )
     const trimStart = session.audio_settings.bgm_start_sec ?? 0
     const trimEnd = session.audio_settings.bgm_end_sec ?? totalDuration
     session.audio_elements.push({

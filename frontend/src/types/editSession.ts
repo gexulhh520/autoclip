@@ -155,6 +155,8 @@ export interface EditSession {
   template_version?: string | null
   overlay_snapshot: Record<string, unknown>
   sequence: EditBlock[]
+  /** 主轨相邻片段间额外间隙（秒）；Ripple 关闭裁切时用于固定后续片段位置 */
+  sequence_block_gaps?: number[]
   overlay_elements?: EditOverlayElement[]
   text_tracks?: TextTrackMeta[]
   audio_assets?: AudioAssetMeta[]

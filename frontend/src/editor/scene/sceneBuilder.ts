@@ -126,7 +126,11 @@ export function compileExportPlan(
   options: SceneCompileOptions
 ): ExportScenePlan {
   const transitionDurationSec = session.audio_settings.transition_duration_sec ?? 0.35
-  const timeline = buildCompositionTimeline(session.sequence, transitionDurationSec)
+  const timeline = buildCompositionTimeline(
+    session.sequence,
+    transitionDurationSec,
+    session.sequence_block_gaps
+  )
   const bgm = session.audio_settings.bgm_path ? session.audio_settings : null
 
   return {
@@ -157,7 +161,11 @@ export function resolveSceneAt(
 ): RenderScene {
   const { session, options } = input
   const transitionDurationSec = session.audio_settings.transition_duration_sec ?? 0.35
-  const timeline = buildCompositionTimeline(session.sequence, transitionDurationSec)
+  const timeline = buildCompositionTimeline(
+    session.sequence,
+    transitionDurationSec,
+    session.sequence_block_gaps
+  )
   const canvas = buildCanvas(session, sourceSize)
   const clampedTime = Math.max(0, Math.min(timeline.totalDurationSec, timeSec))
 
