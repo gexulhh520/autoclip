@@ -62,6 +62,7 @@ import {
 } from '../editor/timeline/timelineOverlap'
 import {
   absorbBlockDurationDeltaWithGap,
+  clampVideoBlockTrimAgainstNeighbors,
   insertSequenceBlockGapAt,
   removeSequenceBlockGapAt,
   clearSequenceBlockGaps,
@@ -2104,6 +2105,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           const nextOut = trim.out_sec ?? block.trim.out_sec
           block.trim.in_sec = Math.max(0, Math.min(nextIn, maxDur - 0.1))
           block.trim.out_sec = Math.max(block.trim.in_sec + 0.1, Math.min(nextOut, maxDur))
+          clampVideoBlockTrimAgainstNeighbors(state.session, blockIndex, block, maxDur)
           if (!rippleTrimEnabled) {
             absorbBlockDurationDeltaWithGap(state.session, blockIndex, oldTrim, block)
           }

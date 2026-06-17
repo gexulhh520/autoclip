@@ -36,6 +36,12 @@ export const blockTimelineVisualStartSec = (
   block: EditBlock
 ): number => compositionStartSec + block.trim.in_sec / blockPlaybackRate(block)
 
+/** 时间轴上片段可视终点（出点位置） */
+export const blockTimelineVisualEndSec = (
+  compositionStartSec: number,
+  block: EditBlock
+): number => compositionStartSec + block.trim.out_sec / blockPlaybackRate(block)
+
 export interface TimelineSegment {
   block: EditBlock
   startSec: number

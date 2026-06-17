@@ -1,7 +1,13 @@
 import type { EditBlock } from '../../types/editSession'
 import type { TransitionOutKind } from '../../types/transitions'
 import { isCrossTransition } from '../../types/transitions'
-import { blockDuration, blockPlaybackRate, blockSourceTrimDuration } from '../../utils/editTimeline'
+import {
+  blockDuration,
+  blockPlaybackRate,
+  blockSourceTrimDuration,
+  blockTimelineVisualEndSec,
+  blockTimelineVisualStartSec,
+} from '../../utils/editTimeline'
 import { computeDissolveDuration } from '../../utils/editDissolvePreview'
 import type { CompositionSegment, CompositionTimeline } from './types'
 import { resolveSequenceBlockGaps } from '../timeline/sequenceBlockGaps'
@@ -39,6 +45,7 @@ export function buildCompositionTimeline(
 
     const block = blocks[index]
     const sourceDurationSec = blockDuration(block)
+    const compositionStartSec = compositionCursor
     const hasNext = index < blocks.length - 1
     const dissolveOutSec =
       hasNext && isCrossTransition(block.transition_out)
@@ -48,17 +55,21 @@ export function buildCompositionTimeline(
     segments.push({
       block,
       index,
-      compositionStartSec: compositionCursor,
+      compositionStartSec,
       sourceDurationSec,
       transitionOut: block.transition_out,
       dissolveOutSec,
     })
 
-    compositionCursor += sourceDurationSec - dissolveOutSec
+    const visualEndSec = blockTimelineVisualEndSec(compositionStartSec, block)
+    compositionCursor = visualEndSec - dissolveOutSec
   }
 
   const last = segments[segments.length - 1]
-  const totalDurationSec = last.compositionStartSec + last.sourceDurationSec
+  const totalDurationSec = blockTimelineVisualEndSec(
+    last.compositionStartSec,
+    last.block
+  )
 
   return {
     segments,
@@ -84,9 +95,8 @@ export function findCrossTransitionAtTime(
     const incoming = segments[index + 1]
     if (outgoing.dissolveOutSec <= 0) continue
 
-    const dissolveStart =
-      outgoing.compositionStartSec + outgoing.sourceDurationSec - outgoing.dissolveOutSec
-    const dissolveEnd = outgoing.compositionStartSec + outgoing.sourceDurationSec
+    const dissolveEnd = blockTimelineVisualEndSec(outgoing.compositionStartSec, outgoing.block)
+    const dissolveStart = dissolveEnd - outgoing.dissolveOutSec
 
     if (timeSec < dissolveStart - 0.001 || timeSec > dissolveEnd + 0.001) {
       continue
@@ -110,10 +120,11 @@ export function mapCompositionTimeToRelativeSource(
   segment: CompositionSegment,
   timeSec: number
 ): number {
-  const relTimeline = timeSec - segment.compositionStartSec
   const rate = blockPlaybackRate(segment.block)
+  const visualStart = blockTimelineVisualStartSec(segment.compositionStartSec, segment.block)
+  const elapsed = timeSec - visualStart
   const sourceTrim = blockSourceTrimDuration(segment.block)
-  return Math.max(0, Math.min(sourceTrim, relTimeline * rate))
+  return Math.max(0, Math.min(sourceTrim, elapsed * rate))
 }
 
 const TRACK_OFFSET_PX = 4

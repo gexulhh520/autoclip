@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import type { EditBlock, EditSession } from '../../types/editSession'
+import {
+  blockTimelineVisualEndSec,
+  blockTimelineVisualStartSec,
+} from '../../utils/editTimeline'
 import { buildCompositionTimeline } from '../scene/timelineLayout'
 import { absorbBlockDurationDeltaWithGap } from './sequenceBlockGaps'
 
-const block = (id: string, durationSec: number, trim?: { in: number; out: number }): EditBlock => ({
+const block = (
+  id: string,
+  durationSec: number,
+  trim?: { in: number; out: number }
+): EditBlock => ({
   id,
   source_clip_id: id,
   title: id,
@@ -59,5 +67,17 @@ describe('sequenceBlockGaps', () => {
     const after = buildCompositionTimeline(session.sequence, 0.35, session.sequence_block_gaps)
     expect(after.segments[1]!.compositionStartSec).toBeCloseTo(nextStartBefore, 3)
     expect(session.sequence_block_gaps![0]).toBeCloseTo(2, 3)
+  })
+
+  it('does not overlap adjacent blocks after head trim', () => {
+    const first = block('a', 10, { in: 0, out: 10 })
+    const second = block('b', 10, { in: 0, out: 10 })
+    first.trim.in_sec = 2
+    const timeline = buildCompositionTimeline([first, second], 0.35)
+    const seg0 = timeline.segments[0]!
+    const seg1 = timeline.segments[1]!
+    const end0 = blockTimelineVisualEndSec(seg0.compositionStartSec, seg0.block)
+    const start1 = blockTimelineVisualStartSec(seg1.compositionStartSec, seg1.block)
+    expect(end0).toBeLessThanOrEqual(start1 + 0.001)
   })
 })

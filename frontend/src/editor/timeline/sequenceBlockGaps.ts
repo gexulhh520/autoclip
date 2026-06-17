@@ -1,5 +1,96 @@
 import type { EditBlock, EditSession } from '../../types/editSession'
-import { blockDuration } from '../../utils/editTimeline'
+import {
+  blockPlaybackRate,
+  blockTimelineVisualEndSec,
+  blockTimelineVisualStartSec,
+} from '../../utils/editTimeline'
+import { buildCompositionTimeline } from '../scene/timelineLayout'
+
+const transitionDurationSec = (session: EditSession): number =>
+  session.audio_settings?.transition_duration_sec ?? 0.35
+
+/** Ripple 关闭时，用片段间间隙吸收时长变化，避免后续片段跟着移动 */
+export function absorbBlockDurationDeltaWithGap(
+  session: EditSession,
+  blockIndex: number,
+  oldTrim: { in_sec: number; out_sec: number },
+  block: EditBlock
+): void {
+  if (blockIndex < 0 || blockIndex >= session.sequence.length - 1) return
+
+  const timeline = buildCompositionTimeline(
+    session.sequence,
+    transitionDurationSec(session),
+    session.sequence_block_gaps
+  )
+  const segment = timeline.segments[blockIndex]
+  if (!segment) return
+
+  const rate = blockPlaybackRate(block)
+  const compStart = segment.compositionStartSec
+  const oldVisualEnd = compStart + oldTrim.out_sec / rate
+  const newVisualEnd = compStart + block.trim.out_sec / rate
+  const endDelta = newVisualEnd - oldVisualEnd
+  if (Math.abs(endDelta) < 0.0001) return
+
+  const gaps = ensureSequenceBlockGaps(session)
+  const gapIndex = blockIndex
+  const availableGap = gaps[gapIndex] ?? 0
+
+  if (endDelta > 0 && endDelta > availableGap + 0.001) {
+    const maxOut = oldTrim.out_sec + availableGap * rate
+    const inChanged = Math.abs(block.trim.in_sec - oldTrim.in_sec) > 0.0001
+    const outChanged = Math.abs(block.trim.out_sec - oldTrim.out_sec) > 0.0001
+    if (inChanged && !outChanged) {
+      block.trim.in_sec = block.trim.out_sec - (maxOut - oldTrim.in_sec)
+    } else {
+      block.trim.out_sec = maxOut
+    }
+    gaps[gapIndex] = 0
+    return
+  }
+
+  gaps[gapIndex] = Math.max(0, availableGap - endDelta)
+}
+
+/** 主轨裁切时禁止与相邻视频片段重叠（转场叠化区除外） */
+export function clampVideoBlockTrimAgainstNeighbors(
+  session: EditSession,
+  blockIndex: number,
+  block: EditBlock,
+  maxDur: number
+): void {
+  const timeline = buildCompositionTimeline(
+    session.sequence,
+    transitionDurationSec(session),
+    session.sequence_block_gaps
+  )
+  const segment = timeline.segments[blockIndex]
+  if (!segment) return
+
+  const rate = blockPlaybackRate(block)
+  const compStart = segment.compositionStartSec
+  let minIn = 0
+  let maxOut = maxDur
+
+  if (blockIndex > 0) {
+    const prev = timeline.segments[blockIndex - 1]!
+    const prevEnd = blockTimelineVisualEndSec(prev.compositionStartSec, prev.block)
+    const minVisualStart = prevEnd - prev.dissolveOutSec
+    minIn = Math.max(0, (minVisualStart - compStart) * rate)
+  }
+
+  if (blockIndex < timeline.segments.length - 1) {
+    const next = timeline.segments[blockIndex + 1]!
+    const nextStart = blockTimelineVisualStartSec(next.compositionStartSec, next.block)
+    const trailingGap = session.sequence_block_gaps?.[blockIndex] ?? 0
+    const maxVisualEnd = nextStart + segment.dissolveOutSec + trailingGap
+    maxOut = Math.min(maxDur, (maxVisualEnd - compStart) * rate)
+  }
+
+  block.trim.in_sec = Math.max(minIn, Math.min(block.trim.in_sec, maxOut - 0.1))
+  block.trim.out_sec = Math.max(block.trim.in_sec + 0.1, Math.min(block.trim.out_sec, maxOut))
+}
 
 export function ensureSequenceBlockGaps(session: EditSession): number[] {
   const count = Math.max(0, session.sequence.length - 1)
@@ -24,45 +115,6 @@ export function resolveSequenceBlockGaps(
     normalized.push(0)
   }
   return normalized
-}
-
-/** Ripple 关闭时，用片段间间隙吸收时长变化，避免后续片段跟着移动 */
-export function absorbBlockDurationDeltaWithGap(
-  session: EditSession,
-  blockIndex: number,
-  oldTrim: { in_sec: number; out_sec: number },
-  block: EditBlock
-): void {
-  if (blockIndex < 0 || blockIndex >= session.sequence.length - 1) return
-
-  const rate =
-    block.playback_rate && block.playback_rate > 0
-      ? Math.min(4, Math.max(0.25, block.playback_rate))
-      : 1
-  const oldDurationSec = (oldTrim.out_sec - oldTrim.in_sec) / rate
-  const gaps = ensureSequenceBlockGaps(session)
-  const gapIndex = blockIndex
-  const availableGap = gaps[gapIndex] ?? 0
-  const newDurationSec = blockDuration(block)
-  const durationDelta = newDurationSec - oldDurationSec
-  if (Math.abs(durationDelta) < 0.0001) return
-
-  if (durationDelta > 0 && durationDelta > availableGap + 0.001) {
-    const maxSpan = (oldDurationSec + availableGap) * rate
-    const inChanged = Math.abs(block.trim.in_sec - oldTrim.in_sec) > 0.0001
-    const outChanged = Math.abs(block.trim.out_sec - oldTrim.out_sec) > 0.0001
-    if (inChanged && !outChanged) {
-      block.trim.in_sec = block.trim.out_sec - maxSpan
-    } else if (outChanged && !inChanged) {
-      block.trim.out_sec = block.trim.in_sec + maxSpan
-    } else {
-      block.trim.out_sec = block.trim.in_sec + maxSpan
-    }
-    gaps[gapIndex] = 0
-    return
-  }
-
-  gaps[gapIndex] = Math.max(0, availableGap - durationDelta)
 }
 
 export function removeSequenceBlockGapAt(session: EditSession, deletedBlockIndex: number): void {
