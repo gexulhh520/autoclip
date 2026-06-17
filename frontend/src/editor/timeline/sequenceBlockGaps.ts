@@ -54,12 +54,66 @@ export function absorbBlockDurationDeltaWithGap(
 }
 
 /** 主轨裁切时禁止与相邻视频片段重叠（转场叠化区除外） */
-export function clampVideoBlockTrimAgainstNeighbors(
+export function applyVideoHeadTrimClamp(
   session: EditSession,
   blockIndex: number,
   block: EditBlock,
-  maxDur: number
+  options?: { rippleEnabled?: boolean; fixedOutSec?: number; proposedVisualStartSec?: number }
 ): void {
+  const fixedOutSec = options?.fixedOutSec ?? block.trim.out_sec
+  const timeline = buildCompositionTimeline(
+    session.sequence,
+    transitionDurationSec(session),
+    session.sequence_block_gaps
+  )
+  const segment = timeline.segments[blockIndex]
+  if (!segment) return
+
+  const rate = blockPlaybackRate(block)
+  let compStart = segment.compositionStartSec
+
+  let minVisualStart = 0
+  if (blockIndex > 0) {
+    const prev = timeline.segments[blockIndex - 1]!
+    const prevEnd = blockTimelineVisualEndSec(prev.compositionStartSec, prev.block)
+    minVisualStart = prevEnd - prev.dissolveOutSec
+  }
+
+  let visualStart =
+    options?.proposedVisualStartSec ?? compStart + block.trim.in_sec / rate
+
+  if (!options?.rippleEnabled && blockIndex > 0 && visualStart < compStart - 0.001) {
+    const gaps = ensureSequenceBlockGaps(session)
+    const gapIdx = blockIndex - 1
+    const targetStart = Math.max(minVisualStart, visualStart)
+    const shrinkBy = Math.min(gaps[gapIdx] ?? 0, compStart - targetStart)
+    if (shrinkBy > 0) {
+      gaps[gapIdx] = Math.max(0, (gaps[gapIdx] ?? 0) - shrinkBy)
+      const timelineAfterGap = buildCompositionTimeline(
+        session.sequence,
+        transitionDurationSec(session),
+        session.sequence_block_gaps
+      )
+      compStart = timelineAfterGap.segments[blockIndex]!.compositionStartSec
+      visualStart = compStart + block.trim.in_sec / rate
+    }
+  }
+
+  visualStart = Math.max(minVisualStart, visualStart)
+
+  const maxIn = fixedOutSec - 0.1
+  block.trim.in_sec = Math.max(0, Math.min((visualStart - compStart) * rate, maxIn))
+  block.trim.out_sec = fixedOutSec
+}
+
+export function applyVideoTailTrimClamp(
+  session: EditSession,
+  blockIndex: number,
+  block: EditBlock,
+  maxDur: number,
+  options?: { proposedVisualEndSec?: number }
+): void {
+  const fixedInSec = block.trim.in_sec
   const timeline = buildCompositionTimeline(
     session.sequence,
     transitionDurationSec(session),
@@ -70,26 +124,31 @@ export function clampVideoBlockTrimAgainstNeighbors(
 
   const rate = blockPlaybackRate(block)
   const compStart = segment.compositionStartSec
-  let minIn = 0
-  let maxOut = maxDur
-
-  if (blockIndex > 0) {
-    const prev = timeline.segments[blockIndex - 1]!
-    const prevEnd = blockTimelineVisualEndSec(prev.compositionStartSec, prev.block)
-    const minVisualStart = prevEnd - prev.dissolveOutSec
-    minIn = Math.max(0, (minVisualStart - compStart) * rate)
-  }
+  const minVisualEnd = compStart + fixedInSec / rate + 0.1 / rate
+  let maxVisualEnd = compStart + maxDur / rate
 
   if (blockIndex < timeline.segments.length - 1) {
     const next = timeline.segments[blockIndex + 1]!
     const nextStart = blockTimelineVisualStartSec(next.compositionStartSec, next.block)
     const trailingGap = session.sequence_block_gaps?.[blockIndex] ?? 0
-    const maxVisualEnd = nextStart + segment.dissolveOutSec + trailingGap
-    maxOut = Math.min(maxDur, (maxVisualEnd - compStart) * rate)
+    maxVisualEnd = nextStart + segment.dissolveOutSec + trailingGap
   }
 
-  block.trim.in_sec = Math.max(minIn, Math.min(block.trim.in_sec, maxOut - 0.1))
-  block.trim.out_sec = Math.max(block.trim.in_sec + 0.1, Math.min(block.trim.out_sec, maxOut))
+  let visualEnd =
+    options?.proposedVisualEndSec ?? compStart + block.trim.out_sec / rate
+  visualEnd = Math.max(minVisualEnd, Math.min(visualEnd, maxVisualEnd))
+  block.trim.in_sec = fixedInSec
+  block.trim.out_sec = Math.max(fixedInSec + 0.1, Math.min((visualEnd - compStart) * rate, maxDur))
+}
+
+export function clampVideoBlockTrimAgainstNeighbors(
+  session: EditSession,
+  blockIndex: number,
+  block: EditBlock,
+  maxDur: number
+): void {
+  applyVideoHeadTrimClamp(session, blockIndex, block)
+  applyVideoTailTrimClamp(session, blockIndex, block, maxDur)
 }
 
 export function ensureSequenceBlockGaps(session: EditSession): number[] {

@@ -5,7 +5,10 @@ import {
   blockTimelineVisualStartSec,
 } from '../../utils/editTimeline'
 import { buildCompositionTimeline } from '../scene/timelineLayout'
-import { absorbBlockDurationDeltaWithGap } from './sequenceBlockGaps'
+import {
+  absorbBlockDurationDeltaWithGap,
+  applyVideoHeadTrimClamp,
+} from './sequenceBlockGaps'
 
 const block = (
   id: string,
@@ -79,5 +82,21 @@ describe('sequenceBlockGaps', () => {
     const end0 = blockTimelineVisualEndSec(seg0.compositionStartSec, seg0.block)
     const start1 = blockTimelineVisualStartSec(seg1.compositionStartSec, seg1.block)
     expect(end0).toBeLessThanOrEqual(start1 + 0.001)
+  })
+
+  it('blocks left extend into the previous clip body', () => {
+    const session = sessionWith([block('a', 10), block('b', 10)])
+    session.sequence_block_gaps = [0]
+    const second = session.sequence[1]!
+    applyVideoHeadTrimClamp(session, 1, second, {
+      fixedOutSec: 10,
+      proposedVisualStartSec: 5,
+    })
+    const timeline = buildCompositionTimeline(session.sequence, 0.35, session.sequence_block_gaps)
+    const seg0 = timeline.segments[0]!
+    const seg1 = timeline.segments[1]!
+    const end0 = blockTimelineVisualEndSec(seg0.compositionStartSec, seg0.block)
+    const start1 = blockTimelineVisualStartSec(seg1.compositionStartSec, seg1.block)
+    expect(start1).toBeGreaterThanOrEqual(end0 - 0.001)
   })
 })

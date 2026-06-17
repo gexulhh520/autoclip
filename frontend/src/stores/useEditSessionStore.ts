@@ -62,6 +62,8 @@ import {
 } from '../editor/timeline/timelineOverlap'
 import {
   absorbBlockDurationDeltaWithGap,
+  applyVideoHeadTrimClamp,
+  applyVideoTailTrimClamp,
   clampVideoBlockTrimAgainstNeighbors,
   insertSequenceBlockGapAt,
   removeSequenceBlockGapAt,
@@ -391,7 +393,7 @@ interface EditSessionState {
   updateBlockTrim: (
     blockId: string,
     trim: Partial<EditBlock['trim']>,
-    options?: { recordHistory?: boolean }
+    options?: { recordHistory?: boolean; proposedVisualStartSec?: number; proposedVisualEndSec?: number }
   ) => void
   updateSessionName: (name: string) => void
   deleteSelectedBlock: (options?: { ripple?: boolean }) => void
@@ -2103,9 +2105,23 @@ export const useEditSessionStore = create<EditSessionState>()(
           const oldTrim = { in_sec: block.trim.in_sec, out_sec: block.trim.out_sec }
           const nextIn = trim.in_sec ?? block.trim.in_sec
           const nextOut = trim.out_sec ?? block.trim.out_sec
+          const headOnly = trim.in_sec !== undefined && trim.out_sec === undefined
+          const tailOnly = trim.out_sec !== undefined && trim.in_sec === undefined
           block.trim.in_sec = Math.max(0, Math.min(nextIn, maxDur - 0.1))
           block.trim.out_sec = Math.max(block.trim.in_sec + 0.1, Math.min(nextOut, maxDur))
-          clampVideoBlockTrimAgainstNeighbors(state.session, blockIndex, block, maxDur)
+          if (headOnly) {
+            applyVideoHeadTrimClamp(state.session, blockIndex, block, {
+              rippleEnabled: rippleTrimEnabled,
+              fixedOutSec: oldTrim.out_sec,
+              proposedVisualStartSec: options?.proposedVisualStartSec,
+            })
+          } else if (tailOnly) {
+            applyVideoTailTrimClamp(state.session, blockIndex, block, maxDur, {
+              proposedVisualEndSec: options?.proposedVisualEndSec,
+            })
+          } else {
+            clampVideoBlockTrimAgainstNeighbors(state.session, blockIndex, block, maxDur)
+          }
           if (!rippleTrimEnabled) {
             absorbBlockDurationDeltaWithGap(state.session, blockIndex, oldTrim, block)
           }

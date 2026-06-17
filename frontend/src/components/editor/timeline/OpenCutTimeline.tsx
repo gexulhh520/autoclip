@@ -26,7 +26,7 @@ import { usePlayheadDrag, useTimelineSeek } from './hooks/useTimelineSeek'
 import { useTimelineBoxSelect } from './hooks/useTimelineBoxSelect'
 import { resolveContextMenuPosition } from './contextMenuPosition'
 import { getTemplateOverlayIdsForBlock } from '../../../editor/migration/templateCaptionOverlays'
-import { blockPlaybackRate, collectSequenceSnapPoints, snapTime } from '../../../utils/editTimeline'
+import { blockPlaybackRate, collectSequenceSnapPoints, snapTime, blockTimelineVisualStartSec, blockTimelineVisualEndSec } from '../../../utils/editTimeline'
 import {
   clampResizeLeftAvoidingOverlap,
   clampResizeRightAvoidingOverlap,
@@ -590,17 +590,28 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       const maxDur = block.duration_sec > 0 ? block.duration_sec : Math.max(block.trim.out_sec, 5)
       const initialIn = block.trim.in_sec
       const initialOut = block.trim.out_sec
+      const segment = segments.find((item) => item.block.id === blockId)
+      const compStart = segment?.startSec ?? 0
+      const initialVisualStart = blockTimelineVisualStartSec(compStart, block)
+      const initialVisualEnd = blockTimelineVisualEndSec(compStart, block)
       updateBlockTrim(block.id, { in_sec: initialIn, out_sec: initialOut }, { recordHistory: true })
 
       const onMove = (moveEvent: PointerEvent) => {
         const deltaSec = (moveEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
-        const rate = blockPlaybackRate(block)
         if (side === 'left') {
-          const raw = Math.max(0, Math.min(initialIn + deltaSec * rate, initialOut - 0.1))
-          updateBlockTrim(block.id, { in_sec: raw }, { recordHistory: false })
+          const proposedVisualStart = initialVisualStart + deltaSec
+          updateBlockTrim(
+            block.id,
+            { in_sec: initialIn },
+            { recordHistory: false, proposedVisualStartSec: proposedVisualStart }
+          )
         } else {
-          const raw = Math.min(maxDur, Math.max(initialOut + deltaSec * rate, initialIn + 0.1))
-          updateBlockTrim(block.id, { out_sec: raw }, { recordHistory: false })
+          const proposedVisualEnd = initialVisualEnd + deltaSec
+          updateBlockTrim(
+            block.id,
+            { out_sec: initialOut },
+            { recordHistory: false, proposedVisualEndSec: proposedVisualEnd }
+          )
         }
       }
       const onUp = () => {
