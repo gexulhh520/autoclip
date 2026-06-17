@@ -381,7 +381,10 @@ class EditSessionExportRequest(BaseModel):
 
 
 class EditSessionCompositorMuxRequest(BaseModel):
-    compositor_video_path: str = Field(description="Compositor 导出的本地 MP4（通常无声）")
+    compositor_video_path: Optional[str] = Field(
+        default=None,
+        description="Compositor 导出的本地 MP4；缺省时使用工程 staging_compositor.mp4",
+    )
     filename: Optional[str] = None
     use_source_video: Optional[bool] = None
     export_srt: bool = False

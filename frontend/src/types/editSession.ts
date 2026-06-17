@@ -275,7 +275,8 @@ export interface EditSessionExportRequest {
 }
 
 export interface EditSessionCompositorMuxRequest {
-  compositor_video_path: string
+  /** 可选；缺省时使用工程目录 staging_compositor.mp4 */
+  compositor_video_path?: string
   filename?: string
   export_srt?: boolean
   use_source_video?: boolean

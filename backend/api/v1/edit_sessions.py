@@ -399,6 +399,16 @@ async def export_edit_session_video(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@router.get(
+    "/{project_id}/edit-sessions/{session_id}/export/compositor-staging",
+)
+async def get_compositor_staging_path(project_id: str, session_id: str):
+    from backend.pipeline.edit_renderer import resolve_compositor_staging_path
+
+    path = resolve_compositor_staging_path(project_id, session_id)
+    return {"path": str(path.resolve())}
+
+
 @router.post(
     "/{project_id}/edit-sessions/{session_id}/export/compositor-mux",
     response_model=EditSessionExportResponse,
@@ -412,14 +422,22 @@ async def mux_compositor_export_video(
     from pathlib import Path
 
     from backend.core.path_utils import get_project_directory
-    from backend.pipeline.edit_renderer import mux_compositor_export as run_mux
+    from backend.pipeline.edit_renderer import (
+        mux_compositor_export as run_mux,
+        resolve_compositor_video_path,
+    )
     from backend.utils.export_local import copy_export_outputs
 
     try:
         session = service.get_session(project_id, session_id)
-        compositor_video = Path(body.compositor_video_path).expanduser()
-        if not compositor_video.is_file():
-            raise HTTPException(status_code=400, detail="Compositor 视频文件不存在")
+        try:
+            compositor_video = resolve_compositor_video_path(
+                project_id,
+                session_id,
+                body.compositor_video_path,
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         loop = asyncio.get_event_loop()
         mux_result = await loop.run_in_executor(

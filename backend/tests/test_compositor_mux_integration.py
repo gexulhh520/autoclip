@@ -274,6 +274,29 @@ def test_resolve_mux_duration_prefers_client_hint_when_probe_missing(tmp_path, m
     assert duration == 39.5
 
 
+def test_resolve_compositor_video_path_prefers_staging(tmp_path, monkeypatch):
+    from backend.pipeline.edit_renderer import (
+        resolve_compositor_staging_path,
+        resolve_compositor_video_path,
+    )
+
+    session = _load_session("session-minimal.json")
+    project_dir = tmp_path / "projects" / session.project_id
+    project_dir.mkdir(parents=True)
+    monkeypatch.setattr(
+        "backend.pipeline.edit_renderer.get_project_directory",
+        lambda _project_id: project_dir,
+    )
+    staging = resolve_compositor_staging_path(session.project_id, session.id)
+    staging.write_bytes(b"fake-video")
+    resolved = resolve_compositor_video_path(
+        session.project_id,
+        session.id,
+        r"C:\missing\compositor.mp4",
+    )
+    assert resolved == staging.resolve()
+
+
 def test_render_timeline_audio_clips_uses_amix_without_normalize(tmp_path, monkeypatch):
     from backend.pipeline.edit_renderer import _render_timeline_audio_clips
 

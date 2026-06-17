@@ -179,8 +179,18 @@ export const editApi = {
   ): Promise<EditSessionExportResponse> => {
     return (await api.post(
       `/projects/${projectId}/edit-sessions/${sessionId}/export/compositor-mux`,
-      payload
+      payload,
+      { timeout: 600_000 }
     )) as EditSessionExportResponse
+  },
+
+  getCompositorStagingPath: async (
+    projectId: string,
+    sessionId: string
+  ): Promise<{ path: string }> => {
+    return (await api.get(
+      `/projects/${projectId}/edit-sessions/${sessionId}/export/compositor-staging`
+    )) as { path: string }
   },
 
   uploadBgm: async (

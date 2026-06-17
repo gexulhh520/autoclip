@@ -4,6 +4,7 @@ import { CompositorCanvasRenderer } from './compositorCanvasRenderer'
 import { WasmCompositorCanvasRenderer } from './wasmCompositorCanvasRenderer'
 import { isWasmCompositorReady } from './wasmCompositorClient'
 import { writeExportVideoFile } from './exportFileIO'
+import editApi from '../../services/editApi'
 import { isTauriRuntime } from './compositorClient'
 import { prepareMediabunnyVideoSources } from './mediabunnyVideoSources'
 import { SceneExporter } from './sceneExporter'
@@ -34,11 +35,6 @@ export interface ExportTimelineResult {
   height: number
   frameCount: number
   totalDurationSec: number
-}
-
-const sanitizeFilename = (value: string): string => {
-  const trimmed = value.trim() || 'export'
-  return trimmed.replace(/[\\/:*?"<>|]/g, '_')
 }
 
 interface RendererContext {
@@ -73,10 +69,11 @@ export async function exportTimelineViaCompositor(
 
   const fps = plan.canvas.fps || 30
   const totalFrames = Math.max(1, Math.ceil(plan.totalDurationSec * fps))
-  const safeName = sanitizeFilename(options.filename ?? session.name)
-  const outputPath = `${options.outputDir.replace(/\\/g, '/').replace(/\/$/, '')}/${safeName}_compositor.mp4`
 
   options.onProgress?.(0, '准备 WebCodecs 素材')
+
+  const staging = await editApi.getCompositorStagingPath(runtime.projectId, runtime.sessionId)
+  const outputPath = staging.path.replace(/\\/g, '/')
 
   const blocksById = new Map(session.sequence.map((block) => [block.id, block]))
   const videoSources = await prepareMediabunnyVideoSources({

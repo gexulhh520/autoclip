@@ -81,16 +81,23 @@ export async function runCompositorExportAndMux(
 
   timelineOptions.onProgress?.(92, '正在混音（时间轴音频与 BGM）')
 
-  const muxResult = await editApi.muxCompositorExport(runtime.projectId, runtime.sessionId, {
-    compositor_video_path: compositorResult.compositorVideoPath,
-    compositor_duration_sec: compositorResult.totalDurationSec,
-    filename: muxOptions.filename ?? timelineOptions.filename ?? runtime.session.name,
-    export_srt: muxOptions.exportSrt ?? timelineOptions.exportSrt ?? false,
-    use_source_video: muxOptions.useSourceVideo ?? timelineOptions.useSourceVideo,
-    write_back_to_project: muxOptions.writeBackToProject ?? false,
-    output_dir: muxOptions.outputDir ?? timelineOptions.outputDir,
-    block_id: muxOptions.blockId,
-  })
+  let muxResult
+  try {
+    muxResult = await editApi.muxCompositorExport(runtime.projectId, runtime.sessionId, {
+      compositor_duration_sec: compositorResult.totalDurationSec,
+      filename: muxOptions.filename ?? timelineOptions.filename ?? runtime.session.name,
+      export_srt: muxOptions.exportSrt ?? timelineOptions.exportSrt ?? false,
+      use_source_video: muxOptions.useSourceVideo ?? timelineOptions.useSourceVideo,
+      write_back_to_project: muxOptions.writeBackToProject ?? false,
+      output_dir: muxOptions.outputDir ?? timelineOptions.outputDir,
+      block_id: muxOptions.blockId,
+    })
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new Error(
+      `画面编码已完成，但混音失败，导出目录不会出现有声成片。${detail}`
+    )
+  }
 
   return {
     compositorVideoPath: compositorResult.compositorVideoPath,

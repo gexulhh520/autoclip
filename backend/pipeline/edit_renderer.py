@@ -1220,6 +1220,33 @@ def _safe_export_stem(value: str, fallback: str) -> str:
     return stem or fallback
 
 
+COMPOSITOR_STAGING_FILENAME = "staging_compositor.mp4"
+
+
+def resolve_compositor_staging_path(project_id: str, session_id: str) -> Path:
+    export_dir = get_project_directory(project_id) / "edit_exports" / session_id
+    export_dir.mkdir(parents=True, exist_ok=True)
+    return export_dir / COMPOSITOR_STAGING_FILENAME
+
+
+def resolve_compositor_video_path(
+    project_id: str,
+    session_id: str,
+    requested_path: Optional[str],
+) -> Path:
+    if requested_path:
+        candidate = Path(requested_path).expanduser()
+        if candidate.is_file():
+            return candidate.resolve()
+        logger.warning("Compositor 路径不可用，回退 staging: %s", requested_path)
+    staging = resolve_compositor_staging_path(project_id, session_id)
+    if staging.is_file():
+        return staging.resolve()
+    raise FileNotFoundError(
+        f"找不到 Compositor 中间视频。请确认导出编码已完成，或检查: {staging}"
+    )
+
+
 def _extract_audio_from_window(
     input_video: Path,
     trim_in: float,

@@ -370,7 +370,7 @@ const EditorExportModal: React.FC<EditorExportModalProps> = ({ open, projectId, 
               <div className="editor-export-preview-summary__hint">{exportDone.audioWarning}</div>
             ) : null}
             <div className="editor-export-preview-summary__hint">
-              同目录下带 <code>_compositor</code> 后缀的文件为中间产物（仅画面、无声），请播放上方成片文件。
+              成片已保存到上方路径；混音在工程目录完成，导出文件夹内不应再出现仅画面的中间文件。
             </div>
             <button
               type="button"
