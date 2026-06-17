@@ -118,6 +118,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const addTextTrack = useEditSessionStore((state) => state.addTextTrack)
   const moveOverlayToTrack = useEditSessionStore((state) => state.moveOverlayToTrack)
   const updateBlockTrim = useEditSessionStore((state) => state.updateBlockTrim)
+  const beginTimelineGesture = useEditSessionStore((state) => state.beginTimelineGesture)
   const updateOverlayElement = useEditSessionStore((state) => state.updateOverlayElement)
   const addAudioTrack = useEditSessionStore((state) => state.addAudioTrack)
   const addAudioClipToTimeline = useEditSessionStore((state) => state.addAudioClipToTimeline)
@@ -617,11 +618,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       )
       if (!trimContext) return
 
-      updateBlockTrim(
-        block.id,
-        { in_sec: block.trim.in_sec, out_sec: block.trim.out_sec },
-        { recordHistory: true }
-      )
+      beginTimelineGesture()
 
       const applyMove = (moveEvent: PointerEvent) => {
         const deltaSec =
@@ -731,7 +728,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       const initialDuration = element.duration
       const initialTrimStart = clip.trim_start_sec ?? 0
       const siblings = getTrackSiblingRanges(elementTrack?.elements ?? [], clipId)
-      updateAudioClip(clipId, {}, { recordHistory: true })
+      beginTimelineGesture()
       const applyMove = (moveEvent: PointerEvent) => {
         const deltaSec = (moveEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
         if (side === 'left') {
