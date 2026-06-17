@@ -11,6 +11,11 @@ import {
   blockIdForPreviewSlot,
   type PreviewVideoSlot,
 } from '../../../editor/compositor/previewVideoSlots'
+import {
+  capturePreviewVideoFrame,
+  ensurePreviewVideoFrameCache,
+  hasPreviewVideoFrameCache,
+} from '../../../editor/compositor/previewVideoFrameCache'
 import { renderFrameDescriptorToCanvas } from '../../../editor/compositor/softwareRenderer'
 import { usePreviewTextDrag } from '../../../editor/compositor/usePreviewTextDrag'
 import type { BoxSelectableItem } from '../../../editor/selection/boxSelect'
@@ -65,6 +70,7 @@ export interface CompositorPreviewProps {
 }
 
 const PLAYBACK_END_EPSILON_SEC = 0.02
+const CROSS_TRANSITION_SEEK_EPSILON_SEC = 0.001
 
 const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   session,
@@ -100,6 +106,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const slotARef = useRef<HTMLVideoElement>(null)
   const slotBRef = useRef<HTMLVideoElement>(null)
+  const frameCacheARef = useRef<HTMLCanvasElement | null>(null)
+  const frameCacheBRef = useRef<HTMLCanvasElement | null>(null)
   const blockSlotsRef = useRef<Map<string, PreviewVideoSlot>>(new Map())
   const mountedSlotBlockRef = useRef<{ a: string | null; b: string | null }>({ a: null, b: null })
   const playbackClockRef = useRef(createCompositionPlaybackClock())
@@ -175,12 +183,22 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     [getVideoRefForBlock]
   )
 
+  const getFrameCacheForSlot = useCallback((slot: PreviewVideoSlot): HTMLCanvasElement => {
+    if (slot === 'a') {
+      frameCacheARef.current = ensurePreviewVideoFrameCache(frameCacheARef.current)
+      return frameCacheARef.current
+    }
+    frameCacheBRef.current = ensurePreviewVideoFrameCache(frameCacheBRef.current)
+    return frameCacheBRef.current
+  }, [])
+
   const syncVideoElement = useCallback(
     (
       video: HTMLVideoElement | null,
       layer: PreviewVideoLayerProps | null,
       slot: PreviewVideoSlot,
-      forceSeek: boolean
+      forceSeek: boolean,
+      inCross: boolean
     ) => {
       if (!video || !layer) {
         if (video && !layer) video.pause()
@@ -197,10 +215,23 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
       if (isPlaying) {
         mountedSlotBlockRef.current[mountedKey] = blockId
-        if (forceSeek || blockChanged) {
-          video.currentTime = target
+        if (inCross) {
+          if (
+            forceSeek ||
+            blockChanged ||
+            Math.abs(video.currentTime - target) > CROSS_TRANSITION_SEEK_EPSILON_SEC
+          ) {
+            video.currentTime = target
+          }
+          if (!video.paused) {
+            video.pause()
+          }
+        } else {
+          if (forceSeek || blockChanged) {
+            video.currentTime = target
+          }
+          void video.play().catch(() => undefined)
         }
-        void video.play().catch(() => undefined)
         return
       }
 
@@ -214,7 +245,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   )
 
   const syncVideosFromVm = useCallback(
-    (vmLayers: PreviewVideoLayerProps[], forceSeek: boolean) => {
+    (vmLayers: PreviewVideoLayerProps[], forceSeek: boolean, inCross: boolean) => {
       const blockSlots = assignBlockSlots(vmLayers)
       const layerByBlockId = new Map(vmLayers.map((layer) => [layer.block.id, layer]))
 
@@ -222,10 +253,34 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         const blockId = blockIdForPreviewSlot(blockSlots, slot)
         const layer = blockId ? (layerByBlockId.get(blockId) ?? null) : null
         const video = slot === 'a' ? slotARef.current : slotBRef.current
-        syncVideoElement(video, layer, slot, forceSeek)
+        syncVideoElement(video, layer, slot, forceSeek, inCross)
       }
     },
     [assignBlockSlots, syncVideoElement]
+  )
+
+  const buildVideoFrameCaches = useCallback(
+    (
+      layers: PreviewVideoLayerProps[],
+      inCross: boolean
+    ): Map<string, HTMLCanvasElement> | undefined => {
+      if (!inCross) return undefined
+
+      const caches = new Map<string, HTMLCanvasElement>()
+      for (const layer of layers) {
+        const video = getVideoRefForBlock(layer.block.id)
+        const slot = blockSlotsRef.current.get(layer.block.id)
+        if (!video || !slot) continue
+
+        const cache = getFrameCacheForSlot(slot)
+        capturePreviewVideoFrame(video, cache)
+        if (hasPreviewVideoFrameCache(cache)) {
+          caches.set(layer.block.id, cache)
+        }
+      }
+      return caches.size > 0 ? caches : undefined
+    },
+    [getVideoRefForBlock, getFrameCacheForSlot]
   )
 
   const buildDescriptorAt = useCallback(
@@ -266,10 +321,9 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
       const { vm } = resolveSceneVm(compositionSec)
       const enteringCross = vm.inDissolve && !wasInCrossRef.current
-      const leavingCross = !vm.inDissolve && wasInCrossRef.current
       wasInCrossRef.current = vm.inDissolve
       liveVmRef.current = { layers: vm.videoLayers, compositionSec }
-      syncVideosFromVm(vm.videoLayers, forceSeek || enteringCross || leavingCross)
+      syncVideosFromVm(vm.videoLayers, forceSeek || enteringCross, vm.inDissolve)
 
       const ctx = canvas.getContext('2d', { alpha: false })
       if (!ctx) return compositionSec
@@ -280,8 +334,12 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       const descriptor = buildDescriptorAt(compositionSec, vm.videoLayers)
       if (!descriptor) return compositionSec
 
+      const videos = collectVideosForLayers(vm.videoLayers)
+      const videoFrameCaches = buildVideoFrameCaches(vm.videoLayers, vm.inDissolve)
+
       renderFrameDescriptorToCanvas(ctx, descriptor, {
-        videos: collectVideosForLayers(vm.videoLayers),
+        videos,
+        videoFrameCaches,
         showTemplateCaptions: previewBurnSubtitles && !captionsHidden && !captionsMuted,
         showFreeText: true,
         preferGpuEffects: true,
@@ -295,6 +353,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       syncVideosFromVm,
       buildDescriptorAt,
       collectVideosForLayers,
+      buildVideoFrameCaches,
       previewBurnSubtitles,
       captionsHidden,
       captionsMuted,

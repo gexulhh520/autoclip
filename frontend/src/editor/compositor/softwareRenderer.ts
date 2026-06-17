@@ -24,6 +24,8 @@ export interface SoftwareRendererVideoSources {
 
 export interface SoftwareRendererOptions {
   videos?: SoftwareRendererVideoSources['videos']
+  /** 转场逐帧采样缓存（优先于 videos 绘制，避免 seeking 闪屏） */
+  videoFrameCaches?: Map<string, HTMLCanvasElement>
   rgbaFrames?: SoftwareRendererVideoSources['rgbaFrames']
   videoSources?: SoftwareRendererVideoSources['videoSources']
   fps?: number
@@ -136,7 +138,7 @@ const drawRgbaInTransform = (
 
 const drawVideoInTransform = (
   ctx: CanvasRenderingContext2D,
-  video: HTMLVideoElement,
+  source: HTMLVideoElement | HTMLCanvasElement,
   transform: VisualTransform,
   opacity: number,
   filter?: string,
@@ -147,9 +149,9 @@ const drawVideoInTransform = (
     layerScale?: number
   }
 ): void => {
-  if (video.readyState < 2) return
+  if (source instanceof HTMLVideoElement && source.readyState < 2) return
   withLayerDrawState(ctx, transform, opacity, { filter, ...layerOptions }, (resolved) => {
-    ctx.drawImage(video, resolved.x, resolved.y, resolved.width, resolved.height)
+    ctx.drawImage(source, resolved.x, resolved.y, resolved.width, resolved.height)
   })
 }
 
@@ -269,6 +271,7 @@ export function renderFrameDescriptorToCanvas(
 ): void {
   const { width, height } = descriptor
   const videos = options.videos ?? new Map<string, HTMLVideoElement>()
+  const videoFrameCaches = options.videoFrameCaches
   const rgbaFrames = options.rgbaFrames
   const fps = options.fps ?? 30
   const visualFilter = options.visualFilter
@@ -283,7 +286,7 @@ export function renderFrameDescriptorToCanvas(
 
   for (const item of sortItems(descriptor.items)) {
     if (item.kind === 'layer') {
-      renderLayerItemSync(ctx, item, videos, rgbaFrames, fps, visualFilter)
+      renderLayerItemSync(ctx, item, videos, videoFrameCaches, rgbaFrames, fps, visualFilter)
       continue
     }
     if (item.kind === 'text') {
@@ -385,12 +388,14 @@ function renderLayerItemSync(
   ctx: CanvasRenderingContext2D,
   item: FrameLayerItem,
   videos: Map<string, HTMLVideoElement>,
+  videoFrameCaches: Map<string, HTMLCanvasElement> | undefined,
   rgbaFrames: Map<string, DecodedBlockFrames> | undefined,
   fps: number,
   visualFilter?: string
 ): void {
   const blockId = item.blockId
   const video = blockId ? videos.get(blockId) : undefined
+  const frameCache = blockId ? videoFrameCaches?.get(blockId) : undefined
   const decoded = blockId && rgbaFrames ? rgbaFrames.get(blockId) : undefined
   const blurFilter =
     item.source === 'blur_backdrop' ? 'blur(18px) brightness(0.55) saturate(1.1)' : visualFilter
@@ -411,6 +416,11 @@ function renderLayerItemSync(
       )
       return
     }
+  }
+
+  if (frameCache) {
+    drawVideoInTransform(ctx, frameCache, item.transform, item.opacity, blurFilter, layerOptions)
+    return
   }
 
   if (video && video.readyState >= 2) {
