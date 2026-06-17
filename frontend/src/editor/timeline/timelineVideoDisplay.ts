@@ -16,7 +16,8 @@ export interface VideoTimelineTransitionMarker {
 }
 
 /**
- * 主轨转场 UI 标记：仅展示叠化覆盖范围，不修改视频片段的起止与长度。
+ * 主轨转场 UI 标记：以两片段衔接点为中心，各占转场时长的一半。
+ * 不修改视频片段的起止与长度。
  */
 export function buildVideoTimelineTransitionMarkers(
   segments: CompositionTimelineSegment[]
@@ -40,9 +41,12 @@ export function buildVideoTimelineTransitionMarkers(
       continue
     }
 
+    const junctionSec = (visualEndSec + nextVisualStart) / 2
+    const halfDurationSec = segment.dissolveOutSec / 2
+
     transitions.push({
       id: `transition-${segment.block.id}-${next.block.id}`,
-      startSec: visualEndSec - segment.dissolveOutSec,
+      startSec: junctionSec - halfDurationSec,
       durationSec: segment.dissolveOutSec,
       kind: segment.block.transition_out,
       fromBlockId: segment.block.id,

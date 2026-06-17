@@ -1182,13 +1182,6 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                       </div>
                     ) : (
                       <>
-                        {track.transitionMarkers?.map((marker) => (
-                          <TimelineTransitionMarker
-                            key={marker.id}
-                            marker={marker}
-                            zoomLevel={zoomLevel}
-                          />
-                        ))}
                         {track.elements.map((element) => (
                           <TimelineElementView
                             key={element.id}
@@ -1214,6 +1207,13 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                                 ? waveforms[element.source.blockId]
                                 : undefined
                             }
+                          />
+                        ))}
+                        {track.transitionMarkers?.map((marker) => (
+                          <TimelineTransitionMarker
+                            key={marker.id}
+                            marker={marker}
+                            zoomLevel={zoomLevel}
                           />
                         ))}
                       </>

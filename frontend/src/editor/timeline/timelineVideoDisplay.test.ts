@@ -40,7 +40,7 @@ describe('buildVideoTimelineTransitionMarkers', () => {
     expect(withTransition.totalDurationSec).toBeCloseTo(without.totalDurationSec, 3)
   })
 
-  it('emits a marker on the outgoing tail without shortening clip display', () => {
+  it('centers marker on junction with half on each adjacent clip', () => {
     const segments = buildCompositionTimelineSegments(
       [block('a', 5, 'dissolve'), block('b', 4, 'cut')],
       50,
@@ -48,14 +48,19 @@ describe('buildVideoTimelineTransitionMarkers', () => {
     )
     const markers = buildVideoTimelineTransitionMarkers(segments)
     const segA = segments[0]!
-    const visualStart = blockTimelineVisualStartSec(segA.startSec, segA.block)
+    const segB = segments[1]!
     const visualEnd = blockTimelineVisualEndSec(segA.startSec, segA.block)
+    const nextVisualStart = blockTimelineVisualStartSec(segB.startSec, segB.block)
     const dissolve = segA.dissolveOutSec
+    const half = dissolve / 2
+    const junction = (visualEnd + nextVisualStart) / 2
 
     expect(markers).toHaveLength(1)
-    expect(markers[0]!.startSec).toBeCloseTo(visualEnd - dissolve, 3)
+    expect(markers[0]!.startSec).toBeCloseTo(junction - half, 3)
+    expect(markers[0]!.startSec + markers[0]!.durationSec).toBeCloseTo(junction + half, 3)
     expect(markers[0]!.durationSec).toBeCloseTo(dissolve, 3)
-    expect(visualEnd - visualStart).toBeCloseTo(5, 3)
+    expect(markers[0]!.startSec).toBeLessThan(visualEnd)
+    expect(markers[0]!.startSec + markers[0]!.durationSec).toBeGreaterThan(nextVisualStart)
   })
 
   it('omits markers when clips are separated by a gap', () => {
