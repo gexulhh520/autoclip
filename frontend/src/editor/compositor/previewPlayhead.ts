@@ -23,7 +23,7 @@ export function compositionTimeFromVideo(
   return segmentStartSec + Math.max(0, relative) / rate
 }
 
-export const PREVIEW_PRIMARY_VIDEO_SELECTOR = '.compositor-preview__decoder'
+export const PREVIEW_PRIMARY_VIDEO_SELECTOR = '[data-composition-clock="true"]'
 
 export interface ResolvePreviewLivePlayheadOptions {
   isPlaying: boolean

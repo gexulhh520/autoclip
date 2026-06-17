@@ -308,7 +308,12 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     )
 
     if (!atCompositionEnd && index >= 0 && index < compositionSegments.length - 1) {
-      advanceSequencePlayhead(compositionSegments[index + 1].startSec + 0.02)
+      const nextSegment = compositionSegments[index + 1]
+      // 转场结束后 incoming 已在 next 段中间播放，勿因 outgoing ended 回跳
+      if (playhead >= nextSegment.startSec + 0.05) {
+        return
+      }
+      advanceSequencePlayhead(nextSegment.startSec + 0.02)
       return
     }
 

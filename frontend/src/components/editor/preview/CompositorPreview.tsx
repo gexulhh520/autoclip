@@ -6,12 +6,20 @@ import {
   type CompositionPlan,
 } from '../../../editor/compositor'
 import { compositionTimeFromVideo } from '../../../editor/compositor/previewPlayhead'
+import {
+  assignStablePreviewVideoSlots,
+  blockIdForPreviewSlot,
+  type PreviewVideoSlot,
+} from '../../../editor/compositor/previewVideoSlots'
 import { renderFrameDescriptorToCanvas } from '../../../editor/compositor/softwareRenderer'
 import { usePreviewTextDrag } from '../../../editor/compositor/usePreviewTextDrag'
 import type { BoxSelectableItem } from '../../../editor/selection/boxSelect'
 import { measureTextOverlay } from '../../../editor/opencut-text/measure'
 import type { OpenCutTextOverlay } from '../../../editor/opencut-text/params'
-import type { PreviewSceneViewModel } from '../../../editor/scene/adapters/previewAdapter'
+import type {
+  PreviewSceneViewModel,
+  PreviewVideoLayerProps,
+} from '../../../editor/scene/adapters/previewAdapter'
 
 export interface CompositorPreviewProps {
   session: EditSession
@@ -86,10 +94,10 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   moveCaptionOffsets,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const primaryVideoRef = useRef<HTMLVideoElement>(null)
-  const secondaryVideoRef = useRef<HTMLVideoElement>(null)
-  const mountedPrimaryBlockRef = useRef<string | null>(null)
-  const mountedSecondaryBlockRef = useRef<string | null>(null)
+  const slotARef = useRef<HTMLVideoElement>(null)
+  const slotBRef = useRef<HTMLVideoElement>(null)
+  const blockSlotsRef = useRef<Map<string, PreviewVideoSlot>>(new Map())
+  const mountedSlotBlockRef = useRef<{ a: string | null; b: string | null }>({ a: null, b: null })
 
   const plan: CompositionPlan | null = useMemo(
     () =>
@@ -110,25 +118,59 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     []
   )
 
-  const primaryLayer = previewVm.videoLayers[0] ?? null
-  const secondaryLayer = previewVm.videoLayers[1] ?? null
+  const clockLayer = previewVm.videoLayers[0] ?? null
+  const clockBlockId = clockLayer?.block.id ?? null
   const useSourceVideo = session.audio_settings.use_source_video ?? false
+
+  const activeBlockIds = useMemo(
+    () => previewVm.videoLayers.map((layer) => layer.block.id),
+    [previewVm.videoLayers]
+  )
+
+  const blockSlots = useMemo(() => {
+    const next = assignStablePreviewVideoSlots(activeBlockIds, blockSlotsRef.current)
+    blockSlotsRef.current = next
+    return next
+  }, [activeBlockIds])
+
+  const layerByBlockId = useMemo(() => {
+    const map = new Map<string, PreviewVideoLayerProps>()
+    for (const layer of previewVm.videoLayers) {
+      map.set(layer.block.id, layer)
+    }
+    return map
+  }, [previewVm.videoLayers])
+
+  const getVideoRefForBlock = useCallback(
+    (blockId: string): HTMLVideoElement | null => {
+      const slot = blockSlots.get(blockId)
+      if (slot === 'a') return slotARef.current
+      if (slot === 'b') return slotBRef.current
+      return null
+    },
+    [blockSlots]
+  )
+
+  const collectVideosForLayers = useCallback(
+    (layers: PreviewVideoLayerProps[]): Map<string, HTMLVideoElement> => {
+      const videos = new Map<string, HTMLVideoElement>()
+      for (const layer of layers) {
+        const video = getVideoRefForBlock(layer.block.id)
+        if (video) videos.set(layer.block.id, video)
+      }
+      return videos
+    },
+    [getVideoRefForBlock]
+  )
 
   const buildDescriptorAt = useCallback(
     (timeSec: number) => {
       if (!plan) return null
-      const videos = new Map<string, HTMLVideoElement>()
-      if (primaryLayer && primaryVideoRef.current) {
-        videos.set(primaryLayer.block.id, primaryVideoRef.current)
-      }
-      if (secondaryLayer && secondaryVideoRef.current) {
-        videos.set(secondaryLayer.block.id, secondaryVideoRef.current)
-      }
       return buildFrameDescriptor(plan, timeSec, {
         session,
         sourceSize: videoNaturalSize,
         blockSourceSizes,
-        videos,
+        videos: collectVideosForLayers(previewVm.videoLayers),
         burnSubtitles: previewBurnSubtitles && !captionsHidden && !captionsMuted,
         selectedOverlayId,
         selectedOverlayIds,
@@ -148,28 +190,31 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       selectedOverlayIds,
       mutedTextTrackIds,
       measureText,
-      primaryLayer?.block.id,
-      secondaryLayer?.block.id,
+      previewVm.videoLayers,
+      collectVideosForLayers,
     ]
   )
 
-  /** 暂停/拖拽时用 store playhead；播放中每帧从 video.currentTime 推算，避免 timeupdate 4Hz 阶梯 */
+  /** 暂停/拖拽时用 store playhead；播放中每帧从 clock 视频推算，避免 timeupdate 4Hz 阶梯 */
   const resolveLiveTimeSec = useCallback((): number => {
     if (!plan) return sequencePlayheadSec
-    if (isPlaying && primaryLayer && primaryVideoRef.current?.readyState >= 2) {
-      const segment = plan.timeline.segments.find((item) => item.block.id === primaryLayer.block.id)
-      if (segment) {
-        const live = compositionTimeFromVideo(
-          primaryVideoRef.current,
-          primaryLayer.block,
-          segment.compositionStartSec,
-          useSourceVideo
-        )
-        return Math.max(0, Math.min(plan.totalDurationSec, live))
+    if (isPlaying && clockLayer) {
+      const clockVideo = getVideoRefForBlock(clockLayer.block.id)
+      if (clockVideo && clockVideo.readyState >= 2) {
+        const segment = plan.timeline.segments.find((item) => item.block.id === clockLayer.block.id)
+        if (segment) {
+          const live = compositionTimeFromVideo(
+            clockVideo,
+            clockLayer.block,
+            segment.compositionStartSec,
+            useSourceVideo
+          )
+          return Math.max(0, Math.min(plan.totalDurationSec, live))
+        }
       }
     }
     return Math.max(0, Math.min(plan.totalDurationSec, sequencePlayheadSec))
-  }, [isPlaying, plan, primaryLayer, sequencePlayheadSec, useSourceVideo])
+  }, [isPlaying, plan, clockLayer, sequencePlayheadSec, useSourceVideo, getVideoRefForBlock])
 
   const idleDescriptor = useMemo(
     () => buildDescriptorAt(sequencePlayheadSec),
@@ -179,14 +224,15 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   const syncVideoElement = useCallback(
     (
       video: HTMLVideoElement | null,
-      layer: (typeof previewVm.videoLayers)[number] | null,
-      muted: boolean,
-      mountedBlockRef: React.MutableRefObject<string | null>
+      layer: PreviewVideoLayerProps | null,
+      slot: PreviewVideoSlot,
+      muted: boolean
     ) => {
       if (!video || !layer) return
 
       const blockId = layer.block.id
-      const blockChanged = mountedBlockRef.current !== blockId
+      const mountedKey = slot === 'a' ? 'a' : 'b'
+      const blockChanged = mountedSlotBlockRef.current[mountedKey] !== blockId
       video.volume = Math.min(1, Math.max(0, muted ? 0 : layer.volume))
       video.playbackRate = Math.max(0.25, Math.min(4, layer.playbackRate || 1))
 
@@ -195,13 +241,13 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       if (isPlaying) {
         if (blockChanged || Math.abs(video.currentTime - target) > 0.35) {
           video.currentTime = target
-          mountedBlockRef.current = blockId
+          mountedSlotBlockRef.current[mountedKey] = blockId
         }
         void video.play().catch(() => undefined)
         return
       }
 
-      mountedBlockRef.current = blockId
+      mountedSlotBlockRef.current[mountedKey] = blockId
       if (Math.abs(video.currentTime - target) > 0.03) {
         video.currentTime = target
       }
@@ -210,23 +256,33 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     [getSourceTimeForBlock, isPlaying]
   )
 
+  const syncSlot = useCallback(
+    (slot: PreviewVideoSlot) => {
+      const blockId = blockIdForPreviewSlot(blockSlots, slot)
+      const layer = blockId ? (layerByBlockId.get(blockId) ?? null) : null
+      const video = slot === 'a' ? slotARef.current : slotBRef.current
+      if (!layer || !video) {
+        if (video && !layer) {
+          video.pause()
+        }
+        return
+      }
+      const muted = blockId !== clockBlockId || clipAudioMuted
+      syncVideoElement(video, layer, slot, muted)
+    },
+    [blockSlots, layerByBlockId, clockBlockId, clipAudioMuted, syncVideoElement]
+  )
+
   useEffect(() => {
-    syncVideoElement(primaryVideoRef.current, primaryLayer, clipAudioMuted, mountedPrimaryBlockRef)
-  }, [primaryLayer?.block.id, clipAudioMuted, isPlaying, syncVideoElement, primaryLayer])
+    syncSlot('a')
+    syncSlot('b')
+  }, [syncSlot, previewVm.videoLayers, isPlaying])
 
   useEffect(() => {
     if (isPlaying) return
-    syncVideoElement(primaryVideoRef.current, primaryLayer, clipAudioMuted, mountedPrimaryBlockRef)
-  }, [sequencePlayheadSec, isPlaying, syncVideoElement, primaryLayer, clipAudioMuted])
-
-  useEffect(() => {
-    syncVideoElement(secondaryVideoRef.current, secondaryLayer, true, mountedSecondaryBlockRef)
-  }, [secondaryLayer?.block.id, isPlaying, syncVideoElement, secondaryLayer])
-
-  useEffect(() => {
-    if (isPlaying) return
-    syncVideoElement(secondaryVideoRef.current, secondaryLayer, true, mountedSecondaryBlockRef)
-  }, [sequencePlayheadSec, isPlaying, syncVideoElement, secondaryLayer])
+    syncSlot('a')
+    syncSlot('b')
+  }, [sequencePlayheadSec, isPlaying, syncSlot])
 
   const paint = useCallback(() => {
     const canvas = canvasRef.current
@@ -241,16 +297,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     const descriptor = buildDescriptorAt(timeSec)
     if (!descriptor) return
 
-    const videos = new Map<string, HTMLVideoElement>()
-    if (primaryLayer && primaryVideoRef.current) {
-      videos.set(primaryLayer.block.id, primaryVideoRef.current)
-    }
-    if (secondaryLayer && secondaryVideoRef.current) {
-      videos.set(secondaryLayer.block.id, secondaryVideoRef.current)
-    }
-
     renderFrameDescriptorToCanvas(ctx, descriptor, {
-      videos,
+      videos: collectVideosForLayers(previewVm.videoLayers),
       showTemplateCaptions: previewBurnSubtitles && !captionsHidden && !captionsMuted,
       showFreeText: true,
       preferGpuEffects: true,
@@ -259,8 +307,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     plan,
     buildDescriptorAt,
     resolveLiveTimeSec,
-    primaryLayer,
-    secondaryLayer,
+    previewVm.videoLayers,
+    collectVideosForLayers,
     previewBurnSubtitles,
     captionsHidden,
     captionsMuted,
@@ -296,6 +344,38 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     moveCaptionOffsets: moveCaptionOffsets ?? (() => undefined),
   })
 
+  const renderDecoderSlot = (slot: PreviewVideoSlot) => {
+    const blockId = blockIdForPreviewSlot(blockSlots, slot)
+    const layer = blockId ? (layerByBlockId.get(blockId) ?? null) : null
+    const isClock = blockId != null && blockId === clockBlockId
+    const videoRef = slot === 'a' ? slotARef : slotBRef
+
+    return (
+      <video
+        ref={videoRef}
+        className="compositor-preview__decoder"
+        data-block-id={blockId ?? undefined}
+        data-composition-clock={isClock ? 'true' : undefined}
+        src={layer ? getVideoUrlForBlock(layer.block) : undefined}
+        muted={!layer || blockId !== clockBlockId || clipAudioMuted}
+        playsInline
+        preload="auto"
+        crossOrigin="anonymous"
+        onLoadedMetadata={(event) => {
+          if (isClock) onMetadata(event.currentTarget)
+        }}
+        onLoadedData={() => paint()}
+        onSeeked={() => paint()}
+        onTimeUpdate={(event) => {
+          if (isClock) onTimeUpdate(event.currentTarget)
+        }}
+        onEnded={() => {
+          if (isClock) onEnded()
+        }}
+      />
+    )
+  }
+
   return (
     <div className="compositor-preview">
       <canvas
@@ -311,36 +391,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       ) : null}
 
       <div className="compositor-preview__decoders" aria-hidden>
-        {primaryLayer ? (
-          <video
-            ref={primaryVideoRef}
-            className="compositor-preview__decoder"
-            src={getVideoUrlForBlock(primaryLayer.block)}
-            muted={clipAudioMuted}
-            playsInline
-            preload="auto"
-            crossOrigin="anonymous"
-            onLoadedMetadata={(event) => onMetadata(event.currentTarget)}
-            onLoadedData={() => paint()}
-            onSeeked={() => paint()}
-            onTimeUpdate={(event) => onTimeUpdate(event.currentTarget)}
-            onEnded={onEnded}
-          />
-        ) : null}
-        {secondaryLayer ? (
-          <video
-            ref={secondaryVideoRef}
-            className="compositor-preview__decoder"
-            src={getVideoUrlForBlock(secondaryLayer.block)}
-            muted
-            playsInline
-            preload="auto"
-            crossOrigin="anonymous"
-            onLoadedData={() => paint()}
-            onSeeked={() => paint()}
-            onEnded={onEnded}
-          />
-        ) : null}
+        {renderDecoderSlot('a')}
+        {renderDecoderSlot('b')}
       </div>
     </div>
   )
