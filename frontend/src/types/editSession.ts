@@ -283,6 +283,8 @@ export interface EditSessionCompositorMuxRequest {
   output_dir?: string | null
   /** 仅混流指定片段音频（批量分轨 Compositor 导出） */
   block_id?: string
+  /** Compositor 成片时长（秒），避免 WebCodecs MP4 缺少 duration 元数据 */
+  compositor_duration_sec?: number
 }
 
 export interface EditSessionHeadlessExportRequest {

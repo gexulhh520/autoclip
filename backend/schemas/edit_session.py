@@ -391,6 +391,10 @@ class EditSessionCompositorMuxRequest(BaseModel):
         default=None,
         description="仅混流指定片段音频（批量分轨 Compositor 导出）",
     )
+    compositor_duration_sec: Optional[float] = Field(
+        default=None,
+        description="Compositor 成片时长（秒）；WebCodecs 导出可能缺少 moov duration，由客户端传入",
+    )
 
 
 class EditSessionHeadlessExportRequest(BaseModel):

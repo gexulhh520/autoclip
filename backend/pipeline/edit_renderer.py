@@ -168,6 +168,39 @@ def _probe_duration(path: Path) -> float:
     return float(info.get("duration") or 0.0)
 
 
+def _resolve_mux_duration(
+    session: EditSession,
+    compositor_video: Path,
+    *,
+    hint_sec: Optional[float] = None,
+) -> float:
+    """合成视频时长：优先客户端 hint，其次 ffprobe，再回退时间轴推算。"""
+    from backend.pipeline.scene_builder import build_composition_timeline
+
+    candidates: List[float] = []
+    if hint_sec is not None and hint_sec > 0:
+        candidates.append(float(hint_sec))
+
+    probed = _probe_duration(compositor_video)
+    if probed > 0:
+        candidates.append(probed)
+
+    if session.sequence:
+        transition = float(session.audio_settings.transition_duration_sec or 0.35)
+        timeline = build_composition_timeline(session.sequence, transition)
+        if timeline.total_duration_sec > 0:
+            candidates.append(timeline.total_duration_sec)
+
+    for clip in session.audio_elements or []:
+        if clip.hidden:
+            continue
+        candidates.append(float(clip.start_sec) + float(clip.duration_sec))
+
+    if candidates:
+        return max(candidates)
+    return max(probed, 0.1)
+
+
 def _input_has_audio_stream(path: Path) -> bool:
     info = VideoProcessor.get_video_info(path)
     streams = info.get("streams") or []
@@ -853,7 +886,13 @@ def mix_bgm_track(
     return output_path.exists()
 
 
-def _mux_video_with_audio(video_path: Path, audio_path: Path, output_path: Path) -> bool:
+def _mux_video_with_audio(
+    video_path: Path,
+    audio_path: Path,
+    output_path: Path,
+    *,
+    duration_sec: Optional[float] = None,
+) -> bool:
     cmd = [
         get_ffmpeg_path(),
         "-i",
@@ -870,10 +909,12 @@ def _mux_video_with_audio(video_path: Path, audio_path: Path, output_path: Path)
         "aac",
         "-b:a",
         "128k",
-        "-shortest",
-        "-y",
-        str(output_path.resolve()),
     ]
+    if duration_sec is not None and duration_sec > 0:
+        cmd.extend(["-t", f"{duration_sec:.3f}"])
+    else:
+        cmd.append("-shortest")
+    cmd.extend(["-y", str(output_path.resolve())])
     result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore")
     if result.returncode != 0:
         logger.error("视频与音频混流失败: %s", result.stderr[:300])
@@ -1280,6 +1321,7 @@ def mux_compositor_export(
     export_srt: bool = False,
     use_source_video: Optional[bool] = None,
     block_id: Optional[str] = None,
+    compositor_duration_sec: Optional[float] = None,
 ) -> CompositorMuxResult:
     """Compositor 像素 + timeline 音频/BGM → 成片（无 ASS/drawtext 布局）。
 
@@ -1320,7 +1362,11 @@ def mux_compositor_export(
     audio_mixed = False
     audio_warning: Optional[str] = None
     failed_count = len(blocks_for_audio) - len(audio_segments)
-    video_duration = _probe_duration(compositor_video)
+    video_duration = _resolve_mux_duration(
+        session,
+        compositor_video,
+        hint_sec=compositor_duration_sec,
+    )
 
     block_timeline_audio = export_dir / f"{safe_name}_block_timeline.aac"
     has_block_audio = False
@@ -1375,7 +1421,9 @@ def mux_compositor_export(
             part.unlink(missing_ok=True)
 
         staged = export_dir / f"{safe_name}_with_audio.mp4"
-        if not _mux_video_with_audio(compositor_video, merged_audio, staged):
+        if not _mux_video_with_audio(
+            compositor_video, merged_audio, staged, duration_sec=video_duration
+        ):
             raise RuntimeError("视频与音频混流失败")
         merged_audio.unlink(missing_ok=True)
         shutil.copy2(staged, output_path)

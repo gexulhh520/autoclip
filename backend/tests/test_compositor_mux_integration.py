@@ -257,6 +257,23 @@ def test_compositor_mux_with_timeline_audio_clips_only(tmp_path, monkeypatch, ff
     assert _probe_has_audio(mux_result.output_path)
 
 
+def test_resolve_mux_duration_prefers_client_hint_when_probe_missing(tmp_path, monkeypatch):
+    from backend.pipeline.edit_renderer import _resolve_mux_duration
+
+    session = _load_session("session-minimal.json")
+    project_dir = tmp_path / "projects" / session.project_id
+    project_dir.mkdir(parents=True)
+    empty_video = project_dir / "empty.mp4"
+    empty_video.write_bytes(b"not-a-real-mp4")
+
+    monkeypatch.setattr(
+        "backend.pipeline.edit_renderer._probe_duration",
+        lambda _path: 0.0,
+    )
+    duration = _resolve_mux_duration(session, empty_video, hint_sec=39.5)
+    assert duration == 39.5
+
+
 def test_render_timeline_audio_clips_uses_amix_without_normalize(tmp_path, monkeypatch):
     from backend.pipeline.edit_renderer import _render_timeline_audio_clips
 

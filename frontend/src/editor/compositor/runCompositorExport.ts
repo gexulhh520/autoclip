@@ -83,6 +83,7 @@ export async function runCompositorExportAndMux(
 
   const muxResult = await editApi.muxCompositorExport(runtime.projectId, runtime.sessionId, {
     compositor_video_path: compositorResult.compositorVideoPath,
+    compositor_duration_sec: compositorResult.totalDurationSec,
     filename: muxOptions.filename ?? timelineOptions.filename ?? runtime.session.name,
     export_srt: muxOptions.exportSrt ?? timelineOptions.exportSrt ?? false,
     use_source_video: muxOptions.useSourceVideo ?? timelineOptions.useSourceVideo,

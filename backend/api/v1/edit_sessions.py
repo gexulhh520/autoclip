@@ -431,6 +431,7 @@ async def mux_compositor_export_video(
                 export_srt=body.export_srt,
                 use_source_video=body.use_source_video,
                 block_id=body.block_id,
+                compositor_duration_sec=body.compositor_duration_sec,
             ),
         )
 

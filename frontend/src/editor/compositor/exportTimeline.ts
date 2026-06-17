@@ -33,6 +33,7 @@ export interface ExportTimelineResult {
   width: number
   height: number
   frameCount: number
+  totalDurationSec: number
 }
 
 const sanitizeFilename = (value: string): string => {
@@ -149,6 +150,7 @@ export async function exportTimelineViaCompositor(
       width: plan.canvas.width,
       height: plan.canvas.height,
       frameCount: totalFrames,
+      totalDurationSec: plan.totalDurationSec,
     }
   } finally {
     videoSources.dispose()
