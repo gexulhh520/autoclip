@@ -3,7 +3,8 @@ import { persist } from 'zustand/middleware'
 
 export const ASSETS_PANEL_TABS = [
   'media',
-  'sounds',
+  'sfx',
+  'bgm',
   'text',
   'stickers',
   'effects',
@@ -26,6 +27,16 @@ export const useAssetsPanelStore = create<AssetsPanelStore>()(
       activeTab: 'media',
       setActiveTab: (tab) => set({ activeTab: tab }),
     }),
-    { name: 'autoclip-assets-panel' }
+    {
+      name: 'autoclip-assets-panel',
+      version: 2,
+      migrate: (persisted, version) => {
+        const state = persisted as { activeTab?: string }
+        if (version < 2 && state.activeTab === 'sounds') {
+          state.activeTab = 'bgm'
+        }
+        return persisted as AssetsPanelStore
+      },
+    }
   )
 )

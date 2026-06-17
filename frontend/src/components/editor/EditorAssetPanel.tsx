@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { message } from 'antd'
-import { LinkOutlined, PlusOutlined } from '@ant-design/icons'
+import { PlusOutlined } from '@ant-design/icons'
 import { projectApi } from '../../services/api'
 import { blockDuration, useEditSessionStore } from '../../stores/useEditSessionStore'
 import { getBlockVideoUrl } from '../../utils/editBlockMedia'
@@ -16,8 +16,9 @@ import EditorSessionSettingsPanel from './panels/EditorSessionSettingsPanel'
 import TextAssetsView from './panels/assets/views/TextAssetsView'
 import StickersAssetsView from './panels/assets/views/StickersAssetsView'
 import EffectsAssetsView from './panels/assets/views/EffectsAssetsView'
+import SfxAssetsView from './panels/assets/views/SfxAssetsView'
+import BgmAssetsView from './panels/assets/views/BgmAssetsView'
 import TransitionTypePicker from './TransitionTypePicker'
-import EditorImportBgmUrlModal from './EditorImportBgmUrlModal'
 
 interface ProjectClip {
   id: string
@@ -26,7 +27,6 @@ interface ProjectClip {
 }
 
 const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const videoInputRef = useRef<HTMLInputElement>(null)
   const srtInputRef = useRef<HTMLInputElement>(null)
   const activeTab = useAssetsPanelStore((state) => state.activeTab)
@@ -42,11 +42,6 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
   const updateAudioSettings = useEditSessionStore((state) => state.updateAudioSettings)
   const updateExportSettings = useEditSessionStore((state) => state.updateExportSettings)
   const updateBlockTransition = useEditSessionStore((state) => state.updateBlockTransition)
-  const uploadBgm = useEditSessionStore((state) => state.uploadBgm)
-  const importBgmFromUrl = useEditSessionStore((state) => state.importBgmFromUrl)
-  const removeAudioAsset = useEditSessionStore((state) => state.removeAudioAsset)
-  const addAudioClipToTimeline = useEditSessionStore((state) => state.addAudioClipToTimeline)
-  const activeAudioTrackId = useEditSessionStore((state) => state.activeAudioTrackId)
   const appendClips = useEditSessionStore((state) => state.appendClips)
   const importMedia = useEditSessionStore((state) => state.importMedia)
   const importSrtCaptions = useEditSessionStore((state) => state.importSrtCaptions)
@@ -59,12 +54,9 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [projectClips, setProjectClips] = useState<ProjectClip[]>([])
   const [loadingClips, setLoadingClips] = useState(false)
   const [importingVideo, setImportingVideo] = useState(false)
-  const [bgmUrlModalOpen, setBgmUrlModalOpen] = useState(false)
 
   const blocks = session?.sequence ?? []
   const sessionId = session?.id ?? ''
-  const audioAssets = session?.audio_assets ?? []
-  const audioSettings = session?.audio_settings
   const addedClipIds = useMemo(
     () => new Set(blocks.map((block) => block.source_clip_id)),
     [blocks]
@@ -262,144 +254,6 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
     </OpenCutPanelView>
   )
 
-  const renderSounds = () => {
-    if (!session || !audioSettings) return null
-    return (
-      <OpenCutPanelView
-        title="音频"
-        actions={
-          <>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="audio/*,video/mp4,video/quicktime,.aiff,.aif"
-              hidden
-              onChange={async (event) => {
-                const file = event.target.files?.[0]
-                event.target.value = ''
-                if (!file) return
-                try {
-                  await uploadBgm(projectId, file)
-                  message.success('已导入到音频库，拖到时间线或点击「添加」')
-                } catch {
-                  message.error('音频导入失败')
-                }
-              }}
-            />
-            <button
-              type="button"
-              className="editor-import-btn"
-              disabled={saving}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <PlusOutlined /> 导入音频
-            </button>
-            <button
-              type="button"
-              className="editor-import-btn"
-              disabled={saving}
-              onClick={() => setBgmUrlModalOpen(true)}
-            >
-              <LinkOutlined /> 从链接导入
-            </button>
-          </>
-        }
-      >
-        <EditorImportBgmUrlModal
-          open={bgmUrlModalOpen}
-          saving={saving}
-          onClose={() => setBgmUrlModalOpen(false)}
-          onSubmit={async (url) => {
-            try {
-              await importBgmFromUrl(projectId, url)
-              setBgmUrlModalOpen(false)
-              message.success('已从链接导入到音频库，拖到时间线或点击「添加」')
-            } catch {
-              message.error('链接导入失败，请检查链接是否有效')
-            }
-          }}
-        />
-        <div className="editor-inspector-section">
-          <div className="editor-inspector-label">会话音频</div>
-          <label className="editor-modal__check">
-            <input
-              type="checkbox"
-              checked={audioSettings.use_source_video}
-              onChange={(event) =>
-                updateAudioSettings({ use_source_video: event.target.checked })
-              }
-            />
-            导出从原片重切
-          </label>
-          <label className="editor-modal__check" style={{ marginTop: 8 }}>
-            <input
-              type="checkbox"
-              checked={audioSettings.bgm_duck_enabled ?? true}
-              onChange={(event) =>
-                updateAudioSettings({ bgm_duck_enabled: event.target.checked })
-              }
-            />
-            人声 Ducking（导出时压低 BGM）
-          </label>
-        </div>
-        <div className="editor-inspector-label" style={{ marginTop: 16 }}>
-          音频库 ({audioAssets.length})
-        </div>
-        {audioAssets.length === 0 ? (
-          <div className="editor-empty-hint">
-            导入后仅进入音频库，不会自动上时间线。拖到下方音频轨，或点击「添加」。
-          </div>
-        ) : (
-          <div className="editor-clip-list">
-            {audioAssets.map((asset) => {
-              const usedOnTimeline = (session.audio_elements ?? []).some(
-                (item) => item.asset_id === asset.id
-              )
-              return (
-                <div
-                  key={asset.id}
-                  className="editor-clip-item editor-clip-item--audio"
-                  draggable
-                  onDragStart={(event) => {
-                    event.dataTransfer.setData('application/x-autoclip-audio-asset', asset.id)
-                    event.dataTransfer.effectAllowed = 'copy'
-                  }}
-                >
-                  <div className="editor-clip-meta" style={{ flex: 1 }}>
-                    <div className="editor-clip-title">{asset.name}</div>
-                    <div className="editor-clip-sub">
-                      {usedOnTimeline ? '已在时间线' : '拖入音频轨或添加'}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                      type="button"
-                      className="editor-import-btn"
-                      onClick={() => {
-                        addAudioClipToTimeline(asset.id, { trackId: activeAudioTrackId ?? undefined })
-                        message.success('已添加到时间线')
-                      }}
-                    >
-                      添加
-                    </button>
-                    <button
-                      type="button"
-                      className="editor-import-btn"
-                      disabled={usedOnTimeline}
-                      onClick={() => removeAudioAsset(asset.id)}
-                    >
-                      删除
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </OpenCutPanelView>
-    )
-  }
-
   const renderCaptions = () => (
     <OpenCutPanelView title="字幕">
       <div className="editor-inspector-section">
@@ -592,7 +446,8 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
 
     const viewMap: Record<string, React.ReactNode> = {
       media: renderMedia(),
-      sounds: renderSounds(),
+      sfx: <SfxAssetsView projectId={projectId} />,
+      bgm: <BgmAssetsView projectId={projectId} />,
       text: <TextAssetsView />,
       stickers: <StickersAssetsView />,
       effects: <EffectsAssetsView />,

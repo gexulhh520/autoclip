@@ -3,12 +3,13 @@ import {
   ArrowRightLeft,
   Captions,
   Clapperboard,
-  Headphones,
-  Sparkles,
+  Music2,
   Settings,
   SlidersHorizontal,
   Smile,
+  Sparkles,
   Type,
+  Zap,
 } from 'lucide-react'
 import {
   ASSETS_PANEL_TABS,
@@ -21,7 +22,8 @@ const TAB_META: Record<
   { label: string; icon: React.ReactNode }
 > = {
   media: { label: '素材', icon: <Clapperboard size={16} strokeWidth={1.75} /> },
-  sounds: { label: '音频', icon: <Headphones size={16} strokeWidth={1.75} /> },
+  sfx: { label: '音效', icon: <Zap size={16} strokeWidth={1.75} /> },
+  bgm: { label: 'BGM', icon: <Music2 size={16} strokeWidth={1.75} /> },
   text: { label: '文本', icon: <Type size={16} strokeWidth={1.75} /> },
   stickers: { label: '贴纸', icon: <Smile size={16} strokeWidth={1.75} /> },
   effects: { label: '效果', icon: <Sparkles size={16} strokeWidth={1.75} /> },

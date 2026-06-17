@@ -204,6 +204,7 @@ class AudioAssetMeta(BaseModel):
     name: str
     path: str
     duration_sec: Optional[float] = None
+    category: Optional[Literal["sfx", "bgm"]] = None
 
 
 class AudioClipElement(BaseModel):

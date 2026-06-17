@@ -1,5 +1,11 @@
 import { nanoid } from 'nanoid'
-import type { AudioAssetMeta, AudioClipElement, AudioTrackMeta, EditSession } from '../types/editSession'
+import type {
+  AudioAssetCategory,
+  AudioAssetMeta,
+  AudioClipElement,
+  AudioTrackMeta,
+  EditSession,
+} from '../types/editSession'
 import { getCompositionTotalDuration } from '../utils/editTimeline'
 
 export const DEFAULT_AUDIO_TRACK_ID = 'default-audio'
@@ -36,6 +42,19 @@ export function resolveAudioTracks(session: EditSession): AudioTrackMeta[] {
 
 export function resolveAudioAssets(session: EditSession): AudioAssetMeta[] {
   return session.audio_assets ?? []
+}
+
+export function resolveAudioAssetCategory(asset: AudioAssetMeta): AudioAssetCategory {
+  return asset.category ?? 'bgm'
+}
+
+export function filterAudioAssetsByCategory(
+  session: EditSession,
+  category: AudioAssetCategory
+): AudioAssetMeta[] {
+  return resolveAudioAssets(session).filter(
+    (asset) => resolveAudioAssetCategory(asset) === category
+  )
 }
 
 export function findAudioAsset(session: EditSession, assetId: string): AudioAssetMeta | undefined {
@@ -89,6 +108,7 @@ export function ensureAudioModel(session: EditSession): boolean {
         id: assetId,
         name: legacyPath.split('/').pop() ?? 'BGM',
         path: legacyPath,
+        category: 'bgm',
       })
       migrated = true
     }

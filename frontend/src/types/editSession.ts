@@ -20,11 +20,15 @@ export interface AudioTrackMeta {
   order: number
 }
 
+export type AudioAssetCategory = 'sfx' | 'bgm'
+
 export interface AudioAssetMeta {
   id: string
   name: string
   path: string
   duration_sec?: number
+  /** 音效 / BGM；旧数据缺省视为 bgm */
+  category?: AudioAssetCategory
 }
 
 export interface AudioClipElement {

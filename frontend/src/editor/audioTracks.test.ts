@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { EditSession } from '../types/editSession'
-import { ensureAudioModel, resolveAudioTracks } from './audioTracks'
+import { ensureAudioModel, filterAudioAssetsByCategory, resolveAudioTracks } from './audioTracks'
 
 const baseSession = (): EditSession => ({
   schema_version: 3,
@@ -55,5 +55,18 @@ describe('ensureAudioModel', () => {
     expect(session.audio_assets?.length).toBeGreaterThan(0)
     expect(session.audio_elements?.length).toBe(1)
     expect(session.audio_settings.bgm_path).toBeNull()
+  })
+})
+
+describe('filterAudioAssetsByCategory', () => {
+  it('splits sfx and bgm libraries', () => {
+    const session = baseSession()
+    session.audio_assets = [
+      { id: 's1', name: 'click.wav', path: 'a.wav', category: 'sfx' },
+      { id: 'b1', name: 'music.m4a', path: 'b.m4a', category: 'bgm' },
+      { id: 'legacy', name: 'old.m4a', path: 'c.m4a' },
+    ]
+    expect(filterAudioAssetsByCategory(session, 'sfx')).toHaveLength(1)
+    expect(filterAudioAssetsByCategory(session, 'bgm')).toHaveLength(2)
   })
 })

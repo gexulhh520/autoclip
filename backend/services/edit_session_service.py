@@ -708,6 +708,8 @@ class EditSessionService:
         session: EditSession,
         source_path: Path,
         display_name: str,
+        *,
+        category: str = "bgm",
     ) -> EditSession:
         project_dir = get_project_directory(project_id)
         session_dir = _edit_sessions_dir(project_dir) / session_id
@@ -752,24 +754,28 @@ class EditSessionService:
                         name=display_name,
                         path=rel,
                         duration_sec=duration_sec,
+                        category=category if category in ("sfx", "bgm") else "bgm",
                     ),
                 ]
             ),
         )
 
-    def save_bgm_file(
+    def _save_audio_upload(
         self,
         project_id: str,
         session_id: str,
         file_name: str,
         content: bytes,
+        *,
+        category: str,
+        upload_prefix: str,
     ) -> EditSession:
         session = self.get_session(project_id, session_id)
         project_dir = get_project_directory(project_id)
         session_dir = _edit_sessions_dir(project_dir) / session_id
         session_dir.mkdir(parents=True, exist_ok=True)
         suffix = Path(file_name).suffix.lower() or ".mp3"
-        upload_path = session_dir / f"bgm_upload{suffix}"
+        upload_path = session_dir / f"{upload_prefix}{suffix}"
         upload_path.write_bytes(content)
 
         try:
@@ -779,13 +785,46 @@ class EditSessionService:
                 session,
                 upload_path,
                 Path(file_name).name or upload_path.name,
+                category=category,
             )
         finally:
-            if upload_path.exists() and upload_path.name.startswith("bgm_upload"):
+            if upload_path.exists() and upload_path.name.startswith(upload_prefix):
                 try:
                     upload_path.unlink()
                 except OSError:
                     pass
+
+    def save_bgm_file(
+        self,
+        project_id: str,
+        session_id: str,
+        file_name: str,
+        content: bytes,
+    ) -> EditSession:
+        return self._save_audio_upload(
+            project_id,
+            session_id,
+            file_name,
+            content,
+            category="bgm",
+            upload_prefix="bgm_upload",
+        )
+
+    def save_sfx_file(
+        self,
+        project_id: str,
+        session_id: str,
+        file_name: str,
+        content: bytes,
+    ) -> EditSession:
+        return self._save_audio_upload(
+            project_id,
+            session_id,
+            file_name,
+            content,
+            category="sfx",
+            upload_prefix="sfx_upload",
+        )
 
     def import_bgm_from_url(
         self,

@@ -206,6 +206,19 @@ export const editApi = {
     )) as EditSession
   },
 
+  uploadSfx: async (
+    projectId: string,
+    sessionId: string,
+    file: File
+  ): Promise<EditSession> => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return (await api.post(
+      `/projects/${projectId}/edit-sessions/${sessionId}/sfx`,
+      formData
+    )) as EditSession
+  },
+
   importBgmFromUrl: async (
     projectId: string,
     sessionId: string,

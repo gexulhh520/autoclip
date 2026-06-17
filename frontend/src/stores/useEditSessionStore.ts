@@ -45,6 +45,7 @@ import {
   ensureAudioModel,
   findAudioAsset,
   nextAudioTrackOrder,
+  resolveAudioAssetCategory,
 } from '../editor/audioTracks'
 import { resolveCanvasDimensions } from '../editor/scene/canvas'
 import {
@@ -268,6 +269,7 @@ interface EditSessionState {
   updateBlockPlaybackRate: (blockId: string, rate: number) => void
   updateBlockTransition: (blockId: string, transition: EditBlock['transition_out']) => void
   uploadBgm: (projectId: string, file: File) => Promise<void>
+  uploadSfx: (projectId: string, file: File) => Promise<void>
   importBgmFromUrl: (projectId: string, url: string) => Promise<void>
   removeAudioAsset: (assetId: string) => void
   addAudioClipToTimeline: (
@@ -2101,6 +2103,23 @@ export const useEditSessionStore = create<EditSessionState>()(
         }
       },
 
+      uploadSfx: async (projectId, file) => {
+        const { session } = get()
+        if (!session) throw new Error('无剪辑工程')
+        set({ saving: true, error: null })
+        try {
+          const updated = await editApi.uploadSfx(projectId, session.id, file)
+          ensureAudioModel(updated)
+          set({ session: updated, saving: false, dirty: false })
+        } catch (error: unknown) {
+          set({
+            saving: false,
+            error: error instanceof Error ? error.message : '音效上传失败',
+          })
+          throw error
+        }
+      },
+
       importBgmFromUrl: async (projectId, url) => {
         const { session } = get()
         if (!session) throw new Error('无剪辑工程')
@@ -2141,12 +2160,15 @@ export const useEditSessionStore = create<EditSessionState>()(
           ensureAudioModel(state.session)
           const asset = findAudioAsset(state.session, assetId)
           if (!asset) return
+          const category = resolveAudioAssetCategory(asset)
           const trackId = options?.trackId ?? state.activeAudioTrackId ?? DEFAULT_AUDIO_TRACK_ID
           const startSec = options?.startSec ?? state.sequencePlayheadSec
+          const timelineRemain = Math.max(1, compositionTotalDuration(state.session) - startSec)
           const durationSec =
             options?.durationSec ??
-            asset.duration_sec ??
-            Math.max(1, compositionTotalDuration(state.session) - startSec)
+            (category === 'sfx'
+              ? Math.max(0.1, asset.duration_sec ?? 2)
+              : Math.max(1, asset.duration_sec ?? timelineRemain))
           const clip: AudioClipElement = {
             id: clipId,
             asset_id: assetId,
@@ -2154,9 +2176,13 @@ export const useEditSessionStore = create<EditSessionState>()(
             start_sec: Math.max(0, startSec),
             duration_sec: Math.max(0.1, durationSec),
             trim_start_sec: 0,
-            volume: state.session.audio_settings.bgm_volume,
-            fade_in_sec: state.session.audio_settings.fade_in_sec,
-            fade_out_sec: state.session.audio_settings.fade_out_sec,
+            volume:
+              options?.volume ??
+              (category === 'sfx' ? 0.85 : state.session.audio_settings.bgm_volume),
+            fade_in_sec:
+              category === 'sfx' ? 0.05 : state.session.audio_settings.fade_in_sec,
+            fade_out_sec:
+              category === 'sfx' ? 0.08 : state.session.audio_settings.fade_out_sec,
           }
           state.session.audio_elements!.push(clip)
           state.selectedAudioClipId = clipId

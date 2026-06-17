@@ -641,6 +641,32 @@ async def upload_edit_session_bgm(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@router.post("/{project_id}/edit-sessions/{session_id}/sfx")
+async def upload_edit_session_sfx(
+    project_id: str,
+    session_id: str,
+    file: UploadFile = File(...),
+    service: EditSessionService = Depends(get_edit_session_service),
+):
+    try:
+        content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="音效文件为空")
+        return service.save_sfx_file(
+            project_id,
+            session_id,
+            file.filename or "sfx.mp3",
+            content,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("上传音效失败: %s/%s", project_id, session_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @router.post("/{project_id}/edit-sessions/{session_id}/bgm/from-url")
 async def import_edit_session_bgm_from_url(
     project_id: str,
