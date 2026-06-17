@@ -46,9 +46,15 @@ async function openMediaInput(url: string): Promise<Input> {
   })
 }
 
-async function createBlockVideoSource(options: {
+export interface MediabunnyBlockRuntime {
+  getVideoUrlForBlock: (block: EditBlock) => string
+  getSourceTimeForBlock: (block: EditBlock, relativeSec: number) => number
+}
+
+/** 打开单片段 WebCodecs 解码器，按源内相对时间取 canvas */
+export async function openMediabunnyBlockVideoSource(options: {
   block: EditBlock
-  runtime: CompositorExportRuntimeParams
+  runtime: MediabunnyBlockRuntime
   width: number
   height: number
 }): Promise<MediabunnyBlockVideoSource> {
@@ -107,7 +113,7 @@ export async function prepareMediabunnyVideoSources(options: {
     onProgress?.(`准备素材 ${index + 1}/${ids.length}`)
     const block = blocksById.get(blockId)
     if (!block) throw new Error(`片段不存在 (${blockId})`)
-    const source = await createBlockVideoSource({ block, runtime, width, height })
+    const source = await openMediabunnyBlockVideoSource({ block, runtime, width, height })
     byBlockId.set(blockId, source)
   }
 
