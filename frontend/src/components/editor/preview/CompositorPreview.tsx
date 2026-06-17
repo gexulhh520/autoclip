@@ -65,7 +65,8 @@ export interface CompositorPreviewProps {
 }
 
 const PLAYBACK_END_EPSILON_SEC = 0.02
-const PLAYBACK_SEEK_DRIFT_SEC = 0.12
+/** 预览以 composition 为主时钟：每帧对齐解码器，避免 play+周期性 seek 闪屏 */
+const PLAYBACK_FRAME_SEEK_EPSILON_SEC = 0.0005
 
 const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   session,
@@ -196,11 +197,17 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       video.playbackRate = Math.max(0.25, Math.min(4, layer.playbackRate || 1))
 
       if (isPlaying) {
-        if (forceSeek || blockChanged || Math.abs(video.currentTime - target) > PLAYBACK_SEEK_DRIFT_SEC) {
+        mountedSlotBlockRef.current[mountedKey] = blockId
+        if (
+          forceSeek ||
+          blockChanged ||
+          Math.abs(video.currentTime - target) > PLAYBACK_FRAME_SEEK_EPSILON_SEC
+        ) {
           video.currentTime = target
-          mountedSlotBlockRef.current[mountedKey] = blockId
         }
-        void video.play().catch(() => undefined)
+        if (!video.paused) {
+          video.pause()
+        }
         return
       }
 
@@ -403,6 +410,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
           if (blockId) onMetadata(event.currentTarget, blockId)
         }}
         onLoadedData={() => {
+          if (isPlaying) return
           const sec = resolveCompositionSec()
           paintAt(sec, true)
         }}
