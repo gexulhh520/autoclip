@@ -1,5 +1,6 @@
 import {
   findCrossTransitionAtTime,
+  findActiveSegmentAtCompositionTime,
   mapCompositionTimeToRelativeSource,
   mapIncomingRelativeDuringCrossTransition,
 } from '../scene/timelineLayout'
@@ -10,11 +11,7 @@ import { TRANSITION_OUT_LABELS, transitionEffectId } from '../../types/transitio
 import type { CompositorEffectDefinition, EffectResolveContext, TransitionResolveResult } from './types'
 
 const resolveCutTransition = (context: EffectResolveContext): TransitionResolveResult => {
-  const active = context.timeline.segments.find(
-    (segment) =>
-      context.clampedTime >= segment.compositionStartSec - 0.001 &&
-      context.clampedTime < segment.compositionStartSec + segment.sourceDurationSec + 0.001
-  )
+  const active = findActiveSegmentAtCompositionTime(context.timeline, context.clampedTime)
 
   if (!active) {
     return {
@@ -30,7 +27,11 @@ const resolveCutTransition = (context: EffectResolveContext): TransitionResolveR
     videoLayers: [
       {
         blockId: active.block.id,
-        relativeSourceSec: mapCompositionTimeToRelativeSource(active, context.clampedTime),
+        relativeSourceSec: mapCompositionTimeToRelativeSource(
+          active,
+          context.clampedTime,
+          context.timeline
+        ),
         transform: context.foreground,
         opacity: 1,
       },
@@ -49,7 +50,11 @@ const buildCrossTransitionResult = (
   const { outgoing, incoming, progress, kind } = cross
   // 闪黑自带余弦缓动，避免与 easeInOutCubic 叠乘导致中段发硬
   const easedProgress = kind === 'fade_black' ? progress : easeInOutCubic(progress)
-  const outRelative = mapCompositionTimeToRelativeSource(outgoing, context.clampedTime)
+  const outRelative = mapCompositionTimeToRelativeSource(
+    outgoing,
+    context.clampedTime,
+    context.timeline
+  )
   const inRelative = mapIncomingRelativeDuringCrossTransition(
     outgoing,
     incoming,

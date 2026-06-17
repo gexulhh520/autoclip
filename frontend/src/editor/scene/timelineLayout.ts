@@ -115,6 +115,35 @@ export function findCrossTransitionAtTime(
 /** @deprecated 使用 findCrossTransitionAtTime */
 export const findDissolveAtTime = findCrossTransitionAtTime
 
+/** 前一段叠化转场在下一段源素材上的已播放时长（秒） */
+export function incomingTransitionSourceLeadInSec(
+  segment: CompositionSegment,
+  timeline: CompositionTimeline
+): number {
+  if (segment.index <= 0) return 0
+  const prev = timeline.segments[segment.index - 1]
+  if (!prev || prev.dissolveOutSec <= 0 || !isCrossTransition(prev.transitionOut)) return 0
+  return prev.dissolveOutSec * blockPlaybackRate(segment.block)
+}
+
+export function findActiveSegmentAtCompositionTime(
+  timeline: CompositionTimeline,
+  timeSec: number
+): CompositionSegment | null {
+  if (timeline.segments.length === 0) return null
+
+  for (let index = timeline.segments.length - 1; index >= 0; index -= 1) {
+    const segment = timeline.segments[index]!
+    const visualStart = blockTimelineVisualStartSec(segment.compositionStartSec, segment.block)
+    const visualEnd = blockTimelineVisualEndSec(segment.compositionStartSec, segment.block)
+    if (timeSec >= visualStart - 0.001 && timeSec < visualEnd + 0.001) {
+      return segment
+    }
+  }
+
+  return timeline.segments[timeline.segments.length - 1] ?? null
+}
+
 /** 转场叠化区内，下一段尚未到可视起点时的源内相对时间 */
 export function mapIncomingRelativeDuringCrossTransition(
   outgoing: CompositionSegment,
@@ -132,13 +161,28 @@ export function mapIncomingRelativeDuringCrossTransition(
 /** 合成时间轴 t → 某 segment 内的源相对时间 */
 export function mapCompositionTimeToRelativeSource(
   segment: CompositionSegment,
-  timeSec: number
+  timeSec: number,
+  timeline?: CompositionTimeline
 ): number {
   const rate = blockPlaybackRate(segment.block)
   const visualStart = blockTimelineVisualStartSec(segment.compositionStartSec, segment.block)
-  const elapsed = timeSec - visualStart
+  const elapsed = Math.max(0, timeSec - visualStart)
+  const leadIn = timeline ? incomingTransitionSourceLeadInSec(segment, timeline) : 0
   const sourceTrim = blockSourceTrimDuration(segment.block)
-  return Math.max(0, Math.min(sourceTrim, elapsed * rate))
+  return Math.max(0, Math.min(sourceTrim, leadIn + elapsed * rate))
+}
+
+/** 源相对时间 → 合成时间轴 t（与 mapCompositionTimeToRelativeSource 互逆） */
+export function mapRelativeSourceToCompositionTime(
+  segment: CompositionSegment,
+  relativeSourceSec: number,
+  timeline?: CompositionTimeline
+): number {
+  const rate = blockPlaybackRate(segment.block)
+  const visualStart = blockTimelineVisualStartSec(segment.compositionStartSec, segment.block)
+  const leadIn = timeline ? incomingTransitionSourceLeadInSec(segment, timeline) : 0
+  const elapsed = Math.max(0, (relativeSourceSec - leadIn) / rate)
+  return visualStart + elapsed
 }
 
 const TRACK_OFFSET_PX = 4

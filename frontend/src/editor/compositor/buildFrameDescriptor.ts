@@ -1,6 +1,7 @@
 import type { EditBlock, EditSession } from '../../types/editSession'
 import {
   mapCompositionTimeToRelativeSource,
+  mapIncomingRelativeDuringCrossTransition,
 } from '../scene/timelineLayout'
 import { resolveFreeTextLayers } from '../scene/sceneBuilder'
 import { buildTransformFromParams } from '../opencut-text/transform'
@@ -286,8 +287,8 @@ export function buildFrameDescriptor(
   if (transitionResult.dissolve) {
     const { outgoing, incoming, progress } = transitionResult.dissolve
     const transitionKind = transitionResult.transitionKind
-    const outRelative = mapCompositionTimeToRelativeSource(outgoing, clampedTime)
-    const inRelative = mapCompositionTimeToRelativeSource(incoming, clampedTime)
+    const outRelative = mapCompositionTimeToRelativeSource(outgoing, clampedTime, timeline)
+    const inRelative = mapIncomingRelativeDuringCrossTransition(outgoing, incoming, clampedTime)
 
     const outLayerOpacity =
       transitionResult.videoLayers.find((layer) => layer.blockId === outgoing.block.id)?.opacity ?? 1
@@ -342,7 +343,7 @@ export function buildFrameDescriptor(
     const activeBlockId = transitionResult.videoLayers[0]?.blockId
     const activeSegment = timeline.segments.find((seg) => seg.block.id === activeBlockId)
     if (activeSegment && activeBlockId) {
-      const relative = mapCompositionTimeToRelativeSource(activeSegment, clampedTime)
+      const relative = mapCompositionTimeToRelativeSource(activeSegment, clampedTime, timeline)
       appendTemplateFreeText(activeBlockId, 1)
       audio.push({
         kind: 'clip',

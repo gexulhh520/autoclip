@@ -207,7 +207,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
             clockVideo,
             clockLayer.block,
             segment.compositionStartSec,
-            useSourceVideo
+            useSourceVideo,
+            { timeline: plan.timeline, segmentIndex: segment.index }
           )
           return Math.max(0, Math.min(plan.totalDurationSec, live))
         }

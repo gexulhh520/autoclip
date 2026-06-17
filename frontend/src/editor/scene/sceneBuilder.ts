@@ -13,6 +13,7 @@ import { resolveCanvasDimensions } from './canvas'
 import {
   buildCompositionTimeline,
   findCrossTransitionAtTime,
+  findActiveSegmentAtCompositionTime,
   mapCompositionTimeToRelativeSource,
   mapIncomingRelativeDuringCrossTransition,
 } from './timelineLayout'
@@ -177,7 +178,7 @@ export function resolveSceneAt(
   if (cross) {
     const { outgoing, incoming, progress, kind } = cross
     const easedProgress = kind === 'fade_black' ? progress : easeInOutCubic(progress)
-    const outRelative = mapCompositionTimeToRelativeSource(outgoing, clampedTime)
+    const outRelative = mapCompositionTimeToRelativeSource(outgoing, clampedTime, timeline)
     const inRelative = mapIncomingRelativeDuringCrossTransition(outgoing, incoming, clampedTime)
     const foreground = { x: 0, y: 0, width: canvas.width, height: canvas.height }
     const outState = resolveCrossTransitionLayerState(kind, foreground, easedProgress, 'outgoing')
@@ -233,14 +234,10 @@ export function resolveSceneAt(
       }
     }
   } else {
-    const active = timeline.segments.find(
-      (segment) =>
-        clampedTime >= segment.compositionStartSec - 0.001 &&
-        clampedTime < segment.compositionStartSec + segment.sourceDurationSec + 0.001
-    )
+    const active = findActiveSegmentAtCompositionTime(timeline, clampedTime)
 
     if (active) {
-      const relative = mapCompositionTimeToRelativeSource(active, clampedTime)
+      const relative = mapCompositionTimeToRelativeSource(active, clampedTime, timeline)
       videoLayers.push({
         blockId: active.block.id,
         blockIndex: active.index,

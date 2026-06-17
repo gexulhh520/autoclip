@@ -52,16 +52,23 @@ describe('sceneBuilder', () => {
     expect(timeline.segments[1].compositionStartSec).toBeCloseTo(4, 2)
   })
 
-  it('resolves crossfade video layers', () => {
+  it('resolves crossfade video layers with continuous incoming time after transition', () => {
     const input = {
       session: session([block('a', 4, 'dissolve'), block('b', 3)]),
       options: { burnSubtitles: true, useSourceVideo: false },
     }
-    const scene = resolveSceneAt(input, 3.8)
-    expect(scene.videoLayers).toHaveLength(2)
-    expect(scene.inDissolve).toBe(true)
-    expect(scene.dissolveProgress).toBeGreaterThan(0)
-    expect(scene.templateCaptions).toHaveLength(2)
+    const atEnd = resolveSceneAt(input, 3.999)
+    const after = resolveSceneAt(input, 4.002)
+    expect(atEnd.videoLayers).toHaveLength(2)
+    expect(atEnd.inDissolve).toBe(true)
+    expect(after.videoLayers).toHaveLength(1)
+    expect(after.inDissolve).toBe(false)
+    const incomingDuring = atEnd.videoLayers.find((layer) => layer.blockId === 'b')
+    const incomingAfter = after.videoLayers.find((layer) => layer.blockId === 'b')
+    expect(incomingDuring?.relativeSourceSec).toBeGreaterThan(0.3)
+    expect(incomingAfter?.relativeSourceSec).toBeGreaterThan(
+      (incomingDuring?.relativeSourceSec ?? 0) - 0.01
+    )
   })
 
   it('hides template captions when burnSubtitles is false', () => {

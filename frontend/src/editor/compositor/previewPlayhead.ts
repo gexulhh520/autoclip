@@ -1,4 +1,6 @@
 import type { EditBlock } from '../../types/editSession'
+import type { CompositionTimeline } from '../scene/types'
+import { incomingTransitionSourceLeadInSec } from '../scene/timelineLayout'
 
 /** 缓入缓出，让转场首尾更自然 */
 export function easeInOutCubic(t: number): number {
@@ -10,7 +12,11 @@ export function compositionTimeFromVideo(
   video: HTMLVideoElement,
   block: EditBlock,
   segmentStartSec: number,
-  useSourceVideo: boolean
+  useSourceVideo: boolean,
+  options?: {
+    timeline?: CompositionTimeline
+    segmentIndex?: number
+  }
 ): number {
   let relative = 0
   if (useSourceVideo && block.media.source_start_sec != null) {
@@ -19,8 +25,19 @@ export function compositionTimeFromVideo(
   } else {
     relative = video.currentTime - block.trim.in_sec
   }
+
   const rate = Math.max(0.25, Math.min(4, block.playback_rate ?? 1))
-  return segmentStartSec + Math.max(0, relative) / rate
+  let leadIn = 0
+  if (options?.timeline && options.segmentIndex != null) {
+    const segment = options.timeline.segments[options.segmentIndex]
+    if (segment) {
+      leadIn = incomingTransitionSourceLeadInSec(segment, options.timeline)
+    }
+  }
+
+  const elapsed = Math.max(0, relative - leadIn) / rate
+  const visualStart = segmentStartSec + block.trim.in_sec / rate
+  return visualStart + elapsed
 }
 
 export const PREVIEW_PRIMARY_VIDEO_SELECTOR = '[data-composition-clock="true"]'
