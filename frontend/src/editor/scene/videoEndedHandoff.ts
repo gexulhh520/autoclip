@@ -4,7 +4,7 @@ import {
   blockTimelineVisualEndSec,
   blockTimelineVisualStartSec,
 } from '../../utils/editTimeline'
-import { findActiveSegmentAtCompositionTime, findCrossTransitionAtTime } from './timelineLayout'
+import { findActiveSegmentAtCompositionTime, findCrossTransitionAtTime, resolveCrossTransitionWindow } from './timelineLayout'
 
 export interface VideoEndedHandoffResult {
   nextPlayheadSec: number
@@ -40,10 +40,11 @@ export function resolveVideoEndedHandoff(
     ended.dissolveOutSec > 0 &&
     isCrossTransition(ended.transitionOut)
   ) {
-    const junction = blockTimelineVisualEndSec(ended.compositionStartSec, ended.block)
-    if (playheadSec < junction + 0.05) {
+    const incoming = timeline.segments[endedIndex + 1]!
+    const window = resolveCrossTransitionWindow(ended, incoming)
+    if (window && playheadSec < window.endSec - 0.001) {
       return {
-        nextPlayheadSec: Math.min(junction + 0.02, totalDurationSec),
+        nextPlayheadSec: Math.min(window.endSec + 0.02, totalDurationSec),
         stopPlayback: false,
       }
     }

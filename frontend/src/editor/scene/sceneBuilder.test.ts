@@ -57,8 +57,16 @@ describe('sceneBuilder', () => {
       session: session([block('a', 4, 'dissolve'), block('b', 3)]),
       options: { burnSubtitles: true, useSourceVideo: false },
     }
-    const atEnd = resolveSceneAt(input, 3.999)
-    const after = resolveSceneAt(input, 4.002)
+    const timeline = buildCompositionTimeline(
+      [block('a', 4, 'dissolve'), block('b', 3)],
+      0.35
+    )
+    const outgoing = timeline.segments[0]!
+    const incoming = timeline.segments[1]!
+    const crossEnd =
+      (outgoing.compositionStartSec + outgoing.block.trim.out_sec) + outgoing.dissolveOutSec / 2
+    const atEnd = resolveSceneAt(input, crossEnd - 0.001)
+    const after = resolveSceneAt(input, crossEnd + 0.002)
     expect(atEnd.videoLayers).toHaveLength(2)
     expect(atEnd.inDissolve).toBe(true)
     expect(after.videoLayers).toHaveLength(1)

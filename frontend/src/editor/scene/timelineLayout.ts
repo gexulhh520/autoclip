@@ -86,6 +86,48 @@ export function buildCompositionTimeline(
   }
 }
 
+/** 两相邻主轨片段的衔接点（合成时间轴秒） */
+export function mainTrackTransitionJunctionSec(
+  outgoing: CompositionSegment,
+  incoming: CompositionSegment
+): number {
+  const outgoingEnd = blockTimelineVisualEndSec(outgoing.compositionStartSec, outgoing.block)
+  const incomingStart = blockTimelineVisualStartSec(incoming.compositionStartSec, incoming.block)
+  return (outgoingEnd + incomingStart) / 2
+}
+
+/** 以衔接点为中心的转场播放窗口：各占时长一半叠在相邻两段上 */
+export function resolveCrossTransitionWindow(
+  outgoing: CompositionSegment,
+  incoming: CompositionSegment
+): {
+  junctionSec: number
+  startSec: number
+  endSec: number
+  durationSec: number
+} | null {
+  if (outgoing.dissolveOutSec <= 0) return null
+  const junctionSec = mainTrackTransitionJunctionSec(outgoing, incoming)
+  const half = outgoing.dissolveOutSec / 2
+  return {
+    junctionSec,
+    startSec: junctionSec - half,
+    endSec: junctionSec + half,
+    durationSec: outgoing.dissolveOutSec,
+  }
+}
+
+/** 转场结束后下一段从合成时间轴的何处继续累计源素材时间 */
+export function incomingCrossTransitionEndSec(
+  segment: CompositionSegment,
+  timeline: CompositionTimeline
+): number | null {
+  if (segment.index <= 0) return null
+  const prev = timeline.segments[segment.index - 1]
+  if (!prev || prev.dissolveOutSec <= 0 || !isCrossTransition(prev.transitionOut)) return null
+  return resolveCrossTransitionWindow(prev, segment)?.endSec ?? null
+}
+
 export function findCrossTransitionAtTime(
   timeline: CompositionTimeline,
   timeSec: number
@@ -103,16 +145,16 @@ export function findCrossTransitionAtTime(
     const incoming = segments[index + 1]
     if (outgoing.dissolveOutSec <= 0) continue
 
-    const dissolveEnd = blockTimelineVisualEndSec(outgoing.compositionStartSec, outgoing.block)
-    const dissolveStart = dissolveEnd - outgoing.dissolveOutSec
+    const window = resolveCrossTransitionWindow(outgoing, incoming)
+    if (!window) continue
 
-    if (timeSec < dissolveStart - 0.001 || timeSec > dissolveEnd + 0.001) {
+    if (timeSec < window.startSec - 0.001 || timeSec > window.endSec + 0.001) {
       continue
     }
 
     const progress = Math.min(
       1,
-      Math.max(0, (timeSec - dissolveStart) / outgoing.dissolveOutSec)
+      Math.max(0, (timeSec - window.startSec) / window.durationSec)
     )
     return { outgoing, incoming, progress, kind: outgoing.transitionOut }
   }
@@ -158,10 +200,10 @@ export function mapIncomingRelativeDuringCrossTransition(
   incoming: CompositionSegment,
   timeSec: number
 ): number {
-  const dissolveEnd = blockTimelineVisualEndSec(outgoing.compositionStartSec, outgoing.block)
-  const dissolveStart = dissolveEnd - outgoing.dissolveOutSec
+  const window = resolveCrossTransitionWindow(outgoing, incoming)
+  if (!window) return 0
   const rate = blockPlaybackRate(incoming.block)
-  const elapsed = timeSec - dissolveStart
+  const elapsed = timeSec - window.startSec
   const sourceTrim = blockSourceTrimDuration(incoming.block)
   return Math.max(0, Math.min(sourceTrim, elapsed * rate))
 }
@@ -174,8 +216,12 @@ export function mapCompositionTimeToRelativeSource(
 ): number {
   const rate = blockPlaybackRate(segment.block)
   const visualStart = blockTimelineVisualStartSec(segment.compositionStartSec, segment.block)
-  const elapsed = Math.max(0, timeSec - visualStart)
   const leadIn = timeline ? incomingTransitionSourceLeadInSec(segment, timeline) : 0
+  const crossEnd = timeline ? incomingCrossTransitionEndSec(segment, timeline) : null
+  const elapsed =
+    crossEnd != null
+      ? Math.max(0, timeSec - crossEnd)
+      : Math.max(0, timeSec - visualStart)
   const sourceTrim = blockSourceTrimDuration(segment.block)
   return Math.max(0, Math.min(sourceTrim, leadIn + elapsed * rate))
 }
@@ -189,7 +235,11 @@ export function mapRelativeSourceToCompositionTime(
   const rate = blockPlaybackRate(segment.block)
   const visualStart = blockTimelineVisualStartSec(segment.compositionStartSec, segment.block)
   const leadIn = timeline ? incomingTransitionSourceLeadInSec(segment, timeline) : 0
+  const crossEnd = timeline ? incomingCrossTransitionEndSec(segment, timeline) : null
   const elapsed = Math.max(0, (relativeSourceSec - leadIn) / rate)
+  if (crossEnd != null) {
+    return crossEnd + elapsed
+  }
   return visualStart + elapsed
 }
 

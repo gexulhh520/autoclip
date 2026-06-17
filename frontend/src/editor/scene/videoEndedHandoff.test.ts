@@ -46,13 +46,13 @@ describe('resolveVideoEndedHandoff', () => {
     expect(result?.nextPlayheadSec).toBeCloseTo(7, 2)
   })
 
-  it('advances to junction when outgoing ends early during cross transition', () => {
+  it('advances to cross end when outgoing ends early during cross transition', () => {
     const timeline = buildCompositionTimeline(
       [block('a', 4, 'dissolve'), block('b', 3)],
       0.35
     )
     const result = resolveVideoEndedHandoff(timeline, 3.5, 'a', 7)
-    expect(result?.nextPlayheadSec).toBeCloseTo(4.02, 2)
+    expect(result?.nextPlayheadSec).toBeCloseTo(4.195, 2)
     expect(result?.stopPlayback).toBe(false)
   })
 })

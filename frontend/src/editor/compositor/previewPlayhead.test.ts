@@ -53,8 +53,8 @@ describe('compositionTimeFromVideo', () => {
       { timeline, segmentIndex: incoming.index }
     )
 
-    expect(comp).toBeCloseTo(4.5, 3)
-    expect(comp).toBeLessThan(4.5 + leadIn)
+    expect(comp).toBeCloseTo(4.675, 3)
+    expect(comp).toBeLessThan(4.675 + leadIn)
   })
 
   it('readVideoSourceRelativeSec matches trim in point', () => {
