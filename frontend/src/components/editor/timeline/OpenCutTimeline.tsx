@@ -26,7 +26,7 @@ import { usePlayheadDrag, useTimelineSeek } from './hooks/useTimelineSeek'
 import { useTimelineBoxSelect } from './hooks/useTimelineBoxSelect'
 import { resolveContextMenuPosition } from './contextMenuPosition'
 import { getTemplateOverlayIdsForBlock } from '../../../editor/migration/templateCaptionOverlays'
-import { collectSequenceSnapPoints, snapTime } from '../../../utils/editTimeline'
+import { blockPlaybackRate, collectSequenceSnapPoints, snapTime } from '../../../utils/editTimeline'
 import type { AdaptedElement, SnapPoint } from './types'
 import { EditorShortcutsHost } from './useEditorKeyboardShortcuts'
 import './opencut-timeline.css'
@@ -560,11 +560,12 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
 
       const onMove = (moveEvent: PointerEvent) => {
         const deltaSec = (moveEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
+        const rate = blockPlaybackRate(block)
         if (side === 'left') {
-          const raw = Math.max(0, Math.min(initialIn + deltaSec, initialOut - 0.1))
+          const raw = Math.max(0, Math.min(initialIn + deltaSec * rate, initialOut - 0.1))
           updateBlockTrim(block.id, { in_sec: raw }, { recordHistory: false })
         } else {
-          const raw = Math.min(maxDur, Math.max(initialOut + deltaSec, initialIn + 0.1))
+          const raw = Math.min(maxDur, Math.max(initialOut + deltaSec * rate, initialIn + 0.1))
           updateBlockTrim(block.id, { out_sec: raw }, { recordHistory: false })
         }
       }

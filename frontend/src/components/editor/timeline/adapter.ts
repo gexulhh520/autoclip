@@ -18,6 +18,7 @@ import {
 } from '../../../editor/textTracks'
 import type { AdaptedElement, AdaptedTrack } from './types'
 import { getCumulativeHeightBefore, getTrackHeight } from './trackUtils'
+import { blockTimelineVisualStartSec } from '../../../utils/editTimeline'
 
 export const ADAPTED_TRACK_IDS = {
   main: 'track-main-video',
@@ -87,7 +88,7 @@ export function buildAdaptedTracks(params: {
     id: segment.block.id,
     elementType: 'video',
     name: segment.block.title || '片段',
-    startTime: segment.startSec,
+    startTime: blockTimelineVisualStartSec(segment.startSec, segment.block),
     duration: segment.duration,
     trimStart: segment.block.trim.in_sec,
     trimEnd: segment.block.trim.out_sec,

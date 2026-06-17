@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { EditBlock } from '../types/editSession'
-import { resolveInsertIndexForPlayhead } from './editTimeline'
+import { blockDuration, blockTimelineVisualStartSec, resolveInsertIndexForPlayhead } from './editTimeline'
 
 const block = (id: string, duration: number): EditBlock => ({
   id,
@@ -33,5 +33,15 @@ describe('resolveInsertIndexForPlayhead', () => {
     const blocks = [block('a', 4), block('b', 3)]
     expect(resolveInsertIndexForPlayhead(blocks, 5.5, 0.35)).toBe(2)
     expect(resolveInsertIndexForPlayhead(blocks, 4.5, 0.35)).toBe(1)
+  })
+})
+
+describe('blockTimelineVisualStartSec', () => {
+  it('moves visual start right on head trim so the end stays fixed', () => {
+    const b = block('a', 10)
+    b.trim.in_sec = 2
+    expect(blockTimelineVisualStartSec(5, b)).toBe(7)
+    expect(blockDuration(b)).toBe(8)
+    expect(blockTimelineVisualStartSec(5, b) + blockDuration(b)).toBe(15)
   })
 })

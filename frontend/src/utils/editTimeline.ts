@@ -30,6 +30,12 @@ export const blockPlaybackRate = (block: EditBlock): number => {
 export const blockDuration = (block: EditBlock): number =>
   blockSourceTrimDuration(block) / blockPlaybackRate(block)
 
+/** 时间轴上片段可视起点：入点裁剪后左缘右移，而非从结尾缩短 */
+export const blockTimelineVisualStartSec = (
+  compositionStartSec: number,
+  block: EditBlock
+): number => compositionStartSec + block.trim.in_sec / blockPlaybackRate(block)
+
 export interface TimelineSegment {
   block: EditBlock
   startSec: number
