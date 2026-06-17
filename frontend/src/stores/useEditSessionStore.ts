@@ -22,6 +22,7 @@ import {
   DEFAULT_TRACK_MUTED,
   type TimelineTrackId,
 } from '../types/timelineTracks'
+import { isCrossTransition } from '../types/transitions'
 import type { BoxSelectableItem } from '../editor/selection/boxSelect'
 import {
   patchBlockOverlayAnimation,
@@ -67,6 +68,7 @@ import {
   absorbBlockDurationDeltaWithGap,
   applyVideoHeadTrimClamp,
   applyVideoTailTrimClamp,
+  areMainTrackBlocksAdjacent,
   clampVideoBlockTrimAgainstNeighbors,
   insertSequenceBlockGapAt,
   removeSequenceBlockGapAt,
@@ -2299,8 +2301,15 @@ export const useEditSessionStore = create<EditSessionState>()(
         pushHistory()
         set((state) => {
           if (!state.session) return
-          const block = state.session.sequence.find((item) => item.id === blockId)
-          if (!block) return
+          const blockIndex = state.session.sequence.findIndex((item) => item.id === blockId)
+          if (blockIndex < 0) return
+          const block = state.session.sequence[blockIndex]!
+          if (
+            isCrossTransition(transition) &&
+            !areMainTrackBlocksAdjacent(state.session, blockIndex)
+          ) {
+            return
+          }
           block.transition_out = transition
           if (state.timelineBlockLinkEnabled) {
             ensureTemplateCaptionOverlays(state.session)

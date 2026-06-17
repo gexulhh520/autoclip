@@ -19,6 +19,7 @@ import EffectsAssetsView from './panels/assets/views/EffectsAssetsView'
 import SfxAssetsView from './panels/assets/views/SfxAssetsView'
 import BgmAssetsView from './panels/assets/views/BgmAssetsView'
 import TransitionTypePicker from './TransitionTypePicker'
+import { areMainTrackBlocksAdjacent } from '../../editor/timeline/sequenceBlockGaps'
 
 interface ProjectClip {
   id: string
@@ -385,6 +386,9 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
       : -1
     const isLast =
       !selectedBlock || blockIndex < 0 || blockIndex >= session.sequence.length - 1
+    const nextBlock = !isLast ? session.sequence[blockIndex + 1] : null
+    const isAdjacent =
+      selectedBlock && blockIndex >= 0 ? areMainTrackBlocksAdjacent(session, blockIndex) : false
     const transition = selectedBlock?.transition_out ?? 'cut'
     return (
       <OpenCutPanelView title="转场">
@@ -404,20 +408,31 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
             }
           />
         </div>
-        {selectedBlock && !isLast ? (
+        {selectedBlock && !isLast && nextBlock ? (
           <div className="editor-inspector-section">
-            <div className="editor-inspector-label">当前片段 → 下一段</div>
+            <div className="editor-inspector-label">片段衔接处</div>
+            <p className="editor-inspector-muted" style={{ marginTop: 4, marginBottom: 10 }}>
+              {selectedBlock.title || '当前片段'} ↔ {nextBlock.title || '下一片段'}
+            </p>
+            <div className="editor-inspector-label">转场类型</div>
             <TransitionTypePicker
               value={transition}
+              disabled={!isAdjacent}
               onChange={(value) => updateBlockTransition(selectedBlock.id, value)}
             />
-            <p className="editor-inspector-muted" style={{ marginTop: 8 }}>
-              也可点击时间线片段衔接处快速切换
-            </p>
+            {!isAdjacent ? (
+              <p className="editor-inspector-muted" style={{ marginTop: 8 }}>
+                两段之间有间隙，无法添加转场。请让片段首尾相接后再设置。
+              </p>
+            ) : (
+              <p className="editor-inspector-muted" style={{ marginTop: 8 }}>
+                转场作用在两个相邻片段之间，也可点击时间线衔接处的标记快速切换
+              </p>
+            )}
           </div>
         ) : (
           <p className="editor-inspector-muted">
-            在时间线选中非最后一个片段，可设置至下一片段的转场类型
+            在时间线选中非最后一个片段，可设置其与下一片段之间的转场
           </p>
         )}
       </OpenCutPanelView>

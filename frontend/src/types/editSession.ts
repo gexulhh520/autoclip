@@ -107,6 +107,7 @@ export interface EditBlock {
   trim: EditBlockTrim
   overlay: EditBlockOverlay
   audio: EditBlockAudio
+  /** 与下一片段之间的转场（仅当两段首尾相接时生效；持久化在 outgoing 片段上） */
   transition_out: TransitionOutKind
   duration_sec: number
   /** 播放倍速：1=原速，2=两倍速（时间线时长缩短） */

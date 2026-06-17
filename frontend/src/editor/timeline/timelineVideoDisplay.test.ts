@@ -58,6 +58,17 @@ describe('buildVideoTimelineTransitionMarkers', () => {
     expect(visualEnd - visualStart).toBeCloseTo(5, 3)
   })
 
+  it('omits markers when clips are separated by a gap', () => {
+    const segments = buildCompositionTimelineSegments(
+      [block('a', 5, 'dissolve'), block('b', 4, 'cut')],
+      50,
+      0.35,
+      [1]
+    )
+    expect(segments[0]!.dissolveOutSec).toBe(0)
+    expect(buildVideoTimelineTransitionMarkers(segments)).toHaveLength(0)
+  })
+
   it('omits markers when there is no cross transition', () => {
     const segments = buildCompositionTimelineSegments(
       [block('a', 5), block('b', 4)],

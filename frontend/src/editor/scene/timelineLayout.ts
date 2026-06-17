@@ -47,10 +47,18 @@ export function buildCompositionTimeline(
     const sourceDurationSec = blockDuration(block)
     const compositionStartSec = compositionCursor
     const hasNext = index < blocks.length - 1
-    const dissolveOutSec =
-      hasNext && isCrossTransition(block.transition_out)
-        ? computeDissolveDuration(sourceDurationSec, transitionDurationSec)
-        : 0
+    let dissolveOutSec = 0
+    if (hasNext && isCrossTransition(block.transition_out)) {
+      const visualEndSec = blockTimelineVisualEndSec(compositionStartSec, block)
+      const gapAfter = gaps?.[index] ?? 0
+      const nextCompositionStart = visualEndSec + gapAfter
+      const nextBlock = blocks[index + 1]!
+      const nextVisualStart = blockTimelineVisualStartSec(nextCompositionStart, nextBlock)
+      const isAdjacent = nextVisualStart - visualEndSec <= 0.001
+      if (isAdjacent) {
+        dissolveOutSec = computeDissolveDuration(sourceDurationSec, transitionDurationSec)
+      }
+    }
 
     segments.push({
       block,

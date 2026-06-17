@@ -8,7 +8,9 @@ import { buildCompositionTimeline } from '../scene/timelineLayout'
 import {
   absorbBlockDurationDeltaWithGap,
   applyVideoHeadTrimClamp,
+  areMainTrackBlocksAdjacent,
   dropCrossTransitionsBrokenByGaps,
+  mainTrackSegmentSeparationSec,
 } from './sequenceBlockGaps'
 
 const block = (
@@ -143,5 +145,15 @@ describe('sequenceBlockGaps', () => {
     second.trim.in_sec = 1
     expect(dropCrossTransitionsBrokenByGaps(session)).toBe(true)
     expect(session.sequence[0]!.transition_out).toBe('cut')
+  })
+
+  it('reports adjacency only when visual ends meet', () => {
+    const session = sessionWith([block('a', 5), block('b', 5)])
+    expect(areMainTrackBlocksAdjacent(session, 0)).toBe(true)
+    expect(mainTrackSegmentSeparationSec(session, 0)).toBeCloseTo(0, 3)
+
+    session.sequence_block_gaps![0] = 1
+    expect(areMainTrackBlocksAdjacent(session, 0)).toBe(false)
+    expect(mainTrackSegmentSeparationSec(session, 0)).toBeCloseTo(1, 3)
   })
 })

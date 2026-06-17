@@ -204,6 +204,37 @@ export function clearSequenceBlockGaps(session: EditSession): void {
   session.sequence_block_gaps = []
 }
 
+/** 相邻主轨片段的可视间距（秒）：>0 表示两段之间有缝，不能叠化转场 */
+export function mainTrackSegmentSeparationSec(
+  session: EditSession,
+  outgoingIndex: number
+): number | null {
+  if (outgoingIndex < 0 || outgoingIndex >= session.sequence.length - 1) return null
+
+  const timeline = buildCompositionTimeline(
+    session.sequence,
+    transitionDurationSec(session),
+    session.sequence_block_gaps
+  )
+  const outgoing = timeline.segments[outgoingIndex]
+  const incoming = timeline.segments[outgoingIndex + 1]
+  if (!outgoing || !incoming) return null
+
+  const prevEnd = blockTimelineVisualEndSec(outgoing.compositionStartSec, outgoing.block)
+  const nextStart = blockTimelineVisualStartSec(incoming.compositionStartSec, incoming.block)
+  return nextStart - prevEnd
+}
+
+/** 两段主轨视频首尾相接（无间隙），才允许添加转场 */
+export function areMainTrackBlocksAdjacent(
+  session: EditSession,
+  outgoingIndex: number,
+  toleranceSec = 0.001
+): boolean {
+  const separation = mainTrackSegmentSeparationSec(session, outgoingIndex)
+  return separation != null && separation <= toleranceSec
+}
+
 /**
  * 主轨磁吸关闭时：相邻片段可视间距超过叠化区则移除转场（硬切），且不自动恢复。
  * 开启磁吸时片段间距由 ripple 维持，通常不会触发。
@@ -222,12 +253,8 @@ export function dropCrossTransitionsBrokenByGaps(session: EditSession): boolean 
     const outgoing = timeline.segments[index]!
     if (!isCrossTransition(outgoing.block.transition_out)) continue
 
-    const incoming = timeline.segments[index + 1]!
-    const prevEnd = blockTimelineVisualEndSec(outgoing.compositionStartSec, outgoing.block)
-    const nextStart = blockTimelineVisualStartSec(incoming.compositionStartSec, incoming.block)
-    const separationSec = nextStart - prevEnd
-
-    if (separationSec > 0.001) {
+    const separationSec = mainTrackSegmentSeparationSec(session, index)
+    if (separationSec != null && separationSec > 0.001) {
       outgoing.block.transition_out = 'cut'
       changed = true
     }
