@@ -27,7 +27,13 @@ import { useTimelineBoxSelect } from './hooks/useTimelineBoxSelect'
 import { resolveContextMenuPosition } from './contextMenuPosition'
 import { getTemplateOverlayIdsForBlock } from '../../../editor/migration/templateCaptionOverlays'
 import { blockPlaybackRate, collectSequenceSnapPoints, snapTime } from '../../../utils/editTimeline'
-import type { AdaptedElement, SnapPoint } from './types'
+import {
+  clampResizeLeftAvoidingOverlap,
+  clampResizeRightAvoidingOverlap,
+  clampStartAvoidingOverlap,
+  getTrackSiblingRanges,
+} from '../../../editor/timeline/timelineOverlap'
+import type { AdaptedElement, AdaptedTrack, SnapPoint } from './types'
 import { EditorShortcutsHost } from './useEditorKeyboardShortcuts'
 import './opencut-timeline.css'
 
@@ -421,6 +427,8 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     const startX = event.clientX
     const initialStart = element.startTime
     const sourceTrack = tracks.find((item) => item.id === trackId)
+    const findTrackForElement = (elementId: string): AdaptedTrack | undefined =>
+      tracks.find((track) => track.elements.some((item) => item.id === elementId))
     let pendingTargetAudioTrackId: string | null = null
     let pendingTargetTextTrackId: string | null = null
 
@@ -456,9 +464,22 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       if (element.source.kind === 'overlay') {
         const deltaFromAnchor = snapped - initialStart
         for (const [overlayId, start] of groupOverlayStarts) {
+          const found = tracks
+            .flatMap((track) => track.elements)
+            .find(
+              (item) => item.source.kind === 'overlay' && item.source.overlayId === overlayId
+            )
+          if (!found) continue
+          const trackForOverlay = findTrackForElement(found.id)
+          const siblings = getTrackSiblingRanges(trackForOverlay?.elements ?? [], groupOverlayIds)
+          const clampedStart = clampStartAvoidingOverlap(
+            siblings,
+            found.duration,
+            start + deltaFromAnchor
+          )
           updateOverlayElement(
             overlayId,
-            { start_sec: Math.max(0, start + deltaFromAnchor) },
+            { start_sec: clampedStart },
             { recordHistory: false }
           )
         }
@@ -476,7 +497,13 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           }
         }
       } else if (element.source.kind === 'audio_clip') {
-        updateAudioClip(element.source.clipId, { start_sec: snapped })
+        const siblings = getTrackSiblingRanges(sourceTrack?.elements ?? [], element.id)
+        const clampedStart = clampStartAvoidingOverlap(
+          siblings,
+          element.duration,
+          snapped
+        )
+        updateAudioClip(element.source.clipId, { start_sec: clampedStart })
         const canvasEl = tracksCanvasRef.current
         if (canvasEl) {
           const y = moveEvent.clientY - canvasEl.getBoundingClientRect().top
@@ -548,6 +575,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     event.stopPropagation()
     event.preventDefault()
     const startX = event.clientX
+    const elementTrack = tracks.find((track) => track.elements.some((item) => item.id === element.id))
 
     if (element.source.kind === 'block') {
       const blockId = element.source.blockId
@@ -556,6 +584,9 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       const maxDur = block.duration_sec > 0 ? block.duration_sec : Math.max(block.trim.out_sec, 5)
       const initialIn = block.trim.in_sec
       const initialOut = block.trim.out_sec
+      const segment = segments.find((item) => item.block.id === blockId)
+      const compStart = segment?.startSec ?? 0
+      const siblings = getTrackSiblingRanges(elementTrack?.elements ?? [], blockId)
       updateBlockTrim(block.id, { in_sec: initialIn, out_sec: initialOut }, { recordHistory: true })
 
       const onMove = (moveEvent: PointerEvent) => {
@@ -563,10 +594,22 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         const rate = blockPlaybackRate(block)
         if (side === 'left') {
           const raw = Math.max(0, Math.min(initialIn + deltaSec * rate, initialOut - 0.1))
-          updateBlockTrim(block.id, { in_sec: raw }, { recordHistory: false })
+          const fixedVisualEnd = compStart + initialOut / rate
+          const proposedVisualStart = compStart + raw / rate
+          const { start: visualStart } = clampResizeLeftAvoidingOverlap(
+            siblings,
+            fixedVisualEnd,
+            proposedVisualStart
+          )
+          const inSec = Math.max(0, Math.min((visualStart - compStart) * rate, maxDur - 0.1))
+          updateBlockTrim(block.id, { in_sec: inSec }, { recordHistory: false })
         } else {
           const raw = Math.min(maxDur, Math.max(initialOut + deltaSec * rate, initialIn + 0.1))
-          updateBlockTrim(block.id, { out_sec: raw }, { recordHistory: false })
+          const fixedVisualStart = compStart + initialIn / rate
+          const proposedVisualEnd = compStart + raw / rate
+          const visualEnd = clampResizeRightAvoidingOverlap(siblings, fixedVisualStart, proposedVisualEnd)
+          const outSec = Math.max(initialIn + 0.1, Math.min((visualEnd - compStart) * rate, maxDur))
+          updateBlockTrim(block.id, { out_sec: outSec }, { recordHistory: false })
         }
       }
       const onUp = () => {
@@ -582,20 +625,24 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       const overlayId = element.source.overlayId
       const initialStart = element.startTime
       const initialDuration = element.duration
+      const siblings = getTrackSiblingRanges(elementTrack?.elements ?? [], overlayId)
       const onMove = (moveEvent: PointerEvent) => {
         const deltaSec = (moveEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
         if (side === 'left') {
+          const fixedEnd = initialStart + initialDuration
           const nextStart = Math.max(0, initialStart + deltaSec)
-          const nextDuration = Math.max(0.2, initialDuration - (nextStart - initialStart))
+          const { start, duration } = clampResizeLeftAvoidingOverlap(siblings, fixedEnd, nextStart)
           updateOverlayElement(
             overlayId,
-            { start_sec: nextStart, duration_sec: nextDuration },
+            { start_sec: start, duration_sec: duration },
             { recordHistory: false }
           )
         } else {
+          const proposedEnd = initialStart + Math.max(0.2, initialDuration + deltaSec)
+          const end = clampResizeRightAvoidingOverlap(siblings, initialStart, proposedEnd)
           updateOverlayElement(
             overlayId,
-            { duration_sec: Math.max(0.2, initialDuration + deltaSec) },
+            { duration_sec: Math.max(0.2, end - initialStart) },
             { recordHistory: false }
           )
         }
@@ -617,18 +664,23 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       const initialStart = element.startTime
       const initialDuration = element.duration
       const initialTrimStart = clip.trim_start_sec ?? 0
+      const siblings = getTrackSiblingRanges(elementTrack?.elements ?? [], clipId)
       const onMove = (moveEvent: PointerEvent) => {
         const deltaSec = (moveEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
         if (side === 'left') {
+          const fixedEnd = initialStart + initialDuration
           const nextStart = Math.max(0, initialStart + deltaSec)
-          const trimDelta = nextStart - initialStart
+          const { start, duration } = clampResizeLeftAvoidingOverlap(siblings, fixedEnd, nextStart)
+          const trimDelta = start - initialStart
           updateAudioClip(clipId, {
-            start_sec: nextStart,
-            duration_sec: Math.max(0.2, initialDuration - trimDelta),
+            start_sec: start,
+            duration_sec: duration,
             trim_start_sec: Math.max(0, initialTrimStart + trimDelta),
           })
         } else {
-          const nextDuration = Math.max(0.2, initialDuration + deltaSec)
+          const proposedEnd = initialStart + Math.max(0.2, initialDuration + deltaSec)
+          const end = clampResizeRightAvoidingOverlap(siblings, initialStart, proposedEnd)
+          const nextDuration = Math.max(0.2, end - initialStart)
           updateAudioClip(clipId, {
             duration_sec: nextDuration,
             trim_end_sec: Math.min(assetDuration, initialTrimStart + nextDuration),

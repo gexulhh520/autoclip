@@ -54,6 +54,13 @@ import {
   ensureBlockLinksForUnlinkedElements,
   reconcileTimelineBlockLinks,
 } from '../editor/timeline/timelineBlockLink'
+import {
+  applyAudioClipTimingClamp,
+  applyOverlayElementTimingClamp,
+  clampAudioClipStartOnTrack,
+  clampOverlayStartOnTrack,
+  clampVideoTrimAvoidingNeighbors,
+} from '../editor/timeline/timelineOverlap'
 import { isTauriApp } from '../utils/desktopMode'
 import {
   normalizeExportDirectory,
@@ -1218,6 +1225,16 @@ export const useEditSessionStore = create<EditSessionState>()(
               id,
               start_sec: Math.max(0, startSec),
             })
+            const created = state.session.overlay_elements.find((item) => item.id === id)
+            if (created) {
+              created.start_sec = clampOverlayStartOnTrack(
+                state.session,
+                getOverlayTrackId(created),
+                created.duration_sec,
+                created.start_sec,
+                created.id
+              )
+            }
             state.selectedOverlayId = id
             state.selectedOverlayIds = [id]
             state.selectedBlockId = null
@@ -1242,6 +1259,16 @@ export const useEditSessionStore = create<EditSessionState>()(
             id,
             start_sec: Math.max(0, startSec),
           })
+          const created = state.session.audio_elements!.find((item) => item.id === id)
+          if (created) {
+            created.start_sec = clampAudioClipStartOnTrack(
+              state.session,
+              created.track_id,
+              created.duration_sec,
+              created.start_sec,
+              created.id
+            )
+          }
           state.selectedAudioClipId = id
           state.selectedBlockId = null
           state.selectedBlockIds = []
@@ -1295,6 +1322,15 @@ export const useEditSessionStore = create<EditSessionState>()(
             start_sec: Math.max(0, nextStart),
           })
           const created = state.session.overlay_elements.find((item) => item.id === id)
+          if (created) {
+            created.start_sec = clampOverlayStartOnTrack(
+              state.session,
+              getOverlayTrackId(created),
+              created.duration_sec,
+              created.start_sec,
+              created.id
+            )
+          }
           if (created && state.timelineBlockLinkEnabled) {
             attachOverlayBlockLink(state.session, created)
           }
@@ -1323,6 +1359,15 @@ export const useEditSessionStore = create<EditSessionState>()(
             start_sec: Math.max(0, nextStart),
           })
           const created = state.session.audio_elements.find((item) => item.id === id)
+          if (created) {
+            created.start_sec = clampAudioClipStartOnTrack(
+              state.session,
+              created.track_id,
+              created.duration_sec,
+              created.start_sec,
+              created.id
+            )
+          }
           if (created && state.timelineBlockLinkEnabled) {
             attachAudioClipBlockLink(state.session, created)
           }
@@ -1624,6 +1669,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           const element = state.session.overlay_elements.find((item) => item.id === overlayId)
           if (!element) return
           element.track_id = textTrackId
+          applyOverlayElementTimingClamp(state.session, overlayId)
           state.dirty = true
         })
       },
@@ -1664,6 +1710,15 @@ export const useEditSessionStore = create<EditSessionState>()(
             params: { ...base.params, ...(partial?.params ?? {}) },
           })
           const created = state.session.overlay_elements.find((item) => item.id === id)
+          if (created) {
+            created.start_sec = clampOverlayStartOnTrack(
+              state.session,
+              trackId,
+              created.duration_sec,
+              created.start_sec,
+              created.id
+            )
+          }
           if (created && state.timelineBlockLinkEnabled) {
             attachOverlayBlockLink(state.session, created)
           }
@@ -2030,6 +2085,9 @@ export const useEditSessionStore = create<EditSessionState>()(
           const nextOut = trim.out_sec ?? block.trim.out_sec
           block.trim.in_sec = Math.max(0, Math.min(nextIn, maxDur - 0.1))
           block.trim.out_sec = Math.max(block.trim.in_sec + 0.1, Math.min(nextOut, maxDur))
+          const clamped = clampVideoTrimAvoidingNeighbors(state.session, blockId, block.trim)
+          block.trim.in_sec = clamped.in_sec
+          block.trim.out_sec = clamped.out_sec
           if (rippleTrimEnabled && trim.out_sec !== undefined && nextOut < prevOut) {
             const delta = prevOut - block.trim.out_sec
             if (delta > 0.05 && sequencePlayheadSec > 0) {
@@ -2261,6 +2319,7 @@ export const useEditSessionStore = create<EditSessionState>()(
               category === 'sfx' ? 0.08 : state.session.audio_settings.fade_out_sec,
           }
           state.session.audio_elements!.push(clip)
+          applyAudioClipTimingClamp(state.session, clipId)
           if (state.timelineBlockLinkEnabled && category === 'sfx') {
             attachAudioClipBlockLink(state.session, clip)
           }
@@ -2309,6 +2368,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           const clip = state.session.audio_elements.find((item) => item.id === clipId)
           if (!clip) return
           clip.track_id = trackId
+          applyAudioClipTimingClamp(state.session, clipId)
           state.dirty = true
         })
       },
