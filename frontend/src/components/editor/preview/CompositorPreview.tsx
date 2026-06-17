@@ -209,12 +209,12 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       const upcoming = findUpcomingCrossIncomingBlock(session, compositionSec)
 
       if (!upcoming || activeIds.has(upcoming.id)) {
-        if (warmupBlockIdRef.current) {
+        if (warmupBlockIdRef.current && !activeIds.has(warmupBlockIdRef.current)) {
           const nextSlots = new Map(blockSlotsRef.current)
           nextSlots.delete(warmupBlockIdRef.current)
           blockSlotsRef.current = nextSlots
-          warmupBlockIdRef.current = null
         }
+        warmupBlockIdRef.current = null
         return [] as PreviewVideoLayerProps[]
       }
 
@@ -256,7 +256,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       layer: PreviewVideoLayerProps | null,
       slot: PreviewVideoSlot,
       forceSeek: boolean,
-      inCross: boolean
+      skipSeekBlockIds?: Set<string>
     ) => {
       if (!video || !layer) {
         if (video && !layer) video.pause()
@@ -267,23 +267,17 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       const mountedKey = slot === 'a' ? 'a' : 'b'
       const blockChanged = mountedSlotBlockRef.current[mountedKey] !== blockId
       const target = getSourceTimeForBlock(layer.block, layer.relativeSourceSec)
+      const skipSeek = skipSeekBlockIds?.has(blockId) ?? false
 
       video.volume = Math.min(1, Math.max(0, layer.volume))
       video.playbackRate = Math.max(0.25, Math.min(4, layer.playbackRate || 1))
 
       if (isPlaying) {
         mountedSlotBlockRef.current[mountedKey] = blockId
-        if (inCross) {
-          if (forceSeek || blockChanged) {
-            video.currentTime = target
-          }
-          void video.play().catch(() => undefined)
-        } else {
-          if (forceSeek || blockChanged) {
-            video.currentTime = target
-          }
-          void video.play().catch(() => undefined)
+        if (!skipSeek && (forceSeek || blockChanged)) {
+          video.currentTime = target
         }
+        void video.play().catch(() => undefined)
         return
       }
 
@@ -297,7 +291,11 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   )
 
   const syncVideosFromVm = useCallback(
-    (vmLayers: PreviewVideoLayerProps[], forceSeek: boolean, inCross: boolean) => {
+    (
+      vmLayers: PreviewVideoLayerProps[],
+      forceSeek: boolean,
+      skipSeekBlockIds?: Set<string>
+    ) => {
       const blockSlots = assignBlockSlots(vmLayers)
       const layerByBlockId = new Map(vmLayers.map((layer) => [layer.block.id, layer]))
 
@@ -305,11 +303,20 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         const blockId = blockIdForPreviewSlot(blockSlots, slot)
         const layer = blockId ? (layerByBlockId.get(blockId) ?? null) : null
         const video = slot === 'a' ? slotARef.current : slotBRef.current
-        syncVideoElement(video, layer, slot, forceSeek, inCross)
+        syncVideoElement(video, layer, slot, forceSeek, skipSeekBlockIds)
       }
     },
     [assignBlockSlots, syncVideoElement]
   )
+
+  const refreshSlotFrameCaches = useCallback((blockIds: string[]) => {
+    for (const blockId of blockIds) {
+      const video = getVideoRefForBlock(blockId)
+      const slot = blockSlotsRef.current.get(blockId)
+      if (!video || !slot) continue
+      capturePreviewVideoFrame(video, getFrameCacheForSlot(slot))
+    }
+  }, [getVideoRefForBlock, getFrameCacheForSlot])
 
   const buildCrossFrameCaches = useCallback(
     (layers: PreviewVideoLayerProps[]): Map<string, HTMLCanvasElement> | undefined => {
@@ -368,10 +375,17 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
       const { vm } = resolveSceneVm(compositionSec)
       const enteringCross = vm.inDissolve && !wasInCrossRef.current
+      const warmedIncomingId = enteringCross ? warmupBlockIdRef.current : null
+      const skipSeekBlockIds =
+        warmedIncomingId != null ? new Set([warmedIncomingId]) : undefined
       wasInCrossRef.current = vm.inDissolve
-      syncVideosFromVm(vm.videoLayers, forceSeek || enteringCross, vm.inDissolve)
+      syncVideosFromVm(vm.videoLayers, forceSeek, skipSeekBlockIds)
       const warmupLayers = syncWarmupDecoder(compositionSec, vm.videoLayers)
       liveVmRef.current = { layers: vm.videoLayers, warmupLayers, compositionSec }
+
+      if (warmupLayers.length > 0) {
+        refreshSlotFrameCaches(warmupLayers.map((layer) => layer.block.id))
+      }
 
       const ctx = canvas.getContext('2d', { alpha: false })
       if (!ctx) return compositionSec
@@ -403,6 +417,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       resolveSceneVm,
       syncWarmupDecoder,
       syncVideosFromVm,
+      refreshSlotFrameCaches,
       buildDescriptorAt,
       collectVideosForLayers,
       buildCrossFrameCaches,
