@@ -82,7 +82,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   canvasWidth,
   canvasHeight,
   videoFitClass,
-  clipAudioMuted: _clipAudioMuted,
+  clipAudioMuted,
   previewBurnSubtitles,
   captionsHidden,
   captionsMuted,
@@ -204,6 +204,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
       if (video) {
         ensureDecoderBound(video, warmupBlock, getVideoUrlForBlock)
+        video.muted = true
+        video.volume = 0
         const target = getSourceTimeForBlock(warmupBlock, 0)
         const needsSeek =
           !warmupSeekReadyRef.current.has(warmupBlock.id) ||
@@ -247,10 +249,14 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       layer: PreviewVideoLayerProps | null,
       slot: PreviewVideoSlot,
       forceSeek: boolean,
-      skipSeekBlockIds?: Set<string>
+      skipSeekBlockIds?: Set<string>,
+      audioMuted = true
     ) => {
       if (!video || !layer) {
-        if (video && !layer) video.pause()
+        if (video && !layer) {
+          video.pause()
+          video.muted = true
+        }
         return
       }
 
@@ -262,7 +268,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
       ensureDecoderBound(video, layer.block, getVideoUrlForBlock)
 
-      video.volume = Math.min(1, Math.max(0, layer.volume))
+      video.muted = audioMuted
+      video.volume = audioMuted ? 0 : Math.min(1, Math.max(0, layer.volume))
       video.playbackRate = Math.max(0.25, Math.min(4, layer.playbackRate || 1))
 
       if (isPlaying) {
@@ -291,6 +298,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       warmupBlock?: EditBlock | null
     ) => {
       const activeIds = vmLayers.map((layer) => layer.block.id)
+      const audioBlockId = vmLayers[0]?.block.id ?? null
       const slotBlockIds = warmupBlock ? [...activeIds, warmupBlock.id] : activeIds
       const blockSlots = assignBlockSlots(slotBlockIds)
       const layerByBlockId = new Map(vmLayers.map((layer) => [layer.block.id, layer]))
@@ -306,10 +314,12 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
           continue
         }
 
-        syncVideoElement(video, layer, slot, forceSeek, skipSeekBlockIds)
+        const audioMuted =
+          clipAudioMuted || !blockId || blockId !== audioBlockId || blockId === warmupId
+        syncVideoElement(video, layer, slot, forceSeek, skipSeekBlockIds, audioMuted)
       }
     },
-    [assignBlockSlots, syncVideoElement, syncWarmupDecoder]
+    [assignBlockSlots, syncVideoElement, syncWarmupDecoder, clipAudioMuted]
   )
 
   const refreshSlotFrameCaches = useCallback((blockIds: string[]) => {
@@ -439,6 +449,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       previewBurnSubtitles,
       captionsHidden,
       captionsMuted,
+      clipAudioMuted,
     ]
   )
 
@@ -535,7 +546,6 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         ref={videoRef}
         className="compositor-preview__decoder"
         data-block-id={blockId ?? undefined}
-        muted
         playsInline
         preload="auto"
         crossOrigin="anonymous"
