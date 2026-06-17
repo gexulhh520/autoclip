@@ -65,8 +65,6 @@ export interface CompositorPreviewProps {
 }
 
 const PLAYBACK_END_EPSILON_SEC = 0.02
-/** 预览以 composition 为主时钟：每帧对齐解码器，避免 play+周期性 seek 闪屏 */
-const PLAYBACK_FRAME_SEEK_EPSILON_SEC = 0.0005
 
 const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   session,
@@ -109,6 +107,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   const sequencePlayheadRef = useRef(sequencePlayheadSec)
   const lastReportedPlayheadRef = useRef(sequencePlayheadSec)
   sequencePlayheadRef.current = sequencePlayheadSec
+  const wasInCrossRef = useRef(false)
   const liveVmRef = useRef<{ layers: PreviewVideoLayerProps[]; compositionSec: number } | null>(
     null
   )
@@ -198,16 +197,10 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
       if (isPlaying) {
         mountedSlotBlockRef.current[mountedKey] = blockId
-        if (
-          forceSeek ||
-          blockChanged ||
-          Math.abs(video.currentTime - target) > PLAYBACK_FRAME_SEEK_EPSILON_SEC
-        ) {
+        if (forceSeek || blockChanged) {
           video.currentTime = target
         }
-        if (!video.paused) {
-          video.pause()
-        }
+        void video.play().catch(() => undefined)
         return
       }
 
@@ -272,8 +265,11 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       if (!canvas || !plan) return compositionSec
 
       const { vm } = resolveSceneVm(compositionSec)
+      const enteringCross = vm.inDissolve && !wasInCrossRef.current
+      const leavingCross = !vm.inDissolve && wasInCrossRef.current
+      wasInCrossRef.current = vm.inDissolve
       liveVmRef.current = { layers: vm.videoLayers, compositionSec }
-      syncVideosFromVm(vm.videoLayers, forceSeek)
+      syncVideosFromVm(vm.videoLayers, forceSeek || enteringCross || leavingCross)
 
       const ctx = canvas.getContext('2d', { alpha: false })
       if (!ctx) return compositionSec
@@ -331,6 +327,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
   useEffect(() => {
     if (isPlaying) return
+    wasInCrossRef.current = false
     lastReportedPlayheadRef.current = sequencePlayheadSec
     paintAt(sequencePlayheadSec, true)
   }, [isPlaying, sequencePlayheadSec, paintAt, sceneBuilderInput, videoNaturalSize])
@@ -410,7 +407,6 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
           if (blockId) onMetadata(event.currentTarget, blockId)
         }}
         onLoadedData={() => {
-          if (isPlaying) return
           const sec = resolveCompositionSec()
           paintAt(sec, true)
         }}
