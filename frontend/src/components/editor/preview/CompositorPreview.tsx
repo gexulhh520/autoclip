@@ -12,6 +12,7 @@ import {
   type PreviewVideoSlot,
 } from '../../../editor/compositor/previewVideoSlots'
 import { findUpcomingCrossIncomingBlock } from '../../../editor/compositor/previewCrossTransitionWarmup'
+import { ensureDecoderBound } from '../../../editor/compositor/previewDecoderBinding'
 import {
   capturePreviewVideoFrame,
   ensurePreviewVideoFrameCache,
@@ -110,6 +111,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   const frameCacheBRef = useRef<HTMLCanvasElement | null>(null)
   const blockSlotsRef = useRef<Map<string, PreviewVideoSlot>>(new Map())
   const warmupBlockIdRef = useRef<string | null>(null)
+  const warmupSeekReadyRef = useRef<Set<string>>(new Set())
   const mountedSlotBlockRef = useRef<{ a: string | null; b: string | null }>({ a: null, b: null })
   const playbackClockRef = useRef(createCompositionPlaybackClock())
   const wasPlayingRef = useRef(false)
@@ -167,12 +169,56 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     [sceneBuilderInput, session.sequence, videoNaturalSize]
   )
 
-  const assignBlockSlots = useCallback((layers: PreviewVideoLayerProps[]) => {
-    const activeBlockIds = layers.map((layer) => layer.block.id)
-    const next = assignStablePreviewVideoSlots(activeBlockIds, blockSlotsRef.current)
+  const assignBlockSlots = useCallback((blockIds: string[]) => {
+    const next = assignStablePreviewVideoSlots(blockIds, blockSlotsRef.current)
     blockSlotsRef.current = next
     return next
   }, [])
+
+  const resolveWarmupBlock = useCallback(
+    (compositionSec: number, activeLayers: PreviewVideoLayerProps[]) => {
+      const activeIds = new Set(activeLayers.map((layer) => layer.block.id))
+      const upcoming = findUpcomingCrossIncomingBlock(session, compositionSec)
+      if (!upcoming || activeIds.has(upcoming.id)) {
+        warmupBlockIdRef.current = null
+        return null
+      }
+      warmupBlockIdRef.current = upcoming.id
+      return upcoming
+    },
+    [session]
+  )
+
+  const syncWarmupDecoder = useCallback(
+    (warmupBlock: EditBlock | null, idleSlot: PreviewVideoSlot | null) => {
+      if (!warmupBlock || !idleSlot) return [] as PreviewVideoLayerProps[]
+
+      const video = idleSlot === 'a' ? slotARef.current : slotBRef.current
+      const warmupLayer: PreviewVideoLayerProps = {
+        block: warmupBlock,
+        relativeSourceSec: 0,
+        opacity: 0,
+        volume: 0,
+        playbackRate: 1,
+      }
+
+      if (video) {
+        ensureDecoderBound(video, warmupBlock, getVideoUrlForBlock)
+        const target = getSourceTimeForBlock(warmupBlock, 0)
+        const needsSeek =
+          !warmupSeekReadyRef.current.has(warmupBlock.id) ||
+          Math.abs(video.currentTime - target) > 0.08
+        if (needsSeek && !video.seeking) {
+          video.currentTime = target
+          warmupSeekReadyRef.current.add(warmupBlock.id)
+        }
+        video.pause()
+      }
+
+      return [warmupLayer]
+    },
+    [getVideoUrlForBlock, getSourceTimeForBlock]
+  )
 
   const collectVideosForLayers = useCallback(
     (layers: PreviewVideoLayerProps[]): Map<string, HTMLVideoElement> => {
@@ -195,61 +241,6 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     return frameCacheBRef.current
   }, [])
 
-  const findIdlePreviewSlot = useCallback((activeBlockIds: Set<string>): PreviewVideoSlot | null => {
-    for (const slot of ['a', 'b'] as const) {
-      const blockId = blockIdForPreviewSlot(blockSlotsRef.current, slot)
-      if (!blockId || !activeBlockIds.has(blockId)) return slot
-    }
-    return null
-  }, [])
-
-  const syncWarmupDecoder = useCallback(
-    (compositionSec: number, activeLayers: PreviewVideoLayerProps[]) => {
-      const activeIds = new Set(activeLayers.map((layer) => layer.block.id))
-      const upcoming = findUpcomingCrossIncomingBlock(session, compositionSec)
-
-      if (!upcoming || activeIds.has(upcoming.id)) {
-        if (warmupBlockIdRef.current && !activeIds.has(warmupBlockIdRef.current)) {
-          const nextSlots = new Map(blockSlotsRef.current)
-          nextSlots.delete(warmupBlockIdRef.current)
-          blockSlotsRef.current = nextSlots
-        }
-        warmupBlockIdRef.current = null
-        return [] as PreviewVideoLayerProps[]
-      }
-
-      const idleSlot = findIdlePreviewSlot(activeIds)
-      if (!idleSlot) return [] as PreviewVideoLayerProps[]
-
-      warmupBlockIdRef.current = upcoming.id
-      blockSlotsRef.current = new Map(blockSlotsRef.current).set(upcoming.id, idleSlot)
-
-      const video = idleSlot === 'a' ? slotARef.current : slotBRef.current
-      const warmupLayer: PreviewVideoLayerProps = {
-        block: upcoming,
-        relativeSourceSec: 0,
-        opacity: 0,
-        volume: 0,
-        playbackRate: 1,
-      }
-
-      if (video) {
-        const target = getSourceTimeForBlock(upcoming, 0)
-        if (Math.abs(video.currentTime - target) > 0.05) {
-          video.currentTime = target
-        }
-        if (isPlaying) {
-          void video.play().catch(() => undefined)
-        } else {
-          video.pause()
-        }
-      }
-
-      return [warmupLayer]
-    },
-    [session, findIdlePreviewSlot, getSourceTimeForBlock, isPlaying]
-  )
-
   const syncVideoElement = useCallback(
     (
       video: HTMLVideoElement | null,
@@ -269,6 +260,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       const target = getSourceTimeForBlock(layer.block, layer.relativeSourceSec)
       const skipSeek = skipSeekBlockIds?.has(blockId) ?? false
 
+      ensureDecoderBound(video, layer.block, getVideoUrlForBlock)
+
       video.volume = Math.min(1, Math.max(0, layer.volume))
       video.playbackRate = Math.max(0.25, Math.min(4, layer.playbackRate || 1))
 
@@ -287,26 +280,36 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       }
       video.pause()
     },
-    [getSourceTimeForBlock, isPlaying]
+    [getSourceTimeForBlock, getVideoUrlForBlock, isPlaying]
   )
 
   const syncVideosFromVm = useCallback(
     (
       vmLayers: PreviewVideoLayerProps[],
       forceSeek: boolean,
-      skipSeekBlockIds?: Set<string>
+      skipSeekBlockIds?: Set<string>,
+      warmupBlock?: EditBlock | null
     ) => {
-      const blockSlots = assignBlockSlots(vmLayers)
+      const activeIds = vmLayers.map((layer) => layer.block.id)
+      const slotBlockIds = warmupBlock ? [...activeIds, warmupBlock.id] : activeIds
+      const blockSlots = assignBlockSlots(slotBlockIds)
       const layerByBlockId = new Map(vmLayers.map((layer) => [layer.block.id, layer]))
+      const warmupId = warmupBlock?.id ?? null
 
       for (const slot of ['a', 'b'] as const) {
         const blockId = blockIdForPreviewSlot(blockSlots, slot)
         const layer = blockId ? (layerByBlockId.get(blockId) ?? null) : null
         const video = slot === 'a' ? slotARef.current : slotBRef.current
+
+        if (!layer && blockId === warmupId && warmupBlock) {
+          syncWarmupDecoder(warmupBlock, slot)
+          continue
+        }
+
         syncVideoElement(video, layer, slot, forceSeek, skipSeekBlockIds)
       }
     },
-    [assignBlockSlots, syncVideoElement]
+    [assignBlockSlots, syncVideoElement, syncWarmupDecoder]
   )
 
   const refreshSlotFrameCaches = useCallback((blockIds: string[]) => {
@@ -378,9 +381,20 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       const warmedIncomingId = enteringCross ? warmupBlockIdRef.current : null
       const skipSeekBlockIds =
         warmedIncomingId != null ? new Set([warmedIncomingId]) : undefined
+      const warmupBlock = resolveWarmupBlock(compositionSec, vm.videoLayers)
       wasInCrossRef.current = vm.inDissolve
-      syncVideosFromVm(vm.videoLayers, forceSeek, skipSeekBlockIds)
-      const warmupLayers = syncWarmupDecoder(compositionSec, vm.videoLayers)
+      syncVideosFromVm(vm.videoLayers, forceSeek, skipSeekBlockIds, warmupBlock)
+      const warmupLayers: PreviewVideoLayerProps[] = warmupBlock
+        ? [
+            {
+              block: warmupBlock,
+              relativeSourceSec: 0,
+              opacity: 0,
+              volume: 0,
+              playbackRate: 1,
+            },
+          ]
+        : []
       liveVmRef.current = { layers: vm.videoLayers, warmupLayers, compositionSec }
 
       if (warmupLayers.length > 0) {
@@ -415,6 +429,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       session,
       isPlaying,
       resolveSceneVm,
+      resolveWarmupBlock,
       syncWarmupDecoder,
       syncVideosFromVm,
       refreshSlotFrameCaches,
@@ -513,12 +528,6 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
   const renderDecoderSlot = (slot: PreviewVideoSlot) => {
     const blockId = blockIdForPreviewSlot(blockSlotsRef.current, slot)
-    const layer =
-      blockId && liveVmRef.current
-        ? (liveVmRef.current.layers.find((item) => item.block.id === blockId) ??
-          liveVmRef.current.warmupLayers.find((item) => item.block.id === blockId) ??
-          null)
-        : null
     const videoRef = slot === 'a' ? slotARef : slotBRef
 
     return (
@@ -526,7 +535,6 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         ref={videoRef}
         className="compositor-preview__decoder"
         data-block-id={blockId ?? undefined}
-        src={layer ? getVideoUrlForBlock(layer.block) : undefined}
         muted
         playsInline
         preload="auto"
@@ -534,9 +542,26 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         onLoadedMetadata={(event) => {
           if (blockId) onMetadata(event.currentTarget, blockId)
         }}
-        onLoadedData={() => {
-          const sec = resolveCompositionSec()
-          paintAt(sec, true)
+        onLoadedData={(event) => {
+          const video = event.currentTarget
+          const boundId = video.dataset.boundBlockId
+          if (!boundId) return
+
+          if (boundId === warmupBlockIdRef.current) {
+            const warmupBlock = session.sequence.find((block) => block.id === boundId)
+            if (!warmupBlock) return
+            const target = getSourceTimeForBlock(warmupBlock, 0)
+            if (Math.abs(video.currentTime - target) > 0.08) {
+              video.currentTime = target
+            }
+            warmupSeekReadyRef.current.add(boundId)
+            video.pause()
+            return
+          }
+
+          if (!isPlaying) {
+            paintAt(resolveCompositionSec(), true)
+          }
         }}
       />
     )
