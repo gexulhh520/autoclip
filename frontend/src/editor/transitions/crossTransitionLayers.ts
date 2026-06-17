@@ -18,6 +18,25 @@ export interface CrossTransitionLayerState {
 
 const clamp01 = (value: number): number => Math.min(1, Math.max(0, value))
 
+/**
+ * 闪黑：前半段 outgoing 余弦淡出至黑，后半段 incoming 余弦自黑淡入。
+ * 端点处导数为 0，避免线性分段在转折处发硬。
+ */
+export function resolveFadeBlackOpacity(
+  progress: number,
+  role: 'outgoing' | 'incoming'
+): number {
+  const p = clamp01(progress)
+  if (role === 'outgoing') {
+    if (p >= 0.5) return 0
+    const t = p * 2
+    return 0.5 * (1 + Math.cos(Math.PI * t))
+  }
+  if (p <= 0.5) return 0
+  const t = (p - 0.5) * 2
+  return 0.5 * (1 - Math.cos(Math.PI * t))
+}
+
 /** 根据转场类型与 progress 计算单路视频层的绘制参数 */
 export function resolveCrossTransitionLayerState(
   kind: TransitionOutKind,
@@ -32,11 +51,8 @@ export function resolveCrossTransitionLayerState(
     case 'dissolve':
       return { opacity: role === 'outgoing' ? 1 - p : p }
 
-    case 'fade_black': {
-      const outOpacity = p <= 0.5 ? 1 - p * 2 : 0
-      const inOpacity = p >= 0.5 ? (p - 0.5) * 2 : 0
-      return { opacity: role === 'outgoing' ? outOpacity : inOpacity }
-    }
+    case 'fade_black':
+      return { opacity: resolveFadeBlackOpacity(p, role) }
 
     case 'wipe_left':
       if (role === 'outgoing') return { opacity: 1 }

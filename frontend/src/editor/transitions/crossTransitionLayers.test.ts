@@ -19,6 +19,26 @@ describe('resolveCrossTransitionLayerState', () => {
     })
   })
 
+  it('fade_black dips through black with smooth cosine curves', () => {
+    expect(resolveCrossTransitionLayerState('fade_black', transform, 0, 'outgoing').opacity).toBe(1)
+    expect(resolveCrossTransitionLayerState('fade_black', transform, 0, 'incoming').opacity).toBe(0)
+    expect(resolveCrossTransitionLayerState('fade_black', transform, 1, 'outgoing').opacity).toBe(0)
+    expect(resolveCrossTransitionLayerState('fade_black', transform, 1, 'incoming').opacity).toBe(1)
+
+    expect(resolveCrossTransitionLayerState('fade_black', transform, 0.5, 'outgoing').opacity).toBe(0)
+    expect(resolveCrossTransitionLayerState('fade_black', transform, 0.5, 'incoming').opacity).toBe(0)
+
+    expect(
+      resolveCrossTransitionLayerState('fade_black', transform, 0.25, 'outgoing').opacity
+    ).toBeCloseTo(0.5, 5)
+    expect(resolveCrossTransitionLayerState('fade_black', transform, 0.25, 'incoming').opacity).toBe(
+      0
+    )
+    expect(
+      resolveCrossTransitionLayerState('fade_black', transform, 0.75, 'incoming').opacity
+    ).toBeCloseTo(0.5, 5)
+  })
+
   it('slide_left offsets layers horizontally', () => {
     const outgoing = resolveCrossTransitionLayerState('slide_left', transform, 0.5, 'outgoing')
     const incoming = resolveCrossTransitionLayerState('slide_left', transform, 0.5, 'incoming')

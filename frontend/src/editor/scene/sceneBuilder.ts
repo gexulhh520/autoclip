@@ -167,7 +167,7 @@ export function resolveSceneAt(
 
   if (cross) {
     const { outgoing, incoming, progress, kind } = cross
-    const easedProgress = easeInOutCubic(progress)
+    const easedProgress = kind === 'fade_black' ? progress : easeInOutCubic(progress)
     const outRelative = mapCompositionTimeToRelativeSource(outgoing, clampedTime)
     const inRelative = mapCompositionTimeToRelativeSource(incoming, clampedTime)
     const foreground = { x: 0, y: 0, width: canvas.width, height: canvas.height }
@@ -179,13 +179,14 @@ export function resolveSceneAt(
       blockIndex: outgoing.index,
       relativeSourceSec: outRelative,
       opacity: outState.opacity,
-      volume: blockVolumeAtRelative(
-        outgoing.block.audio.volume,
-        outRelative,
-        outgoing.sourceDurationSec,
-        outgoing.block.audio.fade_in_sec ?? 0,
-        outgoing.block.audio.fade_out_sec ?? 0
-      ),
+      volume:
+        blockVolumeAtRelative(
+          outgoing.block.audio.volume,
+          outRelative,
+          outgoing.sourceDurationSec,
+          outgoing.block.audio.fade_in_sec ?? 0,
+          outgoing.block.audio.fade_out_sec ?? 0
+        ) * (kind === 'fade_black' ? outState.opacity : 1),
       playbackRate: blockPlaybackRate(outgoing.block),
       zIndex: 0,
     })
@@ -194,13 +195,14 @@ export function resolveSceneAt(
       blockIndex: incoming.index,
       relativeSourceSec: inRelative,
       opacity: inState.opacity,
-      volume: blockVolumeAtRelative(
-        incoming.block.audio.volume,
-        inRelative,
-        incoming.sourceDurationSec,
-        incoming.block.audio.fade_in_sec ?? 0,
-        incoming.block.audio.fade_out_sec ?? 0
-      ),
+      volume:
+        blockVolumeAtRelative(
+          incoming.block.audio.volume,
+          inRelative,
+          incoming.sourceDurationSec,
+          incoming.block.audio.fade_in_sec ?? 0,
+          incoming.block.audio.fade_out_sec ?? 0
+        ) * (kind === 'fade_black' ? inState.opacity : 1),
       playbackRate: blockPlaybackRate(incoming.block),
       zIndex: 1,
     })

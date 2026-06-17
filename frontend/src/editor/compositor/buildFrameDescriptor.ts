@@ -18,6 +18,7 @@ import {
   resolvePlanSceneEffects,
   resolveTransitionAtTime,
 } from '../effects'
+import { resolveFadeBlackOpacity } from '../transitions/crossTransitionLayers'
 import {
   COMPOSITOR_SCHEMA_VERSION,
   type BuildFrameDescriptorOptions,
@@ -284,36 +285,57 @@ export function buildFrameDescriptor(
 
   if (transitionResult.dissolve) {
     const { outgoing, incoming, progress } = transitionResult.dissolve
+    const transitionKind = transitionResult.transitionKind
     const outRelative = mapCompositionTimeToRelativeSource(outgoing, clampedTime)
     const inRelative = mapCompositionTimeToRelativeSource(incoming, clampedTime)
 
-    appendTemplateFreeText(outgoing.block.id, 1 - progress)
-    appendTemplateFreeText(incoming.block.id, progress)
+    const outLayerOpacity =
+      transitionResult.videoLayers.find((layer) => layer.blockId === outgoing.block.id)?.opacity ?? 1
+    const inLayerOpacity =
+      transitionResult.videoLayers.find((layer) => layer.blockId === incoming.block.id)?.opacity ?? 1
+
+    appendTemplateFreeText(outgoing.block.id, outLayerOpacity)
+    appendTemplateFreeText(incoming.block.id, inLayerOpacity)
+
+    const outAudioFade =
+      transitionKind === 'fade_black'
+        ? resolveFadeBlackOpacity(progress, 'outgoing')
+        : transitionKind === 'dissolve'
+          ? 1 - progress
+          : 1
+    const inAudioFade =
+      transitionKind === 'fade_black'
+        ? resolveFadeBlackOpacity(progress, 'incoming')
+        : transitionKind === 'dissolve'
+          ? progress
+          : 1
 
     audio.push(
       {
         kind: 'clip',
         blockId: outgoing.block.id,
         timelineSec: clampedTime,
-        volume: blockVolumeAtRelative(
-          outgoing.block.audio.volume,
-          outRelative,
-          outgoing.sourceDurationSec,
-          outgoing.block.audio.fade_in_sec ?? 0,
-          outgoing.block.audio.fade_out_sec ?? 0
-        ),
+        volume:
+          blockVolumeAtRelative(
+            outgoing.block.audio.volume,
+            outRelative,
+            outgoing.sourceDurationSec,
+            outgoing.block.audio.fade_in_sec ?? 0,
+            outgoing.block.audio.fade_out_sec ?? 0
+          ) * outAudioFade,
       },
       {
         kind: 'clip',
         blockId: incoming.block.id,
         timelineSec: clampedTime,
-        volume: blockVolumeAtRelative(
-          incoming.block.audio.volume,
-          inRelative,
-          incoming.sourceDurationSec,
-          incoming.block.audio.fade_in_sec ?? 0,
-          incoming.block.audio.fade_out_sec ?? 0
-        ),
+        volume:
+          blockVolumeAtRelative(
+            incoming.block.audio.volume,
+            inRelative,
+            incoming.sourceDurationSec,
+            incoming.block.audio.fade_in_sec ?? 0,
+            incoming.block.audio.fade_out_sec ?? 0
+          ) * inAudioFade,
       }
     )
   } else if (transitionResult.videoLayers.length === 1) {

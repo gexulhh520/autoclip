@@ -14,7 +14,7 @@ export type TransitionOutKind =
 export const TRANSITION_OUT_LABELS: Record<TransitionOutKind, string> = {
   cut: '硬切',
   dissolve: '叠化',
-  fade_black: '黑场',
+  fade_black: '闪黑',
   wipe_left: '左擦',
   wipe_right: '右擦',
   wipe_up: '上擦',

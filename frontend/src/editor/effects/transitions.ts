@@ -46,7 +46,8 @@ const buildCrossTransitionResult = (
   cross: NonNullable<ReturnType<typeof findCrossTransitionAtTime>>
 ): TransitionResolveResult => {
   const { outgoing, incoming, progress, kind } = cross
-  const easedProgress = easeInOutCubic(progress)
+  // 闪黑自带余弦缓动，避免与 easeInOutCubic 叠乘导致中段发硬
+  const easedProgress = kind === 'fade_black' ? progress : easeInOutCubic(progress)
   const outRelative = mapCompositionTimeToRelativeSource(outgoing, context.clampedTime)
   const inRelative = mapCompositionTimeToRelativeSource(incoming, context.clampedTime)
 
