@@ -1,5 +1,5 @@
 import type { AudioClipElement, EditOverlayElement, EditSession } from '../../types/editSession'
-import { blockTimelineVisualStartSec } from '../../utils/editTimeline'
+import { blockTimelineVisualEndSec, blockTimelineVisualStartSec } from '../../utils/editTimeline'
 import { readNumberParam, readStringParam, writeParam } from '../opencut-text/params'
 import { buildCompositionTimeline } from '../scene/timelineLayout'
 import type { CompositionSegment } from '../scene/types'
@@ -25,6 +25,10 @@ export function blockLinkAnchorSec(segment: CompositionSegment): number {
   return blockTimelineVisualStartSec(segment.compositionStartSec, segment.block)
 }
 
+export function segmentVisualEndSec(segment: CompositionSegment): number {
+  return blockTimelineVisualEndSec(segment.compositionStartSec, segment.block)
+}
+
 export function findSegmentAtCompositionTime(
   session: EditSession,
   timeSec: number
@@ -33,9 +37,9 @@ export function findSegmentAtCompositionTime(
   if (timeline.segments.length === 0) return null
 
   for (const segment of timeline.segments) {
-    const anchor = blockLinkAnchorSec(segment)
-    const end = anchor + segment.sourceDurationSec
-    if (timeSec >= anchor - 0.001 && timeSec < end + 0.001) {
+    const start = blockLinkAnchorSec(segment)
+    const end = segmentVisualEndSec(segment)
+    if (timeSec >= start - 0.001 && timeSec < end + 0.001) {
       return segment
     }
   }
@@ -145,6 +149,63 @@ export function reconcileTimelineBlockLinks(session: EditSession): boolean {
     const nextStart = blockLinkAnchorSec(segment) + clip.block_offset_sec
     if (Math.abs(clip.start_sec - nextStart) > 0.001) {
       clip.start_sec = nextStart
+      changed = true
+    }
+  }
+
+  return changed
+}
+
+const MIN_LINKED_ELEMENT_SEC = 0.2
+
+/**
+ * 主轨尾部缩短时：若旧出点落在文本/音效范围内，则同步从尾部缩短相同时长；
+ * 再次拉长视频时不恢复（只处理 delta > 0）。
+ * 归属：元素起点落在哪个视频片段可视范围内，即归属该片段。
+ */
+export function applyTailTrimLinkedElements(
+  session: EditSession,
+  blockId: string,
+  oldVisualEnd: number,
+  newVisualEnd: number
+): boolean {
+  const delta = oldVisualEnd - newVisualEnd
+  if (delta <= 0.001) return false
+
+  let changed = false
+
+  for (const element of session.overlay_elements ?? []) {
+    if (isTemplateLinkedOverlay(element)) continue
+    const owner = findSegmentAtCompositionTime(session, element.start_sec + 0.001)
+    if (owner?.block.id !== blockId) continue
+
+    const elementStart = element.start_sec
+    const elementEnd = elementStart + element.duration_sec
+    if (oldVisualEnd <= elementStart + 0.001 || oldVisualEnd > elementEnd + 0.001) continue
+
+    const nextDuration = Math.max(MIN_LINKED_ELEMENT_SEC, element.duration_sec - delta)
+    if (Math.abs(nextDuration - element.duration_sec) > 0.001) {
+      element.duration_sec = nextDuration
+      changed = true
+    }
+  }
+
+  for (const clip of session.audio_elements ?? []) {
+    if (!shouldLinkAudioClip(session, clip)) continue
+    const owner = findSegmentAtCompositionTime(session, clip.start_sec + 0.001)
+    if (owner?.block.id !== blockId) continue
+
+    const clipStart = clip.start_sec
+    const clipEnd = clipStart + clip.duration_sec
+    if (oldVisualEnd <= clipStart + 0.001 || oldVisualEnd > clipEnd + 0.001) continue
+
+    const nextDuration = Math.max(MIN_LINKED_ELEMENT_SEC, clip.duration_sec - delta)
+    if (Math.abs(nextDuration - clip.duration_sec) > 0.001) {
+      const trimStart = clip.trim_start_sec ?? 0
+      clip.duration_sec = nextDuration
+      if (clip.trim_end_sec != null) {
+        clip.trim_end_sec = Math.max(trimStart + MIN_LINKED_ELEMENT_SEC, clip.trim_end_sec - delta)
+      }
       changed = true
     }
   }

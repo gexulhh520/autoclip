@@ -127,8 +127,8 @@ const TimelineToolbar: React.FC<TimelineToolbarProps> = ({
         <ToolbarButton
           title={
             blockLinkEnabled
-              ? '片段联动：文本/音效随视频片段移动（点击关闭）'
-              : '联动已关闭：文本/音效保持绝对时间（点击开启）'
+              ? '片段联动：尾部裁切时同步缩短归属文本/音效，入点裁切时随片段移动（点击关闭）'
+              : '联动已关闭：文本/音效保持绝对时间与时长（点击开启）'
           }
           active={blockLinkEnabled}
           onClick={onToggleBlockLink}

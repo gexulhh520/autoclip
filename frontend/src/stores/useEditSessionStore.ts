@@ -53,7 +53,10 @@ import {
   attachOverlayBlockLink,
   ensureBlockLinksForUnlinkedElements,
   reconcileTimelineBlockLinks,
+  applyTailTrimLinkedElements,
+  buildSessionCompositionTimeline,
 } from '../editor/timeline/timelineBlockLink'
+import { blockTimelineVisualEndSec } from '../utils/editTimeline'
 import {
   applyAudioClipTimingClamp,
   applyOverlayElementTimingClamp,
@@ -2163,6 +2166,22 @@ export const useEditSessionStore = create<EditSessionState>()(
           }
           syncTemplateOverlaysForBlock(state.session, blockId)
           if (state.timelineBlockLinkEnabled) {
+            const timeline = buildSessionCompositionTimeline(state.session)
+            const segment = timeline.segments[blockIndex]
+            if (segment) {
+              const compStart = segment.compositionStartSec
+              const oldVisualEnd = blockTimelineVisualEndSec(compStart, {
+                ...block,
+                trim: oldTrim,
+              })
+              const newVisualEnd = blockTimelineVisualEndSec(compStart, block)
+              applyTailTrimLinkedElements(
+                state.session,
+                blockId,
+                oldVisualEnd,
+                newVisualEnd
+              )
+            }
             reconcileTimelineBlockLinks(state.session)
           }
           state.dirty = true
