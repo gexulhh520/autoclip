@@ -16,16 +16,7 @@ import {
   ensurePreviewVideoFrameCache,
   hasPreviewVideoFrameCache,
 } from '../../../editor/compositor/previewVideoFrameCache'
-import { PreviewMediabunnyPool } from '../../../editor/compositor/previewMediabunnyPool'
-import {
-  activeCrossBlockIds,
-  collectTransitionPrefetchBlockIds,
-} from '../../../editor/compositor/previewTransitionPrefetch'
-import {
-  renderFrameDescriptorToCanvas,
-  renderFrameDescriptorToCanvasAsync,
-} from '../../../editor/compositor/softwareRenderer'
-import { isWebCodecsDecodeSupported } from '../../../editor/compositor/webcodecsExport'
+import { renderFrameDescriptorToCanvas } from '../../../editor/compositor/softwareRenderer'
 import { usePreviewTextDrag } from '../../../editor/compositor/usePreviewTextDrag'
 import type { BoxSelectableItem } from '../../../editor/selection/boxSelect'
 import { measureTextOverlay } from '../../../editor/opencut-text/measure'
@@ -125,16 +116,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   const lastReportedPlayheadRef = useRef(sequencePlayheadSec)
   sequencePlayheadRef.current = sequencePlayheadSec
   const wasInCrossRef = useRef(false)
-  const webCodecsDecodeRef = useRef(isWebCodecsDecodeSupported())
-  const paintGenerationRef = useRef(0)
-  const poolRef = useRef<PreviewMediabunnyPool | null>(null)
   const liveVmRef = useRef<{ layers: PreviewVideoLayerProps[]; compositionSec: number } | null>(
     null
-  )
-
-  const blocksById = useMemo(
-    () => new Map(session.sequence.map((block) => [block.id, block])),
-    [session.sequence]
   )
 
   const plan: CompositionPlan | null = useMemo(
@@ -332,7 +315,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   )
 
   const paintAt = useCallback(
-    async (compositionSec: number, forceSeek: boolean): Promise<number> => {
+    (compositionSec: number, forceSeek: boolean) => {
       const canvas = canvasRef.current
       if (!canvas || !plan) return compositionSec
 
@@ -340,19 +323,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       const enteringCross = vm.inDissolve && !wasInCrossRef.current
       wasInCrossRef.current = vm.inDissolve
       liveVmRef.current = { layers: vm.videoLayers, compositionSec }
-
-      const useWebCodecsCross = vm.inDissolve && webCodecsDecodeRef.current
-      if (!useWebCodecsCross) {
-        syncVideosFromVm(vm.videoLayers, forceSeek || enteringCross, vm.inDissolve)
-      } else {
-        assignBlockSlots(vm.videoLayers)
-        for (const layer of vm.videoLayers) {
-          const video = getVideoRefForBlock(layer.block.id)
-          if (video && !video.paused) {
-            video.pause()
-          }
-        }
-      }
+      syncVideosFromVm(vm.videoLayers, forceSeek || enteringCross, vm.inDissolve)
 
       const ctx = canvas.getContext('2d', { alpha: false })
       if (!ctx) return compositionSec
@@ -364,53 +335,22 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       if (!descriptor) return compositionSec
 
       const videos = collectVideosForLayers(vm.videoLayers)
-      const renderOptions = {
+      const videoFrameCaches = buildVideoFrameCaches(vm.videoLayers, vm.inDissolve)
+
+      renderFrameDescriptorToCanvas(ctx, descriptor, {
         videos,
+        videoFrameCaches,
         showTemplateCaptions: previewBurnSubtitles && !captionsHidden && !captionsMuted,
         showFreeText: true,
         preferGpuEffects: true,
-      } as const
-
-      const gen = ++paintGenerationRef.current
-
-      if (useWebCodecsCross) {
-        const pool = poolRef.current
-        if (!pool) return compositionSec
-
-        const videoSources = await pool.ensureForBlocks(vm.videoLayers.map((layer) => layer.block))
-        if (gen !== paintGenerationRef.current) return compositionSec
-
-        await renderFrameDescriptorToCanvasAsync(ctx, descriptor, {
-          ...renderOptions,
-          videoSources,
-        })
-        if (gen !== paintGenerationRef.current) return compositionSec
-
-        pool.disposeExcept(new Set(activeCrossBlockIds(session, compositionSec)))
-      } else {
-        const videoFrameCaches = buildVideoFrameCaches(vm.videoLayers, vm.inDissolve)
-        renderFrameDescriptorToCanvas(ctx, descriptor, {
-          ...renderOptions,
-          videoFrameCaches,
-        })
-
-        if (webCodecsDecodeRef.current && isPlaying) {
-          const prefetchIds = collectTransitionPrefetchBlockIds(session, compositionSec)
-          poolRef.current?.prefetch(prefetchIds)
-          poolRef.current?.disposeExcept(new Set(prefetchIds))
-        }
-      }
+      })
 
       return compositionSec
     },
     [
       plan,
-      session,
-      isPlaying,
       resolveSceneVm,
       syncVideosFromVm,
-      assignBlockSlots,
-      getVideoRefForBlock,
       buildDescriptorAt,
       collectVideosForLayers,
       buildVideoFrameCaches,
@@ -419,21 +359,6 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       captionsMuted,
     ]
   )
-
-  useEffect(() => {
-    poolRef.current?.disposeAll()
-    poolRef.current = new PreviewMediabunnyPool({
-      width: canvasWidth,
-      height: canvasHeight,
-      getVideoUrlForBlock,
-      getSourceTimeForBlock,
-      blocksById,
-    })
-    return () => {
-      poolRef.current?.disposeAll()
-      poolRef.current = null
-    }
-  }, [canvasWidth, canvasHeight, getVideoUrlForBlock, getSourceTimeForBlock, blocksById])
 
   const reportPlayhead = useCallback(
     (compositionSec: number) => {
@@ -451,7 +376,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         const anchor = sequencePlayheadRef.current
         clock.startAt(anchor)
         lastReportedPlayheadRef.current = anchor
-        void paintAt(anchor, true)
+        paintAt(anchor, true)
       }
     } else if (wasPlayingRef.current) {
       clock.stop()
@@ -463,7 +388,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     if (isPlaying) return
     wasInCrossRef.current = false
     lastReportedPlayheadRef.current = sequencePlayheadSec
-    void paintAt(sequencePlayheadSec, true)
+    paintAt(sequencePlayheadSec, true)
   }, [isPlaying, sequencePlayheadSec, paintAt, sceneBuilderInput, videoNaturalSize])
 
   useEffect(() => {
@@ -475,14 +400,14 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       const compositionSec = resolveCompositionSec()
 
       if (compositionSec >= plan.totalDurationSec - PLAYBACK_END_EPSILON_SEC) {
-        void paintAt(plan.totalDurationSec, false)
+        paintAt(plan.totalDurationSec, false)
         reportPlayhead(plan.totalDurationSec)
         playbackClockRef.current.stop()
         onPlaybackComplete()
         return
       }
 
-      void paintAt(compositionSec, false)
+      paintAt(compositionSec, false)
       reportPlayhead(compositionSec)
       raf = window.requestAnimationFrame(tick)
     }
@@ -542,7 +467,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         }}
         onLoadedData={() => {
           const sec = resolveCompositionSec()
-          void paintAt(sec, true)
+          paintAt(sec, true)
         }}
       />
     )

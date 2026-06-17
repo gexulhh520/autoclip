@@ -21,11 +21,6 @@ export async function assertWebCodecsExportSupported(): Promise<void> {
   }
 }
 
-/** 预览转场按 composition 时间取帧（仅需解码） */
-export function isWebCodecsDecodeSupported(): boolean {
-  return typeof VideoDecoder !== 'undefined'
-}
-
 export async function isWebCodecsExportSupported(): Promise<boolean> {
   try {
     await assertWebCodecsExportSupported()
