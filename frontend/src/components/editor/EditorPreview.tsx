@@ -1,17 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { projectApi } from '../../services/api'
 import {
-  buildCompositionTimeline,
-  buildCompositionTimelineSegments,
-  mapRelativeSourceToCompositionTime,
   renderSceneToPreviewViewModel,
-  resolveVideoEndedHandoff,
   resolveSceneAt,
 } from '../../editor/scene'
 import { getBlockVideoUrl } from '../../utils/editBlockMedia'
 import { useEditSessionStore } from '../../stores/useEditSessionStore'
 import {
-  BASE_PX_PER_SEC,
   formatTimecode,
   getCompositionTotalDuration,
 } from '../../utils/editTimeline'
@@ -25,10 +20,6 @@ import CompositorPreview from './preview/CompositorPreview'
 import EditorAspectRatioPicker from './EditorAspectRatioPicker'
 import PreviewVideoLayer from './EditorPreviewVideoLayer'
 import { useTimelineAudioPlayback } from '../../editor/hooks/useTimelineAudioPlayback'
-import {
-  readVideoSourceRelativeSec,
-  resolvePreviewLivePlayheadSec,
-} from '../../editor/compositor/previewPlayhead'
 import { resolveCanvasDimensions } from '../../editor/scene/canvas'
 import type { EditBlock } from '../../types/editSession'
 import { TRANSITION_OUT_LABELS } from '../../types/transitions'
@@ -50,7 +41,6 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
 
   const session = useEditSessionStore((state) => state.session)
   const assetPreviewClip = useEditSessionStore((state) => state.assetPreviewClip)
-  const timelineZoom = useEditSessionStore((state) => state.timelineZoom)
   const previewZoom = useEditSessionStore((state) => state.previewZoom)
   const setPreviewZoom = useEditSessionStore((state) => state.setPreviewZoom)
   const previewBurnSubtitles = useEditSessionStore((state) => state.previewBurnSubtitles)
@@ -84,26 +74,9 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     () => Object.entries(textTrackMuted).filter(([, muted]) => muted).map(([id]) => id),
     [textTrackMuted]
   )
-  const pxPerSec = BASE_PX_PER_SEC * (timelineZoom / 100)
   const blocks = session?.sequence ?? []
   const transitionDurationSec = session?.audio_settings?.transition_duration_sec ?? 0.35
   const useSourcePreview = session?.audio_settings?.use_source_video ?? false
-
-  const compositionTimeline = useMemo(
-    () => buildCompositionTimeline(blocks, transitionDurationSec, session?.sequence_block_gaps),
-    [blocks, transitionDurationSec, session?.sequence_block_gaps]
-  )
-
-  const compositionSegments = useMemo(
-    () =>
-      buildCompositionTimelineSegments(
-        blocks,
-        pxPerSec,
-        transitionDurationSec,
-        session?.sequence_block_gaps
-      ),
-    [blocks, pxPerSec, transitionDurationSec, session?.sequence_block_gaps]
-  )
 
   const totalDuration = useMemo(
     () => getCompositionTotalDuration(blocks, transitionDurationSec, session?.sequence_block_gaps),
@@ -198,36 +171,6 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
 
   const hasTimelineAudio = (session?.audio_elements?.length ?? 0) > 0
   const primaryVideoLayer = previewVm?.videoLayers[0] ?? null
-  const primaryTimelineSegment = useMemo(() => {
-    if (!primaryVideoLayer) return null
-    return (
-      compositionTimeline.segments.find(
-        (item) => item.block.id === primaryVideoLayer.block.id
-      ) ?? null
-    )
-  }, [primaryVideoLayer, compositionTimeline])
-
-  const resolveLivePlayheadSec = useCallback(() => {
-    return resolvePreviewLivePlayheadSec({
-      isPlaying,
-      storePlayheadSec: sequencePlayheadSec,
-      totalDurationSec: totalDuration,
-      primaryBlock: primaryVideoLayer?.block ?? null,
-      segmentStartSec: primaryTimelineSegment?.compositionStartSec ?? 0,
-      useSourceVideo: useSourcePreview,
-      timeline: compositionTimeline,
-      segmentIndex: primaryTimelineSegment?.index,
-    })
-  }, [
-    isPlaying,
-    sequencePlayheadSec,
-    totalDuration,
-    primaryVideoLayer?.block,
-    primaryTimelineSegment,
-    compositionTimeline,
-    useSourcePreview,
-  ])
-
   useTimelineAudioPlayback({
     projectId,
     sessionId,
@@ -236,7 +179,6 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     isPlaying,
     isAssetPreview,
     audioTrackMuted,
-    resolveLivePlayheadSec,
   })
 
 
@@ -274,55 +216,21 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     return () => document.removeEventListener('fullscreenchange', onFullscreenChange)
   }, [])
 
-  const handleOutgoingTimeUpdate = (video: HTMLVideoElement) => {
-    if (isAssetPreview) {
-      setAssetPreviewTimeSec(video.currentTime)
-      return
-    }
-    if (!primaryVideoLayer || !primaryTimelineSegment) return
-
-    const relative = Math.max(
-      0,
-      readVideoSourceRelativeSec(video, primaryVideoLayer.block, useSourcePreview)
-    )
-    const nextPlayhead = mapRelativeSourceToCompositionTime(
-      primaryTimelineSegment,
-      relative,
-      compositionTimeline
-    )
-
-    if (nextPlayhead >= totalDuration - 0.05) {
-      setSequencePlayheadSec(totalDuration)
-      return
-    }
-
-    advanceSequencePlayhead(nextPlayhead)
+  const handleAssetPreviewEnded = () => {
+    setPlaying(false)
   }
 
-  const handleVideoEnded = (endedBlockId: string) => {
-    if (isAssetPreview) {
-      setPlaying(false)
-      return
-    }
+  const handleCompositorPlayheadChange = useCallback(
+    (sec: number) => {
+      advanceSequencePlayhead(sec)
+    },
+    [advanceSequencePlayhead]
+  )
 
-    const playhead = useEditSessionStore.getState().sequencePlayheadSec
-    const handoff = resolveVideoEndedHandoff(
-      compositionTimeline,
-      playhead,
-      endedBlockId,
-      totalDuration
-    )
-
-    if (!handoff) return
-
-    if (handoff.stopPlayback) {
-      setSequencePlayheadSec(handoff.nextPlayheadSec)
-      setPlaying(false)
-      return
-    }
-
-    advanceSequencePlayhead(handoff.nextPlayheadSec)
-  }
+  const handleCompositorPlaybackComplete = useCallback(() => {
+    setSequencePlayheadSec(totalDuration)
+    setPlaying(false)
+  }, [setSequencePlayheadSec, setPlaying, totalDuration])
 
   const toggleFullscreen = async () => {
     const frame = frameRef.current
@@ -406,12 +314,12 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                 targetTimeSec={assetPreviewTimeSec}
                 onMetadata={handleVideoMetadata}
                 onTimeUpdate={(video) => setAssetPreviewTimeSec(video.currentTime)}
-                onEnded={handleVideoEnded}
+                onEnded={handleAssetPreviewEnded}
               />
-            ) : primaryVideoLayer && session && previewVm ? (
+            ) : primaryVideoLayer && session && sceneBuilderInput ? (
               <CompositorPreview
                 session={session}
-                previewVm={previewVm}
+                sceneBuilderInput={sceneBuilderInput}
                 sequencePlayheadSec={sequencePlayheadSec}
                 isPlaying={isPlaying}
                 videoNaturalSize={videoNaturalSize}
@@ -429,9 +337,9 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                 getVideoUrlForBlock={getVideoUrlForBlock}
                 getSourceTimeForBlock={getSourceTimeForBlock}
                 blockSourceSizes={blockSourceSizes}
-                onMetadata={(video) => handleVideoMetadata(video, primaryVideoLayer.block.id)}
-                onTimeUpdate={handleOutgoingTimeUpdate}
-                onEnded={handleVideoEnded}
+                onMetadata={(video, blockId) => handleVideoMetadata(video, blockId)}
+                onPlayheadSecChange={handleCompositorPlayheadChange}
+                onPlaybackComplete={handleCompositorPlaybackComplete}
                 onSelectOverlay={setSelectedOverlayId}
                 onSelectCaption={setSelectedCaptionBlockId}
                 setBoxSelection={setBoxSelection}

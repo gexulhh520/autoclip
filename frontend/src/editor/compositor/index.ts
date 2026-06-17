@@ -52,3 +52,7 @@ export {
   type CompositorExportRuntimeParams,
   type CompositorMuxOptions,
 } from './runCompositorExport'
+export {
+  createCompositionPlaybackClock,
+  type CompositionPlaybackClock,
+} from './compositionPlaybackClock'
