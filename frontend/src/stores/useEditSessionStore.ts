@@ -86,6 +86,10 @@ import {
   resolveInitialExportDirectory,
 } from '../utils/editorExportLocal'
 import { assertDesktopExportAvailable } from '../utils/compositorExportGate'
+import {
+  buildCompositorRuntimeParams,
+  runCompositorExportAndMux,
+} from '../editor/compositor/runCompositorExport'
 import { loadExportPreset, saveExportPreset } from '../utils/editExportPresets'
 import {
   hydrateEditDocument,
