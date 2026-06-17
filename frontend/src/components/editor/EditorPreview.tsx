@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { projectApi } from '../../services/api'
 import {
+  buildCompositionTimeline,
   buildCompositionTimelineSegments,
+  mapRelativeSourceToCompositionTime,
   renderSceneToPreviewViewModel,
   resolveCompositionPlayhead,
   resolveSceneAt,
@@ -23,7 +25,10 @@ import CompositorPreview from './preview/CompositorPreview'
 import EditorAspectRatioPicker from './EditorAspectRatioPicker'
 import PreviewVideoLayer from './EditorPreviewVideoLayer'
 import { useTimelineAudioPlayback } from '../../editor/hooks/useTimelineAudioPlayback'
-import { resolvePreviewLivePlayheadSec } from '../../editor/compositor/previewPlayhead'
+import {
+  readVideoSourceRelativeSec,
+  resolvePreviewLivePlayheadSec,
+} from '../../editor/compositor/previewPlayhead'
 import { resolveCanvasDimensions } from '../../editor/scene/canvas'
 import type { EditBlock } from '../../types/editSession'
 import { TRANSITION_OUT_LABELS } from '../../types/transitions'
@@ -83,6 +88,11 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const blocks = session?.sequence ?? []
   const transitionDurationSec = session?.audio_settings?.transition_duration_sec ?? 0.35
   const useSourcePreview = session?.audio_settings?.use_source_video ?? false
+
+  const compositionTimeline = useMemo(
+    () => buildCompositionTimeline(blocks, transitionDurationSec, session?.sequence_block_gaps),
+    [blocks, transitionDurationSec, session?.sequence_block_gaps]
+  )
 
   const compositionSegments = useMemo(
     () =>
@@ -188,12 +198,14 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
 
   const hasTimelineAudio = (session?.audio_elements?.length ?? 0) > 0
   const primaryVideoLayer = previewVm?.videoLayers[0] ?? null
-  const primaryCompositionSegment = useMemo(() => {
+  const primaryTimelineSegment = useMemo(() => {
     if (!primaryVideoLayer) return null
     return (
-      compositionSegments.find((item) => item.block.id === primaryVideoLayer.block.id) ?? null
+      compositionTimeline.segments.find(
+        (item) => item.block.id === primaryVideoLayer.block.id
+      ) ?? null
     )
-  }, [primaryVideoLayer, compositionSegments])
+  }, [primaryVideoLayer, compositionTimeline])
 
   const resolveLivePlayheadSec = useCallback(() => {
     return resolvePreviewLivePlayheadSec({
@@ -201,15 +213,18 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
       storePlayheadSec: sequencePlayheadSec,
       totalDurationSec: totalDuration,
       primaryBlock: primaryVideoLayer?.block ?? null,
-      segmentStartSec: primaryCompositionSegment?.startSec ?? 0,
+      segmentStartSec: primaryTimelineSegment?.compositionStartSec ?? 0,
       useSourceVideo: useSourcePreview,
+      timeline: compositionTimeline,
+      segmentIndex: primaryTimelineSegment?.index,
     })
   }, [
     isPlaying,
     sequencePlayheadSec,
     totalDuration,
     primaryVideoLayer?.block,
-    primaryCompositionSegment?.startSec,
+    primaryTimelineSegment,
+    compositionTimeline,
     useSourcePreview,
   ])
 
@@ -264,23 +279,17 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
       setAssetPreviewTimeSec(video.currentTime)
       return
     }
-    if (!primaryVideoLayer) return
-    const segment = compositionSegments.find(
-      (item) => item.block.id === primaryVideoLayer.block.id
-    )
-    if (!segment) return
+    if (!primaryVideoLayer || !primaryTimelineSegment) return
 
-    let relative = 0
-    if (useSourcePreview && primaryVideoLayer.block.media.source_start_sec != null) {
-      relative =
-        video.currentTime -
-        primaryVideoLayer.block.media.source_start_sec -
-        primaryVideoLayer.block.trim.in_sec
-    } else {
-      relative = video.currentTime - primaryVideoLayer.block.trim.in_sec
-    }
-    const rate = primaryVideoLayer.playbackRate || 1
-    const nextPlayhead = segment.startSec + Math.max(0, relative / rate)
+    const relative = Math.max(
+      0,
+      readVideoSourceRelativeSec(video, primaryVideoLayer.block, useSourcePreview)
+    )
+    const nextPlayhead = mapRelativeSourceToCompositionTime(
+      primaryTimelineSegment,
+      relative,
+      compositionTimeline
+    )
 
     if (nextPlayhead >= totalDuration - 0.05) {
       setSequencePlayheadSec(totalDuration)

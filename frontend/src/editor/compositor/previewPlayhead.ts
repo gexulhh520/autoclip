@@ -1,11 +1,24 @@
 import type { EditBlock } from '../../types/editSession'
 import type { CompositionTimeline } from '../scene/types'
-import { incomingTransitionSourceLeadInSec } from '../scene/timelineLayout'
+import {
+  mapRelativeSourceToCompositionTime,
+} from '../scene/timelineLayout'
 
 /** 缓入缓出，让转场首尾更自然 */
 export function easeInOutCubic(t: number): number {
   const x = Math.min(1, Math.max(0, t))
   return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2
+}
+
+export function readVideoSourceRelativeSec(
+  video: HTMLVideoElement,
+  block: EditBlock,
+  useSourceVideo: boolean
+): number {
+  if (useSourceVideo && block.media.source_start_sec != null) {
+    return video.currentTime - block.media.source_start_sec - block.trim.in_sec
+  }
+  return video.currentTime - block.trim.in_sec
 }
 
 export function compositionTimeFromVideo(
@@ -18,26 +31,17 @@ export function compositionTimeFromVideo(
     segmentIndex?: number
   }
 ): number {
-  let relative = 0
-  if (useSourceVideo && block.media.source_start_sec != null) {
-    relative =
-      video.currentTime - block.media.source_start_sec - block.trim.in_sec
-  } else {
-    relative = video.currentTime - block.trim.in_sec
-  }
+  const relative = Math.max(0, readVideoSourceRelativeSec(video, block, useSourceVideo))
 
-  const rate = Math.max(0.25, Math.min(4, block.playback_rate ?? 1))
-  let leadIn = 0
-  if (options?.timeline && options.segmentIndex != null) {
+  if (options?.timeline != null && options.segmentIndex != null) {
     const segment = options.timeline.segments[options.segmentIndex]
     if (segment) {
-      leadIn = incomingTransitionSourceLeadInSec(segment, options.timeline)
+      return mapRelativeSourceToCompositionTime(segment, relative, options.timeline)
     }
   }
 
-  const elapsed = Math.max(0, relative - leadIn) / rate
-  const visualStart = segmentStartSec + block.trim.in_sec / rate
-  return visualStart + elapsed
+  const rate = Math.max(0.25, Math.min(4, block.playback_rate ?? 1))
+  return segmentStartSec + relative / rate
 }
 
 export const PREVIEW_PRIMARY_VIDEO_SELECTOR = '[data-composition-clock="true"]'
@@ -49,6 +53,8 @@ export interface ResolvePreviewLivePlayheadOptions {
   primaryBlock: EditBlock | null
   segmentStartSec: number
   useSourceVideo: boolean
+  timeline?: CompositionTimeline
+  segmentIndex?: number
   videoSelector?: string
 }
 
@@ -63,6 +69,8 @@ export function resolvePreviewLivePlayheadSec(
     primaryBlock,
     segmentStartSec,
     useSourceVideo,
+    timeline,
+    segmentIndex,
     videoSelector = PREVIEW_PRIMARY_VIDEO_SELECTOR,
   } = options
 
@@ -79,7 +87,8 @@ export function resolvePreviewLivePlayheadSec(
     video,
     primaryBlock,
     segmentStartSec,
-    useSourceVideo
+    useSourceVideo,
+    timeline != null && segmentIndex != null ? { timeline, segmentIndex } : undefined
   )
   return Math.max(0, Math.min(totalDurationSec, live))
 }
