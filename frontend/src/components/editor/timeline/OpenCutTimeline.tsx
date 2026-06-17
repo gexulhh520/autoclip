@@ -12,6 +12,7 @@ import { buildAdaptedTracks, findAudioTrackAtY, findElementInTracks, findTrackAt
 import TimelineToolbar from './TimelineToolbar'
 import TimelineRuler from './TimelineRuler'
 import TimelineElementView from './TimelineElementView'
+import TimelineTransitionMarker from './TimelineTransitionMarker'
 import { TIMELINE_CONSTANTS, TRACK_HEIGHTS, TRACK_ICONS } from './constants'
 import {
   calculateTotalDuration,
@@ -1180,33 +1181,42 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                               : '暂无内容'}
                       </div>
                     ) : (
-                      track.elements.map((element) => (
-                        <TimelineElementView
-                          key={element.id}
-                          element={element}
-                          track={track}
-                          zoomLevel={zoomLevel}
-                          selected={isSelected(track.id, element)}
-                          onSelect={(event) => selectElement(track.id, element, event)}
-                          onPointerDown={(event) => startElementDrag(track.id, element, event)}
-                          onContextMenu={(event) => {
-                            event.preventDefault()
-                            selectElement(track.id, element, event)
-                            setContextMenu({
-                              x: event.clientX,
-                              y: event.clientY,
-                              trackId: track.id,
-                              elementId: element.id,
-                            })
-                          }}
-                          onResizeStart={(side, event) => startElementResize(element, side, event)}
-                          waveformPeaks={
-                            element.source.kind === 'block'
-                              ? waveforms[element.source.blockId]
-                              : undefined
-                          }
-                        />
-                      ))
+                      <>
+                        {track.transitionMarkers?.map((marker) => (
+                          <TimelineTransitionMarker
+                            key={marker.id}
+                            marker={marker}
+                            zoomLevel={zoomLevel}
+                          />
+                        ))}
+                        {track.elements.map((element) => (
+                          <TimelineElementView
+                            key={element.id}
+                            element={element}
+                            track={track}
+                            zoomLevel={zoomLevel}
+                            selected={isSelected(track.id, element)}
+                            onSelect={(event) => selectElement(track.id, element, event)}
+                            onPointerDown={(event) => startElementDrag(track.id, element, event)}
+                            onContextMenu={(event) => {
+                              event.preventDefault()
+                              selectElement(track.id, element, event)
+                              setContextMenu({
+                                x: event.clientX,
+                                y: event.clientY,
+                                trackId: track.id,
+                                elementId: element.id,
+                              })
+                            }}
+                            onResizeStart={(side, event) => startElementResize(element, side, event)}
+                            waveformPeaks={
+                              element.source.kind === 'block'
+                                ? waveforms[element.source.blockId]
+                                : undefined
+                            }
+                          />
+                        ))}
+                      </>
                     )}
                   </div>
                 ))}

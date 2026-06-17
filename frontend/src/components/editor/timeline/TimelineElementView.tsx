@@ -1,5 +1,6 @@
 import React from 'react'
 import type { AdaptedElement, AdaptedTrack } from './types'
+import { adaptedElementTimelineDuration, adaptedElementTimelineStart } from './trackUtils'
 import { TRACK_COLORS } from './constants'
 import { timeToPx } from './zoomUtils'
 
@@ -26,8 +27,8 @@ const TimelineElementView: React.FC<TimelineElementViewProps> = ({
   onResizeStart,
   waveformPeaks,
 }) => {
-  const width = Math.max(timeToPx(element.duration, zoomLevel), 24)
-  const left = timeToPx(element.startTime, zoomLevel)
+  const width = Math.max(timeToPx(adaptedElementTimelineDuration(element), zoomLevel), 24)
+  const left = timeToPx(adaptedElementTimelineStart(element), zoomLevel)
   const bgColor = track.type === 'video' ? undefined : TRACK_COLORS[track.type]
 
   return (

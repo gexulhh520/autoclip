@@ -310,6 +310,40 @@
   background: #2a2a2a;
 }
 
+.oc-timeline__transition {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  z-index: 8;
+  border-radius: 6px;
+  overflow: hidden;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, #2d6bff 10%, transparent),
+    color-mix(in srgb, #2d6bff 10%, transparent) 4px,
+    color-mix(in srgb, #2d6bff 18%, transparent) 4px,
+    color-mix(in srgb, #2d6bff 18%, transparent) 8px
+  );
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #2d6bff 28%, transparent);
+}
+
+.oc-timeline__transition-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 1;
+  color: color-mix(in srgb, #ececec 85%, #2d6bff);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.9;
+}
+
 .oc-timeline__element-body {
   position: relative;
   width: 100%;

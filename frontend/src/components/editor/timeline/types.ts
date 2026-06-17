@@ -1,3 +1,5 @@
+import type { TransitionOutKind } from '../../types/transitions'
+
 export type AdaptedTrackType = 'video' | 'text' | 'audio'
 
 export type AdaptedElementSource =
@@ -11,12 +13,25 @@ export interface AdaptedElement {
   id: string
   elementType: AdaptedTrackType
   name: string
+  /** Composition / 裁切用时间（含转场叠化重叠） */
   startTime: number
   duration: number
+  /** 主轨 UI 展示用；未设置则与 startTime/duration 相同 */
+  displayStartTime?: number
+  displayDuration?: number
   trimStart: number
   trimEnd: number
   source: AdaptedElementSource
   hidden?: boolean
+}
+
+export interface AdaptedTransitionMarker {
+  id: string
+  startSec: number
+  durationSec: number
+  kind: TransitionOutKind
+  fromBlockId: string
+  toBlockId: string
 }
 
 export interface AdaptedTrack {
@@ -31,6 +46,8 @@ export interface AdaptedTrack {
   /** 用户音频轨 meta id */
   audioTrackId?: string
   elements: AdaptedElement[]
+  /** 主轨转场叠化区标记（非视频块，不占用同轨重叠） */
+  transitionMarkers?: AdaptedTransitionMarker[]
 }
 
 export interface SelectedElementRef {
