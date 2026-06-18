@@ -52,10 +52,12 @@ import { resolveCanvasDimensions } from '../editor/scene/canvas'
 import {
   attachAudioClipBlockLink,
   attachOverlayBlockLink,
+  clearAudioClipBlockLink,
   ensureBlockLinksForUnlinkedElements,
   reconcileTimelineBlockLinks,
   applyTailTrimLinkedElements,
   buildSessionCompositionTimeline,
+  shouldLinkAudioClip,
 } from '../editor/timeline/timelineBlockLink'
 import { blockTimelineVisualEndSec } from '../utils/editTimeline'
 import {
@@ -232,6 +234,7 @@ interface EditSessionState {
 
   loadSession: (projectId: string, sessionId: string) => Promise<void>
   saveSession: (projectId: string) => Promise<void>
+  flushSaveSession: (projectId: string) => Promise<void>
   getEditDocument: () => EditDocument | null
   exportSession: (
     projectId: string,
@@ -689,7 +692,7 @@ export const useEditSessionStore = create<EditSessionState>()(
       },
 
       saveSession: async (projectId) => {
-        const { session } = get()
+        const session = get().session
         if (!session) return
         set({ saving: true })
         try {
@@ -720,6 +723,28 @@ export const useEditSessionStore = create<EditSessionState>()(
             saving: false,
             error: error instanceof Error ? error.message : '保存失败',
           })
+        }
+      },
+
+      flushSaveSession: async (projectId) => {
+        const { dirty, saving, session } = get()
+        if (!dirty || !session) return
+        if (saving) {
+          await new Promise<void>((resolve) => {
+            const start = Date.now()
+            const wait = () => {
+              const state = get()
+              if (!state.saving || Date.now() - start > 15000) {
+                resolve()
+                return
+              }
+              window.setTimeout(wait, 50)
+            }
+            wait()
+          })
+        }
+        if (get().dirty && get().session) {
+          await get().saveSession(projectId)
         }
       },
 
@@ -1059,7 +1084,11 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (!state.session?.audio_elements || !state.timelineBlockLinkEnabled) return
           const clip = state.session.audio_elements.find((item) => item.id === clipId)
           if (!clip) return
-          if (attachAudioClipBlockLink(state.session, clip)) state.dirty = true
+          if (shouldLinkAudioClip(state.session, clip)) {
+            if (attachAudioClipBlockLink(state.session, clip)) state.dirty = true
+          } else if (clearAudioClipBlockLink(clip)) {
+            state.dirty = true
+          }
         })
       },
       setRippleTrimEnabled: (enabled) => set({ rippleTrimEnabled: enabled }),

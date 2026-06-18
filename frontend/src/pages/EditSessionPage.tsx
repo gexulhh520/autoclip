@@ -11,7 +11,7 @@ const EditSessionPage: React.FC = () => {
   const navigate = useNavigate()
   const loadSession = useEditSessionStore((state) => state.loadSession)
   const saveSession = useEditSessionStore((state) => state.saveSession)
-  const reset = useEditSessionStore((state) => state.reset)
+  const flushSaveSession = useEditSessionStore((state) => state.flushSaveSession)
   const loading = useEditSessionStore((state) => state.loading)
   const error = useEditSessionStore((state) => state.error)
   const session = useEditSessionStore((state) => state.session)
@@ -61,13 +61,12 @@ const EditSessionPage: React.FC = () => {
     if (!projectId || !sessionId) return
     void loadSession(projectId, sessionId)
     return () => {
-      const state = useEditSessionStore.getState()
-      if (state.dirty && projectId && !state.saving) {
-        void state.saveSession(projectId)
-      }
-      reset()
+      const pid = projectId
+      void useEditSessionStore.getState().flushSaveSession(pid).finally(() => {
+        useEditSessionStore.getState().reset()
+      })
     }
-  }, [projectId, sessionId, loadSession, reset])
+  }, [projectId, sessionId, loadSession])
 
   useEffect(() => {
     if (!projectId || !dirty || saving) return

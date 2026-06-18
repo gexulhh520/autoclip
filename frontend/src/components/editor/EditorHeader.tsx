@@ -13,6 +13,7 @@ const EditorHeader: React.FC<EditorHeaderProps> = ({ projectId }) => {
   const saving = useEditSessionStore((state) => state.saving)
   const dirty = useEditSessionStore((state) => state.dirty)
   const saveSession = useEditSessionStore((state) => state.saveSession)
+  const flushSaveSession = useEditSessionStore((state) => state.flushSaveSession)
   const updateSessionName = useEditSessionStore((state) => state.updateSessionName)
   const [exportOpen, setExportOpen] = useState(false)
   const [editingName, setEditingName] = useState(false)
@@ -37,7 +38,9 @@ const EditorHeader: React.FC<EditorHeaderProps> = ({ projectId }) => {
           <button
             type="button"
             className="editor-header__back"
-            onClick={() => navigate('/')}
+            onClick={() => {
+              void flushSaveSession(projectId).finally(() => navigate('/'))
+            }}
           >
             ← 返回桌面
           </button>

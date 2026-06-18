@@ -99,6 +99,13 @@ export function attachAudioClipBlockLink(
   return true
 }
 
+export function clearAudioClipBlockLink(clip: AudioClipElement): boolean {
+  const hadLink = Boolean(clip.block_id) || clip.block_offset_sec != null
+  delete clip.block_id
+  delete clip.block_offset_sec
+  return hadLink
+}
+
 export function shouldLinkAudioClip(session: EditSession, clip: AudioClipElement): boolean {
   const asset = session.audio_assets?.find((item) => item.id === clip.asset_id)
   if (!asset) return true

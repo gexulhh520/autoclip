@@ -5,6 +5,7 @@ import {
   applyTailTrimLinkedElements,
   attachAudioClipBlockLink,
   attachOverlayBlockLink,
+  clearAudioClipBlockLink,
   findSegmentAtCompositionTime,
   reconcileTimelineBlockLinks,
   segmentVisualEndSec,
@@ -247,5 +248,21 @@ describe('applyTailTrimLinkedElements', () => {
     expect(
       applyTailTrimLinkedElements(session, 'b2', oldEnd, newEnd)
     ).toBe(false)
+  })
+})
+
+describe('clearAudioClipBlockLink', () => {
+  it('removes block linkage from manually placed clips', () => {
+    const clip = {
+      id: 'bgm-1',
+      asset_id: 'asset-bgm',
+      start_sec: 2,
+      duration_sec: 3,
+      block_id: 'b1',
+      block_offset_sec: 1,
+    }
+    expect(clearAudioClipBlockLink(clip)).toBe(true)
+    expect(clip.block_id).toBeUndefined()
+    expect(clip.block_offset_sec).toBeUndefined()
   })
 })

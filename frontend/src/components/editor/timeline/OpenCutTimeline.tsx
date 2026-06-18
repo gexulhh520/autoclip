@@ -126,6 +126,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const updateAudioClip = useEditSessionStore((state) => state.updateAudioClip)
   const moveAudioClipToTrack = useEditSessionStore((state) => state.moveAudioClipToTrack)
   const removeAudioClip = useEditSessionStore((state) => state.removeAudioClip)
+  const flushSaveSession = useEditSessionStore((state) => state.flushSaveSession)
   const toggleAudioTrackMuted = useEditSessionStore((state) => state.toggleAudioTrackMuted)
   const toggleAudioTrackHidden = useEditSessionStore((state) => state.toggleAudioTrackHidden)
   const setActiveAudioTrackId = useEditSessionStore((state) => state.setActiveAudioTrackId)
@@ -478,6 +479,10 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       }
     }
 
+    if (element.source.kind === 'audio_clip' || element.source.kind === 'overlay') {
+      beginTimelineGesture()
+    }
+
     const onMove = (moveEvent: PointerEvent) => {
       const deltaSec = (moveEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
       const raw = Math.max(0, initialStart + deltaSec)
@@ -526,7 +531,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           element.duration,
           snapped
         )
-        updateAudioClip(element.source.clipId, { start_sec: clampedStart })
+        updateAudioClip(element.source.clipId, { start_sec: clampedStart }, { recordHistory: false })
         const canvasEl = tracksCanvasRef.current
         if (canvasEl) {
           const y = moveEvent.clientY - canvasEl.getBoundingClientRect().top
@@ -582,6 +587,9 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         pendingTargetAudioTrackId !== sourceTrack.audioTrackId
       ) {
         moveAudioClipToTrack(element.source.clipId, pendingTargetAudioTrackId)
+      }
+      if (element.source.kind === 'audio_clip') {
+        void flushSaveSession(projectId)
       }
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
