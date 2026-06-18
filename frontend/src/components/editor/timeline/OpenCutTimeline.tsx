@@ -29,6 +29,7 @@ import { resolveContextMenuPosition } from './contextMenuPosition'
 import { getTemplateOverlayIdsForBlock } from '../../../editor/migration/templateCaptionOverlays'
 import { blockPlaybackRate, collectSequenceSnapPoints, snapTime, blockTimelineVisualStartSec, blockTimelineVisualEndSec } from '../../../utils/editTimeline'
 import {
+  canPlaceAtStart,
   clampResizeLeftAvoidingOverlap,
   clampResizeRightAvoidingOverlap,
   clampStartAvoidingOverlap,
@@ -564,25 +565,29 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           setTextDragPreview(null)
         }
       } else if (element.source.kind === 'audio_clip') {
-        const siblings = getTrackSiblingRanges(sourceTrack?.elements ?? [], element.id)
-        const clampedStart = clampStartAvoidingOverlap(
-          siblings,
-          element.duration,
-          snapped
-        )
-        updateAudioClip(element.source.clipId, { start_sec: clampedStart }, { recordHistory: false })
-
         const audioTrack = resolveTargetAudioTrack(moveEvent.clientY)
-        if (audioTrack?.audioTrackId) {
-          pendingTargetAudioTrackId = audioTrack.audioTrackId
+        const isCrossTrackPreview =
+          audioTrack?.audioTrackId &&
+          sourceTrack?.audioTrackId &&
+          audioTrack.audioTrackId !== sourceTrack.audioTrackId
+        const overlapTrack = isCrossTrackPreview ? audioTrack : sourceTrack
+        const siblings = getTrackSiblingRanges(overlapTrack?.elements ?? [], element.id)
+        const canPlace = canPlaceAtStart(siblings, element.duration, snapped)
+        const nextStart = canPlace ? snapped : initialStart
+
+        updateAudioClip(element.source.clipId, { start_sec: nextStart }, { recordHistory: false })
+
+        if (isCrossTrackPreview && canPlace) {
+          pendingTargetAudioTrackId = audioTrack.audioTrackId!
           setDragTargetTrackId(audioTrack.id)
           setAudioDragPreview({
             trackId: audioTrack.id,
-            startSec: clampedStart,
+            startSec: snapped,
             duration: element.duration,
             label: element.name,
           })
         } else {
+          pendingTargetAudioTrackId = null
           setDragTargetTrackId(null)
           setAudioDragPreview(null)
         }
@@ -636,18 +641,48 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       } else if (element.source.kind === 'audio_clip') {
         syncTimelineBlockLinkForAudioClip(element.source.clipId)
 
+        const deltaSec =
+          (upEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
+        const raw = Math.max(0, initialStart + deltaSec)
+        const snapped = snapTime(raw, sequenceSnapPoints, snapEnabled)
+
         const finalAudioTrack = resolveTargetAudioTrack(upEvent.clientY)
         const targetAudioTrackId =
           finalAudioTrack?.audioTrackId ?? pendingTargetAudioTrackId
-        if (
+        const isCrossTrack =
           targetAudioTrackId &&
           sourceTrack?.audioTrackId &&
           targetAudioTrackId !== sourceTrack.audioTrackId
-        ) {
-          moveAudioClipToTrack(element.source.clipId, targetAudioTrackId, {
-            recordHistory: false,
-          })
-          setActiveAudioTrackId(targetAudioTrackId)
+
+        if (isCrossTrack) {
+          const targetTrack = tracks.find((item) => item.audioTrackId === targetAudioTrackId)
+          const siblings = getTrackSiblingRanges(targetTrack?.elements ?? [], element.id)
+          if (canPlaceAtStart(siblings, element.duration, snapped)) {
+            updateAudioClip(
+              element.source.clipId,
+              { start_sec: snapped },
+              { recordHistory: false }
+            )
+            moveAudioClipToTrack(element.source.clipId, targetAudioTrackId, {
+              recordHistory: false,
+            })
+            setActiveAudioTrackId(targetAudioTrackId)
+          } else {
+            updateAudioClip(
+              element.source.clipId,
+              { start_sec: initialStart },
+              { recordHistory: false }
+            )
+          }
+        } else {
+          const siblings = getTrackSiblingRanges(sourceTrack?.elements ?? [], element.id)
+          if (!canPlaceAtStart(siblings, element.duration, snapped)) {
+            updateAudioClip(
+              element.source.clipId,
+              { start_sec: initialStart },
+              { recordHistory: false }
+            )
+          }
         }
         void flushSaveSession(projectId)
       }

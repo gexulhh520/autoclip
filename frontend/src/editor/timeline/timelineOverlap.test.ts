@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  canPlaceAtStart,
   clampResizeLeftAvoidingOverlap,
   clampResizeRightAvoidingOverlap,
   clampStartAvoidingOverlap,
@@ -16,6 +17,12 @@ describe('timelineOverlap', () => {
     expect(clampStartAvoidingOverlap(siblings, 1, 1.5)).toBeCloseTo(2, 3)
     expect(clampStartAvoidingOverlap(siblings, 1, 4)).toBeCloseTo(4, 3)
     expect(clampStartAvoidingOverlap(siblings, 1, 6)).toBeCloseTo(7, 3)
+  })
+
+  it('rejects placement when proposed start overlaps a sibling', () => {
+    expect(canPlaceAtStart(siblings, 1, 1.5)).toBe(false)
+    expect(canPlaceAtStart(siblings, 1, 4)).toBe(true)
+    expect(canPlaceAtStart(siblings, 1, 6)).toBe(false)
   })
 
   it('prevents left resize from overlapping left neighbor', () => {

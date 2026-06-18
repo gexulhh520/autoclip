@@ -21,6 +21,19 @@ export function rangesOverlap(a: TimelineRange, b: TimelineRange): boolean {
   return a.start < b.end - EPS && a.end > b.start + EPS
 }
 
+/** 固定时长片段能否以 proposedStart 落在轨道上（不与其他片段重叠） */
+export function canPlaceAtStart(
+  siblings: TimelineRange[],
+  duration: number,
+  proposedStart: number,
+  minStart = 0
+): boolean {
+  const safeDuration = Math.max(MIN_TIMELINE_ELEMENT_SEC, duration)
+  const start = Math.max(minStart, proposedStart)
+  const candidate = toTimelineRange('__candidate__', start, safeDuration)
+  return !siblings.some((sibling) => rangesOverlap(candidate, sibling))
+}
+
 export function getTrackSiblingRanges(
   elements: AdaptedElement[],
   excludeIds: string | string[]
