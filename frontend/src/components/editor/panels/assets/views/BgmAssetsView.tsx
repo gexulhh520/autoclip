@@ -136,12 +136,13 @@ const BgmAssetsView: React.FC<BgmAssetsViewProps> = ({ projectId }) => {
         emptyHint="暂无 BGM。可上传本地文件，或从 B站 / 抖音等链接导入。"
         addLabel="铺满时间线"
         onAdd={(assetId) => {
-          addAudioClipToTimeline(assetId, {
+          const clipId = addAudioClipToTimeline(assetId, {
             trackId: activeAudioTrackId ?? undefined,
             startSec: 0,
             durationSec: totalDuration,
           })
-          setInspectorTab('audio')
+          if (clipId) setInspectorTab('audio')
+          return clipId
         }}
         onRemove={removeAudioAsset}
       />

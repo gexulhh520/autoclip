@@ -7,7 +7,7 @@ export interface AudioAssetLibraryProps {
   assets: AudioAssetMeta[]
   emptyHint: string
   addLabel?: string
-  onAdd: (assetId: string) => void
+  onAdd: (assetId: string) => string | null | void
   onRemove: (assetId: string) => void
 }
 
@@ -53,8 +53,12 @@ const AudioAssetLibrary: React.FC<AudioAssetLibraryProps> = ({
                 type="button"
                 className="editor-import-btn"
                 onClick={() => {
-                  onAdd(asset.id)
-                  message.success('已添加到时间线')
+                  const clipId = onAdd(asset.id)
+                  if (clipId) {
+                    message.success('已添加到时间线')
+                  } else {
+                    message.error('添加失败，请刷新后重试')
+                  }
                 }}
               >
                 {addLabel}

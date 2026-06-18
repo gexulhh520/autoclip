@@ -186,6 +186,23 @@ const compositionTotalDuration = (session: EditSession): number =>
     session.sequence_block_gaps
   )
 
+/** API 返回的 session 需深拷贝后再写入 immer，避免与后续 draft 更新冲突 */
+const cloneSessionFromApi = (session: EditSession): EditSession => {
+  const cloned = JSON.parse(JSON.stringify(session)) as EditSession
+  ensureAudioModel(cloned)
+  return cloned
+}
+
+const resolveAudioClipTrackId = (
+  session: EditSession,
+  preferredTrackId?: string | null
+): string => {
+  const trackIds = new Set((session.audio_tracks ?? []).map((track) => track.id))
+  if (preferredTrackId && trackIds.has(preferredTrackId)) return preferredTrackId
+  if (trackIds.has(DEFAULT_AUDIO_TRACK_ID)) return DEFAULT_AUDIO_TRACK_ID
+  return session.audio_tracks?.[0]?.id ?? DEFAULT_AUDIO_TRACK_ID
+}
+
 export interface AssetPreviewClip {
   clipId: string
   title: string
@@ -320,8 +337,8 @@ interface EditSessionState {
   removeAudioAsset: (assetId: string) => void
   addAudioClipToTimeline: (
     assetId: string,
-    options?: { trackId?: string; startSec?: number; durationSec?: number }
-  ) => string
+    options?: { trackId?: string; startSec?: number; durationSec?: number; volume?: number }
+  ) => string | null
   removeAudioClip: (clipId: string) => void
   updateAudioClip: (
     clipId: string,
@@ -713,11 +730,15 @@ export const useEditSessionStore = create<EditSessionState>()(
             schema_version: 3,
             project_v3: project,
           })
-          set({
-            session: { ...updated, project_v3: project, schema_version: 3 },
-            editProject: project,
-            saving: false,
-            dirty: false,
+          set((state) => {
+            state.session = cloneSessionFromApi({
+              ...updated,
+              project_v3: project,
+              schema_version: 3,
+            })
+            state.editProject = project
+            state.saving = false
+            state.dirty = false
           })
         } catch (error: unknown) {
           set({
@@ -2380,8 +2401,11 @@ export const useEditSessionStore = create<EditSessionState>()(
         set({ saving: true, error: null })
         try {
           const updated = await editApi.uploadBgm(projectId, session.id, file)
-          ensureAudioModel(updated)
-          set({ session: updated, saving: false, dirty: false })
+          set((state) => {
+            state.session = cloneSessionFromApi(updated)
+            state.saving = false
+            state.dirty = false
+          })
         } catch (error: unknown) {
           set({
             saving: false,
@@ -2397,8 +2421,11 @@ export const useEditSessionStore = create<EditSessionState>()(
         set({ saving: true, error: null })
         try {
           const updated = await editApi.uploadSfx(projectId, session.id, file)
-          ensureAudioModel(updated)
-          set({ session: updated, saving: false, dirty: false })
+          set((state) => {
+            state.session = cloneSessionFromApi(updated)
+            state.saving = false
+            state.dirty = false
+          })
         } catch (error: unknown) {
           set({
             saving: false,
@@ -2414,8 +2441,11 @@ export const useEditSessionStore = create<EditSessionState>()(
         set({ saving: true, error: null })
         try {
           const updated = await editApi.importBgmFromUrl(projectId, session.id, { url })
-          ensureAudioModel(updated)
-          set({ session: updated, saving: false, dirty: false })
+          set((state) => {
+            state.session = cloneSessionFromApi(updated)
+            state.saving = false
+            state.dirty = false
+          })
         } catch (error: unknown) {
           set({
             saving: false,
@@ -2442,14 +2472,18 @@ export const useEditSessionStore = create<EditSessionState>()(
 
       addAudioClipToTimeline: (assetId, options) => {
         pushHistory()
-        let clipId = nanoid()
+        let clipId = ''
+        let added = false
         set((state) => {
           if (!state.session) return
           ensureAudioModel(state.session)
           const asset = findAudioAsset(state.session, assetId)
           if (!asset) return
           const category = resolveAudioAssetCategory(asset)
-          const trackId = options?.trackId ?? state.activeAudioTrackId ?? DEFAULT_AUDIO_TRACK_ID
+          const trackId = resolveAudioClipTrackId(
+            state.session,
+            options?.trackId ?? state.activeAudioTrackId
+          )
           const startSec = options?.startSec ?? state.sequencePlayheadSec
           const timelineRemain = Math.max(1, compositionTotalDuration(state.session) - startSec)
           const durationSec =
@@ -2457,6 +2491,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             (category === 'sfx'
               ? Math.max(0.1, asset.duration_sec ?? 2)
               : Math.max(1, asset.duration_sec ?? timelineRemain))
+          clipId = nanoid()
           const clip: AudioClipElement = {
             id: clipId,
             asset_id: assetId,
@@ -2472,7 +2507,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             fade_out_sec:
               category === 'sfx' ? 0.08 : state.session.audio_settings.fade_out_sec,
           }
-          state.session.audio_elements!.push(clip)
+          state.session.audio_elements = [...(state.session.audio_elements ?? []), clip]
           applyAudioClipTimingClamp(state.session, clipId)
           if (state.timelineBlockLinkEnabled && category === 'sfx') {
             attachAudioClipBlockLink(state.session, clip)
@@ -2480,8 +2515,9 @@ export const useEditSessionStore = create<EditSessionState>()(
           state.selectedAudioClipId = clipId
           state.activeAudioTrackId = trackId
           state.dirty = true
+          added = true
         })
-        return clipId
+        return added ? clipId : null
       },
 
       removeAudioClip: (clipId) => {

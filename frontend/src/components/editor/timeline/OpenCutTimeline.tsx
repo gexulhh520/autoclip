@@ -73,6 +73,13 @@ function rafPointerMove(handler: (event: PointerEvent) => void): (event: Pointer
 
 const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const session = useEditSessionStore((state) => state.session)
+  const audioElementsKey = useEditSessionStore((state) => {
+    const elements = state.session?.audio_elements ?? []
+    if (elements.length === 0) return '0'
+    return elements
+      .map((element) => `${element.id}:${element.track_id}:${element.start_sec}:${element.duration_sec}`)
+      .join('|')
+  })
   const sessionId = session?.id ?? ''
   const blocks = session?.sequence ?? []
   const bookmarks = session?.bookmarks ?? []
@@ -216,7 +223,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       audioTrackMuted,
       assetDurations,
     })
-  }, [session, segments, projectId, sessionId, timelineTrackMuted, timelineTrackHidden, textTrackMuted, audioTrackMuted, assetDurations])
+  }, [session, audioElementsKey, segments, projectId, sessionId, timelineTrackMuted, timelineTrackHidden, textTrackMuted, audioTrackMuted, assetDurations])
 
   const totalDuration = Math.max(compositionDuration, calculateTotalDuration(tracks), 1)
   const sequenceSnapPoints = useMemo(

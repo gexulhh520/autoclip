@@ -69,8 +69,9 @@ const SfxAssetsView: React.FC<SfxAssetsViewProps> = ({ projectId }) => {
         emptyHint="暂无音效。点击「导入音效」上传 mp3 / wav 等文件。"
         addLabel="添加到播放头"
         onAdd={(assetId) => {
-          addAudioClipToTimeline(assetId, { trackId: activeAudioTrackId ?? undefined })
-          setInspectorTab('audio')
+          const clipId = addAudioClipToTimeline(assetId, { trackId: activeAudioTrackId ?? undefined })
+          if (clipId) setInspectorTab('audio')
+          return clipId
         }}
         onRemove={removeAudioAsset}
       />

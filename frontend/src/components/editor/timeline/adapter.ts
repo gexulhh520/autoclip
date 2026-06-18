@@ -153,6 +153,7 @@ export function buildAdaptedTracks(params: {
     const trackId = getAudioClipTrackId(clip)
     const meta = audioTracks.find((track) => track.id === trackId)
     if (meta?.hidden) continue
+    const resolvedTrackId = meta?.id ?? audioTracks[0]?.id ?? trackId
     const trimStart = clip.trim_start_sec ?? 0
     const assetDuration = resolveAssetDurationSec(
       assetDurations[asset.id],
@@ -160,7 +161,7 @@ export function buildAdaptedTracks(params: {
       clip.duration_sec
     )
     const trimEnd = clip.trim_end_sec ?? assetDuration
-    const bucket = clipsByTrack.get(trackId) ?? clipsByTrack.get(audioTracks[0]?.id ?? '')
+    const bucket = clipsByTrack.get(resolvedTrackId) ?? clipsByTrack.get(audioTracks[0]?.id ?? '')
     bucket?.push({
       id: clip.id,
       elementType: 'audio',
