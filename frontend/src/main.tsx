@@ -15,7 +15,11 @@ import HeadlessExportWorkerHost from './components/HeadlessExportWorkerHost'
 import { ThemeProvider, useTheme } from './context/ThemeContext'
 import { initAnalytics } from './analytics/posthog'
 import { trackLaunch } from './analytics/lifecycle'
+import './assets/editor-fonts/editorFonts.css'
+import { preloadBundledEditorFonts } from './editor/fonts/loadEditorFonts'
 import './index.css'
+
+void preloadBundledEditorFonts()
 
 // 初始化产品分析 / 埋点（无 key 时自动 no-op，不发任何网络请求）
 initAnalytics()

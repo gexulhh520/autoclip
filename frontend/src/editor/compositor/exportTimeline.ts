@@ -11,6 +11,7 @@ import { SceneExporter } from './sceneExporter'
 import type { CompositorExportRuntimeParams } from './runCompositorExport'
 import { assertWebCodecsExportSupported } from './webcodecsExport'
 import type { CompositionPlan } from './types'
+import { ensureTextLayerFontsForSession } from '../fonts/loadEditorFonts'
 
 import type { CompositorBackend } from './wasmCompositorClient'
 
@@ -62,6 +63,9 @@ export async function exportTimelineViaCompositor(
   }
 
   await assertWebCodecsExportSupported()
+
+  options.onProgress?.(0, '加载文本字体')
+  await ensureTextLayerFontsForSession(session)
 
   const burnSubtitles = options.burnSubtitles ?? true
   const useSourceVideo = options.useSourceVideo ?? session.audio_settings.use_source_video ?? false

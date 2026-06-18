@@ -9,6 +9,10 @@ import {
   type OpenCutTextParamKey,
 } from '../../editor/opencut-text/params'
 import { MIN_FONT_SIZE, MAX_FONT_SIZE } from '../../editor/opencut-text/typography'
+import {
+  DEFAULT_TEXT_FONT_FAMILY,
+  EDITOR_TEXT_FONTS,
+} from '../../editor/fonts/catalog'
 
 interface OpenCutTextParamsPanelProps {
   /** 单选或多选（多选时修改批量应用到全部） */
@@ -17,8 +21,6 @@ interface OpenCutTextParamsPanelProps {
   /** 等比缩放等需同时改多个 param 时使用（单次历史记录） */
   onParamsChange?: (patch: Record<string, string | number | boolean>) => void
 }
-
-const FONT_OPTIONS = ['Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', 'Arial']
 
 const SCALE_MIN = 0.1
 const SCALE_MAX = 3
@@ -155,21 +157,22 @@ const OpenCutTextParamsPanel: React.FC<OpenCutTextParamsPanelProps> = ({
     }
 
     if (key === 'fontFamily') {
-      const value = readStringParam(params, 'fontFamily', 'Noto Sans SC')
+      const value = readStringParam(params, 'fontFamily', DEFAULT_TEXT_FONT_FAMILY)
       return (
         <div key={key} className="editor-inspector-section">
           <div className="editor-inspector-label">
             {label}
-            {mixedSuffix(mixedString('fontFamily', 'Noto Sans SC'))}
+            {mixedSuffix(mixedString('fontFamily', DEFAULT_TEXT_FONT_FAMILY))}
           </div>
           <select
             className="editor-select"
             value={value}
             onChange={(e) => onChange('fontFamily', e.target.value)}
+            style={{ fontFamily: value }}
           >
-            {FONT_OPTIONS.map((font) => (
-              <option key={font} value={font}>
-                {font}
+            {EDITOR_TEXT_FONTS.map((font) => (
+              <option key={font.family} value={font.family} style={{ fontFamily: font.family }}>
+                {font.label}
               </option>
             ))}
           </select>
