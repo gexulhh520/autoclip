@@ -9,8 +9,7 @@ interface TimelineRulerProps {
   duration: number
   fps: number
   onWheel: (event: React.WheelEvent) => void
-  onPointerDown: (event: React.MouseEvent) => void
-  onClick: (event: React.MouseEvent) => void
+  onPointerDown: (event: React.PointerEvent) => void
 }
 
 const TimelineRuler: React.FC<TimelineRulerProps> = ({
@@ -20,7 +19,6 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
   fps,
   onWheel,
   onPointerDown,
-  onClick,
 }) => {
   const pixelsPerSecond = TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel
   const visibleDuration = dynamicTimelineWidth / pixelsPerSecond
@@ -55,8 +53,7 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
       className="oc-timeline__ruler"
       style={{ width: dynamicTimelineWidth }}
       onWheel={onWheel}
-      onMouseDown={onPointerDown}
-      onClick={onClick}
+      onPointerDown={onPointerDown}
     >
       {ticks}
     </div>

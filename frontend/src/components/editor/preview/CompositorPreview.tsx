@@ -73,6 +73,41 @@ export interface CompositorPreviewProps {
 
 const PLAYBACK_END_EPSILON_SEC = 0.02
 
+function paintAfterVideoSync(videos: HTMLVideoElement[], paint: () => void) {
+  if (videos.length === 0) {
+    paint()
+    return
+  }
+
+  let pending = 0
+  const finish = () => {
+    pending -= 1
+    if (pending <= 0) paint()
+  }
+
+  for (const video of videos) {
+    pending += 1
+    const awaitFrame = () => {
+      if (typeof video.requestVideoFrameCallback === 'function') {
+        video.requestVideoFrameCallback(finish)
+      } else {
+        finish()
+      }
+    }
+    if (video.seeking) {
+      video.addEventListener('seeked', finish, { once: true })
+      continue
+    }
+    requestAnimationFrame(() => {
+      if (video.seeking) {
+        video.addEventListener('seeked', finish, { once: true })
+      } else {
+        awaitFrame()
+      }
+    })
+  }
+}
+
 const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   session,
   sceneBuilderInput,
@@ -411,26 +446,34 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         refreshSlotFrameCaches(warmupLayers.map((layer) => layer.block.id))
       }
 
-      const ctx = canvas.getContext('2d', { alpha: false })
-      if (!ctx) return compositionSec
+      const renderCanvas = () => {
+        const ctx = canvas.getContext('2d', { alpha: false })
+        if (!ctx) return
 
-      ctx.imageSmoothingEnabled = true
-      ctx.imageSmoothingQuality = 'high'
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
 
-      const descriptor = buildDescriptorAt(compositionSec, vm.videoLayers)
-      if (!descriptor) return compositionSec
+        const descriptor = buildDescriptorAt(compositionSec, vm.videoLayers)
+        if (!descriptor) return
 
-      const videos = collectVideosForLayers(vm.videoLayers)
-      const videoFrameCaches =
-        vm.inDissolve && isPlaying ? buildCrossFrameCaches(vm.videoLayers) : undefined
+        const videos = collectVideosForLayers(vm.videoLayers)
+        const videoFrameCaches =
+          vm.inDissolve && isPlaying ? buildCrossFrameCaches(vm.videoLayers) : undefined
 
-      renderFrameDescriptorToCanvas(ctx, descriptor, {
-        videos,
-        videoFrameCaches,
-        showTemplateCaptions: previewBurnSubtitles && !captionsHidden && !captionsMuted,
-        showFreeText: true,
-        preferGpuEffects: !vm.inDissolve,
-      })
+        renderFrameDescriptorToCanvas(ctx, descriptor, {
+          videos,
+          videoFrameCaches,
+          showTemplateCaptions: previewBurnSubtitles && !captionsHidden && !captionsMuted,
+          showFreeText: true,
+          preferGpuEffects: !vm.inDissolve,
+        })
+      }
+
+      if (!isPlaying && forceSeek) {
+        paintAfterVideoSync([...collectVideosForLayers(vm.videoLayers).values()], renderCanvas)
+      } else {
+        renderCanvas()
+      }
 
       return compositionSec
     },
@@ -440,7 +483,6 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       isPlaying,
       resolveSceneVm,
       resolveWarmupBlock,
-      syncWarmupDecoder,
       syncVideosFromVm,
       refreshSlotFrameCaches,
       buildDescriptorAt,
@@ -449,7 +491,6 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       previewBurnSubtitles,
       captionsHidden,
       captionsMuted,
-      clipAudioMuted,
     ]
   )
 

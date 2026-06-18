@@ -285,7 +285,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     onSelectionComplete: (items, additive) => setBoxSelection(items, { additive }),
   })
 
-  const { handlePointerDown, handlePointerClick } = useTimelineSeek({
+  const { seekFromClientX, handlePointerDown, handlePointerClick, startScrub } = useTimelineSeek({
     tracksScrollRef,
     zoomLevel,
     duration: totalDuration,
@@ -301,13 +301,10 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     [handlePointerClick, shouldIgnoreBoxSelectClick]
   )
 
-  const { startDrag: startPlayheadDrag, playheadLeft } = usePlayheadDrag({
-    playheadSec: sequencePlayheadSec,
-    zoomLevel,
-    duration: totalDuration,
-    tracksScrollRef,
-    onSeek: seek,
+  const { startDrag: startPlayheadDrag } = usePlayheadDrag({
+    seekFromClientX,
   })
+  const playheadLeft = sequencePlayheadSec * TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel
 
   useScrollSync(tracksScrollRef, trackLabelsScrollRef)
 
@@ -1182,8 +1179,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                 duration={totalDuration}
                 fps={fps}
                 onWheel={handleWheel}
-                onPointerDown={handlePointerDown}
-                onClick={handleTimelineClick}
+                onPointerDown={startScrub}
               />
               <div
                 className="oc-timeline__bookmarks"

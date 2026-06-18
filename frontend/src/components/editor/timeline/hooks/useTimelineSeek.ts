@@ -52,34 +52,18 @@ export function useTimelineSeek(options: {
     [onClearSelection, seekFromClientX]
   )
 
-  return { seekFromClientX, handlePointerDown, handlePointerClick }
-}
-
-export function usePlayheadDrag(options: {
-  playheadSec: number
-  zoomLevel: number
-  duration: number
-  tracksScrollRef: React.RefObject<HTMLDivElement | null>
-  onSeek: (timeSec: number) => void
-}) {
-  const { playheadSec, zoomLevel, duration, tracksScrollRef, onSeek } = options
-
-  const startDrag = useCallback(
+  /** 标尺 / 播放头：按下拖动即可 scrub（暂停时同步预览） */
+  const startScrub = useCallback(
     (event: React.PointerEvent) => {
-      event.stopPropagation()
+      if (event.button !== 0) return
       event.preventDefault()
-      const startX = event.clientX
-      const startTime = playheadSec
+      event.stopPropagation()
+      onClearSelection()
+      seekFromClientX(event.clientX)
 
       const onMove = (moveEvent: PointerEvent) => {
-        const scrollElement = tracksScrollRef.current
-        if (!scrollElement) return
-        const deltaSec =
-          (moveEvent.clientX - startX) /
-          (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
-        onSeek(Math.max(0, Math.min(duration, startTime + deltaSec)))
+        seekFromClientX(moveEvent.clientX)
       }
-
       const onUp = () => {
         window.removeEventListener('pointermove', onMove)
         window.removeEventListener('pointerup', onUp)
@@ -87,10 +71,40 @@ export function usePlayheadDrag(options: {
       window.addEventListener('pointermove', onMove)
       window.addEventListener('pointerup', onUp)
     },
-    [playheadSec, zoomLevel, duration, tracksScrollRef, onSeek]
+    [onClearSelection, seekFromClientX]
   )
 
-  const playheadLeft = playheadSec * TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel
+  return { seekFromClientX, handlePointerDown, handlePointerClick, startScrub }
+}
 
-  return { startDrag, playheadLeft }
+export function usePlayheadDrag(options: {
+  seekFromClientX: (clientX: number) => void
+}) {
+  const { seekFromClientX } = options
+
+  const startDrag = useCallback(
+    (event: React.PointerEvent) => {
+      event.stopPropagation()
+      event.preventDefault()
+      const handle = event.currentTarget as HTMLElement
+      handle.setPointerCapture(event.pointerId)
+      seekFromClientX(event.clientX)
+
+      const onMove = (moveEvent: PointerEvent) => {
+        seekFromClientX(moveEvent.clientX)
+      }
+      const onUp = (upEvent: PointerEvent) => {
+        if (handle.hasPointerCapture(upEvent.pointerId)) {
+          handle.releasePointerCapture(upEvent.pointerId)
+        }
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+      }
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
+    },
+    [seekFromClientX]
+  )
+
+  return { startDrag }
 }
