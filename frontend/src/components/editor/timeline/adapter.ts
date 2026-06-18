@@ -4,6 +4,7 @@ import {
   findAudioAsset,
   getAudioClipTrackId,
   parseAdaptedAudioTrackId,
+  resolveAssetDurationSec,
   resolveAudioAssets,
   resolveAudioTracks,
 } from '../../../editor/audioTracks'
@@ -153,7 +154,11 @@ export function buildAdaptedTracks(params: {
     const meta = audioTracks.find((track) => track.id === trackId)
     if (meta?.hidden) continue
     const trimStart = clip.trim_start_sec ?? 0
-    const assetDuration = assetDurations[asset.id] ?? asset.duration_sec ?? clip.duration_sec
+    const assetDuration = resolveAssetDurationSec(
+      assetDurations[asset.id],
+      asset.duration_sec,
+      clip.duration_sec
+    )
     const trimEnd = clip.trim_end_sec ?? assetDuration
     const bucket = clipsByTrack.get(trackId) ?? clipsByTrack.get(audioTracks[0]?.id ?? '')
     bucket?.push({

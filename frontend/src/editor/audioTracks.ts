@@ -61,6 +61,22 @@ export function findAudioAsset(session: EditSession, assetId: string): AudioAsse
   return resolveAudioAssets(session).find((item) => item.id === assetId)
 }
 
+/** 元数据未加载或为 0 时回退到 asset/片段时长，避免 trim_end 被写成 0 */
+export function resolveAssetDurationSec(
+  loadedDuration: number | undefined,
+  assetMetaDuration: number | undefined,
+  clipDurationSec: number,
+  minDurationSec = 0.2
+): number {
+  if (loadedDuration != null && loadedDuration > 0 && Number.isFinite(loadedDuration)) {
+    return loadedDuration
+  }
+  if (assetMetaDuration != null && assetMetaDuration > 0 && Number.isFinite(assetMetaDuration)) {
+    return assetMetaDuration
+  }
+  return Math.max(minDurationSec, clipDurationSec)
+}
+
 export function nextAudioTrackOrder(tracks: AudioTrackMeta[]): number {
   if (tracks.length === 0) return 0
   return Math.max(...tracks.map((track) => track.order)) + 1

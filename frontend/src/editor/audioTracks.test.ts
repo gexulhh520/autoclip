@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { EditSession } from '../types/editSession'
-import { ensureAudioModel, filterAudioAssetsByCategory, resolveAudioTracks } from './audioTracks'
+import { ensureAudioModel, filterAudioAssetsByCategory, resolveAssetDurationSec, resolveAudioTracks } from './audioTracks'
 
 const baseSession = (): EditSession => ({
   schema_version: 3,
@@ -68,5 +68,13 @@ describe('filterAudioAssetsByCategory', () => {
     ]
     expect(filterAudioAssetsByCategory(session, 'sfx')).toHaveLength(1)
     expect(filterAudioAssetsByCategory(session, 'bgm')).toHaveLength(2)
+  })
+})
+
+describe('resolveAssetDurationSec', () => {
+  it('falls back when loaded metadata duration is zero', () => {
+    expect(resolveAssetDurationSec(0, undefined, 45)).toBe(45)
+    expect(resolveAssetDurationSec(0, 120, 45)).toBe(120)
+    expect(resolveAssetDurationSec(undefined, undefined, 30)).toBe(30)
   })
 })

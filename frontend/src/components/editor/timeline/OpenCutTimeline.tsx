@@ -9,6 +9,7 @@ import { getBlockVideoUrl } from '../../../utils/editBlockMedia'
 import { extractWaveformPeaks } from '../../../utils/audioWaveform'
 import editApi from '../../../services/editApi'
 import { buildAdaptedTracks, findAudioTrackAtY, findElementInTracks, findTextTrackAtY, isUserAudioAdaptedTrack, isUserTextAdaptedTrack, mapTrackIdToStoreKey, resolveTimelinePointerY, ADAPTED_TRACK_IDS } from './adapter'
+import { findAudioAsset, resolveAssetDurationSec } from '../../../editor/audioTracks'
 import TimelineToolbar from './TimelineToolbar'
 import TimelineRuler from './TimelineRuler'
 import TimelineElementView from './TimelineElementView'
@@ -34,6 +35,7 @@ import {
   clampResizeRightAvoidingOverlap,
   clampStartAvoidingOverlap,
   getTrackSiblingRanges,
+  MIN_TIMELINE_ELEMENT_SEC,
 } from '../../../editor/timeline/timelineOverlap'
 import { buildVideoTrimInteractiveContext } from '../../../editor/timeline/videoTrimInteractive'
 import type { AdaptedElement, AdaptedTrack, SnapPoint } from './types'
@@ -158,6 +160,8 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const tracksScrollRef = useRef<HTMLDivElement>(null)
   const trackLabelsScrollRef = useRef<HTMLDivElement>(null)
   const [assetDurations, setAssetDurations] = useState<Record<string, number>>({})
+  const assetDurationsRef = useRef(assetDurations)
+  assetDurationsRef.current = assetDurations
   const [waveforms, setWaveforms] = useState<WaveformMap>({})
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(
@@ -827,10 +831,26 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       const clipId = element.source.clipId
       const clip = session?.audio_elements?.find((item) => item.id === clipId)
       if (!clip) return
-      const assetDuration = assetDurations[element.source.assetId] ?? element.duration
+      const assetMeta = session ? findAudioAsset(session, element.source.assetId) : undefined
+      const resolveAssetDuration = (clipDurationSec: number) =>
+        resolveAssetDurationSec(
+          assetDurationsRef.current[element.source.assetId],
+          assetMeta?.duration_sec,
+          clipDurationSec
+        )
       const initialStart = element.startTime
       const initialDuration = element.duration
       const initialTrimStart = clip.trim_start_sec ?? 0
+      const initialAssetDuration = resolveAssetDuration(initialDuration)
+      const initialTrimEnd =
+        clip.trim_end_sec ??
+        Math.min(initialAssetDuration, initialTrimStart + initialDuration)
+      const initialClipPatch = {
+        start_sec: initialStart,
+        duration_sec: initialDuration,
+        trim_start_sec: initialTrimStart,
+        trim_end_sec: initialTrimEnd,
+      }
       const siblings = getTrackSiblingRanges(elementTrack?.elements ?? [], clipId)
       beginTimelineGesture()
       const applyMove = (moveEvent: PointerEvent) => {
@@ -838,26 +858,35 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         if (side === 'left') {
           const fixedEnd = initialStart + initialDuration
           const nextStart = Math.max(0, initialStart + deltaSec)
-          const { start, duration } = clampResizeLeftAvoidingOverlap(siblings, fixedEnd, nextStart)
-          const trimDelta = start - initialStart
+          const naturalDuration = Math.max(MIN_TIMELINE_ELEMENT_SEC, fixedEnd - nextStart)
+          if (!canPlaceAtStart(siblings, naturalDuration, nextStart)) {
+            updateAudioClip(clipId, initialClipPatch, { recordHistory: false })
+            return
+          }
+          const trimDelta = nextStart - initialStart
           updateAudioClip(
             clipId,
             {
-              start_sec: start,
-              duration_sec: duration,
+              start_sec: nextStart,
+              duration_sec: naturalDuration,
               trim_start_sec: Math.max(0, initialTrimStart + trimDelta),
+              trim_end_sec: initialTrimEnd,
             },
             { recordHistory: false }
           )
         } else {
-          const proposedEnd = initialStart + Math.max(0.2, initialDuration + deltaSec)
-          const end = clampResizeRightAvoidingOverlap(siblings, initialStart, proposedEnd)
-          const nextDuration = Math.max(0.2, end - initialStart)
+          const nextDuration = Math.max(MIN_TIMELINE_ELEMENT_SEC, initialDuration + deltaSec)
+          if (!canPlaceAtStart(siblings, nextDuration, initialStart)) {
+            updateAudioClip(clipId, initialClipPatch, { recordHistory: false })
+            return
+          }
+          const assetDuration = resolveAssetDuration(nextDuration)
+          const trimEnd = Math.min(assetDuration, initialTrimStart + nextDuration)
           updateAudioClip(
             clipId,
             {
               duration_sec: nextDuration,
-              trim_end_sec: Math.min(assetDuration, initialTrimStart + nextDuration),
+              trim_end_sec: Math.max(initialTrimStart + MIN_TIMELINE_ELEMENT_SEC, trimEnd),
             },
             { recordHistory: false }
           )
