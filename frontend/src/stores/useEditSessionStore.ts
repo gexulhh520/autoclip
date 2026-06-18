@@ -328,7 +328,7 @@ interface EditSessionState {
     patch: Partial<AudioClipElement>,
     options?: { recordHistory?: boolean }
   ) => void
-  moveAudioClipToTrack: (clipId: string, trackId: string) => void
+  moveAudioClipToTrack: (clipId: string, trackId: string, options?: { recordHistory?: boolean }) => void
   setSelectedAudioClipId: (clipId: string | null) => void
   toggleAudioTrackMuted: (audioTrackId: string) => void
   toggleAudioTrackHidden: (audioTrackId: string) => void
@@ -2515,8 +2515,10 @@ export const useEditSessionStore = create<EditSessionState>()(
         })
       },
 
-      moveAudioClipToTrack: (clipId, trackId) => {
-        pushHistory()
+      moveAudioClipToTrack: (clipId, trackId, options) => {
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
         set((state) => {
           if (!state.session?.audio_elements || !state.session.audio_tracks) return
           const trackExists = state.session.audio_tracks.some((item) => item.id === trackId)

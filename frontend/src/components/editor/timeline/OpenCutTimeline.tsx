@@ -173,7 +173,14 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     duration: number
     label: string
   } | null>(null)
+  const [audioDragPreview, setAudioDragPreview] = useState<{
+    trackId: string
+    startSec: number
+    duration: number
+    label: string
+  } | null>(null)
   const [draggingOverlayIds, setDraggingOverlayIds] = useState<string[]>([])
+  const [draggingAudioClipId, setDraggingAudioClipId] = useState<string | null>(null)
 
   const segments = useMemo(
     () =>
@@ -493,11 +500,20 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     if (element.source.kind === 'overlay') {
       setDraggingOverlayIds(groupOverlayIds)
     }
+    if (element.source.kind === 'audio_clip') {
+      setDraggingAudioClipId(element.source.clipId)
+    }
 
     const resolveTargetTextTrack = (clientY: number) => {
       const y = resolveTimelinePointerY(clientY, tracksCanvasRef.current)
       if (y == null) return null
       return findTextTrackAtY(tracks, y)
+    }
+
+    const resolveTargetAudioTrack = (clientY: number) => {
+      const y = resolveTimelinePointerY(clientY, tracksCanvasRef.current)
+      if (y == null) return null
+      return findAudioTrackAtY(tracks, y)
     }
 
     const onMove = (moveEvent: PointerEvent) => {
@@ -555,19 +571,20 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           snapped
         )
         updateAudioClip(element.source.clipId, { start_sec: clampedStart }, { recordHistory: false })
-        const canvasEl = tracksCanvasRef.current
-        if (canvasEl) {
-          const y = resolveTimelinePointerY(moveEvent.clientY, canvasEl)
-          if (y != null) {
-            const targetTrack = findAudioTrackAtY(tracks, y)
-            if (targetTrack?.audioTrackId) {
-              pendingTargetAudioTrackId = targetTrack.audioTrackId
-              setDragTargetTrackId(targetTrack.id)
-            } else {
-              pendingTargetAudioTrackId = null
-              setDragTargetTrackId(null)
-            }
-          }
+
+        const audioTrack = resolveTargetAudioTrack(moveEvent.clientY)
+        if (audioTrack?.audioTrackId) {
+          pendingTargetAudioTrackId = audioTrack.audioTrackId
+          setDragTargetTrackId(audioTrack.id)
+          setAudioDragPreview({
+            trackId: audioTrack.id,
+            startSec: clampedStart,
+            duration: element.duration,
+            label: element.name,
+          })
+        } else {
+          setDragTargetTrackId(null)
+          setAudioDragPreview(null)
         }
       } else if (element.source.kind === 'bgm') {
         updateAudioSettings({ bgm_start_sec: snapped })
@@ -587,7 +604,9 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       setSnapPoint(null)
       setDragTargetTrackId(null)
       setTextDragPreview(null)
+      setAudioDragPreview(null)
       setDraggingOverlayIds([])
+      setDraggingAudioClipId(null)
       if (element.source.kind === 'overlay') {
         if (groupOverlayIds.length > 0) {
           for (const overlayId of groupOverlayIds) {
@@ -616,16 +635,20 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         }
       } else if (element.source.kind === 'audio_clip') {
         syncTimelineBlockLinkForAudioClip(element.source.clipId)
-      }
-      if (
-        element.source.kind === 'audio_clip' &&
-        pendingTargetAudioTrackId &&
-        sourceTrack?.audioTrackId &&
-        pendingTargetAudioTrackId !== sourceTrack.audioTrackId
-      ) {
-        moveAudioClipToTrack(element.source.clipId, pendingTargetAudioTrackId)
-      }
-      if (element.source.kind === 'audio_clip') {
+
+        const finalAudioTrack = resolveTargetAudioTrack(upEvent.clientY)
+        const targetAudioTrackId =
+          finalAudioTrack?.audioTrackId ?? pendingTargetAudioTrackId
+        if (
+          targetAudioTrackId &&
+          sourceTrack?.audioTrackId &&
+          targetAudioTrackId !== sourceTrack.audioTrackId
+        ) {
+          moveAudioClipToTrack(element.source.clipId, targetAudioTrackId, {
+            recordHistory: false,
+          })
+          setActiveAudioTrackId(targetAudioTrackId)
+        }
         void flushSaveSession(projectId)
       }
       window.removeEventListener('pointermove', onMove)
@@ -1227,6 +1250,18 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                         <span className="oc-timeline__element-label">{textDragPreview.label}</span>
                       </div>
                     ) : null}
+                    {audioDragPreview && audioDragPreview.trackId === track.id ? (
+                      <div
+                        className="oc-timeline__element oc-timeline__element--audio oc-timeline__element--ghost"
+                        style={{
+                          left: timeToPx(audioDragPreview.startSec, zoomLevel),
+                          width: Math.max(timeToPx(audioDragPreview.duration, zoomLevel), 24),
+                        }}
+                        aria-hidden
+                      >
+                        <span className="oc-timeline__element-label">{audioDragPreview.label}</span>
+                      </div>
+                    ) : null}
                     {track.elements.length === 0 ? (
                       <div className="oc-timeline__empty-hint">
                         {track.id === ADAPTED_TRACK_IDS.main
@@ -1247,8 +1282,10 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                             zoomLevel={zoomLevel}
                             selected={isSelected(track.id, element)}
                             dragging={
-                              element.source.kind === 'overlay' &&
-                              draggingOverlayIds.includes(element.source.overlayId)
+                              (element.source.kind === 'overlay' &&
+                                draggingOverlayIds.includes(element.source.overlayId)) ||
+                              (element.source.kind === 'audio_clip' &&
+                                draggingAudioClipId === element.source.clipId)
                             }
                             onSelect={(event) => selectElement(track.id, element, event)}
                             onPointerDown={(event) => startElementDrag(track.id, element, event)}

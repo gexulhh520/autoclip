@@ -264,7 +264,7 @@ export function findTrackAtY(tracks: AdaptedTrack[], y: number): AdaptedTrack | 
 
 export function findAudioTrackAtY(tracks: AdaptedTrack[], y: number): AdaptedTrack | null {
   const track = findTrackAtY(tracks, y)
-  return track && isUserAudioAdaptedTrack(track) ? track : null
+  return track && isUserAudioAdaptedTrack(track) && !track.hidden ? track : null
 }
 
 export function findTextTrackAtY(tracks: AdaptedTrack[], y: number): AdaptedTrack | null {
