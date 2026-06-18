@@ -3,7 +3,6 @@ import { message } from 'antd'
 import { LinkOutlined, PlusOutlined } from '@ant-design/icons'
 import { filterAudioAssetsByCategory } from '../../../../../editor/audioTracks'
 import { useEditSessionStore } from '../../../../../stores/useEditSessionStore'
-import { getCompositionTotalDuration } from '../../../../../utils/editTimeline'
 import OpenCutPanelView from '../../../opencut/OpenCutPanelView'
 import EditorImportBgmUrlModal from '../../../EditorImportBgmUrlModal'
 import AudioAssetLibrary from './AudioAssetLibrary'
@@ -29,8 +28,6 @@ const BgmAssetsView: React.FC<BgmAssetsViewProps> = ({ projectId }) => {
   if (!session) return null
 
   const audioSettings = session.audio_settings
-  const transitionDurationSec = audioSettings.transition_duration_sec ?? 0.35
-  const totalDuration = getCompositionTotalDuration(session.sequence, transitionDurationSec)
   const bgmAssets = filterAudioAssetsByCategory(session, 'bgm')
 
   return (
@@ -134,12 +131,11 @@ const BgmAssetsView: React.FC<BgmAssetsViewProps> = ({ projectId }) => {
         session={session}
         assets={bgmAssets}
         emptyHint="暂无 BGM。可上传本地文件，或从 B站 / 抖音等链接导入。"
-        addLabel="铺满时间线"
+        addLabel="添加到播放头"
         onAdd={(assetId) => {
           const clipId = addAudioClipToTimeline(assetId, {
             trackId: activeAudioTrackId ?? undefined,
-            startSec: 0,
-            durationSec: totalDuration,
+            strictStart: true,
           })
           if (clipId) setInspectorTab('audio')
           return clipId

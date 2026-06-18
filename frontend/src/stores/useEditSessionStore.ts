@@ -2511,12 +2511,9 @@ export const useEditSessionStore = create<EditSessionState>()(
             options?.trackId ?? state.activeAudioTrackId
           )
           const startSec = options?.startSec ?? state.sequencePlayheadSec
-          const timelineRemain = Math.max(1, compositionTotalDuration(state.session) - startSec)
           const durationSec =
             options?.durationSec ??
-            (category === 'sfx'
-              ? Math.max(0.1, asset.duration_sec ?? 2)
-              : Math.max(1, asset.duration_sec ?? timelineRemain))
+            Math.max(0.1, asset.duration_sec ?? (category === 'sfx' ? 2 : 30))
           const placement = findAudioClipPlacement(state.session, {
             preferredTrackId: trackId,
             durationSec,
