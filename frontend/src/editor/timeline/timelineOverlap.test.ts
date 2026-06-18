@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import type { EditSession } from '../types/editSession'
+import { DEFAULT_AUDIO_TRACK_ID } from '../audioTracks'
 import {
   canPlaceAtStart,
   clampResizeLeftAvoidingOverlap,
   clampResizeRightAvoidingOverlap,
   clampStartAvoidingOverlap,
+  findAudioClipPlacement,
   toTimelineRange,
 } from './timelineOverlap'
 
@@ -34,5 +37,55 @@ describe('timelineOverlap', () => {
   it('prevents right resize from overlapping right neighbor', () => {
     const end = clampResizeRightAvoidingOverlap(siblings, 2, 6)
     expect(end).toBeCloseTo(5, 3)
+  })
+})
+
+describe('findAudioClipPlacement', () => {
+  const session = (): EditSession => ({
+    schema_version: 3,
+    id: 's1',
+    project_id: 'p1',
+    name: 'test',
+    overlay_snapshot: {},
+    sequence: [],
+    export_settings: {
+      aspect: '9:16',
+      height: 1080,
+      fps: 30,
+      visual_filter: 'none',
+      fit_mode: 'contain',
+    },
+    audio_settings: {
+      bgm_volume: 0.28,
+      fade_in_sec: 0.3,
+      fade_out_sec: 0.3,
+      use_source_video: true,
+      transition_duration_sec: 0.35,
+    },
+    audio_tracks: [{ id: DEFAULT_AUDIO_TRACK_ID, name: 'Audio', order: 0 }],
+    audio_elements: [{ id: 'c1', asset_id: 'a1', track_id: DEFAULT_AUDIO_TRACK_ID, start_sec: 0, duration_sec: 10 }],
+    created_at: '',
+    updated_at: '',
+  })
+
+  it('rejects strict placement when proposed start overlaps', () => {
+    expect(
+      findAudioClipPlacement(session(), {
+        preferredTrackId: DEFAULT_AUDIO_TRACK_ID,
+        durationSec: 5,
+        proposedStartSec: 2,
+        strictStart: true,
+      })
+    ).toBeNull()
+  })
+
+  it('finds gap on same track when strict is false', () => {
+    const placement = findAudioClipPlacement(session(), {
+      preferredTrackId: DEFAULT_AUDIO_TRACK_ID,
+      durationSec: 3,
+      proposedStartSec: 0,
+      strictStart: false,
+    })
+    expect(placement?.startSec).toBeCloseTo(10, 3)
   })
 })

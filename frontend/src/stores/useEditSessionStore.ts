@@ -45,6 +45,7 @@ import {
   defaultAudioTrackName,
   ensureAudioModel,
   findAudioAsset,
+  getAudioClipTrackId,
   nextAudioTrackOrder,
   resolveAudioAssetCategory,
 } from '../editor/audioTracks'
@@ -63,8 +64,8 @@ import { blockTimelineVisualEndSec } from '../utils/editTimeline'
 import {
   applyAudioClipTimingClamp,
   applyOverlayElementTimingClamp,
-  clampAudioClipStartOnTrack,
   clampOverlayStartOnTrack,
+  findAudioClipPlacement,
 } from '../editor/timeline/timelineOverlap'
 import {
   absorbBlockDurationDeltaWithGap,
@@ -337,7 +338,14 @@ interface EditSessionState {
   removeAudioAsset: (assetId: string) => void
   addAudioClipToTimeline: (
     assetId: string,
-    options?: { trackId?: string; startSec?: number; durationSec?: number; volume?: number }
+    options?: {
+      trackId?: string
+      startSec?: number
+      durationSec?: number
+      volume?: number
+      /** 为 true 时仅允许落在 proposed 起点，否则尝试同轨空隙或其它空轨 */
+      strictStart?: boolean
+    }
   ) => string | null
   removeAudioClip: (clipId: string) => void
   updateAudioClip: (
@@ -1355,14 +1363,23 @@ export const useEditSessionStore = create<EditSessionState>()(
           })
           const created = state.session.audio_elements!.find((item) => item.id === id)
           if (created) {
-            created.start_sec = clampAudioClipStartOnTrack(
-              state.session,
-              created.track_id,
-              created.duration_sec,
-              created.start_sec,
-              created.id
-            )
+            const trackId = getAudioClipTrackId(created)
+            const placement = findAudioClipPlacement(state.session, {
+              preferredTrackId: trackId,
+              durationSec: created.duration_sec,
+              proposedStartSec: Math.max(0, startSec),
+              strictStart: true,
+            })
+            if (!placement) {
+              state.session.audio_elements = state.session.audio_elements!.filter(
+                (item) => item.id !== id
+              )
+              return
+            }
+            created.start_sec = placement.startSec
+            created.track_id = placement.trackId
           }
+          if (!state.session.audio_elements!.some((item) => item.id === id)) return
           state.selectedAudioClipId = id
           state.selectedBlockId = null
           state.selectedBlockIds = []
@@ -1455,14 +1472,23 @@ export const useEditSessionStore = create<EditSessionState>()(
           })
           const created = state.session.audio_elements.find((item) => item.id === id)
           if (created) {
-            created.start_sec = clampAudioClipStartOnTrack(
-              state.session,
-              created.track_id,
-              created.duration_sec,
-              created.start_sec,
-              created.id
-            )
+            const trackId = getAudioClipTrackId(created)
+            const placement = findAudioClipPlacement(state.session, {
+              preferredTrackId: trackId,
+              durationSec: created.duration_sec,
+              proposedStartSec: Math.max(0, nextStart),
+              strictStart: true,
+            })
+            if (!placement) {
+              state.session.audio_elements = state.session.audio_elements.filter(
+                (item) => item.id !== id
+              )
+              return
+            }
+            created.start_sec = placement.startSec
+            created.track_id = placement.trackId
           }
+          if (!state.session.audio_elements.some((item) => item.id === id)) return
           if (created && state.timelineBlockLinkEnabled) {
             attachAudioClipBlockLink(state.session, created)
           }
@@ -2491,12 +2517,19 @@ export const useEditSessionStore = create<EditSessionState>()(
             (category === 'sfx'
               ? Math.max(0.1, asset.duration_sec ?? 2)
               : Math.max(1, asset.duration_sec ?? timelineRemain))
+          const placement = findAudioClipPlacement(state.session, {
+            preferredTrackId: trackId,
+            durationSec,
+            proposedStartSec: Math.max(0, startSec),
+            strictStart: options?.strictStart,
+          })
+          if (!placement) return
           clipId = nanoid()
           const clip: AudioClipElement = {
             id: clipId,
             asset_id: assetId,
-            track_id: trackId,
-            start_sec: Math.max(0, startSec),
+            track_id: placement.trackId,
+            start_sec: placement.startSec,
             duration_sec: Math.max(0.1, durationSec),
             trim_start_sec: 0,
             volume:
@@ -2508,12 +2541,11 @@ export const useEditSessionStore = create<EditSessionState>()(
               category === 'sfx' ? 0.08 : state.session.audio_settings.fade_out_sec,
           }
           state.session.audio_elements = [...(state.session.audio_elements ?? []), clip]
-          applyAudioClipTimingClamp(state.session, clipId)
           if (state.timelineBlockLinkEnabled && category === 'sfx') {
             attachAudioClipBlockLink(state.session, clip)
           }
           state.selectedAudioClipId = clipId
-          state.activeAudioTrackId = trackId
+          state.activeAudioTrackId = placement.trackId
           state.dirty = true
           added = true
         })

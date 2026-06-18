@@ -1,6 +1,6 @@
 import type { AdaptedElement } from '../../components/editor/timeline/types'
 import type { EditSession } from '../../types/editSession'
-import { getAudioClipTrackId } from '../audioTracks'
+import { getAudioClipTrackId, resolveAudioTracks } from '../audioTracks'
 import { getOverlayTrackId } from '../textTracks'
 
 export const MIN_TIMELINE_ELEMENT_SEC = 0.2
@@ -160,16 +160,90 @@ function overlaySiblingRanges(
     .map((element) => toTimelineRange(element.id, element.start_sec, element.duration_sec))
 }
 
-function audioSiblingRanges(
+function audioTrackSiblingRanges(
   session: EditSession,
   trackId: string,
-  excludeClipId: string
+  excludeClipId?: string
 ): TimelineRange[] {
   return (session.audio_elements ?? [])
     .filter(
-      (clip) => !clip.hidden && getAudioClipTrackId(clip) === trackId && clip.id !== excludeClipId
+      (clip) =>
+        !clip.hidden &&
+        getAudioClipTrackId(clip) === trackId &&
+        clip.id !== excludeClipId
     )
     .map((clip) => toTimelineRange(clip.id, clip.start_sec, clip.duration_sec))
+}
+
+function listTrackGaps(
+  siblings: TimelineRange[],
+  minStart = 0
+): Array<{ start: number; end: number }> {
+  const sorted = [...siblings].sort((a, b) => a.start - b.start)
+  const gaps: Array<{ start: number; end: number }> = []
+  let cursor = minStart
+  for (const sibling of sorted) {
+    if (sibling.start > cursor + EPS) {
+      gaps.push({ start: cursor, end: sibling.start })
+    }
+    cursor = Math.max(cursor, sibling.end)
+  }
+  gaps.push({ start: cursor, end: Number.POSITIVE_INFINITY })
+  return gaps
+}
+
+/** 为音频片段找不重叠的轨与起点；strictStart 时仅接受 proposedStartSec */
+export function findAudioClipPlacement(
+  session: EditSession,
+  options: {
+    preferredTrackId: string
+    durationSec: number
+    proposedStartSec: number
+    strictStart?: boolean
+  }
+): { trackId: string; startSec: number } | null {
+  const safeDuration = Math.max(MIN_TIMELINE_ELEMENT_SEC, options.durationSec)
+  const proposedStart = Math.max(0, options.proposedStartSec)
+  const visibleTrackIds = resolveAudioTracks(session)
+    .filter((track) => !track.hidden)
+    .map((track) => track.id)
+  const orderedTrackIds = [
+    options.preferredTrackId,
+    ...visibleTrackIds.filter((id) => id !== options.preferredTrackId),
+  ]
+
+  const tryExact = (trackId: string, start: number) => {
+    if (!visibleTrackIds.includes(trackId)) return null
+    const siblings = audioTrackSiblingRanges(session, trackId)
+    if (canPlaceAtStart(siblings, safeDuration, start)) {
+      return { trackId, startSec: start }
+    }
+    return null
+  }
+
+  for (const trackId of orderedTrackIds) {
+    const exact = tryExact(trackId, proposedStart)
+    if (exact) return exact
+  }
+
+  if (options.strictStart) return null
+
+  let best: { trackId: string; startSec: number; distance: number } | null = null
+  for (const trackId of orderedTrackIds) {
+    const siblings = audioTrackSiblingRanges(session, trackId)
+    for (const gap of listTrackGaps(siblings)) {
+      const maxStart = gap.end - safeDuration
+      if (maxStart < gap.start - EPS) continue
+      const start = Math.max(gap.start, Math.min(proposedStart, maxStart))
+      if (!canPlaceAtStart(siblings, safeDuration, start)) continue
+      const distance = Math.abs(start - proposedStart)
+      if (!best || distance < best.distance) {
+        best = { trackId, startSec: start, distance }
+      }
+    }
+  }
+
+  return best ? { trackId: best.trackId, startSec: best.startSec } : null
 }
 
 export function applyOverlayElementTimingClamp(session: EditSession, elementId: string): void {
@@ -190,7 +264,7 @@ export function applyAudioClipTimingClamp(session: EditSession, clipId: string):
   const clip = session.audio_elements?.find((item) => item.id === clipId)
   if (!clip || clip.hidden) return
   const trackId = getAudioClipTrackId(clip)
-  const siblings = audioSiblingRanges(session, trackId, clipId)
+  const siblings = audioTrackSiblingRanges(session, trackId, clipId)
   const { start, duration } = clampElementTimingOnTrack(
     siblings,
     clip.start_sec,

@@ -1275,11 +1275,12 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                       const rect = scrollEl.getBoundingClientRect()
                       const x = event.clientX - rect.left + scrollEl.scrollLeft
                       const startSec = x / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
-                      addAudioClipToTimeline(assetId, {
+                      const clipId = addAudioClipToTimeline(assetId, {
                         trackId: track.audioTrackId,
                         startSec: Math.max(0, startSec),
+                        strictStart: true,
                       })
-                      setInspectorTab('audio')
+                      if (clipId) setInspectorTab('audio')
                       setDragTargetTrackId(null)
                     }}
                   >
