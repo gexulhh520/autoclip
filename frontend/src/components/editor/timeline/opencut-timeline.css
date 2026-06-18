@@ -534,6 +534,20 @@
   background: color-mix(in srgb, var(--oc-accent) 6%, var(--oc-panel));
 }
 
+.oc-timeline__element.is-dragging {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.oc-timeline__element--ghost {
+  pointer-events: none;
+  z-index: 40;
+  opacity: 0.72;
+  border: 1px dashed color-mix(in srgb, var(--oc-accent) 70%, transparent);
+  background: color-mix(in srgb, var(--oc-accent) 14%, var(--oc-panel-2)) !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--oc-accent) 20%, transparent);
+}
+
 .oc-timeline__track-lane.is-hidden-track {
   opacity: 0.45;
 }

@@ -8,7 +8,7 @@ import {
 import { getBlockVideoUrl } from '../../../utils/editBlockMedia'
 import { extractWaveformPeaks } from '../../../utils/audioWaveform'
 import editApi from '../../../services/editApi'
-import { buildAdaptedTracks, findAudioTrackAtY, findElementInTracks, findTrackAtY, isUserAudioAdaptedTrack, isUserTextAdaptedTrack, mapTrackIdToStoreKey, ADAPTED_TRACK_IDS } from './adapter'
+import { buildAdaptedTracks, findAudioTrackAtY, findElementInTracks, findTextTrackAtY, isUserAudioAdaptedTrack, isUserTextAdaptedTrack, mapTrackIdToStoreKey, resolveTimelinePointerY, ADAPTED_TRACK_IDS } from './adapter'
 import TimelineToolbar from './TimelineToolbar'
 import TimelineRuler from './TimelineRuler'
 import TimelineElementView from './TimelineElementView'
@@ -118,6 +118,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const setActiveTextTrackId = useEditSessionStore((state) => state.setActiveTextTrackId)
   const addTextTrack = useEditSessionStore((state) => state.addTextTrack)
   const moveOverlayToTrack = useEditSessionStore((state) => state.moveOverlayToTrack)
+  const moveOverlaysToTrack = useEditSessionStore((state) => state.moveOverlaysToTrack)
   const updateBlockTrim = useEditSessionStore((state) => state.updateBlockTrim)
   const beginTimelineGesture = useEditSessionStore((state) => state.beginTimelineGesture)
   const updateOverlayElement = useEditSessionStore((state) => state.updateOverlayElement)
@@ -166,6 +167,13 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const tracksCanvasRef = useRef<HTMLDivElement>(null)
   const [tracksViewportWidth, setTracksViewportWidth] = useState(0)
   const [dragTargetTrackId, setDragTargetTrackId] = useState<string | null>(null)
+  const [textDragPreview, setTextDragPreview] = useState<{
+    trackId: string
+    startSec: number
+    duration: number
+    label: string
+  } | null>(null)
+  const [draggingOverlayIds, setDraggingOverlayIds] = useState<string[]>([])
 
   const segments = useMemo(
     () =>
@@ -482,6 +490,15 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     if (element.source.kind === 'audio_clip' || element.source.kind === 'overlay') {
       beginTimelineGesture()
     }
+    if (element.source.kind === 'overlay') {
+      setDraggingOverlayIds(groupOverlayIds)
+    }
+
+    const resolveTargetTextTrack = (clientY: number) => {
+      const y = resolveTimelinePointerY(clientY, tracksCanvasRef.current)
+      if (y == null) return null
+      return findTextTrackAtY(tracks, y)
+    }
 
     const onMove = (moveEvent: PointerEvent) => {
       const deltaSec = (moveEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
@@ -491,6 +508,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
 
       if (element.source.kind === 'overlay') {
         const deltaFromAnchor = snapped - initialStart
+        let previewStartSec = snapped
         for (const [overlayId, start] of groupOverlayStarts) {
           const found = tracks
             .flatMap((track) => track.elements)
@@ -505,6 +523,9 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
             found.duration,
             start + deltaFromAnchor
           )
+          if (overlayId === element.source.overlayId) {
+            previewStartSec = clampedStart
+          }
           updateOverlayElement(
             overlayId,
             { start_sec: clampedStart },
@@ -512,17 +533,19 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           )
         }
 
-        const canvasEl = tracksCanvasRef.current
-        if (canvasEl) {
-          const y = moveEvent.clientY - canvasEl.getBoundingClientRect().top
-          const targetTrack = findTrackAtY(tracks, y)
-          if (targetTrack?.textTrackId && isUserTextAdaptedTrack(targetTrack)) {
-            pendingTargetTextTrackId = targetTrack.textTrackId
-            setDragTargetTrackId(targetTrack.id)
-          } else {
-            pendingTargetTextTrackId = null
-            setDragTargetTrackId(null)
-          }
+        const textTrack = resolveTargetTextTrack(moveEvent.clientY)
+        if (textTrack?.textTrackId) {
+          pendingTargetTextTrackId = textTrack.textTrackId
+          setDragTargetTrackId(textTrack.id)
+          setTextDragPreview({
+            trackId: textTrack.id,
+            startSec: previewStartSec,
+            duration: element.duration,
+            label: element.source.content,
+          })
+        } else {
+          setDragTargetTrackId(null)
+          setTextDragPreview(null)
         }
       } else if (element.source.kind === 'audio_clip') {
         const siblings = getTrackSiblingRanges(sourceTrack?.elements ?? [], element.id)
@@ -534,14 +557,16 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         updateAudioClip(element.source.clipId, { start_sec: clampedStart }, { recordHistory: false })
         const canvasEl = tracksCanvasRef.current
         if (canvasEl) {
-          const y = moveEvent.clientY - canvasEl.getBoundingClientRect().top
-          const targetTrack = findAudioTrackAtY(tracks, y)
-          if (targetTrack?.audioTrackId) {
-            pendingTargetAudioTrackId = targetTrack.audioTrackId
-            setDragTargetTrackId(targetTrack.id)
-          } else {
-            pendingTargetAudioTrackId = null
-            setDragTargetTrackId(null)
+          const y = resolveTimelinePointerY(moveEvent.clientY, canvasEl)
+          if (y != null) {
+            const targetTrack = findAudioTrackAtY(tracks, y)
+            if (targetTrack?.audioTrackId) {
+              pendingTargetAudioTrackId = targetTrack.audioTrackId
+              setDragTargetTrackId(targetTrack.id)
+            } else {
+              pendingTargetAudioTrackId = null
+              setDragTargetTrackId(null)
+            }
           }
         }
       } else if (element.source.kind === 'bgm') {
@@ -558,9 +583,11 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       }
     }
 
-    const onUp = () => {
+    const onUp = (upEvent: PointerEvent) => {
       setSnapPoint(null)
       setDragTargetTrackId(null)
+      setTextDragPreview(null)
+      setDraggingOverlayIds([])
       if (element.source.kind === 'overlay') {
         if (groupOverlayIds.length > 0) {
           for (const overlayId of groupOverlayIds) {
@@ -569,16 +596,26 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         } else {
           syncTimelineBlockLinkForOverlay(element.source.overlayId)
         }
+
+        const finalTextTrack = resolveTargetTextTrack(upEvent.clientY)
+        const targetTextTrackId =
+          finalTextTrack?.textTrackId ?? pendingTargetTextTrackId
+        if (
+          targetTextTrackId &&
+          sourceTrack?.textTrackId &&
+          targetTextTrackId !== sourceTrack.textTrackId
+        ) {
+          const overlayIds =
+            groupOverlayIds.length > 0 ? groupOverlayIds : [element.source.overlayId]
+          if (overlayIds.length === 1) {
+            moveOverlayToTrack(overlayIds[0]!, targetTextTrackId, { recordHistory: false })
+          } else {
+            moveOverlaysToTrack(overlayIds, targetTextTrackId, { recordHistory: false })
+          }
+          setActiveTextTrackId(targetTextTrackId)
+        }
       } else if (element.source.kind === 'audio_clip') {
         syncTimelineBlockLinkForAudioClip(element.source.clipId)
-      }
-      if (
-        element.source.kind === 'overlay' &&
-        pendingTargetTextTrackId &&
-        sourceTrack?.textTrackId &&
-        pendingTargetTextTrackId !== sourceTrack.textTrackId
-      ) {
-        moveOverlayToTrack(element.source.overlayId, pendingTargetTextTrackId)
       }
       if (
         element.source.kind === 'audio_clip' &&
@@ -1178,6 +1215,18 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                         +
                       </button>
                     ) : null}
+                    {textDragPreview && textDragPreview.trackId === track.id ? (
+                      <div
+                        className="oc-timeline__element oc-timeline__element--text oc-timeline__element--ghost"
+                        style={{
+                          left: timeToPx(textDragPreview.startSec, zoomLevel),
+                          width: Math.max(timeToPx(textDragPreview.duration, zoomLevel), 24),
+                        }}
+                        aria-hidden
+                      >
+                        <span className="oc-timeline__element-label">{textDragPreview.label}</span>
+                      </div>
+                    ) : null}
                     {track.elements.length === 0 ? (
                       <div className="oc-timeline__empty-hint">
                         {track.id === ADAPTED_TRACK_IDS.main
@@ -1197,6 +1246,10 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                             track={track}
                             zoomLevel={zoomLevel}
                             selected={isSelected(track.id, element)}
+                            dragging={
+                              element.source.kind === 'overlay' &&
+                              draggingOverlayIds.includes(element.source.overlayId)
+                            }
                             onSelect={(event) => selectElement(track.id, element, event)}
                             onPointerDown={(event) => startElementDrag(track.id, element, event)}
                             onContextMenu={(event) => {

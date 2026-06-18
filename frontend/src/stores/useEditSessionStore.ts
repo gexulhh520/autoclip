@@ -354,7 +354,8 @@ interface EditSessionState {
   setActiveTextTrackId: (textTrackId: string | null) => void
   addTextTrack: (name?: string) => string
   removeTextTrack: (textTrackId: string) => void
-  moveOverlayToTrack: (overlayId: string, textTrackId: string) => void
+  moveOverlayToTrack: (overlayId: string, textTrackId: string, options?: { recordHistory?: boolean }) => void
+  moveOverlaysToTrack: (overlayIds: string[], textTrackId: string, options?: { recordHistory?: boolean }) => void
   addOverlayElement: (element: Omit<EditOverlayElement, 'id'>) => void
   importSrtCaptions: (elements: EditOverlayElement[]) => void
   updateOverlayElement: (
@@ -1734,8 +1735,10 @@ export const useEditSessionStore = create<EditSessionState>()(
         })
       },
 
-      moveOverlayToTrack: (overlayId, textTrackId) => {
-        pushHistory()
+      moveOverlayToTrack: (overlayId, textTrackId, options) => {
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
         set((state) => {
           if (!state.session?.overlay_elements || !state.session.text_tracks) return
           const trackExists = state.session.text_tracks.some((item) => item.id === textTrackId)
@@ -1744,6 +1747,25 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (!element) return
           element.track_id = textTrackId
           applyOverlayElementTimingClamp(state.session, overlayId)
+          state.dirty = true
+        })
+      },
+
+      moveOverlaysToTrack: (overlayIds, textTrackId, options) => {
+        if (overlayIds.length === 0) return
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
+        set((state) => {
+          if (!state.session?.overlay_elements || !state.session.text_tracks) return
+          const trackExists = state.session.text_tracks.some((item) => item.id === textTrackId)
+          if (!trackExists) return
+          for (const overlayId of overlayIds) {
+            const element = state.session.overlay_elements.find((item) => item.id === overlayId)
+            if (!element) continue
+            element.track_id = textTrackId
+            applyOverlayElementTimingClamp(state.session, overlayId)
+          }
           state.dirty = true
         })
       },

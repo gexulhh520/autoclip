@@ -266,3 +266,17 @@ export function findAudioTrackAtY(tracks: AdaptedTrack[], y: number): AdaptedTra
   const track = findTrackAtY(tracks, y)
   return track && isUserAudioAdaptedTrack(track) ? track : null
 }
+
+export function findTextTrackAtY(tracks: AdaptedTrack[], y: number): AdaptedTrack | null {
+  const track = findTrackAtY(tracks, y)
+  return track && isUserTextAdaptedTrack(track) && !track.hidden ? track : null
+}
+
+/** 指针在 tracks 容器内的 Y（px），用于跨轨吸附 */
+export function resolveTimelinePointerY(
+  clientY: number,
+  tracksEl: HTMLElement | null
+): number | null {
+  if (!tracksEl) return null
+  return clientY - tracksEl.getBoundingClientRect().top
+}
