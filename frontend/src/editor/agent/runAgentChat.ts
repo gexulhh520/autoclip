@@ -1,4 +1,4 @@
-import { buildEditorSnapshot } from './buildEditorSnapshot'
+import { buildEditorSnapshotFromStore } from './snapshotFromStore'
 import { sanitizeToolResultForChat } from './sanitizeToolResultForChat'
 import { executeReadToolCall } from './executeToolCall'
 import { isReadOnlyAgentTool, isWriteAgentTool } from './toolRegistry'
@@ -27,24 +27,11 @@ export interface RunAgentChatResult {
   plan: PendingAgentPlan | null
 }
 
-function buildSnapshot(layoutReference?: LayoutAnalysis | null) {
-  const store = useEditSessionStore.getState()
-  const session = store.session
-  if (!session) {
-    throw new Error('无活动剪辑工程')
-  }
-  return buildEditorSnapshot({
-    session,
-    playheadSec: store.sequencePlayheadSec,
-    selectedBlockId: store.selectedBlockId,
-    selectedOverlayId: store.selectedOverlayId,
-    layoutReference: layoutReference ?? undefined,
-  })
-}
-
-/** 通用 Agent 对话：按需读草稿 → 返回写工具计划或纯文本回复 */
 export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentChatResult> {
-  const snapshot = buildSnapshot(input.layoutReference)
+  const snapshot = buildEditorSnapshotFromStore(
+    () => useEditSessionStore.getState(),
+    input.layoutReference
+  )
   const trimmed = input.userMessage.trim()
   if (!trimmed && !input.imageDataUrl) {
     throw new Error('请输入需求或附加参考图')

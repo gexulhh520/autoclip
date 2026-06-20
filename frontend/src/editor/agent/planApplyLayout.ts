@@ -1,5 +1,5 @@
 import { buildApplyPlanFromLayout } from './buildApplyPlan'
-import { buildEditorSnapshot } from './buildEditorSnapshot'
+import { buildEditorSnapshotFromStore } from './snapshotFromStore'
 import { confirmExecutePlan, runAgentChat } from './runAgentChat'
 import { useEditSessionStore } from '../../stores/useEditSessionStore'
 import type { LayoutAnalysis, PendingAgentPlan } from '../../types/editorAgent'
@@ -34,13 +34,7 @@ export async function planApplyLayout(input: {
   const store = useEditSessionStore.getState()
   if (!store.session) throw new Error('无活动剪辑工程')
 
-  const snapshot = buildEditorSnapshot({
-    session: store.session,
-    playheadSec: store.sequencePlayheadSec,
-    selectedBlockId: store.selectedBlockId,
-    selectedOverlayId: store.selectedOverlayId,
-    layoutReference: input.layout,
-  })
+  const snapshot = buildEditorSnapshotFromStore(() => useEditSessionStore.getState(), input.layout)
 
   const localCalls = buildApplyPlanFromLayout(snapshot, input.layout)
   return {
