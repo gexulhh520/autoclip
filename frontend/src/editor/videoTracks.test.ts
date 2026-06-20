@@ -9,6 +9,7 @@ import {
   resolveOverlayVideoBlocks,
   resolveVideoTracks,
   reorderVideoTrackMetas,
+  mapOverlayBlockToRelativeSource,
 } from './videoTracks'
 
 const baseBlock = (id: string, overrides: Partial<EditBlock> = {}): EditBlock => ({
@@ -75,6 +76,18 @@ describe('ensureVideoTracks', () => {
     expect(resolveOverlayVideoBlocks(session)).toHaveLength(1)
     expect(isMainTrackBlock(session.sequence[0]!)).toBe(true)
     expect(isMainTrackBlock(session.sequence[1]!)).toBe(false)
+  })
+
+  it('maps overlay composition time to trim-relative source time', () => {
+    const block = baseBlock('overlay', {
+      track_id: 'overlay-track',
+      timeline_start_sec: 2,
+      trim: { in_sec: 1, out_sec: 9 },
+      playback_rate: 2,
+    })
+    expect(mapOverlayBlockToRelativeSource(block, 2)).toBe(0)
+    expect(mapOverlayBlockToRelativeSource(block, 3)).toBeCloseTo(2, 5)
+    expect(mapOverlayBlockToRelativeSource(block, 10)).toBe(8)
   })
 })
 

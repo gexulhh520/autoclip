@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid'
 import type { EditBlock, EditSession, VideoTrackMeta } from '../types/editSession'
-import { blockDuration } from '../utils/editTimeline'
+import { blockDuration, blockPlaybackRate, blockSourceTrimDuration } from '../utils/editTimeline'
 
 export const DEFAULT_VIDEO_TRACK_ID = 'default-video'
 
@@ -58,6 +58,15 @@ export function blockTimelineStartSec(block: EditBlock): number {
 
 export function blockTimelineEndSec(block: EditBlock): number {
   return blockTimelineStartSec(block) + blockDuration(block)
+}
+
+/** 合成时间轴 t → 叠加轨片段内的源相对时间（与主轨 mapCompositionTimeToRelativeSource 对齐） */
+export function mapOverlayBlockToRelativeSource(
+  block: EditBlock,
+  compositionTimeSec: number
+): number {
+  const elapsed = Math.max(0, compositionTimeSec - blockTimelineStartSec(block))
+  return Math.min(blockSourceTrimDuration(block), elapsed * blockPlaybackRate(block))
 }
 
 export function nextVideoTrackOrder(tracks: VideoTrackMeta[]): number {

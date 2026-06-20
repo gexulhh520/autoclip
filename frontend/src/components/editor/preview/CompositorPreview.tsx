@@ -6,18 +6,17 @@ import {
   createCompositionPlaybackClock,
   type CompositionPlan,
 } from '../../../editor/compositor'
-import {
-  assignStablePreviewVideoSlots,
-  blockIdForPreviewSlot,
-  type PreviewVideoSlot,
-} from '../../../editor/compositor/previewVideoSlots'
 import { findUpcomingCrossIncomingBlock } from '../../../editor/compositor/previewCrossTransitionWarmup'
 import { ensureDecoderBound } from '../../../editor/compositor/previewDecoderBinding'
 import {
   capturePreviewVideoFrame,
-  ensurePreviewVideoFrameCache,
   hasPreviewVideoFrameCache,
 } from '../../../editor/compositor/previewVideoFrameCache'
+import {
+  bindPreviewDecoder,
+  createPreviewDecoderPool,
+  type PreviewDecoderPool,
+} from '../../../editor/compositor/previewDecoderPool'
 import { renderFrameDescriptorToCanvas } from '../../../editor/compositor/softwareRenderer'
 import { usePreviewTextDrag } from '../../../editor/compositor/usePreviewTextDrag'
 import type { BoxSelectableItem } from '../../../editor/selection/boxSelect'
@@ -149,14 +148,10 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   moveBlockVideoPositions,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const slotARef = useRef<HTMLVideoElement>(null)
-  const slotBRef = useRef<HTMLVideoElement>(null)
-  const frameCacheARef = useRef<HTMLCanvasElement | null>(null)
-  const frameCacheBRef = useRef<HTMLCanvasElement | null>(null)
-  const blockSlotsRef = useRef<Map<string, PreviewVideoSlot>>(new Map())
+  const decoderHostRef = useRef<HTMLDivElement>(null)
+  const decoderPoolRef = useRef<PreviewDecoderPool | null>(null)
   const warmupBlockIdRef = useRef<string | null>(null)
   const warmupSeekReadyRef = useRef<Set<string>>(new Set())
-  const mountedSlotBlockRef = useRef<{ a: string | null; b: string | null }>({ a: null, b: null })
   const playbackClockRef = useRef(createCompositionPlaybackClock())
   const wasPlayingRef = useRef(false)
   const sequencePlayheadRef = useRef(sequencePlayheadSec)
@@ -188,12 +183,46 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     []
   )
 
-  const getVideoRefForBlock = useCallback((blockId: string): HTMLVideoElement | null => {
-    const slot = blockSlotsRef.current.get(blockId)
-    if (slot === 'a') return slotARef.current
-    if (slot === 'b') return slotBRef.current
-    return null
-  }, [])
+  const resolveCompositionSecRef = useRef<() => number>(() => sequencePlayheadSec)
+  const paintAtRef = useRef<(compositionSec: number, forceSeek: boolean) => number>(() => 0)
+  const isPlayingRef = useRef(isPlaying)
+  isPlayingRef.current = isPlaying
+
+  const getDecoderPool = useCallback((): PreviewDecoderPool | null => {
+    const host = decoderHostRef.current
+    if (!host) return null
+    if (!decoderPoolRef.current) {
+      decoderPoolRef.current = createPreviewDecoderPool(host, {
+        onMetadata: (video, blockId) => onMetadata(video, blockId),
+        onLoadedData: (video) => {
+          const boundId = video.dataset.boundBlockId
+          if (!boundId) return
+
+          if (boundId === warmupBlockIdRef.current) {
+            const warmupBlock = session.sequence.find((block) => block.id === boundId)
+            if (!warmupBlock) return
+            const target = getSourceTimeForBlock(warmupBlock, 0)
+            if (Math.abs(video.currentTime - target) > 0.08) {
+              video.currentTime = target
+            }
+            warmupSeekReadyRef.current.add(boundId)
+            video.pause()
+            return
+          }
+
+          if (!isPlayingRef.current) {
+            paintAtRef.current(resolveCompositionSecRef.current(), true)
+          }
+        },
+      })
+    }
+    return decoderPoolRef.current
+  }, [getSourceTimeForBlock, onMetadata, session.sequence])
+
+  const getVideoRefForBlock = useCallback(
+    (blockId: string): HTMLVideoElement | null => getDecoderPool()?.get(blockId) ?? null,
+    [getDecoderPool]
+  )
 
   const resolveCompositionSec = useCallback((): number => {
     if (!plan) return sequencePlayheadSec
@@ -204,20 +233,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     return Math.max(0, Math.min(plan.totalDurationSec, sequencePlayheadSec))
   }, [isPlaying, plan, sequencePlayheadSec])
 
-  const resolveSceneVm = useCallback(
-    (compositionSec: number) => {
-      const scene = resolveSceneAt(sceneBuilderInput, compositionSec, videoNaturalSize)
-      const vm = renderSceneToPreviewViewModel(scene, session.sequence)
-      return { scene, vm }
-    },
-    [sceneBuilderInput, session.sequence, videoNaturalSize]
-  )
-
-  const assignBlockSlots = useCallback((blockIds: string[]) => {
-    const next = assignStablePreviewVideoSlots(blockIds, blockSlotsRef.current)
-    blockSlotsRef.current = next
-    return next
-  }, [])
+  resolveCompositionSecRef.current = resolveCompositionSec
 
   const resolveWarmupBlock = useCallback(
     (compositionSec: number, activeLayers: PreviewVideoLayerProps[]) => {
@@ -233,11 +249,20 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     [session]
   )
 
-  const syncWarmupDecoder = useCallback(
-    (warmupBlock: EditBlock | null, idleSlot: PreviewVideoSlot | null) => {
-      if (!warmupBlock || !idleSlot) return [] as PreviewVideoLayerProps[]
+  const resolveSceneVm = useCallback(
+    (compositionSec: number) => {
+      const scene = resolveSceneAt(sceneBuilderInput, compositionSec, videoNaturalSize)
+      const vm = renderSceneToPreviewViewModel(scene, session.sequence)
+      return { scene, vm }
+    },
+    [sceneBuilderInput, session.sequence, videoNaturalSize]
+  )
 
-      const video = idleSlot === 'a' ? slotARef.current : slotBRef.current
+  const syncWarmupDecoder = useCallback(
+    (warmupBlock: EditBlock | null, pool: PreviewDecoderPool | null) => {
+      if (!warmupBlock || !pool) return [] as PreviewVideoLayerProps[]
+
+      const video = bindPreviewDecoder(pool, warmupBlock, getVideoUrlForBlock)
       const warmupLayer: PreviewVideoLayerProps = {
         block: warmupBlock,
         relativeSourceSec: 0,
@@ -246,20 +271,17 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         playbackRate: 1,
       }
 
-      if (video) {
-        ensureDecoderBound(video, warmupBlock, getVideoUrlForBlock)
-        video.muted = true
-        video.volume = 0
-        const target = getSourceTimeForBlock(warmupBlock, 0)
-        const needsSeek =
-          !warmupSeekReadyRef.current.has(warmupBlock.id) ||
-          Math.abs(video.currentTime - target) > 0.08
-        if (needsSeek && !video.seeking) {
-          video.currentTime = target
-          warmupSeekReadyRef.current.add(warmupBlock.id)
-        }
-        video.pause()
+      video.muted = true
+      video.volume = 0
+      const target = getSourceTimeForBlock(warmupBlock, 0)
+      const needsSeek =
+        !warmupSeekReadyRef.current.has(warmupBlock.id) ||
+        Math.abs(video.currentTime - target) > 0.08
+      if (needsSeek && !video.seeking) {
+        video.currentTime = target
+        warmupSeekReadyRef.current.add(warmupBlock.id)
       }
+      video.pause()
 
       return [warmupLayer]
     },
@@ -278,20 +300,10 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     [getVideoRefForBlock]
   )
 
-  const getFrameCacheForSlot = useCallback((slot: PreviewVideoSlot): HTMLCanvasElement => {
-    if (slot === 'a') {
-      frameCacheARef.current = ensurePreviewVideoFrameCache(frameCacheARef.current)
-      return frameCacheARef.current
-    }
-    frameCacheBRef.current = ensurePreviewVideoFrameCache(frameCacheBRef.current)
-    return frameCacheBRef.current
-  }, [])
-
   const syncVideoElement = useCallback(
     (
       video: HTMLVideoElement | null,
       layer: PreviewVideoLayerProps | null,
-      slot: PreviewVideoSlot,
       forceSeek: boolean,
       skipSeekBlockIds?: Set<string>,
       audioMuted = true
@@ -301,35 +313,34 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
           video.pause()
           video.muted = true
         }
-        return
+        return false
       }
 
       const blockId = layer.block.id
-      const mountedKey = slot === 'a' ? 'a' : 'b'
-      const blockChanged = mountedSlotBlockRef.current[mountedKey] !== blockId
       const target = getSourceTimeForBlock(layer.block, layer.relativeSourceSec)
       const skipSeek = skipSeekBlockIds?.has(blockId) ?? false
-
-      ensureDecoderBound(video, layer.block, getVideoUrlForBlock)
+      const rebinding = ensureDecoderBound(video, layer.block, getVideoUrlForBlock)
 
       video.muted = audioMuted
       video.volume = audioMuted ? 0 : Math.min(1, Math.max(0, layer.volume))
       video.playbackRate = Math.max(0.25, Math.min(4, layer.playbackRate || 1))
 
+      let didSeek = false
       if (isPlaying) {
-        mountedSlotBlockRef.current[mountedKey] = blockId
-        if (!skipSeek && (forceSeek || blockChanged)) {
+        if (!skipSeek && (forceSeek || rebinding)) {
           video.currentTime = target
+          didSeek = true
         }
         void video.play().catch(() => undefined)
-        return
+        return didSeek
       }
 
-      mountedSlotBlockRef.current[mountedKey] = blockId
       if (forceSeek || Math.abs(video.currentTime - target) > 0.03) {
         video.currentTime = target
+        didSeek = true
       }
       video.pause()
+      return didSeek
     },
     [getSourceTimeForBlock, getVideoUrlForBlock, isPlaying]
   )
@@ -341,49 +352,59 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       skipSeekBlockIds?: Set<string>,
       warmupBlock?: EditBlock | null
     ) => {
+      const pool = getDecoderPool()
+      if (!pool) return false
+
       const activeIds = vmLayers.map((layer) => layer.block.id)
       const audioBlockId = vmLayers[0]?.block.id ?? null
-      const slotBlockIds = warmupBlock ? [...activeIds, warmupBlock.id] : activeIds
-      const blockSlots = assignBlockSlots(slotBlockIds)
+      const neededIds = warmupBlock ? [...activeIds, warmupBlock.id] : activeIds
+      pool.prune(neededIds)
+
+      let anySeek = false
       const layerByBlockId = new Map(vmLayers.map((layer) => [layer.block.id, layer]))
       const warmupId = warmupBlock?.id ?? null
 
-      for (const slot of ['a', 'b'] as const) {
-        const blockId = blockIdForPreviewSlot(blockSlots, slot)
-        const layer = blockId ? (layerByBlockId.get(blockId) ?? null) : null
-        const video = slot === 'a' ? slotARef.current : slotBRef.current
-
-        if (!layer && blockId === warmupId && warmupBlock) {
-          syncWarmupDecoder(warmupBlock, slot)
-          continue
+      for (const layer of vmLayers) {
+        const video = pool.ensure(layer.block.id)
+        const audioMuted = clipAudioMuted || layer.block.id !== audioBlockId || layer.block.id === warmupId
+        if (
+          syncVideoElement(video, layer, forceSeek, skipSeekBlockIds, audioMuted)
+        ) {
+          anySeek = true
         }
-
-        const audioMuted =
-          clipAudioMuted || !blockId || blockId !== audioBlockId || blockId === warmupId
-        syncVideoElement(video, layer, slot, forceSeek, skipSeekBlockIds, audioMuted)
       }
+
+      if (warmupBlock && !layerByBlockId.has(warmupBlock.id)) {
+        syncWarmupDecoder(warmupBlock, pool)
+      }
+
+      return anySeek
     },
-    [assignBlockSlots, syncVideoElement, syncWarmupDecoder, clipAudioMuted]
+    [clipAudioMuted, getDecoderPool, syncVideoElement, syncWarmupDecoder]
   )
 
-  const refreshSlotFrameCaches = useCallback((blockIds: string[]) => {
-    for (const blockId of blockIds) {
-      const video = getVideoRefForBlock(blockId)
-      const slot = blockSlotsRef.current.get(blockId)
-      if (!video || !slot) continue
-      capturePreviewVideoFrame(video, getFrameCacheForSlot(slot))
-    }
-  }, [getVideoRefForBlock, getFrameCacheForSlot])
+  const refreshBlockFrameCaches = useCallback(
+    (blockIds: string[]) => {
+      const pool = getDecoderPool()
+      if (!pool) return
+      for (const blockId of blockIds) {
+        const video = pool.get(blockId)
+        if (!video) continue
+        capturePreviewVideoFrame(video, pool.getFrameCache(blockId))
+      }
+    },
+    [getDecoderPool]
+  )
 
   const buildCrossFrameCaches = useCallback(
     (layers: PreviewVideoLayerProps[]): Map<string, HTMLCanvasElement> | undefined => {
+      const pool = getDecoderPool()
+      if (!pool) return undefined
       const caches = new Map<string, HTMLCanvasElement>()
       for (const layer of layers) {
-        const video = getVideoRefForBlock(layer.block.id)
-        const slot = blockSlotsRef.current.get(layer.block.id)
-        if (!video || !slot) continue
-
-        const cache = getFrameCacheForSlot(slot)
+        const video = pool.get(layer.block.id)
+        if (!video) continue
+        const cache = pool.getFrameCache(layer.block.id)
         capturePreviewVideoFrame(video, cache)
         if (hasPreviewVideoFrameCache(cache)) {
           caches.set(layer.block.id, cache)
@@ -391,7 +412,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       }
       return caches.size > 0 ? caches : undefined
     },
-    [getVideoRefForBlock, getFrameCacheForSlot]
+    [getDecoderPool]
   )
 
   const buildDescriptorAt = useCallback(
@@ -437,7 +458,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         warmedIncomingId != null ? new Set([warmedIncomingId]) : undefined
       const warmupBlock = resolveWarmupBlock(compositionSec, vm.videoLayers)
       wasInCrossRef.current = vm.inDissolve
-      syncVideosFromVm(vm.videoLayers, forceSeek, skipSeekBlockIds, warmupBlock)
+      const anySeek = syncVideosFromVm(vm.videoLayers, forceSeek, skipSeekBlockIds, warmupBlock)
       const warmupLayers: PreviewVideoLayerProps[] = warmupBlock
         ? [
             {
@@ -452,7 +473,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       liveVmRef.current = { layers: vm.videoLayers, warmupLayers, compositionSec }
 
       if (warmupLayers.length > 0) {
-        refreshSlotFrameCaches(warmupLayers.map((layer) => layer.block.id))
+        refreshBlockFrameCaches(warmupLayers.map((layer) => layer.block.id))
       }
 
       const renderCanvas = () => {
@@ -478,7 +499,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         })
       }
 
-      if (!isPlaying && forceSeek) {
+      if ((!isPlaying && forceSeek) || anySeek) {
         paintAfterVideoSync([...collectVideosForLayers(vm.videoLayers).values()], renderCanvas)
       } else {
         renderCanvas()
@@ -493,7 +514,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       resolveSceneVm,
       resolveWarmupBlock,
       syncVideosFromVm,
-      refreshSlotFrameCaches,
+      refreshBlockFrameCaches,
       buildDescriptorAt,
       collectVideosForLayers,
       buildCrossFrameCaches,
@@ -502,6 +523,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       captionsMuted,
     ]
   )
+
+  paintAtRef.current = paintAt
 
   const reportPlayhead = useCallback(
     (compositionSec: number) => {
@@ -566,6 +589,13 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     onPlaybackComplete,
   ])
 
+  useEffect(() => {
+    return () => {
+      decoderPoolRef.current?.dispose()
+      decoderPoolRef.current = null
+    }
+  }, [])
+
   const idleCompositionSec = resolveCompositionSec()
   const idleDescriptor = useMemo(() => {
     const { vm } = resolveSceneVm(idleCompositionSec)
@@ -590,46 +620,6 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     moveBlockVideoPositions: moveBlockVideoPositions ?? (() => undefined),
   })
 
-  const renderDecoderSlot = (slot: PreviewVideoSlot) => {
-    const blockId = blockIdForPreviewSlot(blockSlotsRef.current, slot)
-    const videoRef = slot === 'a' ? slotARef : slotBRef
-
-    return (
-      <video
-        ref={videoRef}
-        className="compositor-preview__decoder"
-        data-block-id={blockId ?? undefined}
-        playsInline
-        preload="auto"
-        crossOrigin="anonymous"
-        onLoadedMetadata={(event) => {
-          if (blockId) onMetadata(event.currentTarget, blockId)
-        }}
-        onLoadedData={(event) => {
-          const video = event.currentTarget
-          const boundId = video.dataset.boundBlockId
-          if (!boundId) return
-
-          if (boundId === warmupBlockIdRef.current) {
-            const warmupBlock = session.sequence.find((block) => block.id === boundId)
-            if (!warmupBlock) return
-            const target = getSourceTimeForBlock(warmupBlock, 0)
-            if (Math.abs(video.currentTime - target) > 0.08) {
-              video.currentTime = target
-            }
-            warmupSeekReadyRef.current.add(boundId)
-            video.pause()
-            return
-          }
-
-          if (!isPlaying) {
-            paintAt(resolveCompositionSec(), true)
-          }
-        }}
-      />
-    )
-  }
-
   return (
     <div className="compositor-preview">
       <canvas
@@ -644,10 +634,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         <div className="editor-preview-selection-box" style={selectionBoxStyle} />
       ) : null}
 
-      <div className="compositor-preview__decoders" aria-hidden>
-        {renderDecoderSlot('a')}
-        {renderDecoderSlot('b')}
-      </div>
+      <div ref={decoderHostRef} className="compositor-preview__decoders" aria-hidden />
     </div>
   )
 }

@@ -11,6 +11,7 @@ import {
 import {
   blockTimelineStartSec,
   getBlockTrackId,
+  mapOverlayBlockToRelativeSource,
   resolveMainTrackBlocks,
   resolveOverlayVideoBlocks,
   resolveVideoTrackMaxEndSec,
@@ -289,7 +290,7 @@ export function resolveSceneAt(
     const startSec = blockTimelineStartSec(block)
     const durationSec = blockDuration(block)
     if (clampedTime < startSec || clampedTime >= startSec + durationSec) continue
-    const relative = clampedTime - startSec + block.trim.in_sec / blockPlaybackRate(block)
+    const relative = mapOverlayBlockToRelativeSource(block, clampedTime)
     videoLayers.push({
       blockId: block.id,
       blockIndex: -1,

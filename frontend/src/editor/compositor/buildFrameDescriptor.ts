@@ -14,6 +14,7 @@ import {
   resolveVideoLayerTransforms,
 } from './geometry'
 import { resolveBlockVideoTransform } from '../../utils/blockVideoTransform'
+import { mapOverlayBlockToRelativeSource } from '../videoTracks'
 import {
   frameLayerFromTransitionSpec,
   resolvePlanSceneEffects,
@@ -297,8 +298,7 @@ export function buildFrameDescriptor(
     }
     const block = findBlockInTimeline(timeline, layerDef.blockId, context.session)
     if (!block) continue
-    const relative =
-      clampedTime - layerDef.compositionStartSec + layerDef.trimInSec / layerDef.playbackRate
+    const relative = mapOverlayBlockToRelativeSource(block, clampedTime)
     const blockSize = resolveBlockSourceSize(
       layerDef.blockId,
       context,
