@@ -190,17 +190,23 @@
 | `move_block_to_video_track` | 主轨 / 画中画 |
 | `get_timeline_summary` | 只读 |
 
-### 4.2 Phase C — 扩展
+### 4.2 Phase C — 扩展（§12 含 schema 草案）
 
-| 工具 | 说明 |
-|------|------|
-| `add_clips_to_timeline` | `appendClips` |
-| `reorder_main_track` | 主轨排序 |
-| `set_transition` | 转场 |
-| `add_audio_clip` | BGM/SFX |
-| `update_block_audio` | 音量/淡化 |
-| `detect_silence_trim` | 接已有静音检测 |
-| `undo` / `redo` | 显式历史 |
+| 工具 | store / API | 说明 |
+|------|-------------|------|
+| `list_assets` | 读 snapshot 扩展 | clip / bgm / sfx 素材池 |
+| `add_clips_to_timeline` | `appendClips` | 从素材池加片段 |
+| `reorder_main_track` | `reorderBlocks` | 主轨排序 |
+| `set_transition` | `updateBlockTransition` | 转场 |
+| `add_audio_clip` | `addAudioClipToTimeline` | BGM/SFX |
+| `update_block_audio` | `updateBlockAudio` | 音量/淡化 |
+| `detect_silence_trim` | `detectSilenceTrim` / API | 静音检测裁切 |
+| `set_text_animation` | `applyBatchTextAnimation` | 单/多层动画 |
+| `batch_apply_text_style` | `updateOverlaysParams` | 批量字样式 |
+| `capture_preview_frame` | compositor 截帧 | 只读，base64 |
+| `split_block_at_playhead` | `splitSelectionAtPlayhead` | 切分 |
+| `remove_block` | 待接 store | 删镜头（需 B1 确认） |
+| `undo` / `redo` | `undo` / `redo` | 显式历史 |
 
 ### 4.3 Phase D — 进阶
 
@@ -531,28 +537,49 @@ frontend/src/services/editorAgentApi.ts
 
 ---
 
-### Phase C — 体验与多模态打磨
+### Phase C — 顶级剪辑师工具集（10 项必做 + 体验）
+
+> 详细 tool schema 与 PR 顺序见 **§12**。Phase C 目标：从「能改字和构图」升级到「能叙事、能听、能看见、能验收」。
+
+**10 项必做工具**
+
+| # | 工具 | 域 | 优先级 |
+|---|------|-----|--------|
+| 1 | `list_assets` | 读 | P0 |
+| 2 | `add_clips_to_timeline` | 叙事 | P0 |
+| 3 | `reorder_main_track` | 叙事 | P0 |
+| 4 | `set_transition` | 节奏 | P0 |
+| 5 | `add_audio_clip` | 声音 | P0 |
+| 6 | `update_block_audio` | 声音 | P0 |
+| 7 | `detect_silence_trim` | 节奏 | P1 |
+| 8 | `set_text_animation` | 包装 | P1 |
+| 9 | `capture_preview_frame` | 感知 | P1 |
+| 10 | `split_block_at_playhead` + `remove_block` | 精修 | P1 |
+| + | `batch_apply_text_style` | 包装 | P1 |
+| + | `undo` / `redo` | 协作 | P1 |
+
+**体验项（与工具并行）**
 
 - [ ] SSE 流式回复
-- [ ] 对话线程持久化
-- [ ] 预览截帧作为参考图
-- [ ] 分析/执行模型可分别配置
-- [ ] 失败重试、错误信息回灌 LLM
-- [ ] token 用量展示（为 credits 预留）
+- [ ] 对话线程服务端持久化（前端 localStorage 已有 MVP）
+- [ ] 执行后 `markDirty` + 可选 `flushSaveSession`
+- [ ] 失败重试、错误回灌 LLM
+- [ ] token 用量展示（credits 预留）
 
-**出口标准**：完整对话体验可日常使用；排版分析准确率可接受。
+**出口标准**：用户说「用素材池 3 个 clip 剪 60 秒口播，加 BGM、去气口、统一字幕 fade」→ Agent 能 `list_assets` → 加片/排序/转场/音频/静音检测 → 截帧自检 → 一次确认执行完成。
 
 ---
 
 ### Phase D — 进阶 AI 剪辑
 
-- [ ] 多步计划与批处理
-- [ ] 结合静音检测 / 自动拆条
-- [ ] 画中画位置参考 `video_framing`
-- [ ] 回归测试集（工具参数校验 + 快照不变量）
-- [ ] 与 ROADMAP Phase 2 LiteLLM 代理对接（可选）
+- [ ] 多步 `EditPlan`（Brief → 分步 tool）  
+- [ ] 执行后验收循环（`capture_preview_frame` + 规则微调）  
+- [ ] `BrandStyle` / 风格记忆（扩展 layout_reference）  
+- [ ] `auto_reframe_subject`、BGM duck、SFX 对齐切点  
+- [ ] 回归测试集（工具参数 + 快照不变量）  
+- [ ] LiteLLM 代理对接（可选，见 ROADMAP）
 
-**出口标准**：复杂指令（多片段、多轨）可完成；有自动化回归。
+**出口标准**：复杂多轨指令可完成；有自动化回归与验收。
 
 ---
 
@@ -625,12 +652,315 @@ frontend/src/services/editorAgentApi.ts
 
 ## 11. PR 拆分建议
 
-1. `feat(agent): ollama vision messages` — Provider + 单测  
-2. `feat(agent): analyze-layout API` — 无 UI  
-3. `feat(agent): editor agent panel phase A` — 浮窗 + 分析  
-4. `feat(agent): ollama tools and tool_calls parser` — §5.1 Provider + 单测  
-5. `feat(agent): tool registry and executor` — Phase B 核心  
-6. `feat(agent): chat streaming and thread` — Phase C  
+**已完成（Phase A/B）**
+
+1. `feat(agent): ollama vision messages`  
+2. `feat(agent): analyze-layout API`  
+3. `feat(agent): editor agent panel phase A`  
+4. `feat(agent): ollama tools and tool_calls parser`  
+5. `feat(agent): tool registry and executor` — Phase B  
+6. `feat(agent): universal assistant panel + runAgentChat`  
+
+**Phase C 建议顺序（§12）**
+
+7. `feat(agent): list_assets read tool` — 素材池可读  
+8. `feat(agent): narrative tools` — add_clips + reorder + set_transition  
+9. `feat(agent): audio tools` — add_audio_clip + update_block_audio  
+10. `feat(agent): pacing tools` — detect_silence_trim + split/remove  
+11. `feat(agent): packaging tools` — set_text_animation + batch_apply_text_style  
+12. `feat(agent): capture_preview_frame` — 感知 + 验收基础  
+13. `feat(agent): undo redo tools + chat streaming` — 体验  
+
+---
+
+## 12. Phase C · 工具 schema 草案
+
+> OpenAI/Ollama 兼容 `function.parameters`。实现时同步维护：`toolRegistry.ts`、`editor_agent_tools.py`、`executeToolCall.ts`。
+
+### 12.1 只读 · 感知
+
+#### `list_assets`
+
+```json
+{
+  "name": "list_assets",
+  "description": "列出当前工程可用素材：视频 clip、BGM、SFX",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "category": { "type": "string", "enum": ["clip", "bgm", "sfx", "all"], "description": "默认 all" }
+    }
+  }
+}
+```
+
+**返回（tool role）**：`{ clips: [{id, title, duration_sec}], audio: [{id, name, category}] }`  
+**实现**：扩展 `buildEditorSnapshot` 或独立读工具；clip 来自 project 素材 API。
+
+#### `capture_preview_frame`
+
+```json
+{
+  "name": "capture_preview_frame",
+  "description": "在指定时间截取预览帧（只读），用于检查构图/字幕安全区",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "time_sec": { "type": "number" },
+      "max_width": { "type": "number", "description": "缩略图最大宽，默认 720" }
+    },
+    "required": ["time_sec"]
+  }
+}
+```
+
+**返回**：`{ time_sec, width, height, image_base64 }`（JPEG data URL）  
+**实现**：复用 compositor 离屏渲染；Phase D 用于验收循环。
+
+---
+
+### 12.2 叙事 · 时间线
+
+#### `add_clips_to_timeline`
+
+```json
+{
+  "name": "add_clips_to_timeline",
+  "description": "从素材池追加 clip 到主轨末尾",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "clip_ids": { "type": "array", "items": { "type": "string" } },
+      "source_id": { "type": "string", "description": "可选，多源项目" },
+      "insert_index": { "type": "number", "description": "插入主轨下标，缺省追加" }
+    },
+    "required": ["clip_ids"]
+  }
+}
+```
+
+**store**：`appendClips(projectId, clip_ids, source_id)`
+
+#### `reorder_main_track`
+
+```json
+{
+  "name": "reorder_main_track",
+  "description": "调整主轨片段顺序",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "block_id": { "type": "string" },
+      "to_index": { "type": "number", "description": "目标下标 0-based" }
+    },
+    "required": ["block_id", "to_index"]
+  }
+}
+```
+
+**store**：`reorderBlocks(fromIndex, toIndex)`
+
+#### `set_transition`
+
+```json
+{
+  "name": "set_transition",
+  "description": "设置片段出点转场（作用于 outgoing 片段）",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "block_id": { "type": "string" },
+      "transition": {
+        "type": "string",
+        "enum": ["cut", "dissolve", "fade_black", "wipe_left", "wipe_right", "slide_left", "slide_right", "zoom"]
+      }
+    },
+    "required": ["block_id", "transition"]
+  }
+}
+```
+
+**store**：`updateBlockTransition(blockId, transition)`
+
+#### `split_block_at_playhead`
+
+```json
+{
+  "name": "split_block_at_playhead",
+  "description": "在播放头位置切分当前选中的视频/文本/音频",
+  "parameters": { "type": "object", "properties": {} }
+}
+```
+
+**store**：`splitSelectionAtPlayhead()`（需先 `seek_playhead` 或选中目标）
+
+#### `remove_block`
+
+```json
+{
+  "name": "remove_block",
+  "description": "删除主轨或 overlay 视频片段（危险操作，清单中须醒目标注）",
+  "parameters": {
+    "type": "object",
+    "properties": { "block_id": { "type": "string" } },
+    "required": ["block_id"]
+  }
+}
+```
+
+**store**：待封装；B1 确认清单中对 `remove_*` 高亮。
+
+---
+
+### 12.3 声音
+
+#### `add_audio_clip`
+
+```json
+{
+  "name": "add_audio_clip",
+  "description": "将 BGM 或 SFX 加到时间线",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "asset_id": { "type": "string" },
+      "start_sec": { "type": "number" },
+      "duration_sec": { "type": "number" },
+      "track_id": { "type": "string" },
+      "volume": { "type": "number" },
+      "fade_in_sec": { "type": "number" },
+      "fade_out_sec": { "type": "number" },
+      "block_id": { "type": "string", "description": "可选，联动到视频块" }
+    },
+    "required": ["asset_id", "start_sec"]
+  }
+}
+```
+
+**store**：`addAudioClipToTimeline(assetId, options)`
+
+#### `update_block_audio`
+
+```json
+{
+  "name": "update_block_audio",
+  "description": "调整片段音量与淡化",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "block_id": { "type": "string" },
+      "volume": { "type": "number" },
+      "fade_in_sec": { "type": "number" },
+      "fade_out_sec": { "type": "number" }
+    },
+    "required": ["block_id"]
+  }
+}
+```
+
+**store**：`updateBlockAudio(blockId, patch)`
+
+---
+
+### 12.4 节奏 · 口播
+
+#### `detect_silence_trim`
+
+```json
+{
+  "name": "detect_silence_trim",
+  "description": "检测片段内静音并建议/应用 trim（收紧口播节奏）",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "block_id": { "type": "string" },
+      "apply": { "type": "boolean", "description": "true 直接裁切，false 仅返回建议" },
+      "noise_db": { "type": "number" },
+      "min_silence_sec": { "type": "number" }
+    },
+    "required": ["block_id"]
+  }
+}
+```
+
+**store/API**：`detectSilenceTrim` → `editApi.detectSilence`；`apply=true` 时接 `updateBlockTrim`。
+
+---
+
+### 12.5 包装 · 文本
+
+#### `set_text_animation`
+
+```json
+{
+  "name": "set_text_animation",
+  "description": "设置文本层入场/出场/循环动画",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "overlay_id": { "type": "string" },
+      "in_type": { "type": "string", "enum": ["none", "fade", "slide_up", "slide_down", "scale", "pop"] },
+      "in_duration_sec": { "type": "number" },
+      "out_type": { "type": "string", "enum": ["none", "fade", "slide_up", "slide_down", "scale", "pop"] },
+      "out_duration_sec": { "type": "number" }
+    },
+    "required": ["overlay_id"]
+  }
+}
+```
+
+**store**：`updateOverlayParams` 写 `animation.in/out.*` 或 `applyBatchTextAnimation`  
+**默认**：未指定 in_type 时沿用 C2（fade 0.3s）。
+
+#### `batch_apply_text_style`
+
+```json
+{
+  "name": "batch_apply_text_style",
+  "description": "批量统一文本层样式（不含改 content）",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "overlay_ids": { "type": "array", "items": { "type": "string" }, "description": "缺省=全部文本层" },
+      "fontSize": { "type": "number" },
+      "fontFamily": { "type": "string" },
+      "color": { "type": "string" },
+      "fontWeight": { "type": "string" },
+      "textAlign": { "type": "string" }
+    }
+  }
+}
+```
+
+**store**：`updateOverlaysParams(ids, patch)`；`fontFamily` 过 G1 映射。
+
+---
+
+### 12.6 协作
+
+#### `undo` / `redo`
+
+```json
+{
+  "name": "undo",
+  "description": "撤销上一步编辑（含 Agent 批量操作）",
+  "parameters": { "type": "object", "properties": {} }
+}
+```
+
+**注意**：Agent 一轮写操作已 `pushHistory` 一次；`undo` 用于用户口头「不对，退回」。
+
+---
+
+### 12.7 实现约束（Phase C 统一）
+
+| 约束 | 说明 |
+|------|------|
+| 白名单 | 新工具先进 `editor_agent_tools.py` + `toolRegistry` |
+| id 校验 | `block_id` / `overlay_id` / `asset_id` 必须 ∈ snapshot 或读工具结果 |
+| 危险操作 | `remove_block`、批量 delete 在 B1 清单加 ⚠ |
+| 异步 | `appendClips`、`detect_silence_trim` 需 `executeToolCall` 支持 async 或拆为 plan→confirm→poll |
+| token | 单次 chat tools ≤12；`capture_preview_frame` 结果不写入持久对话，仅 tool 回传缩略图 |
 
 ---
 
