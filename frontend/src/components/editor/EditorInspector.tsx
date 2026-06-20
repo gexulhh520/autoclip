@@ -5,6 +5,8 @@ import OpenCutPropertiesEmpty from './opencut/OpenCutPropertiesEmpty'
 import { blockDuration, useEditSessionStore } from '../../stores/useEditSessionStore'
 import { collectTrimSnapPoints, snapTime } from '../../utils/editTimeline'
 import {
+  BLOCK_VIDEO_POSITION_MAX,
+  BLOCK_VIDEO_POSITION_MIN,
   BLOCK_VIDEO_SCALE_MAX,
   BLOCK_VIDEO_SCALE_MIN,
   blockVideoTransformIsUniform,
@@ -346,9 +348,21 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
         (block) =>
           resolveBlockVideoTransform(block).scale_y !== videoTransform.scale_y
       )
+    const positionXMixed =
+      isBatchVideoSelection &&
+      selectedVideoBlocks.some(
+        (block) =>
+          resolveBlockVideoTransform(block).position_x !== videoTransform.position_x
+      )
+    const positionYMixed =
+      isBatchVideoSelection &&
+      selectedVideoBlocks.some(
+        (block) =>
+          resolveBlockVideoTransform(block).position_y !== videoTransform.position_y
+      )
     const mixedSuffix = (mixed: boolean) => (mixed ? ' · 多种' : '')
 
-    const applyScalePatch = (patch: Parameters<typeof updateBlockVideoTransform>[1]) => {
+    const applyVideoTransformPatch = (patch: Parameters<typeof updateBlockVideoTransform>[1]) => {
       if (isBatchVideoSelection) {
         updateBlocksVideoTransform(scaleTargetIds, patch)
         return
@@ -356,8 +370,10 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
       updateBlockVideoTransform(seedBlock.id, patch)
     }
 
-    const resetScale = () => {
-      applyScalePatch({
+    const applyScalePatch = applyVideoTransformPatch
+
+    const resetVideoTransform = () => {
+      applyVideoTransformPatch({
         scale_x: 1,
         scale_y: 1,
         position_x: 0,
@@ -373,7 +389,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
             <>
               <div className="editor-inspector-value">已选中 {selectedVideoBlocks.length} 个片段</div>
               <div className="editor-inspector-muted" style={{ marginTop: 6 }}>
-                缩放将批量应用到全部选中片段；裁剪与倍速请单选后调节
+                缩放与位置将批量应用到全部选中片段；裁剪与倍速请单选后调节
               </div>
             </>
           ) : (
@@ -463,10 +479,48 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
             type="button"
             className="editor-import-btn"
             style={{ marginTop: 12 }}
-            onClick={resetScale}
+            onClick={resetVideoTransform}
           >
-            重置缩放
+            重置画面
           </button>
+        </div>
+        <div className="editor-inspector-section">
+          <div className="editor-inspector-label">位置</div>
+          <div className="editor-inspector-muted" style={{ marginBottom: 8 }}>
+            相对画布中心偏移（像素）；也可在预览区拖拽画面
+          </div>
+          <div className="editor-inspector-label">
+            水平 ({videoTransform.position_x.toFixed(0)}px{mixedSuffix(positionXMixed)})
+          </div>
+          <input
+            className="editor-range"
+            type="range"
+            min={BLOCK_VIDEO_POSITION_MIN}
+            max={BLOCK_VIDEO_POSITION_MAX}
+            step={1}
+            value={videoTransform.position_x}
+            onChange={(event) =>
+              applyVideoTransformPatch({
+                position_x: Number(event.target.value),
+              })
+            }
+          />
+          <div className="editor-inspector-label" style={{ marginTop: 12 }}>
+            垂直 ({videoTransform.position_y.toFixed(0)}px{mixedSuffix(positionYMixed)})
+          </div>
+          <input
+            className="editor-range"
+            type="range"
+            min={BLOCK_VIDEO_POSITION_MIN}
+            max={BLOCK_VIDEO_POSITION_MAX}
+            step={1}
+            value={videoTransform.position_y}
+            onChange={(event) =>
+              applyVideoTransformPatch({
+                position_y: Number(event.target.value),
+              })
+            }
+          />
         </div>
         {!isBatchVideoSelection && selectedBlock ? (
           <>

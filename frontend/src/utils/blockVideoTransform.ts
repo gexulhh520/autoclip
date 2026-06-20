@@ -2,6 +2,9 @@ import type { EditBlock, EditBlockVideoTransform } from '../types/editSession'
 
 export const BLOCK_VIDEO_SCALE_MIN = 0.1
 export const BLOCK_VIDEO_SCALE_MAX = 4
+/** 画布中心像素偏移（正=向右/向下） */
+export const BLOCK_VIDEO_POSITION_MIN = -2000
+export const BLOCK_VIDEO_POSITION_MAX = 2000
 
 export const DEFAULT_BLOCK_VIDEO_TRANSFORM: Required<EditBlockVideoTransform> = {
   scale_x: 1,

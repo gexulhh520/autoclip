@@ -27,6 +27,9 @@ describe('hitTestFrameDescriptor', () => {
     const centerX = textItem.transform.x + textItem.transform.width / 2
     const centerY = textItem.transform.y + textItem.transform.height / 2
     const hit = hitTestFrameDescriptor(frame, centerX, centerY)
-    expect(hit?.elementId).toBe('txt-1')
+    expect(hit?.kind).toBe('text')
+    if (hit?.kind === 'text') {
+      expect(hit.elementId).toBe('txt-1')
+    }
   })
 })

@@ -15,6 +15,13 @@ export interface HitTestTarget {
   blockId?: string
 }
 
+export interface VideoHitTestTarget {
+  kind: 'video'
+  blockId: string
+}
+
+export type FrameHitTestTarget = HitTestTarget | VideoHitTestTarget
+
 export interface TextBoundTarget {
   elementId: string
   textKind: PreviewTextKind
@@ -158,12 +165,20 @@ export function resolveBoxSelectionItems(
   return items
 }
 
-/** FrameDescriptor 文本层 hit test（预览选择用） */
+const collectVideoLayers = (descriptor: FrameDescriptor) =>
+  descriptor.items
+    .filter(
+      (item): item is Extract<FrameDescriptor['items'][number], { kind: 'layer' }> =>
+        item.kind === 'layer' && item.source === 'video' && Boolean(item.blockId)
+    )
+    .sort((a, b) => b.zIndex - a.zIndex)
+
+/** FrameDescriptor 文本/视频层 hit test（预览选择用） */
 export function hitTestFrameDescriptor(
   descriptor: FrameDescriptor,
   x: number,
   y: number
-): HitTestTarget | null {
+): FrameHitTestTarget | null {
   const canvas = document.createElement('canvas')
   const ctx = canvas.getContext('2d')
   if (!ctx) return null
@@ -180,6 +195,13 @@ export function hitTestFrameDescriptor(
         textKind: parsed.textKind,
         blockId: parsed.blockId,
       }
+    }
+  }
+
+  for (const item of collectVideoLayers(descriptor)) {
+    if (!item.blockId) continue
+    if (containsPoint(item.transform, x, y)) {
+      return { kind: 'video', blockId: item.blockId }
     }
   }
 

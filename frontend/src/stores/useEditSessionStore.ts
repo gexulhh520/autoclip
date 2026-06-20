@@ -355,6 +355,10 @@ interface EditSessionState {
     blockIds: string[],
     patch: Partial<EditBlockVideoTransform>
   ) => void
+  moveBlockVideoPositions: (
+    updates: Array<{ blockId: string; position_x: number; position_y: number }>,
+    options?: { recordHistory?: boolean }
+  ) => void
   syncBlocksVideoScaleUniform: (blockIds: string[]) => void
   updateBlockPlaybackRate: (blockId: string, rate: number) => void
   updateBlockTransition: (blockId: string, transition: EditBlock['transition_out']) => void
@@ -2573,6 +2577,28 @@ export const useEditSessionStore = create<EditSessionState>()(
               scale_y: clampBlockVideoScale(next.scale_y),
               position_x: next.position_x,
               position_y: next.position_y,
+            }
+          }
+          state.dirty = true
+        })
+      },
+
+      moveBlockVideoPositions: (updates, options) => {
+        if (options?.recordHistory !== false && updates.length > 0) {
+          pushHistory()
+        }
+        if (updates.length === 0) return
+        set((state) => {
+          if (!state.session) return
+          for (const update of updates) {
+            const block = state.session.sequence.find((item) => item.id === update.blockId)
+            if (!block) continue
+            const current = resolveBlockVideoTransform(block)
+            block.video_transform = {
+              scale_x: current.scale_x,
+              scale_y: current.scale_y,
+              position_x: update.position_x,
+              position_y: update.position_y,
             }
           }
           state.dirty = true

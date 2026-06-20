@@ -55,14 +55,18 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const overlayElements = useEditSessionStore((state) => state.session?.overlay_elements)
   const selectedOverlayId = useEditSessionStore((state) => state.selectedOverlayId)
   const selectedOverlayIds = useEditSessionStore((state) => state.selectedOverlayIds)
+  const selectedBlockId = useEditSessionStore((state) => state.selectedBlockId)
+  const selectedBlockIds = useEditSessionStore((state) => state.selectedBlockIds)
   const selectedCaptionBlockIds = useEditSessionStore((state) => state.selectedCaptionBlockIds)
   const setSelectedOverlayId = useEditSessionStore((state) => state.setSelectedOverlayId)
   const setSelectedCaptionBlockId = useEditSessionStore((state) => state.setSelectedCaptionBlockId)
+  const setSelectedBlockId = useEditSessionStore((state) => state.setSelectedBlockId)
   const setBoxSelection = useEditSessionStore((state) => state.setBoxSelection)
   const clearEditorSelection = useEditSessionStore((state) => state.clearEditorSelection)
   const beginOverlayDragHistory = useEditSessionStore((state) => state.beginOverlayDragHistory)
   const moveOverlayPositions = useEditSessionStore((state) => state.moveOverlayPositions)
   const moveCaptionOffsets = useEditSessionStore((state) => state.moveCaptionOffsets)
+  const moveBlockVideoPositions = useEditSessionStore((state) => state.moveBlockVideoPositions)
   const textTrackMuted = useEditSessionStore((state) => state.textTrackMuted)
   const videoTrackMuted = useEditSessionStore((state) => state.videoTrackMuted)
   const audioTrackMuted = useEditSessionStore((state) => state.audioTrackMuted)
@@ -75,6 +79,15 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const mutedTextTrackIds = useMemo(
     () => Object.entries(textTrackMuted).filter(([, muted]) => muted).map(([id]) => id),
     [textTrackMuted]
+  )
+  const selectedVideoBlockIds = useMemo(
+    () =>
+      selectedBlockIds.length > 0
+        ? selectedBlockIds
+        : selectedBlockId
+          ? [selectedBlockId]
+          : [],
+    [selectedBlockId, selectedBlockIds]
   )
   const mutedVideoTrackIds = useMemo(
     () => Object.entries(videoTrackMuted).filter(([, muted]) => muted).map(([id]) => id),
@@ -346,6 +359,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                 selectedOverlayId={selectedOverlayId}
                 selectedOverlayIds={selectedOverlayIds}
                 selectedCaptionBlockIds={selectedCaptionBlockIds}
+                selectedVideoBlockIds={selectedVideoBlockIds}
                 mutedTextTrackIds={mutedTextTrackIds}
                 getVideoUrlForBlock={getVideoUrlForBlock}
                 getSourceTimeForBlock={getSourceTimeForBlock}
@@ -355,11 +369,13 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                 onPlaybackComplete={handleCompositorPlaybackComplete}
                 onSelectOverlay={setSelectedOverlayId}
                 onSelectCaption={setSelectedCaptionBlockId}
+                onSelectVideoBlock={setSelectedBlockId}
                 setBoxSelection={setBoxSelection}
                 clearEditorSelection={clearEditorSelection}
                 beginOverlayDragHistory={beginOverlayDragHistory}
                 moveOverlayPositions={moveOverlayPositions}
                 moveCaptionOffsets={moveCaptionOffsets}
+                moveBlockVideoPositions={moveBlockVideoPositions}
               />
             ) : (
               <div className="editor-empty-hint">点击左侧素材预览，或选择时间线片段</div>

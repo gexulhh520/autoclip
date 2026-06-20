@@ -46,6 +46,7 @@ export interface CompositorPreviewProps {
   selectedOverlayId: string | null
   selectedOverlayIds: string[]
   selectedCaptionBlockIds?: string[]
+  selectedVideoBlockIds?: string[]
   mutedTextTrackIds: string[]
   getVideoUrlForBlock: (block: EditBlock) => string
   getSourceTimeForBlock: (block: EditBlock, relativeSec: number) => number
@@ -58,6 +59,7 @@ export interface CompositorPreviewProps {
     options?: { additive?: boolean; seekPlayhead?: boolean }
   ) => void
   onSelectCaption?: (blockId: string | null, options?: { additive?: boolean }) => void
+  onSelectVideoBlock?: (blockId: string | null, options?: { additive?: boolean }) => void
   setBoxSelection?: (items: BoxSelectableItem[], options?: { additive?: boolean }) => void
   clearEditorSelection?: () => void
   beginOverlayDragHistory?: () => void
@@ -67,6 +69,10 @@ export interface CompositorPreviewProps {
   ) => void
   moveCaptionOffsets?: (
     updates: Array<{ blockId: string; position_offset_x_pct: number; position_offset_y_pct: number }>,
+    options?: { recordHistory?: boolean }
+  ) => void
+  moveBlockVideoPositions?: (
+    updates: Array<{ blockId: string; position_x: number; position_y: number }>,
     options?: { recordHistory?: boolean }
   ) => void
 }
@@ -124,6 +130,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   selectedOverlayId,
   selectedOverlayIds,
   selectedCaptionBlockIds = [],
+  selectedVideoBlockIds = [],
   mutedTextTrackIds,
   getVideoUrlForBlock,
   getSourceTimeForBlock,
@@ -133,11 +140,13 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   onPlaybackComplete,
   onSelectOverlay,
   onSelectCaption,
+  onSelectVideoBlock,
   setBoxSelection,
   clearEditorSelection,
   beginOverlayDragHistory,
   moveOverlayPositions,
   moveCaptionOffsets,
+  moveBlockVideoPositions,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const slotARef = useRef<HTMLVideoElement>(null)
@@ -569,13 +578,16 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     session,
     selectedOverlayIds,
     selectedCaptionBlockIds,
+    selectedVideoBlockIds,
     onSelectOverlay,
     onSelectCaption,
+    onSelectVideoBlock,
     setBoxSelection,
     clearEditorSelection,
     beginOverlayDragHistory: beginOverlayDragHistory ?? (() => undefined),
     moveOverlayPositions: moveOverlayPositions ?? (() => undefined),
     moveCaptionOffsets: moveCaptionOffsets ?? (() => undefined),
+    moveBlockVideoPositions: moveBlockVideoPositions ?? (() => undefined),
   })
 
   const renderDecoderSlot = (slot: PreviewVideoSlot) => {

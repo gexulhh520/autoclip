@@ -4,6 +4,7 @@ import { normalizeSelectionRect } from '../selection/boxSelect'
 import type { EditSession } from '../../types/editSession'
 import { readNumberParam } from '../opencut-text/params'
 import type { FrameDescriptor } from './types'
+import { resolveBlockVideoTransform } from '../../utils/blockVideoTransform'
 import {
   canvasPointFromEvent,
   hitTestFrameDescriptor,
@@ -33,6 +34,16 @@ interface CaptionDragState {
   startOffsets: Map<string, { xPct: number; yPct: number }>
 }
 
+interface VideoDragState {
+  mode: 'video'
+  pointerId: number
+  startX: number
+  startY: number
+  dragging: boolean
+  blockIds: string[]
+  startPositions: Map<string, { position_x: number; position_y: number }>
+}
+
 interface BoxSelectState {
   mode: 'box'
   pointerId: number
@@ -42,7 +53,7 @@ interface BoxSelectState {
   additive: boolean
 }
 
-type InteractionState = OverlayDragState | CaptionDragState | BoxSelectState
+type InteractionState = OverlayDragState | CaptionDragState | VideoDragState | BoxSelectState
 
 export interface PreviewSelectionBoxStyle {
   left: number
@@ -57,11 +68,13 @@ export interface UsePreviewTextDragOptions {
   session: EditSession | null
   selectedOverlayIds: string[]
   selectedCaptionBlockIds: string[]
+  selectedVideoBlockIds?: string[]
   onSelectOverlay?: (
     overlayId: string | null,
     options?: { additive?: boolean; seekPlayhead?: boolean }
   ) => void
   onSelectCaption?: (blockId: string | null, options?: { additive?: boolean }) => void
+  onSelectVideoBlock?: (blockId: string | null, options?: { additive?: boolean }) => void
   setBoxSelection?: (items: BoxSelectableItem[], options?: { additive?: boolean }) => void
   clearEditorSelection?: () => void
   beginOverlayDragHistory: () => void
@@ -71,6 +84,10 @@ export interface UsePreviewTextDragOptions {
   ) => void
   moveCaptionOffsets: (
     updates: Array<{ blockId: string; position_offset_x_pct: number; position_offset_y_pct: number }>,
+    options?: { recordHistory?: boolean }
+  ) => void
+  moveBlockVideoPositions?: (
+    updates: Array<{ blockId: string; position_x: number; position_y: number }>,
     options?: { recordHistory?: boolean }
   ) => void
 }
@@ -97,13 +114,16 @@ export function usePreviewTextDrag({
   session,
   selectedOverlayIds,
   selectedCaptionBlockIds,
+  selectedVideoBlockIds = [],
   onSelectOverlay,
   onSelectCaption,
+  onSelectVideoBlock,
   setBoxSelection,
   clearEditorSelection,
   beginOverlayDragHistory,
   moveOverlayPositions,
   moveCaptionOffsets,
+  moveBlockVideoPositions,
 }: UsePreviewTextDragOptions) {
   const dragRef = useRef<InteractionState | null>(null)
   const [selectionBoxStyle, setSelectionBoxStyle] = useState<PreviewSelectionBoxStyle | null>(null)
@@ -152,6 +172,29 @@ export function usePreviewTextDrag({
     [selectedCaptionBlockIds]
   )
 
+  const readVideoBlockPosition = useCallback(
+    (blockId: string): { position_x: number; position_y: number } | null => {
+      const block = session?.sequence.find((item) => item.id === blockId)
+      if (!block) return null
+      const transform = resolveBlockVideoTransform(block)
+      return {
+        position_x: transform.position_x,
+        position_y: transform.position_y,
+      }
+    },
+    [session]
+  )
+
+  const resolveVideoDragTargets = useCallback(
+    (blockId: string): string[] => {
+      if (selectedVideoBlockIds.includes(blockId) && selectedVideoBlockIds.length > 0) {
+        return selectedVideoBlockIds
+      }
+      return [blockId]
+    },
+    [selectedVideoBlockIds]
+  )
+
   const handlePointerDown = useCallback(
     (event: React.PointerEvent<HTMLCanvasElement>) => {
       if (!descriptor || !session || event.button !== 0) return
@@ -162,7 +205,49 @@ export function usePreviewTextDrag({
       const hit = hitTestFrameDescriptor(descriptor, x, y)
       const additive = event.shiftKey || event.metaKey || event.ctrlKey
 
-      if (!hit?.elementId) {
+      if (!hit) {
+        dragRef.current = {
+          mode: 'box',
+          pointerId: event.pointerId,
+          startX: x,
+          startY: y,
+          active: false,
+          additive,
+        }
+        return
+      }
+
+      if (hit.kind === 'video') {
+        if (!moveBlockVideoPositions) return
+
+        event.preventDefault()
+        canvas.setPointerCapture(event.pointerId)
+
+        const blockIds = resolveVideoDragTargets(hit.blockId)
+        const startPositions = new Map<string, { position_x: number; position_y: number }>()
+        for (const blockId of blockIds) {
+          const position = readVideoBlockPosition(blockId)
+          if (position) startPositions.set(blockId, position)
+        }
+        if (startPositions.size === 0) return
+
+        if (!selectedVideoBlockIds.includes(hit.blockId)) {
+          onSelectVideoBlock?.(hit.blockId, { additive })
+        }
+
+        dragRef.current = {
+          mode: 'video',
+          pointerId: event.pointerId,
+          startX: x,
+          startY: y,
+          dragging: false,
+          blockIds,
+          startPositions,
+        }
+        return
+      }
+
+      if (!hit.elementId) {
         dragRef.current = {
           mode: 'box',
           pointerId: event.pointerId,
@@ -236,14 +321,19 @@ export function usePreviewTextDrag({
     [
       canvasRef,
       descriptor,
+      moveBlockVideoPositions,
       onSelectCaption,
       onSelectOverlay,
+      onSelectVideoBlock,
       readCaptionOffset,
       readOverlayPosition,
+      readVideoBlockPosition,
       resolveCaptionDragTargets,
       resolveOverlayDragTargets,
+      resolveVideoDragTargets,
       selectedCaptionBlockIds,
       selectedOverlayIds,
+      selectedVideoBlockIds,
       session,
     ]
   )
@@ -299,6 +389,22 @@ export function usePreviewTextDrag({
         return
       }
 
+      if (drag.mode === 'video') {
+        const updates = drag.blockIds.flatMap((blockId) => {
+          const start = drag.startPositions.get(blockId)
+          if (!start) return []
+          return [
+            {
+              blockId,
+              position_x: start.position_x + dx,
+              position_y: start.position_y + dy,
+            },
+          ]
+        })
+        moveBlockVideoPositions?.(updates, { recordHistory: false })
+        return
+      }
+
       const updates = drag.blockIds.flatMap((blockId) => {
         const start = drag.startOffsets.get(blockId)
         if (!start) return []
@@ -316,6 +422,7 @@ export function usePreviewTextDrag({
       beginOverlayDragHistory,
       canvasRef,
       descriptor,
+      moveBlockVideoPositions,
       moveCaptionOffsets,
       moveOverlayPositions,
       setBoxSelection,
@@ -346,6 +453,8 @@ export function usePreviewTextDrag({
       if (!drag.dragging) {
         if (drag.mode === 'caption') {
           onSelectCaption?.(drag.blockIds[0] ?? null, { additive })
+        } else if (drag.mode === 'video') {
+          onSelectVideoBlock?.(drag.blockIds[0] ?? null, { additive })
         } else {
           onSelectOverlay?.(drag.overlayIds[0] ?? null, {
             additive,
@@ -356,7 +465,7 @@ export function usePreviewTextDrag({
 
       dragRef.current = null
     },
-    [canvasRef, clearEditorSelection, onSelectCaption, onSelectOverlay]
+    [canvasRef, clearEditorSelection, onSelectCaption, onSelectOverlay, onSelectVideoBlock]
   )
 
   const handlePointerUp = useCallback(
