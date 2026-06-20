@@ -215,6 +215,43 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
   {
     type: 'function',
     function: {
+      name: 'detect_silence_trim',
+      description: '检测片段内静音并建议或应用 trim（收紧口播节奏）',
+      parameters: {
+        type: 'object',
+        properties: {
+          block_id: { type: 'string' },
+          apply: { type: 'boolean', description: 'true 直接裁切，false 仅返回建议' },
+          noise_db: { type: 'number' },
+          min_silence_sec: { type: 'number' },
+        },
+        required: ['block_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'split_block_at_playhead',
+      description: '在播放头位置切分当前选中的视频/文本/音频（需先 seek_playhead）',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_block',
+      description: '删除视频片段（危险操作）',
+      parameters: {
+        type: 'object',
+        properties: { block_id: { type: 'string' } },
+        required: ['block_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'list_assets',
       description: '只读：列出当前工程可用素材（视频 clip 池、BGM、SFX）',
       parameters: {
@@ -274,10 +311,16 @@ export const READ_ONLY_AGENT_TOOLS = new Set([
   'get_overlay_detail',
 ])
 
-export const ASYNC_WRITE_AGENT_TOOLS = new Set(['add_clips_to_timeline'])
+export const ASYNC_WRITE_AGENT_TOOLS = new Set(['add_clips_to_timeline', 'detect_silence_trim'])
+
+export const DANGEROUS_AGENT_TOOLS = new Set(['remove_block'])
 
 export function isAsyncWriteAgentTool(name: string): boolean {
   return ASYNC_WRITE_AGENT_TOOLS.has(name)
+}
+
+export function isDangerousAgentTool(name: string): boolean {
+  return DANGEROUS_AGENT_TOOLS.has(name)
 }
 
 export function isReadOnlyAgentTool(name: string): boolean {
@@ -310,6 +353,12 @@ export function formatToolCallSummary(name: string, args: Record<string, unknown
       return `添加音频 ${args.asset_id} @${args.start_sec}s`
     case 'update_block_audio':
       return `调整片段原声 ${args.block_id}`
+    case 'detect_silence_trim':
+      return `${args.apply === false ? '检测' : '去气口'} ${args.block_id}`
+    case 'split_block_at_playhead':
+      return '在播放头位置切分'
+    case 'remove_block':
+      return `⚠ 删除片段 ${args.block_id}`
     case 'seek_playhead':
       return `播放头 → ${args.time_sec}s`
     case 'list_assets':

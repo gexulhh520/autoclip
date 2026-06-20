@@ -325,7 +325,11 @@ interface EditSessionState {
     blockId: string,
     mode?: 'outline' | 'content' | 'both'
   ) => Promise<void>
-  detectSilenceTrim: (projectId: string, blockId: string) => Promise<number>
+  detectSilenceTrim: (
+    projectId: string,
+    blockId: string,
+    options?: { noise_db?: number; min_silence_sec?: number; recordHistory?: boolean }
+  ) => Promise<number>
   splitAtInternalSilence: (projectId: string, blockId: string) => Promise<number>
   appendClips: (
     projectId: string,
@@ -533,7 +537,11 @@ interface EditSessionState {
   ) => void
   updateSessionName: (name: string) => void
   deleteSelectedBlock: (options?: { ripple?: boolean }) => void
-  splitSelectionAtPlayhead: () => void
+  removeBlock: (
+    blockId: string,
+    options?: { ripple?: boolean; recordHistory?: boolean }
+  ) => boolean
+  splitSelectionAtPlayhead: (options?: { recordHistory?: boolean }) => boolean
   canSplitSelectionAtPlayhead: () => boolean
   undo: () => void
   redo: () => void
@@ -1118,25 +1126,30 @@ export const useEditSessionStore = create<EditSessionState>()(
         }
       },
 
-      detectSilenceTrim: async (projectId, blockId) => {
+      detectSilenceTrim: async (projectId, blockId, options) => {
         const { session } = get()
         if (!session) throw new Error('无剪辑工程')
         const block = session.sequence.find((item) => item.id === blockId)
         if (!block) throw new Error('片段不存在')
         const result = await editApi.detectSilence(projectId, session.id, {
           block_id: blockId,
+          noise_db: options?.noise_db,
+          min_silence_sec: options?.min_silence_sec,
         })
         const { in_sec, out_sec } = result.suggested_trim
         if (Math.abs(in_sec - block.trim.in_sec) < 0.05 && Math.abs(out_sec - block.trim.out_sec) < 0.05) {
           return 0
         }
-        pushHistory()
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
         set((state) => {
           if (!state.session) return
           const target = state.session.sequence.find((item) => item.id === blockId)
           if (!target) return
           target.trim.in_sec = in_sec
           target.trim.out_sec = out_sec
+          state.dirty = true
         })
         return result.removed_sec
       },
@@ -2918,8 +2931,16 @@ export const useEditSessionStore = create<EditSessionState>()(
       },
 
       deleteSelectedBlock: (options) => {
-        const { session, selectedBlockId, sequencePlayheadSec, timelineZoom } = get()
-        if (!session || !selectedBlockId) return
+        const { selectedBlockId } = get()
+        if (!selectedBlockId) return
+        get().removeBlock(selectedBlockId, options)
+      },
+
+      removeBlock: (blockId, options) => {
+        const { session, sequencePlayheadSec, timelineZoom } = get()
+        if (!session) return false
+        if (!session.sequence.some((block) => block.id === blockId)) return false
+
         const pxPerSec = (timelineZoom / 100) * BASE_PX_PER_SEC
         const transitionSec = transitionDurationSec(session)
         const segments = buildCompositionTimelineSegments(
@@ -2928,34 +2949,39 @@ export const useEditSessionStore = create<EditSessionState>()(
           transitionSec,
           session.sequence_block_gaps
         )
-        const deletedSegment = segments.find((item) => item.block.id === selectedBlockId)
-        const deletedIndex = session.sequence.findIndex((block) => block.id === selectedBlockId)
+        const deletedSegment = segments.find((item) => item.block.id === blockId)
+        const deletedIndex = session.sequence.findIndex((block) => block.id === blockId)
         const ripple = options?.ripple !== false
         const nextPlayhead = ripple
           ? Math.max(0, deletedSegment?.startSec ?? sequencePlayheadSec)
           : 0
 
-        pushHistory()
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
         set((state) => {
           if (!state.session) return
-          state.session.sequence = state.session.sequence.filter(
-            (block) => block.id !== selectedBlockId
-          )
+          state.session.sequence = state.session.sequence.filter((block) => block.id !== blockId)
           removeSequenceBlockGapAt(state.session, deletedIndex)
           const nextBlocks = state.session.sequence
           const nextIndex = Math.min(Math.max(0, deletedIndex), Math.max(0, nextBlocks.length - 1))
-          state.selectedBlockId = nextBlocks[nextIndex]?.id ?? null
+          if (state.selectedBlockId === blockId) {
+            state.selectedBlockId = nextBlocks[nextIndex]?.id ?? null
+            state.selectedBlockIds = state.selectedBlockId ? [state.selectedBlockId] : []
+          }
           state.sequencePlayheadSec = Math.min(
             nextPlayhead,
             getCompositionTotalDuration(nextBlocks, transitionSec, state.session.sequence_block_gaps)
           )
+          state.dirty = true
         })
+        return true
       },
 
-      splitSelectionAtPlayhead: () => {
+      splitSelectionAtPlayhead: (options) => {
         const state = get()
         const { session, sequencePlayheadSec, timelineZoom } = state
-        if (!session) return
+        if (!session) return false
 
         const pxPerSec = (timelineZoom / 100) * BASE_PX_PER_SEC
         const target = resolveSplitSelectionTarget({
@@ -2970,16 +2996,18 @@ export const useEditSessionStore = create<EditSessionState>()(
           selectedCaptionBlockIds: state.selectedCaptionBlockIds,
           selectedBlockId: state.selectedBlockId,
         })
-        if (!target) return
+        if (!target) return false
 
-        pushHistory()
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
 
         if (target.kind === 'text_overlay') {
           const index = session.overlay_elements?.findIndex((item) => item.id === target.overlayId) ?? -1
           const overlay = session.overlay_elements?.[index]
-          if (!overlay) return
+          if (!overlay) return false
           const split = splitOverlayElement(overlay, sequencePlayheadSec)
-          if (!split) return
+          if (!split) return false
           const secondId = nanoid()
           set((draft) => {
             if (!draft.session?.overlay_elements) return
@@ -2989,15 +3017,15 @@ export const useEditSessionStore = create<EditSessionState>()(
             draft.selectedOverlayIds = [secondId]
             draft.dirty = true
           })
-          return
+          return true
         }
 
         if (target.kind === 'audio_clip') {
           const index = session.audio_elements?.findIndex((item) => item.id === target.clipId) ?? -1
           const clip = session.audio_elements?.[index]
-          if (!clip) return
+          if (!clip) return false
           const split = splitAudioClipElement(clip, sequencePlayheadSec)
-          if (!split) return
+          if (!split) return false
           const secondId = nanoid()
           set((draft) => {
             if (!draft.session?.audio_elements) return
@@ -3007,11 +3035,11 @@ export const useEditSessionStore = create<EditSessionState>()(
             draft.selectedAudioClipId = secondId
             draft.dirty = true
           })
-          return
+          return true
         }
 
         const index = session.sequence.findIndex((item) => item.id === target.blockId)
-        if (index < 0) return
+        if (index < 0) return false
         const block = session.sequence[index]!
         const segments = buildCompositionTimelineSegments(
           session.sequence,
@@ -3020,9 +3048,9 @@ export const useEditSessionStore = create<EditSessionState>()(
           session.sequence_block_gaps
         )
         const segment = segments.find((item) => item.block.id === target.blockId)
-        if (!segment) return
+        if (!segment) return false
         const splitAt = resolveVideoBlockSplitAt(block, segment.startSec, sequencePlayheadSec)
-        if (splitAt == null) return
+        if (splitAt == null) return false
 
         set((draft) => {
           if (!draft.session) return
@@ -3043,6 +3071,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           draft.selectedBlockIds = [second.id]
           draft.dirty = true
         })
+        return true
       },
 
       canSplitSelectionAtPlayhead: () => {

@@ -21,7 +21,9 @@ import {
   validateAudioAssetId,
   validateVideoBlockId,
 } from './audioTools'
+import { optionalNumber, parseApplyFlag } from './pacingTools'
 import { isReadOnlyAgentTool } from './toolRegistry'
+import { editApi } from '../../services/editApi'
 import type { AgentToolCall, AgentToolResult } from '../../types/editorAgent'
 import type { AudioClipElement } from '../../types/editSession'
 import type { useEditSessionStore } from '../../stores/useEditSessionStore'
@@ -276,6 +278,73 @@ export async function executeWriteToolCall(
         }
         store.updateBlockAudio(blockId, patch, { recordHistory })
         return { ok: true, tool_name: call.name, data: { block_id: blockId, ...patch } }
+      }
+      case 'detect_silence_trim': {
+        const projectId = options?.projectId?.trim()
+        if (!projectId) {
+          return { ok: false, tool_name: call.name, error: '缺少 projectId，无法检测静音' }
+        }
+        const blockId = str(call.arguments.block_id)
+        const blockCheck = validateVideoBlockId(session, blockId)
+        if ('error' in blockCheck) {
+          return { ok: false, tool_name: call.name, error: blockCheck.error }
+        }
+        const apply = parseApplyFlag(call.arguments.apply, true)
+        const detectPayload = {
+          block_id: blockId,
+          noise_db: optionalNumber(call.arguments.noise_db),
+          min_silence_sec: optionalNumber(call.arguments.min_silence_sec),
+        }
+        if (!apply) {
+          const result = await editApi.detectSilence(projectId, session.id, detectPayload)
+          return {
+            ok: true,
+            tool_name: call.name,
+            data: {
+              block_id: blockId,
+              applied: false,
+              suggested_trim: result.suggested_trim,
+              removed_sec: result.removed_sec,
+              silence_regions: result.silence_regions,
+              split_points: result.split_points,
+            },
+          }
+        }
+        const removedSec = await store.detectSilenceTrim(projectId, blockId, {
+          ...detectPayload,
+          recordHistory,
+        })
+        return {
+          ok: true,
+          tool_name: call.name,
+          data: { block_id: blockId, removed_sec: removedSec, applied: true },
+        }
+      }
+      case 'split_block_at_playhead': {
+        if (!store.canSplitSelectionAtPlayhead()) {
+          return {
+            ok: false,
+            tool_name: call.name,
+            error: '播放头不在可切分位置（请先 seek_playhead 并确保选中目标）',
+          }
+        }
+        const split = store.splitSelectionAtPlayhead({ recordHistory })
+        if (!split) {
+          return { ok: false, tool_name: call.name, error: '切分失败' }
+        }
+        return {
+          ok: true,
+          tool_name: call.name,
+          data: { playhead_sec: getStore().sequencePlayheadSec },
+        }
+      }
+      case 'remove_block': {
+        const blockId = str(call.arguments.block_id)
+        const removed = store.removeBlock(blockId, { recordHistory })
+        if (!removed) {
+          return { ok: false, tool_name: call.name, error: `片段不存在: ${blockId}` }
+        }
+        return { ok: true, tool_name: call.name, data: { block_id: blockId } }
       }
       case 'seek_playhead': {
         store.setSequencePlayheadSec(num(call.arguments.time_sec, 0))

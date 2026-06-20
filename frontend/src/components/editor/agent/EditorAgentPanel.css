@@ -240,6 +240,11 @@
   overflow-y: auto;
 }
 
+.editor-agent-panel__plan-list li.is-dangerous {
+  color: var(--editor-text);
+  font-weight: 500;
+}
+
 .editor-agent-panel__chat {
   display: flex;
   flex-direction: column;

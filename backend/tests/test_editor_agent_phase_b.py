@@ -55,6 +55,21 @@ def test_validate_tool_calls_accepts_audio_tools():
     assert [call.name for call in calls] == ["add_audio_clip", "update_block_audio"]
 
 
+def test_validate_tool_calls_accepts_pacing_tools():
+    calls = validate_tool_calls(
+        [
+            {"name": "detect_silence_trim", "arguments": {"block_id": "b1", "apply": False}},
+            {"name": "split_block_at_playhead", "arguments": {}},
+            {"name": "remove_block", "arguments": {"block_id": "b1"}},
+        ]
+    )
+    assert [call.name for call in calls] == [
+        "detect_silence_trim",
+        "split_block_at_playhead",
+        "remove_block",
+    ]
+
+
 def test_validate_tool_calls_rejects_unknown_tool():
     with pytest.raises(ValueError, match="白名单"):
         validate_tool_calls([{"name": "delete_timeline", "arguments": {}}])

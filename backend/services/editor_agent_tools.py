@@ -221,6 +221,43 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "detect_silence_trim",
+            "description": "检测片段内静音并建议或应用 trim",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "block_id": {"type": "string"},
+                    "apply": {"type": "boolean"},
+                    "noise_db": {"type": "number"},
+                    "min_silence_sec": {"type": "number"},
+                },
+                "required": ["block_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "split_block_at_playhead",
+            "description": "在播放头位置切分选中目标",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "remove_block",
+            "description": "删除视频片段（危险操作）",
+            "parameters": {
+                "type": "object",
+                "properties": {"block_id": {"type": "string"}},
+                "required": ["block_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "list_assets",
             "description": "只读：列出当前工程可用素材（视频 clip 池、BGM、SFX）",
             "parameters": {

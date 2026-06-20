@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { nanoid } from 'nanoid'
 import { confirmExecutePlan, planApplyLayout } from '../../../editor/agent/planApplyLayout'
 import { runAgentChat } from '../../../editor/agent/runAgentChat'
-import { formatToolCallSummary } from '../../../editor/agent/toolRegistry'
+import { formatToolCallSummary, isDangerousAgentTool } from '../../../editor/agent/toolRegistry'
 import { editorAgentApi } from '../../../services/editorAgentApi'
 import type {
   AgentChatTurn,
@@ -506,7 +506,9 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
 }
 
 const PlanLine: React.FC<{ call: AgentToolCall }> = ({ call }) => (
-  <li>{formatToolCallSummary(call.name, call.arguments)}</li>
+  <li className={isDangerousAgentTool(call.name) ? 'is-dangerous' : undefined}>
+    {formatToolCallSummary(call.name, call.arguments)}
+  </li>
 )
 
 function extractErrorMessage(err: unknown, fallback: string): string {
