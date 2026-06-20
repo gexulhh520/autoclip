@@ -22,7 +22,13 @@ export function formatAgentDebugSummary(trace: AgentDebugTrace): string {
     .map((round) => {
       const read = round.read_tools.join(',') || '—'
       const write = round.write_tools.join(',') || '—'
-      return `R${round.round} 读:${read} 写:${write}`
+      const ctx =
+        round.context && round.context.masked_tool_count > 0
+          ? ` mask${round.context.masked_tool_count}`
+          : round.context
+            ? ` tool${round.context.tool_messages_chars}字`
+            : ''
+      return `R${round.round} 读:${read} 写:${write}${ctx}`
     })
     .join(' | ')
 
@@ -30,11 +36,20 @@ export function formatAgentDebugSummary(trace: AgentDebugTrace): string {
 }
 
 export function formatAgentDebugDetail(trace: AgentDebugTrace): string {
-  const last = trace.rounds[trace.rounds.length - 1]?.debug
+  const lastRound = trace.rounds[trace.rounds.length - 1]
+  const last = lastRound?.debug
   if (!last) return formatAgentDebugSummary(trace)
+
+  const ctx = lastRound?.context
+  const ctxLine = ctx
+    ? `tool 消息 ${ctx.tool_messages_chars} 字 · 已 mask ${ctx.masked_tool_count} 条 · tool 轮次 ${ctx.tool_round_count}`
+    : null
 
   return [
     formatAgentDebugSummary(trace),
     `messages ${last.message_count} · snapshot ${last.snapshot_chars} 字 · layout ${last.layout_reference_chars} 字 · tools schema ${last.tool_schema_chars} 字`,
-  ].join('\n')
+    ctxLine,
+  ]
+    .filter(Boolean)
+    .join('\n')
 }

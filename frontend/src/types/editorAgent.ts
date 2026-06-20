@@ -133,6 +133,11 @@ export interface AgentRoundTrace {
   read_tools: string[]
   write_tools: string[]
   debug?: AgentChatDebugInfo
+  context?: {
+    tool_messages_chars: number
+    masked_tool_count: number
+    tool_round_count: number
+  }
 }
 
 export interface AgentDebugTrace {

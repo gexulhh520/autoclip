@@ -1,5 +1,6 @@
 import { buildEditorSnapshotFromStore } from './snapshotFromStore'
 import { formatAgentDebugSummary } from './formatAgentDebug'
+import { maskStaleToolObservations } from './maskAgentToolMessages'
 import { sanitizeToolResultForChat } from './sanitizeToolResultForChat'
 import { executeReadToolCall } from './executeToolCall'
 import { isReadOnlyAgentTool, isWriteAgentTool } from './toolRegistry'
@@ -8,6 +9,7 @@ import { useEditSessionStore } from '../../stores/useEditSessionStore'
 import type {
   AgentChatMessage,
   AgentDebugTrace,
+  AgentRoundTrace,
   LayoutAnalysis,
   PendingAgentPlan,
 } from '../../types/editorAgent'
@@ -38,7 +40,8 @@ function recordRound(
   round: number,
   response: AgentChatResponse,
   readTools: string[],
-  writeTools: string[]
+  writeTools: string[],
+  context?: AgentRoundTrace['context']
 ): void {
   trace.rounds.push({
     round,
@@ -48,8 +51,9 @@ function recordRound(
     read_tools: readTools,
     write_tools: writeTools,
     debug: response.debug,
+    context,
   })
-  trace.total_rounds = round + 1
+  trace.total_rounds = round
 }
 
 export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentChatResult> {
@@ -86,8 +90,10 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
 
   for (let round = 0; round < MAX_AGENT_ROUNDS; round += 1) {
     const snapshot = buildEditorSnapshotFromStore(getStore, input.layoutReference)
+    const { messages: maskedMessages, stats: maskStats } = maskStaleToolObservations(messages)
+
     const response = await editorAgentApi.chat(input.projectId, input.sessionId, {
-      messages,
+      messages: maskedMessages,
       snapshot: snapshot as unknown as Record<string, unknown>,
       layout_reference: input.layoutReference ?? undefined,
       max_rounds: 1,
@@ -100,7 +106,12 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
       round + 1,
       response,
       readCalls.map((call) => call.name),
-      writeCalls.map((call) => call.name)
+      writeCalls.map((call) => call.name),
+      {
+        tool_messages_chars: maskStats.tool_messages_chars,
+        masked_tool_count: maskStats.masked_tool_count,
+        tool_round_count: maskStats.tool_round_count,
+      }
     )
 
     if (writeCalls.length > 0) {
