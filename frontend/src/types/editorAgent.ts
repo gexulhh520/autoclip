@@ -113,6 +113,35 @@ export interface AgentChatRequest {
   max_rounds?: number
 }
 
+export interface AgentChatDebugInfo {
+  message_count: number
+  snapshot_chars: number
+  layout_reference_chars: number
+  tool_schema_chars: number
+  messages_chars: number
+  estimated_prompt_tokens: number
+  suggested_num_ctx: number
+  read_tool_names: string[]
+  write_tool_names: string[]
+}
+
+export interface AgentRoundTrace {
+  round: number
+  finish_reason?: string
+  usage?: Record<string, number>
+  model?: string
+  read_tools: string[]
+  write_tools: string[]
+  debug?: AgentChatDebugInfo
+}
+
+export interface AgentDebugTrace {
+  rounds: AgentRoundTrace[]
+  total_rounds: number
+  exhausted: boolean
+  outcome: 'plan' | 'reply' | 'exhausted'
+}
+
 export interface AgentChatResponse {
   assistant_message: string
   tool_calls: AgentToolCall[]
@@ -120,6 +149,7 @@ export interface AgentChatResponse {
   model?: string
   usage?: Record<string, number>
   raw_content?: string
+  debug?: AgentChatDebugInfo
 }
 
 export interface PendingAgentPlan {

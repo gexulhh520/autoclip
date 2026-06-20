@@ -336,3 +336,41 @@
   font-size: 11px;
   opacity: 0.75;
 }
+
+.editor-agent-panel__debug {
+  margin-top: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--editor-border-light);
+  background: var(--editor-panel);
+}
+
+.editor-agent-panel__debug-toggle {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--editor-sub);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.editor-agent-panel__debug-toggle:hover {
+  color: var(--editor-accent);
+}
+
+.editor-agent-panel__debug-summary {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--editor-sub);
+  white-space: pre-wrap;
+}
+
+.editor-agent-panel__debug-body {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--editor-sub);
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}

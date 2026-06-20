@@ -1,4 +1,5 @@
 import { buildEditorSnapshotFromStore } from './snapshotFromStore'
+import { formatAgentDebugSummary } from './formatAgentDebug'
 import { sanitizeToolResultForChat } from './sanitizeToolResultForChat'
 import { executeReadToolCall } from './executeToolCall'
 import { isReadOnlyAgentTool, isWriteAgentTool } from './toolRegistry'
@@ -6,9 +7,11 @@ import { editorAgentApi } from '../../services/editorAgentApi'
 import { useEditSessionStore } from '../../stores/useEditSessionStore'
 import type {
   AgentChatMessage,
+  AgentDebugTrace,
   LayoutAnalysis,
   PendingAgentPlan,
 } from '../../types/editorAgent'
+import type { AgentChatResponse } from '../../types/editorAgent'
 
 /** 读工具多轮 + 写计划；与 §12.7「单次 chat tools ≤12」对齐 */
 const MAX_AGENT_ROUNDS = 12
@@ -26,6 +29,27 @@ export interface RunAgentChatResult {
   assistant_message: string
   history: AgentChatMessage[]
   plan: PendingAgentPlan | null
+  debug_trace?: AgentDebugTrace
+  debug_summary?: string
+}
+
+function recordRound(
+  trace: AgentDebugTrace,
+  round: number,
+  response: AgentChatResponse,
+  readTools: string[],
+  writeTools: string[]
+): void {
+  trace.rounds.push({
+    round,
+    finish_reason: response.finish_reason,
+    usage: response.usage,
+    model: response.model,
+    read_tools: readTools,
+    write_tools: writeTools,
+    debug: response.debug,
+  })
+  trace.total_rounds = round + 1
 }
 
 export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentChatResult> {
@@ -42,11 +66,23 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
   }
 
   let messages: AgentChatMessage[] = [...(input.history ?? []), userMsg]
+  const debugTrace: AgentDebugTrace = {
+    rounds: [],
+    total_rounds: 0,
+    exhausted: false,
+    outcome: 'reply',
+  }
 
   const buildAssistantHistory = (assistantMessage: string): AgentChatMessage[] => [
     ...messages,
     { role: 'assistant', content: assistantMessage },
   ]
+
+  const finish = (result: Omit<RunAgentChatResult, 'debug_trace' | 'debug_summary'>): RunAgentChatResult => ({
+    ...result,
+    debug_trace: debugTrace,
+    debug_summary: formatAgentDebugSummary(debugTrace),
+  })
 
   for (let round = 0; round < MAX_AGENT_ROUNDS; round += 1) {
     const snapshot = buildEditorSnapshotFromStore(getStore, input.layoutReference)
@@ -59,10 +95,18 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
 
     const readCalls = response.tool_calls.filter((call) => isReadOnlyAgentTool(call.name))
     const writeCalls = response.tool_calls.filter((call) => isWriteAgentTool(call.name))
+    recordRound(
+      debugTrace,
+      round + 1,
+      response,
+      readCalls.map((call) => call.name),
+      writeCalls.map((call) => call.name)
+    )
 
     if (writeCalls.length > 0) {
+      debugTrace.outcome = 'plan'
       const assistantMessage = response.assistant_message || '已生成操作计划，请确认执行。'
-      return {
+      return finish({
         assistant_message: assistantMessage,
         history: buildAssistantHistory(assistantMessage),
         plan: {
@@ -70,7 +114,7 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
           tool_calls: writeCalls,
           source: 'llm',
         },
-      }
+      })
     }
 
     if (readCalls.length > 0) {
@@ -94,19 +138,21 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
     }
 
     const reply = (response.assistant_message || response.raw_content || '').trim() || '已完成。'
-    return {
+    return finish({
       assistant_message: reply,
       history: [...messages, { role: 'assistant', content: reply }],
       plan: null,
-    }
+    })
   }
 
-  return {
+  debugTrace.exhausted = true
+  debugTrace.outcome = 'exhausted'
+  return finish({
     assistant_message:
       '操作步骤较多（读工具轮次已用尽），请简化描述或拆分后重试。',
     history: messages,
     plan: null,
-  }
+  })
 }
 
 export function confirmExecutePlan(

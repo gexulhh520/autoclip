@@ -11,10 +11,16 @@ from backend.core.llm_manager import LLMManager, get_llm_manager
 from backend.schemas.editor_agent import (
     AgentChatRequest,
     AgentChatResponse,
+    AgentChatDebugInfo,
     AgentToolCall,
     AnalyzeLayoutRequest,
     AnalyzeLayoutResponse,
     LayoutAnalysis,
+)
+from backend.services.editor_agent_debug import (
+    agent_debug_enabled,
+    build_chat_context_report,
+    classify_tool_calls,
 )
 from backend.services.editor_agent_tools import (
     EDITOR_AGENT_TOOL_DEFINITIONS,
@@ -139,6 +145,13 @@ class EditorAgentService:
                 item["images"] = msg.images
             messages.append(item)
 
+        context_report = build_chat_context_report(
+            messages,
+            EDITOR_AGENT_TOOL_DEFINITIONS,
+            request.snapshot,
+            request.layout_reference,
+        )
+
         response = self.llm_manager.chat_completion(
             messages,
             think=False,
@@ -165,6 +178,34 @@ class EditorAgentService:
         if not tool_calls:
             tool_calls = self._parse_actions_fallback(response.content)
 
+        read_names, write_names = classify_tool_calls(tool_calls)
+        debug = AgentChatDebugInfo(
+            **context_report,
+            read_tool_names=read_names,
+            write_tool_names=write_names,
+        )
+
+        usage = response.usage or {}
+        logger.info(
+            "Agent chat: est_prompt_tokens=%s suggested_num_ctx=%s messages=%d "
+            "snapshot_chars=%d finish=%s usage=%s read_tools=%s write_tools=%s",
+            debug.estimated_prompt_tokens,
+            debug.suggested_num_ctx,
+            debug.message_count,
+            debug.snapshot_chars,
+            response.finish_reason,
+            usage,
+            read_names,
+            write_names,
+        )
+        if agent_debug_enabled():
+            logger.info(
+                "Agent chat debug detail: messages_chars=%d tool_schema_chars=%d layout_chars=%d",
+                debug.messages_chars,
+                debug.tool_schema_chars,
+                debug.layout_reference_chars,
+            )
+
         return AgentChatResponse(
             assistant_message=response.content or "",
             tool_calls=tool_calls,
@@ -172,6 +213,7 @@ class EditorAgentService:
             model=response.model,
             usage=response.usage,
             raw_content=response.content,
+            debug=debug,
         )
 
     @staticmethod

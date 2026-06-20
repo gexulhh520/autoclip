@@ -85,6 +85,18 @@ class AgentToolCall(BaseModel):
     id: Optional[str] = None
 
 
+class AgentChatDebugInfo(BaseModel):
+    message_count: int = 0
+    snapshot_chars: int = 0
+    layout_reference_chars: int = 0
+    tool_schema_chars: int = 0
+    messages_chars: int = 0
+    estimated_prompt_tokens: int = 0
+    suggested_num_ctx: int = 0
+    read_tool_names: List[str] = Field(default_factory=list)
+    write_tool_names: List[str] = Field(default_factory=list)
+
+
 class AgentChatRequest(BaseModel):
     messages: List[AgentChatMessage] = Field(default_factory=list)
     snapshot: Dict[str, Any] = Field(default_factory=dict)
@@ -99,3 +111,4 @@ class AgentChatResponse(BaseModel):
     model: Optional[str] = None
     usage: Optional[Dict[str, Any]] = None
     raw_content: Optional[str] = None
+    debug: Optional[AgentChatDebugInfo] = None

@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { nanoid } from 'nanoid'
+import { formatAgentDebugDetail, formatAgentDebugSummary } from '../../../editor/agent/formatAgentDebug'
 import { confirmExecutePlan, planApplyLayout } from '../../../editor/agent/planApplyLayout'
 import { runAgentChat } from '../../../editor/agent/runAgentChat'
 import { formatToolCallSummary, isDangerousAgentTool } from '../../../editor/agent/toolRegistry'
 import { editorAgentApi } from '../../../services/editorAgentApi'
 import type {
   AgentChatTurn,
+  AgentDebugTrace,
   AgentPanelMode,
   AgentToolCall,
   LayoutAnalysis,
@@ -51,6 +53,8 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [executing, setExecuting] = useState(false)
+  const [agentDebugTrace, setAgentDebugTrace] = useState<AgentDebugTrace | null>(null)
+  const [showAgentDebug, setShowAgentDebug] = useState(false)
 
   const { panelRef, panelStyle, dragging, onHeaderPointerDown } = useFloatingPanelDrag(AGENT_PANEL_POS_KEY)
 
@@ -137,6 +141,7 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
     setLoading(true)
     setError('')
     setPendingPlan(null)
+    setAgentDebugTrace(null)
 
     const userTurn: AgentChatTurn = {
       id: nanoid(),
@@ -158,6 +163,10 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
         imageDataUrl: sentImage || null,
         layoutReference: layout,
       })
+
+      if (result.debug_trace) {
+        setAgentDebugTrace(result.debug_trace)
+      }
 
       if (result.plan?.tool_calls.length) {
         setPendingPlan(result.plan)
@@ -350,6 +359,26 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
             </button>
           </div>
           <p className="editor-agent-panel__hint editor-agent-panel__hint--sub">Ctrl+Enter 发送</p>
+
+          {agentDebugTrace ? (
+            <div className="editor-agent-panel__debug">
+              <button
+                type="button"
+                className="editor-agent-panel__debug-toggle"
+                onClick={() => setShowAgentDebug((open) => !open)}
+              >
+                {showAgentDebug ? '隐藏诊断' : '查看诊断'}
+                {agentDebugTrace.outcome === 'exhausted' ? ' · 轮次用尽' : ''}
+              </button>
+              {showAgentDebug ? (
+                <pre className="editor-agent-panel__debug-body">{formatAgentDebugDetail(agentDebugTrace)}</pre>
+              ) : (
+                <p className="editor-agent-panel__debug-summary">
+                  {formatAgentDebugSummary(agentDebugTrace)}
+                </p>
+              )}
+            </div>
+          ) : null}
         </>
       ) : (
         <>
