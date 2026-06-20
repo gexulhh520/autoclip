@@ -1,4 +1,5 @@
 import { buildEditorSnapshotFromStore } from './snapshotFromStore'
+import { tryBuildLocalOverlayFontPlan } from './resolveOverlayStyleRequest'
 import { sanitizeToolResultForChat } from './sanitizeToolResultForChat'
 import { executeReadToolCall } from './executeToolCall'
 import { isReadOnlyAgentTool, isWriteAgentTool } from './toolRegistry'
@@ -10,7 +11,8 @@ import type {
   PendingAgentPlan,
 } from '../../types/editorAgent'
 
-const MAX_AGENT_ROUNDS = 5
+/** 读工具多轮 + 写计划；与 §12.7「单次 chat tools ≤12」对齐 */
+const MAX_AGENT_ROUNDS = 12
 
 export interface RunAgentChatInput {
   projectId: string
@@ -28,10 +30,7 @@ export interface RunAgentChatResult {
 }
 
 export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentChatResult> {
-  const snapshot = buildEditorSnapshotFromStore(
-    () => useEditSessionStore.getState(),
-    input.layoutReference
-  )
+  const getStore = () => useEditSessionStore.getState()
   const trimmed = input.userMessage.trim()
   if (!trimmed && !input.imageDataUrl) {
     throw new Error('请输入需求或附加参考图')
@@ -45,7 +44,33 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
 
   let messages: AgentChatMessage[] = [...(input.history ?? []), userMsg]
 
+  const buildAssistantHistory = (assistantMessage: string): AgentChatMessage[] => [
+    ...messages,
+    { role: 'assistant', content: assistantMessage },
+  ]
+
+  const tryLocalFontPlan = (): PendingAgentPlan | null => {
+    const store = getStore()
+    return tryBuildLocalOverlayFontPlan({
+      userMessage: trimmed,
+      session: store.session,
+      selectedOverlayId: store.selectedOverlayId,
+    })
+  }
+
+  // 简单「随机换字体」类需求：本地直接出计划，避免 LLM 只读工具链路过长
+  const quickFontPlan = tryLocalFontPlan()
+  if (quickFontPlan && /随机|随便|任意/.test(trimmed)) {
+    const assistantMessage = quickFontPlan.summary
+    return {
+      assistant_message: assistantMessage,
+      history: buildAssistantHistory(assistantMessage),
+      plan: quickFontPlan,
+    }
+  }
+
   for (let round = 0; round < MAX_AGENT_ROUNDS; round += 1) {
+    const snapshot = buildEditorSnapshotFromStore(getStore, input.layoutReference)
     const response = await editorAgentApi.chat(input.projectId, input.sessionId, {
       messages,
       snapshot: snapshot as unknown as Record<string, unknown>,
@@ -57,13 +82,10 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
     const writeCalls = response.tool_calls.filter((call) => isWriteAgentTool(call.name))
 
     if (writeCalls.length > 0) {
-      const nextHistory: AgentChatMessage[] = [
-        ...messages,
-        { role: 'assistant', content: response.assistant_message || '已生成操作计划，请确认执行。' },
-      ]
+      const assistantMessage = response.assistant_message || '已生成操作计划，请确认执行。'
       return {
-        assistant_message: response.assistant_message || '已生成操作计划，请确认执行。',
-        history: nextHistory,
+        assistant_message: assistantMessage,
+        history: buildAssistantHistory(assistantMessage),
         plan: {
           summary: response.assistant_message || `将执行 ${writeCalls.length} 个操作`,
           tool_calls: writeCalls,
@@ -97,6 +119,15 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
       assistant_message: reply,
       history: [...messages, { role: 'assistant', content: reply }],
       plan: null,
+    }
+  }
+
+  const fallbackPlan = tryLocalFontPlan()
+  if (fallbackPlan) {
+    return {
+      assistant_message: fallbackPlan.summary,
+      history: buildAssistantHistory(fallbackPlan.summary),
+      plan: fallbackPlan,
     }
   }
 

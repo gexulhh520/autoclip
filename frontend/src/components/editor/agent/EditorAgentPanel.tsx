@@ -150,6 +150,7 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
         projectId,
         sessionId,
         userMessage: text,
+        history: chatTurns.map(({ role, content }) => ({ role, content })),
         imageDataUrl: sentImage || null,
         layoutReference: layout,
       })
