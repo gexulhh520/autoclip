@@ -153,6 +153,8 @@ export function compactToolResultData(
       return { ...result, data: compactListAssets(data) }
     case 'capture_preview_frame':
       return { ...result, data: compactCapturePreview(data) }
+    case 'verify_subtitle_in_frame':
+      return result
     default:
       return result
   }

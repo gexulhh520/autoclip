@@ -338,8 +338,23 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "verify_subtitle_in_frame",
+            "description": "只读：截字幕时刻预览帧并由画面分析子 Agent 返回简短 JSON（是否超出画面），不含 JPEG",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "overlay_id": {"type": "string"},
+                    "time_sec": {"type": "number"},
+                    "max_width": {"type": "number"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "capture_preview_frame",
-            "description": "只读：在指定时间截取预览帧，用于检查构图/字幕安全区",
+            "description": "只读：截帧调试；优先 verify_subtitle_in_frame",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -390,6 +405,7 @@ EDITOR_AGENT_TOOL_NAMES = {
 
 READ_ONLY_AGENT_TOOLS = {
     "list_assets",
+    "verify_subtitle_in_frame",
     "capture_preview_frame",
     "get_timeline_summary",
     "get_block_detail",

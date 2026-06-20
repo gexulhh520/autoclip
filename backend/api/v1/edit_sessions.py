@@ -37,7 +37,14 @@ from backend.schemas.edit_session import (
     EditSessionSilenceRegion,
     EditSessionUpdateRequest,
 )
-from backend.schemas.editor_agent import AnalyzeLayoutRequest, AnalyzeLayoutResponse, AgentChatRequest, AgentChatResponse
+from backend.schemas.editor_agent import (
+    AnalyzeLayoutRequest,
+    AnalyzeLayoutResponse,
+    AnalyzeSubtitleFrameRequest,
+    AnalyzeSubtitleFrameResponse,
+    AgentChatRequest,
+    AgentChatResponse,
+)
 from backend.services.edit_session_service import EditSessionService
 from backend.services.editor_agent_service import EditorAgentService
 
@@ -945,6 +952,30 @@ async def analyze_edit_session_layout(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("排版分析失败: %s/%s", project_id, session_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/agent/analyze-subtitle-frame",
+    response_model=AnalyzeSubtitleFrameResponse,
+)
+async def analyze_edit_session_subtitle_frame(
+    project_id: str,
+    session_id: str,
+    body: AnalyzeSubtitleFrameRequest,
+    session_service: EditSessionService = Depends(get_edit_session_service),
+    agent_service: EditorAgentService = Depends(get_editor_agent_service),
+):
+    """字幕帧视觉验证：前端截帧 + 画面分析子 Agent，返回简短 JSON（不含 JPEG）。"""
+    try:
+        session_service.get_session(project_id, session_id)
+        return agent_service.analyze_subtitle_frame(body)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("字幕帧分析失败: %s/%s", project_id, session_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

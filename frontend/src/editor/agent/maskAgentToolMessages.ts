@@ -47,6 +47,12 @@ function summarizeMaskedTool(toolName: string, content: string): string {
         return `${toolName}: overlay ${String(data?.id ?? '?')}`
       case 'capture_preview_frame':
         return `${toolName}: frame @ ${String(data?.time_sec ?? '?')}s`
+      case 'verify_subtitle_in_frame': {
+        const verdict = data?.verdict as Record<string, unknown> | undefined
+        const overflow = verdict?.overflow ?? '?'
+        const summary = verdict?.summary ?? ''
+        return `${toolName}: overflow=${overflow} ${String(summary).slice(0, 60)}`
+      }
       default:
         return `${toolName}: ok`
     }

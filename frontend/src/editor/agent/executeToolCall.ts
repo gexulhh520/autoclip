@@ -8,6 +8,7 @@ import {
 } from './buildEditorSnapshot'
 import { capturePreviewFrame } from './capturePreviewFrame'
 import { resolveCaptureMaxWidth } from './capturePreviewFrameUtils'
+import { verifySubtitleInFrame } from './verifySubtitleInFrame'
 import { listAssets } from './listAssets'
 import {
   parseClipIds,
@@ -105,6 +106,25 @@ export async function executeReadToolCall(
 
   try {
     switch (call.name) {
+      case 'verify_subtitle_in_frame': {
+        const projectId = context?.projectId?.trim()
+        if (!projectId) {
+          return { ok: false, tool_name: call.name, error: '缺少 projectId，无法验证字幕帧' }
+        }
+        const sessionId = session.id
+        if (!sessionId) {
+          return { ok: false, tool_name: call.name, error: '缺少 sessionId，无法验证字幕帧' }
+        }
+        const data = await verifySubtitleInFrame({
+          projectId,
+          sessionId,
+          session,
+          args: call.arguments,
+          selectedOverlayId: store.selectedOverlayId,
+          playheadSec: store.sequencePlayheadSec,
+        })
+        return { ok: true, tool_name: call.name, data }
+      }
       case 'capture_preview_frame': {
         const projectId = context?.projectId?.trim()
         if (!projectId) {

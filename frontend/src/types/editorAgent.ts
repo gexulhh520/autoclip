@@ -61,6 +61,43 @@ export interface AnalyzeLayoutResponse {
   usage?: Record<string, number>
 }
 
+export interface SubtitleOverlayHint {
+  id: string
+  content_preview: string
+  start_sec: number
+  duration_sec: number
+}
+
+export interface AnalyzeSubtitleFrameRequest {
+  image_base64: string
+  time_sec: number
+  aspect?: string
+  canvas_width?: number
+  canvas_height?: number
+  overlay_id?: string
+  overlay_hints?: SubtitleOverlayHint[]
+  prompt?: string
+}
+
+export interface SubtitleFrameVerdict {
+  subtitle_visible: boolean
+  overflow: 'none' | 'left' | 'right' | 'top' | 'bottom' | 'multiple' | string
+  issues: string[]
+  suggested_actions: string[]
+  summary: string
+  confidence: 'high' | 'medium' | 'low' | string
+}
+
+export interface AnalyzeSubtitleFrameResponse {
+  verdict: SubtitleFrameVerdict
+  time_sec: number
+  frame_width: number
+  frame_height: number
+  model?: string
+  usage?: Record<string, number>
+  raw_content?: string
+}
+
 export interface LayoutReference {
   imageDataUrl: string
   prompt: string

@@ -337,8 +337,24 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
   {
     type: 'function',
     function: {
+      name: 'verify_subtitle_in_frame',
+      description:
+        '只读：在字幕出现时刻截帧，委派画面分析子 Agent 检查字幕是否超出画面；返回简短 JSON（不含 JPEG），用于改位置后的验证反馈',
+      parameters: {
+        type: 'object',
+        properties: {
+          overlay_id: { type: 'string', description: '缺省用 selected_overlay_id 或最近文本层' },
+          time_sec: { type: 'number', description: '缺省取 overlay start_sec + 0.2s' },
+          max_width: { type: 'number', description: '截帧最大宽，默认 720' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'capture_preview_frame',
-      description: '只读：在指定时间截取预览帧，用于检查构图/字幕安全区',
+      description: '只读：截帧调试（主 Agent 看不到 JPEG）；优先用 verify_subtitle_in_frame',
       parameters: {
         type: 'object',
         properties: {
@@ -389,6 +405,7 @@ export const EDITOR_AGENT_TOOL_NAMES = EDITOR_AGENT_TOOL_DEFINITIONS.map(
 
 export const READ_ONLY_AGENT_TOOLS = new Set([
   'list_assets',
+  'verify_subtitle_in_frame',
   'capture_preview_frame',
   'get_timeline_summary',
   'get_block_detail',
@@ -453,6 +470,8 @@ export function formatToolCallSummary(name: string, args: Record<string, unknown
       return `播放头 → ${args.time_sec}s`
     case 'list_assets':
       return `列出素材 (${String(args.category ?? 'all')})`
+    case 'verify_subtitle_in_frame':
+      return `验证字幕帧 ${args.overlay_id ?? '（自动）'}`
     case 'capture_preview_frame':
       return `截帧 @${args.time_sec}s`
     default:

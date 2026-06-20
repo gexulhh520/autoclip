@@ -72,6 +72,46 @@ class AnalyzeLayoutResponse(BaseModel):
     usage: Optional[Dict[str, Any]] = None
 
 
+class SubtitleOverlayHint(BaseModel):
+    id: str = ""
+    content_preview: str = ""
+    start_sec: float = 0.0
+    duration_sec: float = 0.0
+
+
+class AnalyzeSubtitleFrameRequest(BaseModel):
+    image_base64: str = Field(description="预览帧 JPEG base64，可含 data URL 前缀")
+    time_sec: float = 0.0
+    aspect: Optional[str] = None
+    canvas_width: Optional[int] = None
+    canvas_height: Optional[int] = None
+    overlay_id: Optional[str] = None
+    overlay_hints: List[SubtitleOverlayHint] = Field(default_factory=list)
+    prompt: str = ""
+
+
+class SubtitleFrameVerdict(BaseModel):
+    subtitle_visible: bool = True
+    overflow: str = Field(
+        default="none",
+        description="none|left|right|top|bottom|multiple",
+    )
+    issues: List[str] = Field(default_factory=list)
+    suggested_actions: List[str] = Field(default_factory=list)
+    summary: str = ""
+    confidence: str = Field(default="medium", description="high|medium|low")
+
+
+class AnalyzeSubtitleFrameResponse(BaseModel):
+    verdict: SubtitleFrameVerdict
+    time_sec: float = 0.0
+    frame_width: int = 0
+    frame_height: int = 0
+    model: Optional[str] = None
+    usage: Optional[Dict[str, Any]] = None
+    raw_content: Optional[str] = None
+
+
 class AgentChatMessage(BaseModel):
     role: str
     content: str = ""

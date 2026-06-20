@@ -2,6 +2,8 @@ import api from './api'
 import type {
   AnalyzeLayoutRequest,
   AnalyzeLayoutResponse,
+  AnalyzeSubtitleFrameRequest,
+  AnalyzeSubtitleFrameResponse,
   AgentChatRequest,
   AgentChatResponse,
 } from '../types/editorAgent'
@@ -16,6 +18,17 @@ export const editorAgentApi = {
       `/projects/${projectId}/edit-sessions/${sessionId}/agent/analyze-layout`,
       payload
     )) as AnalyzeLayoutResponse
+  },
+
+  analyzeSubtitleFrame: async (
+    projectId: string,
+    sessionId: string,
+    payload: AnalyzeSubtitleFrameRequest
+  ): Promise<AnalyzeSubtitleFrameResponse> => {
+    return (await api.post(
+      `/projects/${projectId}/edit-sessions/${sessionId}/agent/analyze-subtitle-frame`,
+      payload
+    )) as AnalyzeSubtitleFrameResponse
   },
 
   chat: async (

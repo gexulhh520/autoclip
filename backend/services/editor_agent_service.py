@@ -9,13 +9,16 @@ from pydantic import ValidationError
 
 from backend.core.llm_manager import LLMManager, get_llm_manager
 from backend.schemas.editor_agent import (
+    AnalyzeLayoutRequest,
+    AnalyzeLayoutResponse,
+    AnalyzeSubtitleFrameRequest,
+    AnalyzeSubtitleFrameResponse,
     AgentChatRequest,
     AgentChatResponse,
     AgentChatDebugInfo,
     AgentToolCall,
-    AnalyzeLayoutRequest,
-    AnalyzeLayoutResponse,
     LayoutAnalysis,
+    SubtitleFrameVerdict,
 )
 from backend.services.editor_agent_debug import (
     agent_debug_enabled,
@@ -47,6 +50,23 @@ DEFAULT_ANALYZE_PROMPT = (
     "请分析这张参考图中的文字排版与画面构图，输出 LayoutAnalysis JSON。"
 )
 
+ANALYZE_SUBTITLE_FRAME_SYSTEM = """你是短视频字幕安全区检查助手。用户会提供一帧预览图和字幕元数据。
+只输出一个 JSON 对象（不要 markdown 代码块、不要解释文字）。
+
+Schema 字段：
+- subtitle_visible: bool，画面中是否能看到字幕文字
+- overflow: none|left|right|top|bottom|multiple，字幕是否超出画面或被裁切
+- issues: string[]，简短中文问题描述
+- suggested_actions: string[]，可执行建议（如减小 fontSize、textAlign=center、position 居中/靠下、左移等）
+- summary: 一句话结论
+- confidence: high|medium|low
+
+重点判断：字幕是否在画面可视区域内、是否被边缘裁切、是否明显遮挡关键画面（仅简要提及）。"""
+
+DEFAULT_SUBTITLE_FRAME_PROMPT = (
+    "请检查这一帧中的字幕/文本层是否在画面安全区内，输出 SubtitleFrameVerdict JSON。"
+)
+
 AGENT_EXECUTE_SYSTEM = """你是 AutoClip 剪辑助手，帮助用户在剪辑工作台完成各类操作。
 
 你可理解并执行的需求包括但不限于：
@@ -56,7 +76,7 @@ AGENT_EXECUTE_SYSTEM = """你是 AutoClip 剪辑助手，帮助用户在剪辑�
 - 音频：添加 BGM/SFX、调整片段原声音量与淡化
 - 节奏：静音检测裁切、播放头切分、删除片段（remove_block 为危险操作）
 - 包装：文本动画、批量统一样式（禁止 batch 改 content）
-- 感知：capture_preview_frame 截帧自检构图/字幕（结果不写入持久对话）
+- 感知：verify_subtitle_in_frame 截帧并由画面分析子 Agent 返回简短 JSON（不含 JPEG）；capture_preview_frame 仅调试
 - 时间线：移动播放头、了解当前草稿结构（通过只读工具）
 
 只能通过 tools 修改时间线；禁止臆造 block_id / overlay_id。
@@ -72,10 +92,11 @@ AGENT_EXECUTE_SYSTEM = """你是 AutoClip 剪辑助手，帮助用户在剪辑�
 8. split_block_at_playhead 前须 seek_playhead 到切分点；remove_block 须在 B1 清单中由用户确认。
 9. 修改文本层样式：overlay_id 优先 snapshot.selected_overlay_id，或 overlays 的 content_preview 匹配用户描述；通常 1 次 update_overlay_params 即可。
 10. 用户说「刚添加/刚刚的字幕」时优先 selected_overlay_id 或 overlays 最后一项；随机字体用 Noto Serif SC、Ma Shan Zheng、Long Cang、ZCOOL XiaoWei 等（G1 映射）。
-11. 超出画面时：缩小 fontSize、textAlign=center、position 居中靠下；长文案可换行，勿 capture_preview_frame 循环自检。
+11. 超出画面时：缩小 fontSize、textAlign=center、position 居中靠下；长文案可换行。改位置/拆字后应调用 verify_subtitle_in_frame 验证；若 overflow≠none 再 update_overlay_params 修正，最多 2 轮验证。
 12. 同一轮可同时输出多个写 tool（如改文案 + 加动画），避免为每个小改动单独再跑一轮只读调研。
 13. EditorSnapshot 已在每次请求附带；get_timeline_summary 回传为精简摘要，勿因缺字段重复调用只读工具。
 14. 用户要「逐字出现/按字拆开/一个字一个字」时：必须用 split_text_overlay_by_char；set_text_animation 只能整层动画，无法实现逐字错峰。
+15. verify_subtitle_in_frame 返回 verdict.summary 与 suggested_actions；勿要求用户提供截图，勿反复 capture_preview_frame。
 
 snapshot、layout_reference（若有）由请求附带。"""
 
@@ -122,6 +143,73 @@ class EditorAgentService:
         except ValidationError as exc:
             logger.warning("LayoutAnalysis 校验失败: %s", exc)
             raise ValueError(f"排版分析 JSON 不符合 schema: {exc}") from exc
+
+    def analyze_subtitle_frame(
+        self, request: AnalyzeSubtitleFrameRequest
+    ) -> AnalyzeSubtitleFrameResponse:
+        image_b64 = request.image_base64.strip()
+        if not image_b64:
+            raise ValueError("预览帧不能为空")
+
+        hints = [item.model_dump() for item in request.overlay_hints]
+        meta = {
+            "time_sec": request.time_sec,
+            "aspect": request.aspect,
+            "canvas_width": request.canvas_width,
+            "canvas_height": request.canvas_height,
+            "overlay_id": request.overlay_id,
+            "overlay_hints": hints,
+        }
+        user_content = (request.prompt or "").strip() or DEFAULT_SUBTITLE_FRAME_PROMPT
+        user_content = f"Frame meta JSON:\n{json.dumps(meta, ensure_ascii=False)}\n\n{user_content}"
+
+        messages = [
+            {"role": "system", "content": ANALYZE_SUBTITLE_FRAME_SYSTEM},
+            {"role": "user", "content": user_content, "images": [image_b64]},
+        ]
+
+        response = self.llm_manager.chat_completion(
+            messages,
+            think=False,
+            num_predict=1024,
+            timeout=180,
+            temperature=0.2,
+        )
+
+        verdict = self._parse_subtitle_frame_verdict(response.content or "")
+        summary = (verdict.summary or "").strip() or "字幕帧分析完成"
+
+        return AnalyzeSubtitleFrameResponse(
+            verdict=verdict,
+            time_sec=request.time_sec,
+            frame_width=int(request.canvas_width or 0),
+            frame_height=int(request.canvas_height or 0),
+            model=response.model,
+            usage=response.usage,
+            raw_content=response.content,
+        )
+
+    def _parse_subtitle_frame_verdict(self, raw_content: str) -> SubtitleFrameVerdict:
+        parsed = self.llm_manager.parse_json_response(raw_content)
+        if not isinstance(parsed, dict):
+            raise ValueError("模型返回的不是 JSON 对象")
+        overflow = str(parsed.get("overflow") or "none").strip().lower()
+        allowed_overflow = {"none", "left", "right", "top", "bottom", "multiple"}
+        if overflow not in allowed_overflow:
+            overflow = "multiple" if overflow else "none"
+        confidence = str(parsed.get("confidence") or "medium").strip().lower()
+        if confidence not in {"high", "medium", "low"}:
+            confidence = "medium"
+        issues = parsed.get("issues")
+        actions = parsed.get("suggested_actions")
+        return SubtitleFrameVerdict(
+            subtitle_visible=bool(parsed.get("subtitle_visible", True)),
+            overflow=overflow,
+            issues=[str(item) for item in issues] if isinstance(issues, list) else [],
+            suggested_actions=[str(item) for item in actions] if isinstance(actions, list) else [],
+            summary=str(parsed.get("summary") or "").strip(),
+            confidence=confidence,
+        )
 
     def chat(self, request: AgentChatRequest) -> AgentChatResponse:
         messages: List[Dict[str, Any]] = [{"role": "system", "content": AGENT_EXECUTE_SYSTEM}]
