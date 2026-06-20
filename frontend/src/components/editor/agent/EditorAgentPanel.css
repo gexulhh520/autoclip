@@ -29,6 +29,20 @@
   background: var(--editor-panel);
 }
 
+.editor-agent-panel__header--draggable {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.editor-agent-panel.is-dragging .editor-agent-panel__header--draggable {
+  cursor: grabbing;
+}
+
+.editor-agent-panel__header--draggable .editor-agent-panel__toggle {
+  cursor: pointer;
+}
+
 .editor-agent-panel__title {
   margin: 0;
   font-size: 13px;

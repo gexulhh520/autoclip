@@ -11,6 +11,9 @@ import type {
 } from '../../../types/editorAgent'
 import { layoutReferenceStorageKey } from '../../../types/editorAgent'
 import './EditorAgentPanel.css'
+import { useFloatingPanelDrag } from './useFloatingPanelDrag'
+
+const AGENT_PANEL_POS_KEY = 'autoclip:agent-panel-position'
 
 interface EditorAgentPanelProps {
   projectId: string
@@ -37,6 +40,8 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [executing, setExecuting] = useState(false)
+
+  const { panelRef, panelStyle, dragging, onHeaderPointerDown } = useFloatingPanelDrag(AGENT_PANEL_POS_KEY)
 
   const storageKey = layoutReferenceStorageKey(sessionId)
 
@@ -180,8 +185,15 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
 
   if (collapsed) {
     return (
-      <aside className="editor-agent-panel is-collapsed">
-        <div className="editor-agent-panel__header">
+      <aside
+        ref={panelRef}
+        className={`editor-agent-panel is-collapsed${dragging ? ' is-dragging' : ''}`}
+        style={panelStyle}
+      >
+        <div
+          className="editor-agent-panel__header editor-agent-panel__header--draggable"
+          onPointerDown={onHeaderPointerDown}
+        >
           <h2 className="editor-agent-panel__title">AI 剪辑</h2>
           <button type="button" className="editor-agent-panel__toggle" onClick={() => setCollapsed(false)}>
             展开
@@ -192,8 +204,15 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
   }
 
   return (
-    <aside className="editor-agent-panel">
-      <div className="editor-agent-panel__header">
+    <aside
+      ref={panelRef}
+      className={`editor-agent-panel${dragging ? ' is-dragging' : ''}`}
+      style={panelStyle}
+    >
+      <div
+        className="editor-agent-panel__header editor-agent-panel__header--draggable"
+        onPointerDown={onHeaderPointerDown}
+      >
         <h2 className="editor-agent-panel__title">AI 剪辑</h2>
         <button type="button" className="editor-agent-panel__toggle" onClick={() => setCollapsed(true)}>
           收起
