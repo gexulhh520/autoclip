@@ -21,11 +21,13 @@ ANALYZE_LAYOUT_SYSTEM = """你是短视频排版分析助手。用户会提供�
 Schema 字段：
 - layout_intent: 一句话描述整体排版
 - canvas_hint: { aspect, notes } 可选
-- elements: 数组，每项含 role、content_hint、transform（positionX/Y、scaleX/Y、rotate）、
+- elements: 数组，每项为一块「文本」层（role 固定写 "text"，不要用 headline/subtitle/emphasis 等标题语义）
+  含 content_hint、transform（positionX/Y、scaleX/Y、rotate）、
   fontSize、fontFamily、color、fontWeight、textAlign、lineHeight、background
 - video_framing: notes、suggested_position_x/y、suggested_scale_x/y
 
-坐标以画布中心为原点，Y 向上为正。positionX/positionY 与编辑器 transform 一致。"""
+坐标以画布中心为原点，Y 向上为正。positionX/positionY 与编辑器 transform 一致。
+层次靠 transform 与 fontSize/color 区分，不靠 role 命名。"""
 
 DEFAULT_ANALYZE_PROMPT = (
     "请分析这张参考图中的文字排版与画面构图，输出 LayoutAnalysis JSON。"

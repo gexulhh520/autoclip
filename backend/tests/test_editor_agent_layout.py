@@ -16,12 +16,12 @@ class _FakeLLMManager:
 
 
 SAMPLE_LAYOUT_JSON = {
-    "layout_intent": "顶部居中主标题 + 底部说明条",
+    "layout_intent": "左侧多行文本排版",
     "canvas_hint": {"aspect": "9:16", "notes": "竖屏"},
     "elements": [
         {
-            "role": "headline",
-            "content_hint": "主标题文字",
+            "role": "text",
+            "content_hint": "示例文案",
             "transform": {
                 "positionX": 0,
                 "positionY": -320,
@@ -56,7 +56,7 @@ SAMPLE_LAYOUT_JSON = {
 
 def test_layout_analysis_schema_accepts_sample():
     layout = LayoutAnalysis.model_validate(SAMPLE_LAYOUT_JSON)
-    assert layout.layout_intent == "顶部居中主标题 + 底部说明条"
+    assert layout.layout_intent == "左侧多行文本排版"
     assert len(layout.elements) == 1
     assert layout.elements[0].transform.positionY == -320
     assert layout.video_framing is not None
@@ -66,7 +66,7 @@ def test_layout_analysis_schema_accepts_sample():
 def test_parse_layout_analysis_from_service():
     service = EditorAgentService(llm_manager=_FakeLLMManager(SAMPLE_LAYOUT_JSON))
     layout = service._parse_layout_analysis(json.dumps(SAMPLE_LAYOUT_JSON))
-    assert layout.elements[0].role == "headline"
+    assert layout.elements[0].role == "text"
 
 
 def test_parse_layout_analysis_rejects_invalid():

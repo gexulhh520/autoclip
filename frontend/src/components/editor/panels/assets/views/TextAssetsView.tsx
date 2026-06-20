@@ -33,14 +33,7 @@ const TextAssetsView: React.FC = () => {
             name={preset.name}
             onAdd={() => addPreset(preset.id)}
             preview={
-              <span
-                className="editor-asset-preset-card__text-preview"
-                style={{
-                  fontSize: preset.id === 'title' ? 14 : preset.id === 'emphasis' ? 13 : 12,
-                  fontWeight: preset.id === 'title' || preset.id === 'emphasis' ? 700 : 400,
-                  color: preset.id === 'emphasis' ? 'var(--editor-accent)' : 'var(--editor-text)',
-                }}
-              >
+              <span className="editor-asset-preset-card__text-preview" style={{ fontSize: 13 }}>
                 {preset.content}
               </span>
             }

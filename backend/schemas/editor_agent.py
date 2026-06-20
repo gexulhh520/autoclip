@@ -23,7 +23,10 @@ class LayoutBackground(BaseModel):
 
 
 class LayoutElement(BaseModel):
-    role: str = "headline"
+    role: str = Field(
+        default="text",
+        description="统一为 text；不按标题/副标题/重点等语义分层",
+    )
     content_hint: str = ""
     transform: LayoutTransform = Field(default_factory=LayoutTransform)
     fontSize: Optional[float] = None

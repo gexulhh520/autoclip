@@ -83,11 +83,11 @@
 
 ```json
 {
-  "layout_intent": "顶部居中主标题 + 底部说明条",
+  "layout_intent": "左侧多行文本 + 右侧人物构图",
   "canvas_hint": { "aspect": "9:16", "notes": "可选" },
   "elements": [
     {
-      "role": "headline",
+      "role": "text",
       "content_hint": "图上文字或用户将填入的文案",
       "transform": {
         "positionX": 0,
@@ -125,6 +125,7 @@
 
 | LayoutAnalysis | 编辑器 |
 |----------------|--------|
+| `elements[].role` | 固定 `"text"`（不按标题/副标题分层；层次靠样式与位置） |
 | `elements[].transform.*` | `overlay_elements[].params['transform.*']` |
 | `elements[].fontSize` 等 | OpenCut text params |
 | `video_framing.suggested_*` | `block.video_transform.position_x/y, scale_x/y` |
