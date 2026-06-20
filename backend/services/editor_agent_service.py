@@ -103,6 +103,7 @@ AGENT_EXECUTE_SYSTEM = """你是 AutoClip 剪辑助手，帮助用户在剪辑�
 19. 用户需求含≥2个独立步骤（如拆字+动画+验证、加字幕+改构图+加BGM）时：必须先 submit_task_plan 列出 tasks，不要直接输出写工具；单步简单需求可直接写工具。
 20. 存在 task_context 时只完成 current_task；已完成项见 completed_summaries，勿重复；识别 overlay_id 时直接用 known_overlays，无需另起只读调研。
 21. 任务 plan 中「批量拆字/竖排多个字幕」应对应 split_text_overlays_by_char，而非多次 split_text_overlay_by_char。
+22. split 时 center 默认沿用原字幕层位置；多字幕同位置时系统会自动横向错开各列。任务执行后系统会自动 verify_subtitle_in_frame；若 overflow≠none 或 issues 非空须修正间距/位置。
 
 snapshot、layout_reference（若有）由请求附带。"""
 

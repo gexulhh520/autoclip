@@ -33,8 +33,10 @@ import {
   validateMotionType,
   validateOverlayId,
 } from './packagingTools'
+import { resolveCanvasDimensions } from '../scene/canvas'
 import {
   describeSplitTextOverlayFailure,
+  resolveBatchSplitPlacement,
   resolveSplitTextOverlayId,
 } from './staggeredCharText'
 import {
@@ -530,14 +532,31 @@ export async function executeWriteToolCall(
           char_duration_sec: call.arguments.char_duration_sec as number | undefined,
           in_type: call.arguments.in_type,
           in_duration_sec: call.arguments.in_duration_sec as number | undefined,
-          center_x: call.arguments.center_x as number | undefined,
-          center_y: call.arguments.center_y as number | undefined,
         }
+        const dims = resolveCanvasDimensions(session.export_settings, store.previewVideoNaturalSize ?? null)
+        const placement = resolveBatchSplitPlacement(
+          session,
+          overlayIds,
+          dims.width,
+          dims.height
+        )
+        const explicitCenterX = call.arguments.center_x as number | undefined
+        const explicitCenterY = call.arguments.center_y as number | undefined
         const batch = buildSplitTextOverlaysBatchResult(
           () => getStore().session,
           overlayIds,
-          (overlayId) =>
-            store.splitTextOverlayByChar(overlayId, splitOptions, { recordHistory: false })
+          (overlayId) => {
+            const place = placement.get(overlayId)
+            return store.splitTextOverlayByChar(
+              overlayId,
+              {
+                ...splitOptions,
+                center_x: explicitCenterX ?? place?.center_x,
+                center_y: explicitCenterY ?? place?.center_y,
+              },
+              { recordHistory: false }
+            )
+          }
         )
         if (batch.succeeded === 0 && batch.skipped === 0) {
           const firstError = batch.items.find((item) => !item.ok)?.error

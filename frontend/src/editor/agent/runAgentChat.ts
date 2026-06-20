@@ -52,6 +52,7 @@ export interface RunAgentChatResult {
   history: AgentChatMessage[]
   plan: PendingAgentPlan | null
   task_plan?: AgentTaskPlan | null
+  executed_writes?: AgentToolCall[]
   debug_trace?: AgentDebugTrace
   debug_summary?: string
 }
@@ -94,10 +95,12 @@ function recordRound(
 
 function finishResult(
   debugTrace: AgentDebugTrace,
-  result: Omit<RunAgentChatResult, 'debug_trace' | 'debug_summary'>
+  result: Omit<RunAgentChatResult, 'debug_trace' | 'debug_summary'>,
+  executedWrites?: AgentToolCall[]
 ): RunAgentChatResult {
   return {
     ...result,
+    executed_writes: executedWrites,
     debug_trace: debugTrace,
     debug_summary: formatAgentDebugSummary(debugTrace),
   }
@@ -124,6 +127,7 @@ export async function runAgentChatLoop(
 ): Promise<RunAgentChatResult> {
   const getStore = () => useEditSessionStore.getState()
   let messages = initialMessages
+  let executedWrites: AgentToolCall[] = []
   const debugTrace: AgentDebugTrace = {
     rounds: [],
     total_rounds: 0,
@@ -166,12 +170,16 @@ export async function runAgentChatLoop(
         debugTrace.outcome = 'task_plan'
         const assistantMessage =
           response.assistant_message || `已生成 ${parsed.tasks.length} 步任务计划，请确认后开始执行。`
-        return finishResult(debugTrace, {
-          assistant_message: assistantMessage,
-          history: [...messages, { role: 'assistant', content: assistantMessage }],
-          plan: null,
-          task_plan: parsed,
-        })
+        return finishResult(
+          debugTrace,
+          {
+            assistant_message: assistantMessage,
+            history: [...messages, { role: 'assistant', content: assistantMessage }],
+            plan: null,
+            task_plan: parsed,
+          },
+          executedWrites
+        )
       }
     }
 
@@ -182,16 +190,21 @@ export async function runAgentChatLoop(
         const failed = results.find((item) => !item.ok)
         if (failed) {
           debugTrace.outcome = 'plan'
-          return finishResult(debugTrace, {
-            assistant_message: failed.error ?? '任务内写操作失败',
-            history: messages,
-            plan: {
-              summary: failed.error ?? '部分操作失败',
-              tool_calls: writeCalls,
-              source: 'llm',
+          return finishResult(
+            debugTrace,
+            {
+              assistant_message: failed.error ?? '任务内写操作失败',
+              history: messages,
+              plan: {
+                summary: failed.error ?? '部分操作失败',
+                tool_calls: writeCalls,
+                source: 'llm',
+              },
             },
-          })
+            executedWrites
+          )
         }
+        executedWrites = [...executedWrites, ...writeCalls]
         messages = [
           ...messages,
           { role: 'assistant', content: response.assistant_message || '' },
@@ -202,15 +215,19 @@ export async function runAgentChatLoop(
 
       debugTrace.outcome = 'plan'
       const assistantMessage = response.assistant_message || '已生成操作计划，请确认执行。'
-      return finishResult(debugTrace, {
-        assistant_message: assistantMessage,
-        history: [...messages, { role: 'assistant', content: assistantMessage }],
-        plan: {
-          summary: response.assistant_message || `将执行 ${writeCalls.length} 个操作`,
-          tool_calls: writeCalls,
-          source: 'llm',
+      return finishResult(
+        debugTrace,
+        {
+          assistant_message: assistantMessage,
+          history: [...messages, { role: 'assistant', content: assistantMessage }],
+          plan: {
+            summary: response.assistant_message || `将执行 ${writeCalls.length} 个操作`,
+            tool_calls: writeCalls,
+            source: 'llm',
+          },
         },
-      })
+        executedWrites
+      )
     }
 
     if (readCalls.length > 0) {
@@ -232,20 +249,28 @@ export async function runAgentChatLoop(
 
     const reply = (response.assistant_message || response.raw_content || '').trim() || '已完成。'
     debugTrace.outcome = 'reply'
-    return finishResult(debugTrace, {
-      assistant_message: reply,
-      history: [...messages, { role: 'assistant', content: reply }],
-      plan: null,
-    })
+    return finishResult(
+      debugTrace,
+      {
+        assistant_message: reply,
+        history: [...messages, { role: 'assistant', content: reply }],
+        plan: null,
+      },
+      executedWrites
+    )
   }
 
   debugTrace.exhausted = true
   debugTrace.outcome = 'exhausted'
-  return finishResult(debugTrace, {
-    assistant_message: options.exhaustedMessage,
-    history: messages,
-    plan: null,
-  })
+  return finishResult(
+    debugTrace,
+    {
+      assistant_message: options.exhaustedMessage,
+      history: messages,
+      plan: null,
+    },
+    executedWrites
+  )
 }
 
 export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentChatResult> {

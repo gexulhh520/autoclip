@@ -3,6 +3,7 @@ import type { EditSession } from '../../types/editSession'
 import {
   buildStaggeredCharOverlays,
   listSplittableTextOverlayIds,
+  resolveBatchSplitPlacement,
   resolveSplitTextOverlayId,
   splitTextContentToChars,
 } from './staggeredCharText'
@@ -94,5 +95,26 @@ describe('staggeredCharText', () => {
       ],
     } as import('../../types/editSession').EditSession
     expect(listSplittableTextOverlayIds(session)).toEqual(['b'])
+  })
+
+  it('fans out batch placement when overlays share the same center', () => {
+    const session = {
+      overlay_elements: [
+        {
+          id: 'o1',
+          type: 'text',
+          params: { content: '你好', 'transform.positionX': 0, 'transform.positionY': 0 },
+        },
+        {
+          id: 'o2',
+          type: 'text',
+          params: { content: '世界', 'transform.positionX': 0, 'transform.positionY': 0 },
+        },
+      ],
+    } as import('../../types/editSession').EditSession
+    const placement = resolveBatchSplitPlacement(session, ['o1', 'o2'], 1080, 1920)
+    const p1 = placement.get('o1')
+    const p2 = placement.get('o2')
+    expect(p1?.center_x).not.toBeCloseTo(p2?.center_x ?? 0, 2)
   })
 })

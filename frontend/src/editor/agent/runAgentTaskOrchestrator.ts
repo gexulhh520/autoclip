@@ -1,4 +1,8 @@
 import { formatAgentDebugSummary } from './formatAgentDebug'
+import {
+  runAgentPostTaskVerify,
+  shouldAutoVerifyAfterWrites,
+} from './runAgentPostTaskVerify'
 import { listTextOverlayPreviews } from './staggeredCharText'
 import {
   confirmExecutePlan,
@@ -128,7 +132,41 @@ export async function executeAgentTaskPlan(
       }
     }
 
-    const summary = taskResult.assistant_message.trim() || `已完成：${current.title}`
+    let summary = taskResult.assistant_message.trim() || `已完成：${current.title}`
+
+    if (shouldAutoVerifyAfterWrites(taskResult.executed_writes)) {
+      const verify = await runAgentPostTaskVerify({
+        projectId: input.projectId,
+        sessionId: input.sessionId,
+        userGoal: input.userGoal,
+        layoutReference: input.layoutReference,
+        taskContext: {
+          user_goal: input.userGoal,
+          completed_summaries: completedSummaries,
+          current_task: {
+            id: current.id,
+            title: current.title,
+            hint: current.hint,
+          },
+          pending_tasks: pendingTasks,
+          known_overlays: session ? listTextOverlayPreviews(session) : [],
+        },
+      })
+      summary = `${summary}\n${verify.summary}`
+      if (verify.pendingPlan?.tool_calls.length) {
+        current.status = 'failed'
+        current.summary = summary
+        input.onProgress?.(clonePlan(plan))
+        return {
+          taskPlan: plan,
+          assistant_message: summary,
+          pendingPlan: verify.pendingPlan,
+          debug_trace: lastDebug,
+          debug_summary: taskResult.debug_summary,
+        }
+      }
+    }
+
     current.status = 'done'
     current.summary = summary
     completedSummaries.push(`[${current.id}] ${current.title}: ${summary}`)

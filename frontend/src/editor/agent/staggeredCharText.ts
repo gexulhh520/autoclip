@@ -5,7 +5,7 @@ import { readNumberParam, readStringParam } from '../opencut-text/params'
 import type { OpenCutTextOverlay } from '../opencut-text/params'
 import { buildTextFontString } from '../opencut-text/primitives'
 import { FONT_SIZE_SCALE_REFERENCE } from '../opencut-text/typography'
-import { normalizedToPosition } from '../opencut-text/transform'
+import { normalizedToPosition, positionToNormalized } from '../opencut-text/transform'
 import type { TextMotionType } from '../textAnimation/types'
 import { validateMotionType } from './packagingTools'
 import { mergeDefaultTextAnimation } from './defaultAnimation'
@@ -22,8 +22,12 @@ export interface StaggeredCharTextOptions {
   in_duration_sec?: number
   /** 归一化 X，0.5 = 屏幕水平居中（竖排时使用） */
   center_x?: number
-  /** 归一化 Y，0.5 = 整列垂直居中 */
+  /** 归一化 Y，0.5 = 整列垂直居中；缺省沿用原字幕层位置 */
   center_y?: number
+  /** 批量拆分时当前列序号（0-based），用于多字幕同位置时横向错开 */
+  batch_column_index?: number
+  /** 批量拆分的总列数 */
+  batch_column_total?: number
 }
 
 export function splitTextContentToChars(content: string): string[] {
@@ -119,6 +123,68 @@ export function describeSplitTextOverlayFailure(
     : '无法逐字拆分：当前没有可拆分的文本层'
 }
 
+function readOverlayNormalizedCenter(
+  source: OpenCutTextOverlay,
+  canvasWidth: number,
+  canvasHeight: number
+): { x: number; y: number } {
+  const positionX = readNumberParam(source.params, 'transform.positionX', 0)
+  const positionY = readNumberParam(source.params, 'transform.positionY', 0)
+  return positionToNormalized(positionX, positionY, canvasWidth, canvasHeight)
+}
+
+/** 批量拆分时：若多字幕原位置重叠，则横向错开各列 */
+export function resolveBatchSplitPlacement(
+  session: EditSession,
+  overlayIds: string[],
+  canvasWidth: number,
+  canvasHeight: number
+): Map<string, { center_x: number; center_y: number }> {
+  const entries = overlayIds
+    .map((id) => {
+      const element = session.overlay_elements?.find((item) => item.id === id)
+      if (!element) return null
+      const center = readOverlayNormalizedCenter(element, canvasWidth, canvasHeight)
+      return { id, ...center }
+    })
+    .filter((item): item is { id: string; x: number; y: number } => item != null)
+
+  const map = new Map<string, { center_x: number; center_y: number }>()
+  if (entries.length === 0) return map
+
+  const xs = entries.map((item) => item.x)
+  const ys = entries.map((item) => item.y)
+  const xSpread = Math.max(...xs) - Math.min(...xs)
+  const ySpread = Math.max(...ys) - Math.min(...ys)
+  const needFanOut = entries.length > 1 && xSpread < 0.1 && ySpread < 0.1
+
+  entries.forEach((entry, index) => {
+    let center_x = entry.x
+    const center_y = entry.y
+    if (needFanOut) {
+      const t = entries.length === 1 ? 0.5 : index / (entries.length - 1)
+      center_x = 0.22 + t * 0.56
+    }
+    map.set(entry.id, {
+      center_x: Math.min(0.92, Math.max(0.08, center_x)),
+      center_y: Math.min(0.92, Math.max(0.08, center_y)),
+    })
+  })
+  return map
+}
+
+function measureVerticalLineHeight(
+  ctx: CanvasRenderingContext2D,
+  scaledFontSize: number
+): number {
+  const metrics = ctx.measureText('国')
+  const ascent =
+    metrics.actualBoundingBoxAscent > 0 ? metrics.actualBoundingBoxAscent : scaledFontSize * 0.88
+  const descent =
+    metrics.actualBoundingBoxDescent > 0 ? metrics.actualBoundingBoxDescent : scaledFontSize * 0.12
+  return (ascent + descent) * 1.22
+}
+
 function resolveStaggeredCharLayout(value: unknown): StaggeredCharLayout {
   return value === 'vertical' ? 'vertical' : 'horizontal'
 }
@@ -141,8 +207,9 @@ export function buildStaggeredCharOverlays(
   const charDurationSec = Math.max(0.5, optNum(options.char_duration_sec, source.duration_sec))
   const inType = validateMotionType(options.in_type) ?? 'pop'
   const inDurationSec = Math.max(0.05, optNum(options.in_duration_sec, 0.35))
-  const centerX = Math.min(0.92, Math.max(0.08, optNum(options.center_x, 0.5)))
-  const centerY = Math.min(0.92, Math.max(0.08, optNum(options.center_y, 0.5)))
+  const sourceCenter = readOverlayNormalizedCenter(source, canvasWidth, canvasHeight)
+  const centerX = Math.min(0.92, Math.max(0.08, optNum(options.center_x, sourceCenter.x)))
+  const centerY = Math.min(0.92, Math.max(0.08, optNum(options.center_y, sourceCenter.y)))
 
   const fontSize = readNumberParam(source.params, 'fontSize', 6)
   const fontFamily = readStringParam(source.params, 'fontFamily', 'Noto Sans SC')
@@ -158,7 +225,7 @@ export function buildStaggeredCharOverlays(
 
   const positions =
     layout === 'vertical'
-      ? buildVerticalCharPositions(chars, canvasWidth, canvasHeight, centerX, centerY, scaledFontSize)
+      ? buildVerticalCharPositions(chars, canvasWidth, canvasHeight, centerX, centerY, ctx, scaledFontSize)
       : buildHorizontalCharPositions(chars, canvasWidth, canvasHeight, centerY, scaledFontSize, ctx)
 
   return chars.map((char, index) => {
@@ -226,16 +293,17 @@ function buildVerticalCharPositions(
   canvasHeight: number,
   centerX: number,
   centerY: number,
+  ctx: CanvasRenderingContext2D,
   scaledFontSize: number
 ): Array<{ normX: number; normY: number }> {
-  const lineHeight = scaledFontSize * 1.15
-  const gap = scaledFontSize * 0.1
+  const lineHeight = measureVerticalLineHeight(ctx, scaledFontSize)
+  const gap = lineHeight * 0.12
   const totalHeight = chars.length * lineHeight + gap * Math.max(0, chars.length - 1)
   const columnCenterYPx = centerY * canvasHeight
   let yCursor = columnCenterYPx - totalHeight / 2 + lineHeight / 2
 
   return chars.map(() => {
-    const normY = yCursor / canvasHeight
+    const normY = Math.min(0.96, Math.max(0.04, yCursor / canvasHeight))
     yCursor += lineHeight + gap
     return { normX: centerX, normY }
   })
