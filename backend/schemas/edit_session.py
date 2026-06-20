@@ -76,6 +76,8 @@ class EditBlock(BaseModel):
     duration_sec: float = 0.0
     playback_rate: float = 1.0
     video_transform: EditBlockVideoTransform = Field(default_factory=EditBlockVideoTransform)
+    track_id: Optional[str] = None
+    timeline_start_sec: Optional[float] = None
 
     @model_validator(mode="after")
     def normalize_playback_rate(self) -> "EditBlock":
@@ -199,6 +201,13 @@ class AudioTrackMeta(BaseModel):
     order: int = 0
 
 
+class VideoTrackMeta(BaseModel):
+    id: str
+    name: str = "Video"
+    hidden: bool = False
+    order: int = 0
+
+
 class AudioAssetMeta(BaseModel):
     id: str
     name: str
@@ -299,6 +308,7 @@ class EditSession(BaseModel):
     sequence: List[EditBlock] = Field(default_factory=list)
     overlay_elements: List[EditOverlayElement] = Field(default_factory=list)
     text_tracks: List[TextTrackMeta] = Field(default_factory=list)
+    video_tracks: List[VideoTrackMeta] = Field(default_factory=list)
     audio_assets: List[AudioAssetMeta] = Field(default_factory=list)
     audio_tracks: List[AudioTrackMeta] = Field(default_factory=list)
     audio_elements: List[AudioClipElement] = Field(default_factory=list)
@@ -347,6 +357,7 @@ class EditSessionUpdateRequest(BaseModel):
     sequence: Optional[List[EditBlock]] = None
     overlay_elements: Optional[List[EditOverlayElement]] = None
     text_tracks: Optional[List[TextTrackMeta]] = None
+    video_tracks: Optional[List[VideoTrackMeta]] = None
     audio_assets: Optional[List[AudioAssetMeta]] = None
     audio_tracks: Optional[List[AudioTrackMeta]] = None
     audio_elements: Optional[List[AudioClipElement]] = None

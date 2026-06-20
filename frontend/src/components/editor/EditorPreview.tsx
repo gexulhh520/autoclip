@@ -10,6 +10,7 @@ import {
   formatTimecode,
   getCompositionTotalDuration,
 } from '../../utils/editTimeline'
+import { resolveMainTrackBlocks, resolveVideoTrackMaxEndSec } from '../../editor/videoTracks'
 import { resolveCanvasAspectRatio } from '../../utils/editAspectRatios'
 import { formatExportSettingsSummary } from '../../utils/editExportSummary'
 import {
@@ -63,6 +64,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const moveOverlayPositions = useEditSessionStore((state) => state.moveOverlayPositions)
   const moveCaptionOffsets = useEditSessionStore((state) => state.moveCaptionOffsets)
   const textTrackMuted = useEditSessionStore((state) => state.textTrackMuted)
+  const videoTrackMuted = useEditSessionStore((state) => state.videoTrackMuted)
   const audioTrackMuted = useEditSessionStore((state) => state.audioTrackMuted)
   const setPreviewVideoNaturalSize = useEditSessionStore((state) => state.setPreviewVideoNaturalSize)
 
@@ -74,14 +76,23 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     () => Object.entries(textTrackMuted).filter(([, muted]) => muted).map(([id]) => id),
     [textTrackMuted]
   )
+  const mutedVideoTrackIds = useMemo(
+    () => Object.entries(videoTrackMuted).filter(([, muted]) => muted).map(([id]) => id),
+    [videoTrackMuted]
+  )
   const blocks = session?.sequence ?? []
   const transitionDurationSec = session?.audio_settings?.transition_duration_sec ?? 0.35
   const useSourcePreview = session?.audio_settings?.use_source_video ?? false
 
-  const totalDuration = useMemo(
-    () => getCompositionTotalDuration(blocks, transitionDurationSec, session?.sequence_block_gaps),
-    [blocks, transitionDurationSec, session?.sequence_block_gaps]
-  )
+  const totalDuration = useMemo(() => {
+    if (!session) return 0
+    const mainDuration = getCompositionTotalDuration(
+      resolveMainTrackBlocks(session),
+      transitionDurationSec,
+      session.sequence_block_gaps
+    )
+    return Math.max(mainDuration, resolveVideoTrackMaxEndSec(session))
+  }, [session, transitionDurationSec])
 
   const sceneBuilderInput = useMemo(
     () =>
@@ -94,6 +105,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
               selectedOverlayId,
               selectedOverlayIds,
               mutedTextTrackIds,
+              mutedVideoTrackIds,
             },
           }
         : null,
@@ -105,6 +117,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
       selectedOverlayIds,
       overlayElements,
       mutedTextTrackIds,
+      mutedVideoTrackIds,
     ]
   )
 

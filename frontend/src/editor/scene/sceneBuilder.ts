@@ -8,7 +8,15 @@ import {
   resolveTextTracks,
   sortOverlaysByTrackOrder,
 } from '../textTracks'
-import { blockPlaybackRate } from '../../utils/editTimeline'
+import {
+  blockTimelineStartSec,
+  getBlockTrackId,
+  resolveMainTrackBlocks,
+  resolveOverlayVideoBlocks,
+  resolveVideoTrackMaxEndSec,
+  resolveVideoTracks,
+} from '../videoTracks'
+import { blockDuration, blockPlaybackRate } from '../../utils/editTimeline'
 import { resolveCanvasDimensions } from './canvas'
 import {
   buildCompositionTimeline,
@@ -128,8 +136,9 @@ export function compileExportPlan(
   options: SceneCompileOptions
 ): ExportScenePlan {
   const transitionDurationSec = session.audio_settings.transition_duration_sec ?? 0.35
+  const mainBlocks = resolveMainTrackBlocks(session)
   const timeline = buildCompositionTimeline(
-    session.sequence,
+    mainBlocks,
     transitionDurationSec,
     session.sequence_block_gaps
   )
@@ -163,13 +172,16 @@ export function resolveSceneAt(
 ): RenderScene {
   const { session, options } = input
   const transitionDurationSec = session.audio_settings.transition_duration_sec ?? 0.35
+  const mainBlocks = resolveMainTrackBlocks(session)
   const timeline = buildCompositionTimeline(
-    session.sequence,
+    mainBlocks,
     transitionDurationSec,
     session.sequence_block_gaps
   )
+  const overlayMaxSec = resolveVideoTrackMaxEndSec(session)
+  const totalDurationSec = Math.max(timeline.totalDurationSec, overlayMaxSec)
   const canvas = buildCanvas(session, sourceSize)
-  const clampedTime = Math.max(0, Math.min(timeline.totalDurationSec, timeSec))
+  const clampedTime = Math.max(0, Math.min(totalDurationSec, timeSec))
 
   const cross = findCrossTransitionAtTime(timeline, clampedTime)
   const videoLayers: VideoLayer[] = []
@@ -264,6 +276,37 @@ export function resolveSceneAt(
     }
   }
 
+  const mutedVideoTrackIds = new Set(options.mutedVideoTrackIds ?? [])
+  const hiddenVideoTrackIds = new Set(
+    resolveVideoTracks(session).filter((track) => track.hidden).map((track) => track.id)
+  )
+  const videoTrackOrder = new Map(
+    resolveVideoTracks(session).map((track, index) => [track.id, index])
+  )
+  for (const block of resolveOverlayVideoBlocks(session)) {
+    const trackId = getBlockTrackId(block)
+    if (mutedVideoTrackIds.has(trackId) || hiddenVideoTrackIds.has(trackId)) continue
+    const startSec = blockTimelineStartSec(block)
+    const durationSec = blockDuration(block)
+    if (clampedTime < startSec || clampedTime >= startSec + durationSec) continue
+    const relative = clampedTime - startSec + block.trim.in_sec / blockPlaybackRate(block)
+    videoLayers.push({
+      blockId: block.id,
+      blockIndex: -1,
+      relativeSourceSec: relative,
+      opacity: 1,
+      volume: blockVolumeAtRelative(
+        block.audio.volume,
+        relative,
+        durationSec,
+        block.audio.fade_in_sec ?? 0,
+        block.audio.fade_out_sec ?? 0
+      ),
+      playbackRate: blockPlaybackRate(block),
+      zIndex: 10 + (videoTrackOrder.get(trackId) ?? 0),
+    })
+  }
+
   const freeTextLayers = resolveFreeTextLayers(session, clampedTime, {
     selectedOverlayId: options.selectedOverlayId,
     selectedOverlayIds: options.selectedOverlayIds,
@@ -316,7 +359,7 @@ export function resolveSceneAt(
 
   return {
     timeSec: clampedTime,
-    totalDurationSec: timeline.totalDurationSec,
+    totalDurationSec,
     canvas,
     videoLayers,
     templateCaptions,

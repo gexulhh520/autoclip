@@ -1,8 +1,15 @@
 import type { EditSession } from '../../types/editSession'
 import type { EditDocument, EditProjectV3 } from '../migration/v2ToV3'
 import { flattenV3ToSession } from '../migration/v2ToV3'
-import { blockPlaybackRate } from '../../utils/editTimeline'
+import { blockDuration, blockPlaybackRate } from '../../utils/editTimeline'
 import { findAudioAsset } from '../audioTracks'
+import {
+  blockTimelineStartSec,
+  resolveMainTrackBlocks,
+  resolveOverlayVideoBlocks,
+  resolveVideoTrackMaxEndSec,
+  resolveVideoTracks,
+} from '../videoTracks'
 import {
   getOverlayTrackId,
   resolveTextTracks,
@@ -36,8 +43,9 @@ export function compileCompositionPlan(
 ): CompositionPlan {
   const exportPlan = compileExportPlan(session, options)
   const transitionDurationSec = session.audio_settings.transition_duration_sec ?? 0.35
+  const mainBlocks = resolveMainTrackBlocks(session)
   const timeline = buildCompositionTimeline(
-    session.sequence,
+    mainBlocks,
     transitionDurationSec,
     session.sequence_block_gaps
   )
@@ -83,6 +91,30 @@ export function compileCompositionPlan(
         )
       )
     }
+  }
+
+  const hiddenVideoTrackIds = new Set(
+    resolveVideoTracks(session).filter((track) => track.hidden).map((track) => track.id)
+  )
+  for (const block of resolveOverlayVideoBlocks(session)) {
+    const trackId = block.track_id
+    if (trackId && hiddenVideoTrackIds.has(trackId)) continue
+    layers.push({
+      kind: 'video_clip',
+      blockId: block.id,
+      blockIndex: -1,
+      mediaPath: block.media.path,
+      trimInSec: block.trim.in_sec,
+      trimOutSec: block.trim.out_sec,
+      playbackRate: blockPlaybackRate(block),
+      compositionStartSec: blockTimelineStartSec(block),
+      sourceDurationSec: blockDuration(block),
+      transitionOut: 'cut',
+      dissolveOutSec: 0,
+      volume: block.audio.volume,
+      fadeInSec: block.audio.fade_in_sec ?? 0,
+      fadeOutSec: block.audio.fade_out_sec ?? 0,
+    })
   }
 
   const hiddenTrackIds = new Set(
@@ -167,7 +199,7 @@ export function compileCompositionPlan(
       fps: exportPlan.canvas.fps,
     },
     timeline,
-    totalDurationSec: timeline.totalDurationSec,
+    totalDurationSec: Math.max(timeline.totalDurationSec, resolveVideoTrackMaxEndSec(session)),
     transitionDurationSec,
     layers,
     templateCaptions,

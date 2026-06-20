@@ -42,6 +42,8 @@ export interface AdaptedTrack {
   textTrackId?: string
   /** 用户音频轨 meta id */
   audioTrackId?: string
+  /** 用户视频轨 meta id */
+  videoTrackId?: string
   elements: AdaptedElement[]
   /** 主轨转场叠化区标记（非视频块，不占用同轨重叠） */
   transitionMarkers?: AdaptedTransitionMarker[]

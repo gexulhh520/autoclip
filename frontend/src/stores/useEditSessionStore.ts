@@ -49,6 +49,15 @@ import {
   nextAudioTrackOrder,
   resolveAudioAssetCategory,
 } from '../editor/audioTracks'
+import {
+  DEFAULT_VIDEO_TRACK_ID,
+  createVideoTrack,
+  defaultVideoTrackName,
+  ensureVideoTracks,
+  isMainTrackBlock,
+  nextVideoTrackOrder,
+  resolveMainTrackBlocks,
+} from '../editor/videoTracks'
 import { resolveCanvasDimensions } from '../editor/scene/canvas'
 import {
   attachAudioClipBlockLink,
@@ -171,8 +180,12 @@ const resolvePlayheadInsertIndex = (session: EditSession, playheadSec: number): 
   )
 
 const playheadSecForBlock = (session: EditSession, blockId: string): number => {
+  const block = session.sequence.find((item) => item.id === blockId)
+  if (block && !isMainTrackBlock(block)) {
+    return block.timeline_start_sec ?? 0
+  }
   const segments = buildCompositionTimelineSegments(
-    session.sequence,
+    resolveMainTrackBlocks(session),
     BASE_PX_PER_SEC,
     transitionDurationSec(session),
     session.sequence_block_gaps
@@ -180,17 +193,26 @@ const playheadSecForBlock = (session: EditSession, blockId: string): number => {
   return segments.find((segment) => segment.block.id === blockId)?.startSec ?? 0
 }
 
-const compositionTotalDuration = (session: EditSession): number =>
-  getCompositionTotalDuration(
-    session.sequence,
+const compositionTotalDuration = (session: EditSession): number => {
+  const mainDuration = getCompositionTotalDuration(
+    resolveMainTrackBlocks(session),
     transitionDurationSec(session),
     session.sequence_block_gaps
   )
+  let overlayMax = 0
+  for (const block of session.sequence) {
+    if (isMainTrackBlock(block)) continue
+    const end = (block.timeline_start_sec ?? 0) + blockDuration(block)
+    overlayMax = Math.max(overlayMax, end)
+  }
+  return Math.max(mainDuration, overlayMax)
+}
 
 /** API 返回的 session 需深拷贝后再写入 immer，避免与后续 draft 更新冲突 */
 const cloneSessionFromApi = (session: EditSession): EditSession => {
   const cloned = JSON.parse(JSON.stringify(session)) as EditSession
   ensureAudioModel(cloned)
+  ensureVideoTracks(cloned)
   return cloned
 }
 
@@ -231,8 +253,10 @@ interface EditSessionState {
   timelineTrackHidden: Record<TimelineTrackId, boolean>
   textTrackMuted: Record<string, boolean>
   audioTrackMuted: Record<string, boolean>
+  videoTrackMuted: Record<string, boolean>
   activeTextTrackId: string | null
   activeAudioTrackId: string | null
+  activeVideoTrackId: string | null
   assetPreviewClip: AssetPreviewClip | null
   previewVideoNaturalSize: { width: number; height: number } | null
   isPlaying: boolean
@@ -379,6 +403,20 @@ interface EditSessionState {
   setActiveTextTrackId: (textTrackId: string | null) => void
   addTextTrack: (name?: string) => string
   removeTextTrack: (textTrackId: string) => void
+  toggleVideoTrackMuted: (videoTrackId: string) => void
+  toggleVideoTrackHidden: (videoTrackId: string) => void
+  setActiveVideoTrackId: (videoTrackId: string | null) => void
+  addVideoTrack: (name?: string) => string
+  moveBlockToVideoTrack: (
+    blockId: string,
+    videoTrackId: string,
+    options?: { recordHistory?: boolean; timelineStartSec?: number }
+  ) => void
+  updateBlockTimelineStart: (
+    blockId: string,
+    startSec: number,
+    options?: { recordHistory?: boolean }
+  ) => void
   moveOverlayToTrack: (overlayId: string, textTrackId: string, options?: { recordHistory?: boolean }) => void
   moveOverlaysToTrack: (overlayIds: string[], textTrackId: string, options?: { recordHistory?: boolean }) => void
   addOverlayElement: (element: Omit<EditOverlayElement, 'id'>) => void
@@ -578,8 +616,10 @@ export const useEditSessionStore = create<EditSessionState>()(
       timelineTrackHidden: { ...DEFAULT_TRACK_HIDDEN },
       textTrackMuted: {},
       audioTrackMuted: {},
+      videoTrackMuted: {},
       activeTextTrackId: DEFAULT_TEXT_TRACK_ID,
       activeAudioTrackId: DEFAULT_AUDIO_TRACK_ID,
+      activeVideoTrackId: DEFAULT_VIDEO_TRACK_ID,
       assetPreviewClip: null,
       previewVideoNaturalSize: null,
       isPlaying: false,
@@ -650,6 +690,9 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (ensureAudioModel(session)) {
             migrated = true
           }
+          if (ensureVideoTracks(session)) {
+            migrated = true
+          }
           for (const block of session.sequence) {
             normalizeBlockOverlay(block)
           }
@@ -706,8 +749,10 @@ export const useEditSessionStore = create<EditSessionState>()(
             timelineTrackHidden: { ...DEFAULT_TRACK_HIDDEN },
             textTrackMuted: {},
             audioTrackMuted: {},
+            videoTrackMuted: {},
             activeTextTrackId: DEFAULT_TEXT_TRACK_ID,
             activeAudioTrackId: DEFAULT_AUDIO_TRACK_ID,
+            activeVideoTrackId: DEFAULT_VIDEO_TRACK_ID,
             inspectorTab: firstBlockOverlays[0] ? 'text' : 'video',
             historyPast: [],
             historyFuture: [],
@@ -733,6 +778,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             sequence: sessionPayload.sequence,
             overlay_elements: sessionPayload.overlay_elements,
             text_tracks: sessionPayload.text_tracks,
+            video_tracks: sessionPayload.video_tracks,
             audio_assets: sessionPayload.audio_assets,
             audio_tracks: sessionPayload.audio_tracks,
             audio_elements: sessionPayload.audio_elements,
@@ -1411,8 +1457,14 @@ export const useEditSessionStore = create<EditSessionState>()(
         const index = session.sequence.findIndex((item) => item.id === blockId)
         set((state) => {
           if (!state.session) return
-          state.session.sequence.splice(index + 1, 0, copy)
-          insertSequenceBlockGapAt(state.session, index + 1)
+          if (isMainTrackBlock(block)) {
+            state.session.sequence.splice(index + 1, 0, copy)
+            insertSequenceBlockGapAt(state.session, index + 1)
+          } else {
+            copy.timeline_start_sec =
+              (block.timeline_start_sec ?? 0) + blockDuration(block) + 0.1
+            state.session.sequence.push(copy)
+          }
           state.selectedBlockId = copy.id
           state.selectedBlockIds = [copy.id]
           state.dirty = true
@@ -1764,6 +1816,85 @@ export const useEditSessionStore = create<EditSessionState>()(
           state.dirty = true
         })
         return newTrackId
+      },
+
+      toggleVideoTrackMuted: (videoTrackId) => {
+        set((state) => {
+          state.videoTrackMuted[videoTrackId] = !state.videoTrackMuted[videoTrackId]
+        })
+      },
+
+      toggleVideoTrackHidden: (videoTrackId) => {
+        pushHistory()
+        set((state) => {
+          if (!state.session?.video_tracks) return
+          const track = state.session.video_tracks.find((item) => item.id === videoTrackId)
+          if (!track) return
+          track.hidden = !track.hidden
+          state.dirty = true
+        })
+      },
+
+      setActiveVideoTrackId: (videoTrackId) => {
+        set({ activeVideoTrackId: videoTrackId })
+      },
+
+      addVideoTrack: (name) => {
+        pushHistory()
+        let newTrackId = DEFAULT_VIDEO_TRACK_ID
+        set((state) => {
+          if (!state.session) return
+          ensureVideoTracks(state.session)
+          const order = nextVideoTrackOrder(state.session.video_tracks!)
+          const trackName =
+            name ?? defaultVideoTrackName(state.session.video_tracks!.length)
+          const track = createVideoTrack(trackName, order)
+          newTrackId = track.id
+          state.session.video_tracks!.push(track)
+          state.activeVideoTrackId = track.id
+          state.dirty = true
+        })
+        return newTrackId
+      },
+
+      moveBlockToVideoTrack: (blockId, videoTrackId, options) => {
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
+        set((state) => {
+          if (!state.session?.video_tracks) return
+          const trackExists = state.session.video_tracks.some((item) => item.id === videoTrackId)
+          if (!trackExists) return
+          const block = state.session.sequence.find((item) => item.id === blockId)
+          if (!block) return
+          const wasMain = isMainTrackBlock(block)
+          block.track_id = videoTrackId
+          if (videoTrackId === DEFAULT_VIDEO_TRACK_ID) {
+            delete block.timeline_start_sec
+          } else {
+            block.timeline_start_sec = options?.timelineStartSec ?? block.timeline_start_sec ?? 0
+          }
+          if (wasMain && videoTrackId !== DEFAULT_VIDEO_TRACK_ID) {
+            removeSequenceBlockGapAt(
+              state.session,
+              state.session.sequence.findIndex((item) => item.id === blockId)
+            )
+          }
+          state.dirty = true
+        })
+      },
+
+      updateBlockTimelineStart: (blockId, startSec, options) => {
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
+        set((state) => {
+          if (!state.session) return
+          const block = state.session.sequence.find((item) => item.id === blockId)
+          if (!block || isMainTrackBlock(block)) return
+          block.timeline_start_sec = Math.max(0, startSec)
+          state.dirty = true
+        })
       },
 
       removeTextTrack: (textTrackId) => {
@@ -2174,9 +2305,15 @@ export const useEditSessionStore = create<EditSessionState>()(
         }
         set((state) => {
           if (!state.session) return
+          const mainBlocks = resolveMainTrackBlocks(state.session)
+          const fromBlock = mainBlocks[fromIndex]
+          const toBlock = mainBlocks[toIndex]
+          if (!fromBlock || !toBlock) return
+          const fullFromIndex = state.session.sequence.findIndex((item) => item.id === fromBlock.id)
+          const fullToIndex = state.session.sequence.findIndex((item) => item.id === toBlock.id)
           const next = [...state.session.sequence]
-          const [moved] = next.splice(fromIndex, 1)
-          next.splice(toIndex, 0, moved)
+          const [moved] = next.splice(fullFromIndex, 1)
+          next.splice(fullToIndex, 0, moved)
           state.session.sequence = next
           clearSequenceBlockGaps(state.session)
           ensureTemplateCaptionOverlays(state.session)
@@ -2849,8 +2986,10 @@ export const useEditSessionStore = create<EditSessionState>()(
           timelineTrackHidden: { ...DEFAULT_TRACK_HIDDEN },
           textTrackMuted: {},
           audioTrackMuted: {},
+          videoTrackMuted: {},
           activeTextTrackId: DEFAULT_TEXT_TRACK_ID,
           activeAudioTrackId: DEFAULT_AUDIO_TRACK_ID,
+          activeVideoTrackId: DEFAULT_VIDEO_TRACK_ID,
           assetPreviewClip: null,
           previewVideoNaturalSize: null,
           isPlaying: false,

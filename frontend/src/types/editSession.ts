@@ -20,6 +20,13 @@ export interface AudioTrackMeta {
   order: number
 }
 
+export interface VideoTrackMeta {
+  id: string
+  name: string
+  hidden?: boolean
+  order: number
+}
+
 export type AudioAssetCategory = 'sfx' | 'bgm'
 
 export interface AudioAssetMeta {
@@ -114,6 +121,10 @@ export interface EditBlock {
   playback_rate?: number
   /** 片段画面缩放/位移（预览与 compositor 导出） */
   video_transform?: EditBlockVideoTransform
+  /** 所属视频轨；缺省为主轨 */
+  track_id?: string
+  /** 非主轨片段在合成时间轴上的起点（秒） */
+  timeline_start_sec?: number
 }
 
 import type { EditAspectPresetId } from '../utils/editAspectRatios'
@@ -160,6 +171,7 @@ export interface EditSession {
   sequence_block_gaps?: number[]
   overlay_elements?: EditOverlayElement[]
   text_tracks?: TextTrackMeta[]
+  video_tracks?: VideoTrackMeta[]
   audio_assets?: AudioAssetMeta[]
   audio_tracks?: AudioTrackMeta[]
   audio_elements?: AudioClipElement[]
@@ -196,6 +208,7 @@ export interface EditSessionUpdateRequest {
   sequence?: EditBlock[]
   overlay_elements?: EditOverlayElement[]
   text_tracks?: TextTrackMeta[]
+  video_tracks?: VideoTrackMeta[]
   audio_assets?: AudioAssetMeta[]
   audio_tracks?: AudioTrackMeta[]
   audio_elements?: AudioClipElement[]

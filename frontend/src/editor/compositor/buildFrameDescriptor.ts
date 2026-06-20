@@ -86,10 +86,13 @@ const resolveForegroundTransform = (
 
 const findBlockInTimeline = (
   timeline: CompositionPlan['timeline'],
-  blockId: string | undefined
+  blockId: string | undefined,
+  session?: EditSession | null
 ): EditBlock | undefined => {
   if (!blockId) return undefined
-  return timeline.segments.find((segment) => segment.block.id === blockId)?.block
+  const fromTimeline = timeline.segments.find((segment) => segment.block.id === blockId)?.block
+  if (fromTimeline) return fromTimeline
+  return session?.sequence.find((block) => block.id === blockId)
 }
 
 const blockVolumeAtRelative = (
@@ -265,7 +268,7 @@ export function buildFrameDescriptor(
   }
 
   for (const layerSpec of transitionResult.videoLayers) {
-    const block = findBlockInTimeline(timeline, layerSpec.blockId)
+    const block = findBlockInTimeline(timeline, layerSpec.blockId, context.session)
     const blockSize = resolveBlockSourceSize(
       layerSpec.blockId,
       context,
@@ -281,6 +284,44 @@ export function buildFrameDescriptor(
     )
     items.push(
       frameLayerFromTransitionSpec({ ...layerSpec, transform: layerForeground }, zIndex++)
+    )
+  }
+
+  const overlayVideoClips = plan.layers.filter(
+    (layer): layer is Extract<typeof plan.layers[number], { kind: 'video_clip' }> =>
+      layer.kind === 'video_clip' && layer.blockIndex < 0
+  )
+  for (const layerDef of overlayVideoClips) {
+    if (!isOverlayActiveAt(layerDef.compositionStartSec, layerDef.sourceDurationSec, clampedTime)) {
+      continue
+    }
+    const block = findBlockInTimeline(timeline, layerDef.blockId, context.session)
+    if (!block) continue
+    const relative =
+      clampedTime - layerDef.compositionStartSec + layerDef.trimInSec / layerDef.playbackRate
+    const blockSize = resolveBlockSourceSize(
+      layerDef.blockId,
+      context,
+      canvas.width,
+      canvas.height
+    )
+    const { foreground: layerForeground } = resolveForegroundTransform(
+      exportSettingsStub,
+      canvas,
+      blockSize.width,
+      blockSize.height,
+      block
+    )
+    items.push(
+      frameLayerFromTransitionSpec(
+        {
+          blockId: layerDef.blockId,
+          relativeSourceSec: relative,
+          transform: layerForeground,
+          opacity: 1,
+        },
+        zIndex++
+      )
     )
   }
 

@@ -93,6 +93,8 @@ export interface SceneCompileOptions {
   selectedOverlayIds?: string[]
   /** 预览/导出：静音的用户文本轨 id */
   mutedTextTrackIds?: string[]
+  /** 预览/导出：静音的用户视频轨 id（不含主轨 UI 静音） */
+  mutedVideoTrackIds?: string[]
 }
 
 export interface SceneBuilderInput {

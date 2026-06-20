@@ -8,7 +8,8 @@ import {
 import { getBlockVideoUrl } from '../../../utils/editBlockMedia'
 import { extractWaveformPeaks } from '../../../utils/audioWaveform'
 import editApi from '../../../services/editApi'
-import { buildAdaptedTracks, findAudioTrackAtY, findElementInTracks, findTextTrackAtY, isUserAudioAdaptedTrack, isUserTextAdaptedTrack, mapTrackIdToStoreKey, resolveTimelinePointerY, ADAPTED_TRACK_IDS } from './adapter'
+import { buildAdaptedTracks, findAudioTrackAtY, findElementInTracks, findTextTrackAtY, findVideoTrackAtY, isUserAudioAdaptedTrack, isUserTextAdaptedTrack, isUserVideoAdaptedTrack, mapTrackIdToStoreKey, resolveMainTrackBlocks, resolveTimelinePointerY, ADAPTED_TRACK_IDS } from './adapter'
+import { isMainTrackBlock } from '../../../editor/videoTracks'
 import { findAudioAsset, resolveAssetDurationSec } from '../../../editor/audioTracks'
 import TimelineToolbar from './TimelineToolbar'
 import TimelineRuler from './TimelineRuler'
@@ -86,6 +87,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   })
   const sessionId = session?.id ?? ''
   const blocks = session?.sequence ?? []
+  const mainBlocks = useMemo(() => (session ? resolveMainTrackBlocks(session) : []), [session])
   const bookmarks = session?.bookmarks ?? []
   const transitionDurationSec = session?.audio_settings?.transition_duration_sec ?? 0.35
   const fps = session?.export_settings?.fps ?? 30
@@ -105,8 +107,10 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const timelineTrackHidden = useEditSessionStore((state) => state.timelineTrackHidden)
   const textTrackMuted = useEditSessionStore((state) => state.textTrackMuted)
   const audioTrackMuted = useEditSessionStore((state) => state.audioTrackMuted)
+  const videoTrackMuted = useEditSessionStore((state) => state.videoTrackMuted)
   const activeAudioTrackId = useEditSessionStore((state) => state.activeAudioTrackId)
   const activeTextTrackId = useEditSessionStore((state) => state.activeTextTrackId)
+  const activeVideoTrackId = useEditSessionStore((state) => state.activeVideoTrackId)
   const historyPast = useEditSessionStore((state) => state.historyPast)
   const historyFuture = useEditSessionStore((state) => state.historyFuture)
 
@@ -137,6 +141,9 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const beginTimelineGesture = useEditSessionStore((state) => state.beginTimelineGesture)
   const updateOverlayElement = useEditSessionStore((state) => state.updateOverlayElement)
   const addAudioTrack = useEditSessionStore((state) => state.addAudioTrack)
+  const addVideoTrack = useEditSessionStore((state) => state.addVideoTrack)
+  const moveBlockToVideoTrack = useEditSessionStore((state) => state.moveBlockToVideoTrack)
+  const updateBlockTimelineStart = useEditSessionStore((state) => state.updateBlockTimelineStart)
   const addAudioClipToTimeline = useEditSessionStore((state) => state.addAudioClipToTimeline)
   const updateAudioClip = useEditSessionStore((state) => state.updateAudioClip)
   const moveAudioClipToTrack = useEditSessionStore((state) => state.moveAudioClipToTrack)
@@ -144,7 +151,10 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const flushSaveSession = useEditSessionStore((state) => state.flushSaveSession)
   const toggleAudioTrackMuted = useEditSessionStore((state) => state.toggleAudioTrackMuted)
   const toggleAudioTrackHidden = useEditSessionStore((state) => state.toggleAudioTrackHidden)
+  const toggleVideoTrackMuted = useEditSessionStore((state) => state.toggleVideoTrackMuted)
+  const toggleVideoTrackHidden = useEditSessionStore((state) => state.toggleVideoTrackHidden)
   const setActiveAudioTrackId = useEditSessionStore((state) => state.setActiveAudioTrackId)
+  const setActiveVideoTrackId = useEditSessionStore((state) => state.setActiveVideoTrackId)
   const setSelectedAudioClipId = useEditSessionStore((state) => state.setSelectedAudioClipId)
   const updateAudioSettings = useEditSessionStore((state) => state.updateAudioSettings)
   const reorderBlocks = useEditSessionStore((state) => state.reorderBlocks)
@@ -195,6 +205,12 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     duration: number
     label: string
   } | null>(null)
+  const [videoDragPreview, setVideoDragPreview] = useState<{
+    trackId: string
+    startSec: number
+    duration: number
+    label: string
+  } | null>(null)
   const [draggingOverlayIds, setDraggingOverlayIds] = useState<string[]>([])
   const [draggingAudioClipId, setDraggingAudioClipId] = useState<string | null>(null)
   const [blockDragPreview, setBlockDragPreview] = useState<{
@@ -210,16 +226,16 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const segments = useMemo(
     () =>
       buildCompositionTimelineSegments(
-        blocks,
+        mainBlocks,
         50,
         transitionDurationSec,
         session?.sequence_block_gaps
       ),
-    [blocks, transitionDurationSec, session?.sequence_block_gaps]
+    [mainBlocks, transitionDurationSec, session?.sequence_block_gaps]
   )
   const compositionDuration = useMemo(
-    () => getCompositionTotalDuration(blocks, transitionDurationSec, session?.sequence_block_gaps),
-    [blocks, transitionDurationSec, session?.sequence_block_gaps]
+    () => getCompositionTotalDuration(mainBlocks, transitionDurationSec, session?.sequence_block_gaps),
+    [mainBlocks, transitionDurationSec, session?.sequence_block_gaps]
   )
 
   const tracks = useMemo(() => {
@@ -234,9 +250,10 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       trackHidden: timelineTrackHidden,
       textTrackMuted,
       audioTrackMuted,
+      videoTrackMuted,
       assetDurations,
     })
-  }, [session, audioElementsKey, segments, projectId, sessionId, timelineTrackMuted, timelineTrackHidden, textTrackMuted, audioTrackMuted, assetDurations])
+  }, [session, audioElementsKey, segments, projectId, sessionId, timelineTrackMuted, timelineTrackHidden, textTrackMuted, audioTrackMuted, videoTrackMuted, assetDurations])
 
   const totalDuration = Math.max(compositionDuration, calculateTotalDuration(tracks), 1)
   const sequenceSnapPoints = useMemo(
@@ -541,7 +558,99 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
 
     if (element.source.kind === 'block') {
       const blockId = element.source.blockId
-      const fromIndex = blocks.findIndex((block) => block.id === blockId)
+      const block = blocks.find((item) => item.id === blockId)
+      if (!block) return
+
+      if (!isMainTrackBlock(block)) {
+        beginTimelineGesture()
+        let pendingTargetVideoTrackId: string | null = sourceTrack?.videoTrackId ?? null
+
+        const resolveTargetVideoTrack = (clientY: number) => {
+          const y = resolveTimelinePointerY(clientY, tracksCanvasRef.current)
+          if (y == null) return null
+          return findVideoTrackAtY(tracks, y)
+        }
+
+        const onOverlayMove = (moveEvent: PointerEvent) => {
+          const deltaSec =
+            (moveEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
+          const raw = Math.max(0, initialStart + deltaSec)
+          const snapped = snapTime(raw, sequenceSnapPoints, snapEnabled)
+          setSnapPoint({ time: snapped, type: 'grid' })
+
+          const videoTrack = resolveTargetVideoTrack(moveEvent.clientY)
+          const isCrossTrackPreview =
+            videoTrack?.videoTrackId &&
+            sourceTrack?.videoTrackId &&
+            videoTrack.videoTrackId !== sourceTrack.videoTrackId
+          const overlapTrack = isCrossTrackPreview ? videoTrack : sourceTrack
+          const siblings = getTrackSiblingRanges(overlapTrack?.elements ?? [], element.id)
+          const canPlace = canPlaceAtStart(siblings, element.duration, snapped)
+          const nextStart = canPlace ? snapped : initialStart
+
+          updateBlockTimelineStart(blockId, nextStart, { recordHistory: false })
+
+          if (isCrossTrackPreview && canPlace) {
+            pendingTargetVideoTrackId = videoTrack.videoTrackId!
+            setDragTargetTrackId(videoTrack.id)
+            setVideoDragPreview({
+              trackId: videoTrack.id,
+              startSec: snapped,
+              duration: element.duration,
+              label: element.name,
+            })
+          } else {
+            setDragTargetTrackId(null)
+            setVideoDragPreview(null)
+          }
+        }
+
+        const onOverlayUp = (upEvent: PointerEvent) => {
+          setSnapPoint(null)
+          setDragTargetTrackId(null)
+          setVideoDragPreview(null)
+          const deltaSec =
+            (upEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
+          const raw = Math.max(0, initialStart + deltaSec)
+          const snapped = snapTime(raw, sequenceSnapPoints, snapEnabled)
+
+          const finalVideoTrack = resolveTargetVideoTrack(upEvent.clientY)
+          const targetVideoTrackId =
+            finalVideoTrack?.videoTrackId ?? pendingTargetVideoTrackId
+          const isCrossTrack =
+            targetVideoTrackId &&
+            sourceTrack?.videoTrackId &&
+            targetVideoTrackId !== sourceTrack.videoTrackId
+
+          if (isCrossTrack) {
+            const targetTrack = tracks.find((item) => item.videoTrackId === targetVideoTrackId)
+            const siblings = getTrackSiblingRanges(targetTrack?.elements ?? [], element.id)
+            if (canPlaceAtStart(siblings, element.duration, snapped)) {
+              moveBlockToVideoTrack(blockId, targetVideoTrackId, {
+                recordHistory: false,
+                timelineStartSec: snapped,
+              })
+              setActiveVideoTrackId(targetVideoTrackId)
+            } else {
+              updateBlockTimelineStart(blockId, initialStart, { recordHistory: false })
+            }
+          } else {
+            const siblings = getTrackSiblingRanges(sourceTrack?.elements ?? [], element.id)
+            if (!canPlaceAtStart(siblings, element.duration, snapped)) {
+              updateBlockTimelineStart(blockId, initialStart, { recordHistory: false })
+            }
+          }
+          void flushSaveSession(projectId)
+          window.removeEventListener('pointermove', onOverlayMove)
+          window.removeEventListener('pointerup', onOverlayUp)
+        }
+
+        window.addEventListener('pointermove', onOverlayMove)
+        window.addEventListener('pointerup', onOverlayUp)
+        return
+      }
+
+      const fromIndex = mainBlocks.findIndex((item) => item.id === blockId)
       if (fromIndex < 0) return
 
       beginTimelineGesture()
@@ -574,7 +683,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         const targetIndex = resolveBlockReorderTargetIndex(pointerSec, fromIndex, frozenSegments)
         pendingTargetIndex = targetIndex
         const insertMarkerSec = computeBlockInsertMarkerSec(
-          blocks,
+          mainBlocks,
           fromIndex,
           targetIndex,
           transitionDurationSec,
@@ -789,7 +898,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       const block = blocks.find((item) => item.id === blockId)
       if (!block) return
       const maxDur = block.duration_sec > 0 ? block.duration_sec : Math.max(block.trim.out_sec, 5)
-      const blockIndex = blocks.findIndex((item) => item.id === blockId)
+      const blockIndex = mainBlocks.findIndex((item) => item.id === blockId)
       const segment = segments[blockIndex]
       if (!segment) return
       const initialVisualStart = blockTimelineVisualStartSec(segment.startSec, block)
@@ -1108,23 +1217,28 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
             {tracks.map((track, index) => {
               const isUserText = isUserTextAdaptedTrack(track)
               const isUserAudio = isUserAudioAdaptedTrack(track)
+              const isUserVideo = isUserVideoAdaptedTrack(track)
               const isLastUserText =
                 isUserText &&
                 !tracks.slice(index + 1).some((item) => isUserTextAdaptedTrack(item))
               const isLastUserAudio =
                 isUserAudio &&
                 !tracks.slice(index + 1).some((item) => isUserAudioAdaptedTrack(item))
+              const isLastUserVideo =
+                isUserVideo &&
+                !tracks.slice(index + 1).some((item) => isUserVideoAdaptedTrack(item))
               return (
                 <div
                   key={track.id}
-                  className={`oc-timeline__label-row${activeTextTrackId === track.textTrackId || activeAudioTrackId === track.audioTrackId ? ' is-active' : ''}`}
+                  className={`oc-timeline__label-row${activeTextTrackId === track.textTrackId || activeAudioTrackId === track.audioTrackId || activeVideoTrackId === track.videoTrackId ? ' is-active' : ''}`}
                   style={{ height: TRACK_HEIGHTS[track.type] }}
                   onClick={() => {
                     if (track.textTrackId) setActiveTextTrackId(track.textTrackId)
                     if (track.audioTrackId) setActiveAudioTrackId(track.audioTrackId)
+                    if (track.videoTrackId) setActiveVideoTrackId(track.videoTrackId)
                   }}
                 >
-                  {canTrackHaveAudio(track) && !isUserAudio ? (
+                  {canTrackHaveAudio(track) && !isUserAudio && track.isMain ? (
                     <button
                       type="button"
                       className={`oc-timeline__label-toggle${track.muted ? ' is-off' : ''}`}
@@ -1145,6 +1259,18 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                       onClick={(event) => {
                         event.stopPropagation()
                         if (track.audioTrackId) toggleAudioTrackMuted(track.audioTrackId)
+                      }}
+                    >
+                      {track.muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                    </button>
+                  ) : isUserVideo && !track.isMain ? (
+                    <button
+                      type="button"
+                      className={`oc-timeline__label-toggle${track.muted ? ' is-off' : ''}`}
+                      title={track.muted ? '取消静音' : '静音'}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        if (track.videoTrackId) toggleVideoTrackMuted(track.videoTrackId)
                       }}
                     >
                       {track.muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
@@ -1170,6 +1296,18 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                       onClick={(event) => {
                         event.stopPropagation()
                         if (track.textTrackId) toggleTextTrackHidden(track.textTrackId)
+                      }}
+                    >
+                      {track.hidden ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  ) : isUserVideo && !track.isMain ? (
+                    <button
+                      type="button"
+                      className={`oc-timeline__label-toggle${track.hidden ? ' is-off' : ''}`}
+                      title={track.hidden ? '显示轨道' : '隐藏轨道'}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        if (track.videoTrackId) toggleVideoTrackHidden(track.videoTrackId)
                       }}
                     >
                       {track.hidden ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -1200,10 +1338,23 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                     </button>
                   ) : null}
                   {TRACK_ICONS[track.type]}
-                  {isUserText || isUserAudio ? (
+                  {isUserText || isUserAudio || isUserVideo ? (
                     <span className="oc-timeline__label-name" title={track.name}>
                       {track.name}
                     </span>
+                  ) : null}
+                  {isLastUserVideo ? (
+                    <button
+                      type="button"
+                      className="oc-timeline__add-track-btn"
+                      title="新建视频轨"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        addVideoTrack()
+                      }}
+                    >
+                      +
+                    </button>
                   ) : null}
                   {isLastUserText ? (
                     <button
@@ -1322,6 +1473,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                     onClick={() => {
                       if (track.textTrackId) setActiveTextTrackId(track.textTrackId)
                       if (track.audioTrackId) setActiveAudioTrackId(track.audioTrackId)
+                      if (track.videoTrackId) setActiveVideoTrackId(track.videoTrackId)
                     }}
                     onDragOver={(event) => {
                       if (!isUserAudioAdaptedTrack(track)) return
@@ -1403,6 +1555,18 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                         <span className="oc-timeline__element-label">{audioDragPreview.label}</span>
                       </div>
                     ) : null}
+                    {videoDragPreview && videoDragPreview.trackId === track.id ? (
+                      <div
+                        className="oc-timeline__element oc-timeline__element--video oc-timeline__element--ghost"
+                        style={{
+                          left: timeToPx(videoDragPreview.startSec, zoomLevel),
+                          width: Math.max(timeToPx(videoDragPreview.duration, zoomLevel), 24),
+                        }}
+                        aria-hidden
+                      >
+                        <span className="oc-timeline__element-label">{videoDragPreview.label}</span>
+                      </div>
+                    ) : null}
                     {blockDragPreview && track.id === ADAPTED_TRACK_IDS.main ? (
                       <>
                         <div
@@ -1438,8 +1602,10 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                     ) : null}
                     {track.elements.length === 0 ? (
                       <div className="oc-timeline__empty-hint">
-                        {track.id === ADAPTED_TRACK_IDS.main
+                        {track.isMain
                           ? '拖入素材或从左侧添加'
+                          : isUserVideoAdaptedTrack(track)
+                            ? '将片段拖入此轨，或从主轨移入'
                           : isUserTextAdaptedTrack(track)
                             ? '按 T 或在播放头点击 + 添加文本'
                             : isUserAudioAdaptedTrack(track)

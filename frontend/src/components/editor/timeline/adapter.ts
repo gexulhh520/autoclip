@@ -5,7 +5,6 @@ import {
   getAudioClipTrackId,
   parseAdaptedAudioTrackId,
   resolveAssetDurationSec,
-  resolveAudioAssets,
   resolveAudioTracks,
 } from '../../../editor/audioTracks'
 import type { EditBlock, EditOverlayElement, EditSession } from '../../../types/editSession'
@@ -17,9 +16,17 @@ import {
   getOverlayTrackId,
   resolveTextTracks,
 } from '../../../editor/textTracks'
+import {
+  adaptedVideoTrackId,
+  blockTimelineStartSec,
+  DEFAULT_VIDEO_TRACK_ID,
+  resolveMainTrackBlocks,
+  resolveOverlayVideoBlocks,
+  resolveVideoTracks,
+} from '../../../editor/videoTracks'
 import type { AdaptedElement, AdaptedTrack } from './types'
 import { getCumulativeHeightBefore, getTrackHeight } from './trackUtils'
-import { blockTimelineVisualStartSec } from '../../../utils/editTimeline'
+import { blockDuration, blockTimelineVisualStartSec } from '../../../utils/editTimeline'
 import { buildVideoTimelineTransitionMarkers } from '../../../editor/timeline/timelineVideoDisplay'
 
 export const ADAPTED_TRACK_IDS = {
@@ -64,31 +71,15 @@ export function isUserAudioAdaptedTrack(track: AdaptedTrack): boolean {
   return Boolean(track.audioTrackId)
 }
 
-export function buildAdaptedTracks(params: {
-  session: EditSession
-  segments: CompositionTimelineSegment[]
-  projectId: string
-  sessionId: string
+export function isUserVideoAdaptedTrack(track: AdaptedTrack): boolean {
+  return Boolean(track.videoTrackId)
+}
+
+function mainTrackVideoElements(
+  segments: CompositionTimelineSegment[],
   getBlockVideoUrl: (block: EditBlock) => string
-  trackMuted: Record<TimelineTrackId, boolean>
-  trackHidden: Record<TimelineTrackId, boolean>
-  textTrackMuted: Record<string, boolean>
-  audioTrackMuted: Record<string, boolean>
-  assetDurations: Record<string, number>
-}): AdaptedTrack[] {
-  const {
-    session,
-    segments,
-    trackMuted,
-    trackHidden,
-    textTrackMuted,
-    audioTrackMuted,
-    assetDurations,
-  } = params
-
-  const transitionMarkers = buildVideoTimelineTransitionMarkers(segments)
-
-  const videoElements: AdaptedElement[] = segments.map((segment) => ({
+): AdaptedElement[] {
+  return segments.map((segment) => ({
     id: segment.block.id,
     elementType: 'video',
     name: segment.block.title || '片段',
@@ -99,10 +90,59 @@ export function buildAdaptedTracks(params: {
     source: {
       kind: 'block',
       blockId: segment.block.id,
-      videoUrl: params.getBlockVideoUrl(segment.block),
+      videoUrl: getBlockVideoUrl(segment.block),
       dissolveOutSec: segment.dissolveOutSec,
     },
   }))
+}
+
+function overlayTrackVideoElements(
+  blocks: EditBlock[],
+  getBlockVideoUrl: (block: EditBlock) => string
+): AdaptedElement[] {
+  return blocks.map((block) => ({
+    id: block.id,
+    elementType: 'video',
+    name: block.title || '片段',
+    startTime: blockTimelineStartSec(block),
+    duration: blockDuration(block),
+    trimStart: block.trim.in_sec,
+    trimEnd: block.trim.out_sec,
+    source: {
+      kind: 'block',
+      blockId: block.id,
+      videoUrl: getBlockVideoUrl(block),
+      dissolveOutSec: 0,
+    },
+  }))
+}
+
+export function buildAdaptedTracks(params: {
+  session: EditSession
+  segments: CompositionTimelineSegment[]
+  projectId: string
+  sessionId: string
+  getBlockVideoUrl: (block: EditBlock) => string
+  trackMuted: Record<TimelineTrackId, boolean>
+  trackHidden: Record<TimelineTrackId, boolean>
+  textTrackMuted: Record<string, boolean>
+  audioTrackMuted: Record<string, boolean>
+  videoTrackMuted: Record<string, boolean>
+  assetDurations: Record<string, number>
+}): AdaptedTrack[] {
+  const {
+    session,
+    segments,
+    trackMuted,
+    trackHidden,
+    textTrackMuted,
+    audioTrackMuted,
+    videoTrackMuted,
+    assetDurations,
+  } = params
+
+  const transitionMarkers = buildVideoTimelineTransitionMarkers(segments)
+  const videoTracks = resolveVideoTracks(session)
 
   const captionElements: AdaptedElement[] = segments
     .filter(
@@ -179,27 +219,40 @@ export function buildAdaptedTracks(params: {
     })
   }
 
-  const tracks: AdaptedTrack[] = [
-    {
-      id: ADAPTED_TRACK_IDS.main,
+  const tracks: AdaptedTrack[] = []
+
+  for (const meta of videoTracks) {
+    const isMain = meta.id === DEFAULT_VIDEO_TRACK_ID
+    const elements = isMain
+      ? mainTrackVideoElements(segments, params.getBlockVideoUrl)
+      : overlayTrackVideoElements(
+          resolveOverlayVideoBlocks(session, meta.id),
+          params.getBlockVideoUrl
+        )
+    tracks.push({
+      id: adaptedVideoTrackId(meta.id),
       type: 'video',
-      name: 'Video',
-      isMain: true,
-      muted: trackMuted.mainVideo,
-      hidden: false,
-      elements: videoElements,
-      transitionMarkers,
-    },
-    {
-      id: ADAPTED_TRACK_IDS.caption,
-      type: 'text',
-      name: 'Captions',
-      isMain: false,
-      muted: trackMuted.overlayCaption,
-      hidden: trackHidden.overlayCaption,
-      elements: trackHidden.overlayCaption ? [] : captionElements,
-    },
-  ]
+      name: meta.name,
+      isMain,
+      muted: isMain
+        ? trackMuted.mainVideo
+        : (videoTrackMuted[meta.id] ?? false),
+      hidden: meta.hidden ?? false,
+      videoTrackId: meta.id,
+      elements: meta.hidden ? [] : elements,
+      transitionMarkers: isMain ? transitionMarkers : undefined,
+    })
+  }
+
+  tracks.push({
+    id: ADAPTED_TRACK_IDS.caption,
+    type: 'text',
+    name: 'Captions',
+    isMain: false,
+    muted: trackMuted.overlayCaption,
+    hidden: trackHidden.overlayCaption,
+    elements: trackHidden.overlayCaption ? [] : captionElements,
+  })
 
   for (const meta of textTracks) {
     tracks.push({
@@ -278,6 +331,11 @@ export function findTextTrackAtY(tracks: AdaptedTrack[], y: number): AdaptedTrac
   return track && isUserTextAdaptedTrack(track) && !track.hidden ? track : null
 }
 
+export function findVideoTrackAtY(tracks: AdaptedTrack[], y: number): AdaptedTrack | null {
+  const track = findTrackAtY(tracks, y)
+  return track && isUserVideoAdaptedTrack(track) && !track.hidden ? track : null
+}
+
 /** 指针在 tracks 容器内的 Y（px），用于跨轨吸附 */
 export function resolveTimelinePointerY(
   clientY: number,
@@ -286,3 +344,5 @@ export function resolveTimelinePointerY(
   if (!tracksEl) return null
   return clientY - tracksEl.getBoundingClientRect().top
 }
+
+export { resolveMainTrackBlocks }

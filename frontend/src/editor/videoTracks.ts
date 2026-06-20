@@ -1,0 +1,120 @@
+import { nanoid } from 'nanoid'
+import type { EditBlock, EditSession, VideoTrackMeta } from '../types/editSession'
+import { blockDuration } from '../utils/editTimeline'
+
+export const DEFAULT_VIDEO_TRACK_ID = 'default-video'
+
+export const ADAPTED_VIDEO_TRACK_PREFIX = 'track-video-'
+
+export function adaptedVideoTrackId(metaId: string): string {
+  if (metaId === DEFAULT_VIDEO_TRACK_ID) return 'track-main-video'
+  return `${ADAPTED_VIDEO_TRACK_PREFIX}${metaId}`
+}
+
+export function parseAdaptedVideoTrackId(adaptedId: string): string | null {
+  if (adaptedId === 'track-main-video') return DEFAULT_VIDEO_TRACK_ID
+  if (!adaptedId.startsWith(ADAPTED_VIDEO_TRACK_PREFIX)) return null
+  return adaptedId.slice(ADAPTED_VIDEO_TRACK_PREFIX.length)
+}
+
+export function createVideoTrack(name: string, order: number): VideoTrackMeta {
+  return { id: nanoid(), name, order, hidden: false }
+}
+
+export function createDefaultVideoTrack(order = 0): VideoTrackMeta {
+  return { id: DEFAULT_VIDEO_TRACK_ID, name: 'Video', order, hidden: false }
+}
+
+export function getBlockTrackId(block: EditBlock): string {
+  return block.track_id ?? DEFAULT_VIDEO_TRACK_ID
+}
+
+export function isMainTrackBlock(block: EditBlock): boolean {
+  return getBlockTrackId(block) === DEFAULT_VIDEO_TRACK_ID
+}
+
+export function resolveVideoTracks(session: EditSession): VideoTrackMeta[] {
+  const tracks = session.video_tracks?.length
+    ? [...session.video_tracks]
+    : [createDefaultVideoTrack()]
+  return tracks.sort((a, b) => a.order - b.order)
+}
+
+export function resolveMainTrackBlocks(session: EditSession): EditBlock[] {
+  return session.sequence.filter(isMainTrackBlock)
+}
+
+export function resolveOverlayVideoBlocks(session: EditSession, trackId?: string): EditBlock[] {
+  return session.sequence.filter((block) => {
+    if (isMainTrackBlock(block)) return false
+    if (trackId && getBlockTrackId(block) !== trackId) return false
+    return true
+  })
+}
+
+export function blockTimelineStartSec(block: EditBlock): number {
+  return block.timeline_start_sec ?? 0
+}
+
+export function blockTimelineEndSec(block: EditBlock): number {
+  return blockTimelineStartSec(block) + blockDuration(block)
+}
+
+export function nextVideoTrackOrder(tracks: VideoTrackMeta[]): number {
+  if (tracks.length === 0) return 0
+  return Math.max(...tracks.map((track) => track.order)) + 1
+}
+
+export function defaultVideoTrackName(index: number): string {
+  return index === 0 ? 'Video' : `Video ${index + 1}`
+}
+
+/** 补齐 video_tracks 与 block track_id，返回是否发生迁移 */
+export function ensureVideoTracks(session: EditSession): boolean {
+  let migrated = false
+
+  if (!session.video_tracks?.length) {
+    session.video_tracks = [createDefaultVideoTrack()]
+    migrated = true
+  }
+
+  const trackIds = new Set(session.video_tracks.map((track) => track.id))
+  if (!trackIds.has(DEFAULT_VIDEO_TRACK_ID)) {
+    session.video_tracks.unshift(createDefaultVideoTrack())
+    migrated = true
+  }
+
+  for (const block of session.sequence) {
+    if (!block.track_id) {
+      block.track_id = DEFAULT_VIDEO_TRACK_ID
+      migrated = true
+    } else if (!trackIds.has(block.track_id)) {
+      block.track_id = DEFAULT_VIDEO_TRACK_ID
+      if (block.timeline_start_sec != null) {
+        delete block.timeline_start_sec
+      }
+      migrated = true
+    } else if (!isMainTrackBlock(block) && block.timeline_start_sec == null) {
+      block.timeline_start_sec = 0
+      migrated = true
+    } else if (isMainTrackBlock(block) && block.timeline_start_sec != null) {
+      delete block.timeline_start_sec
+      migrated = true
+    }
+  }
+
+  session.video_tracks = session.video_tracks
+    .slice()
+    .sort((a, b) => a.order - b.order)
+    .map((track, index) => ({ ...track, order: index }))
+
+  return migrated
+}
+
+export function resolveVideoTrackMaxEndSec(session: EditSession): number {
+  let maxEnd = 0
+  for (const block of resolveOverlayVideoBlocks(session)) {
+    maxEnd = Math.max(maxEnd, blockTimelineEndSec(block))
+  }
+  return maxEnd
+}
