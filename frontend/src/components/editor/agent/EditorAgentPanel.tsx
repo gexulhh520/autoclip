@@ -38,6 +38,10 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
   const [mode, setMode] = useState<AgentPanelMode>('assistant')
   const [chatInput, setChatInput] = useState('')
   const [chatTurns, setChatTurns] = useState<AgentChatTurn[]>([])
+  const chatTurnsRef = useRef<AgentChatTurn[]>([])
+  useEffect(() => {
+    chatTurnsRef.current = chatTurns
+  }, [chatTurns])
   const [attachImage, setAttachImage] = useState('')
   const [imageDataUrl, setImageDataUrl] = useState('')
   const [layoutPrompt, setLayoutPrompt] = useState('仿照参考图的文字排版，用当前草稿文案做类似排版。')
@@ -150,7 +154,7 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
         projectId,
         sessionId,
         userMessage: text,
-        history: chatTurns.map(({ role, content }) => ({ role, content })),
+        history: chatTurnsRef.current.map(({ role, content }) => ({ role, content })),
         imageDataUrl: sentImage || null,
         layoutReference: layout,
       })

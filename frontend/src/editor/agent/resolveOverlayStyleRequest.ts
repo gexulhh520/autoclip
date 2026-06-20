@@ -60,7 +60,9 @@ export function tryBuildLocalOverlayFontPlan(input: {
 
   const overlay = session.overlay_elements?.find((item) => item.id === overlayId)
   const currentFont = overlay ? readStringParam(overlay.params, 'fontFamily', '') : ''
-  const useRandom = RANDOM_FONT_PATTERN.test(userMessage) || !/思源|宋体|楷|黑体|站酷|龙苍|苹方|雅黑|Arial/i.test(userMessage)
+  const useRandom =
+    RANDOM_FONT_PATTERN.test(userMessage) ||
+    !/思源|宋体|楷|黑体|站酷|龙苍|苹方|雅黑|Arial/i.test(userMessage)
   const fontFamily = useRandom ? pickRandomFontFamily(currentFont || undefined) : undefined
   if (!fontFamily) return null
 

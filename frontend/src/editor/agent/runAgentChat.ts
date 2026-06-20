@@ -1,5 +1,6 @@
 import { buildEditorSnapshotFromStore } from './snapshotFromStore'
-import { tryBuildLocalOverlayFontPlan } from './resolveOverlayStyleRequest'
+import { tryBuildLocalOverlayPlan } from './localOverlayPlans'
+import { isOverlayLayoutFixRequest } from './overlayLayoutFix'
 import { sanitizeToolResultForChat } from './sanitizeToolResultForChat'
 import { executeReadToolCall } from './executeToolCall'
 import { isReadOnlyAgentTool, isWriteAgentTool } from './toolRegistry'
@@ -49,23 +50,29 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
     { role: 'assistant', content: assistantMessage },
   ]
 
-  const tryLocalFontPlan = (): PendingAgentPlan | null => {
+  const tryLocalPlan = (): PendingAgentPlan | null => {
     const store = getStore()
-    return tryBuildLocalOverlayFontPlan({
+    const snapshot = buildEditorSnapshotFromStore(getStore, input.layoutReference)
+    return tryBuildLocalOverlayPlan({
       userMessage: trimmed,
       session: store.session,
       selectedOverlayId: store.selectedOverlayId,
+      canvasWidth: snapshot.canvas_width,
+      canvasHeight: snapshot.canvas_height,
     })
   }
 
-  // 简单「随机换字体」类需求：本地直接出计划，避免 LLM 只读工具链路过长
-  const quickFontPlan = tryLocalFontPlan()
-  if (quickFontPlan && /随机|随便|任意/.test(trimmed)) {
-    const assistantMessage = quickFontPlan.summary
+  // 简单排版/随机字体：本地直接出计划，避免 LLM 只读工具链路过长
+  const quickPlan = tryLocalPlan()
+  if (
+    quickPlan &&
+    (isOverlayLayoutFixRequest(trimmed) || /随机|随便|任意/.test(trimmed))
+  ) {
+    const assistantMessage = quickPlan.summary
     return {
       assistant_message: assistantMessage,
       history: buildAssistantHistory(assistantMessage),
-      plan: quickFontPlan,
+      plan: quickPlan,
     }
   }
 
@@ -122,7 +129,7 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
     }
   }
 
-  const fallbackPlan = tryLocalFontPlan()
+  const fallbackPlan = tryLocalPlan()
   if (fallbackPlan) {
     return {
       assistant_message: fallbackPlan.summary,
