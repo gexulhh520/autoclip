@@ -539,6 +539,26 @@
   pointer-events: none;
 }
 
+.oc-timeline__element--video.is-dragging {
+  opacity: 0.88;
+  z-index: 45;
+  cursor: grabbing;
+  box-shadow: 0 6px 20px rgba(26, 26, 25, 0.18);
+}
+
+.oc-timeline__block-insert-marker {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 999px;
+  background: var(--oc-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--oc-accent) 22%, transparent);
+  pointer-events: none;
+  z-index: 44;
+}
+
 .oc-timeline__element--ghost {
   pointer-events: none;
   z-index: 40;

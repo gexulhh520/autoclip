@@ -428,7 +428,11 @@ interface EditSessionState {
   removeBookmark: (bookmarkId: string) => void
   setAssetPreviewClip: (clip: AssetPreviewClip | null) => void
   setPreviewVideoNaturalSize: (size: { width: number; height: number } | null) => void
-  reorderBlocks: (fromIndex: number, toIndex: number) => void
+  reorderBlocks: (
+    fromIndex: number,
+    toIndex: number,
+    options?: { recordHistory?: boolean }
+  ) => void
   setPlaying: (playing: boolean) => void
   setSequencePlayheadSec: (sec: number) => void
   advanceSequencePlayhead: (sec: number) => void
@@ -2163,9 +2167,11 @@ export const useEditSessionStore = create<EditSessionState>()(
 
       setPreviewVideoNaturalSize: (size) => set({ previewVideoNaturalSize: size }),
 
-      reorderBlocks: (fromIndex, toIndex) => {
+      reorderBlocks: (fromIndex, toIndex, options) => {
         if (fromIndex === toIndex) return
-        pushHistory()
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
         set((state) => {
           if (!state.session) return
           const next = [...state.session.sequence]

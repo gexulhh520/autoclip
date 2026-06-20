@@ -21,7 +21,7 @@ import {
   getCumulativeHeightBefore,
   getTotalTracksHeight,
 } from './trackUtils'
-import { getTimelinePaddingPx, getTimelineZoomMin, timeToPx } from './zoomUtils'
+import { getTimelinePaddingPx, getTimelineZoomMin, pxToTime, timeToPx } from './zoomUtils'
 import { useTimelineZoom } from './hooks/useTimelineZoom'
 import { useScrollSync } from './hooks/useScrollSync'
 import { usePlayheadDrag, useTimelineSeek } from './hooks/useTimelineSeek'
@@ -38,6 +38,10 @@ import {
   MIN_TIMELINE_ELEMENT_SEC,
 } from '../../../editor/timeline/timelineOverlap'
 import { buildVideoTrimInteractiveContext } from '../../../editor/timeline/videoTrimInteractive'
+import {
+  computeBlockInsertMarkerSec,
+  resolveBlockReorderTargetIndex,
+} from '../../../editor/timeline/blockReorderDrag'
 import type { AdaptedElement, AdaptedTrack, SnapPoint } from './types'
 import { EditorShortcutsHost } from './useEditorKeyboardShortcuts'
 import './opencut-timeline.css'
@@ -193,6 +197,15 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   } | null>(null)
   const [draggingOverlayIds, setDraggingOverlayIds] = useState<string[]>([])
   const [draggingAudioClipId, setDraggingAudioClipId] = useState<string | null>(null)
+  const [blockDragPreview, setBlockDragPreview] = useState<{
+    blockId: string
+    fromIndex: number
+    targetIndex: number
+    deltaPx: number
+    label: string
+    duration: number
+    insertMarkerSec: number
+  } | null>(null)
 
   const segments = useMemo(
     () =>
@@ -525,6 +538,74 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       return findAudioTrackAtY(tracks, y)
     }
 
+    if (element.source.kind === 'block') {
+      const blockId = element.source.blockId
+      const fromIndex = blocks.findIndex((block) => block.id === blockId)
+      if (fromIndex < 0) return
+
+      beginTimelineGesture()
+      if (event.currentTarget instanceof HTMLElement && 'setPointerCapture' in event) {
+        event.currentTarget.setPointerCapture(event.pointerId)
+      }
+      const frozenSegments = segments
+      let pendingTargetIndex = fromIndex
+
+      const clientXToSec = (clientX: number) => {
+        const scrollElement = tracksScrollRef.current
+        if (!scrollElement) return 0
+        const rect = scrollElement.getBoundingClientRect()
+        const xInContent = clientX - rect.left + scrollElement.scrollLeft
+        return Math.max(0, pxToTime(xInContent, zoomLevel))
+      }
+
+      setBlockDragPreview({
+        blockId,
+        fromIndex,
+        targetIndex: fromIndex,
+        deltaPx: 0,
+        label: element.name,
+        duration: element.duration,
+        insertMarkerSec: frozenSegments[fromIndex]?.startSec ?? 0,
+      })
+
+      const applyMove = (moveEvent: PointerEvent) => {
+        const pointerSec = clientXToSec(moveEvent.clientX)
+        const targetIndex = resolveBlockReorderTargetIndex(pointerSec, fromIndex, frozenSegments)
+        pendingTargetIndex = targetIndex
+        const insertMarkerSec = computeBlockInsertMarkerSec(
+          blocks,
+          fromIndex,
+          targetIndex,
+          transitionDurationSec,
+          session?.sequence_block_gaps
+        )
+        setBlockDragPreview({
+          blockId,
+          fromIndex,
+          targetIndex,
+          deltaPx: moveEvent.clientX - startX,
+          label: element.name,
+          duration: element.duration,
+          insertMarkerSec,
+        })
+      }
+
+      const onBlockMove = rafPointerMove(applyMove)
+
+      const onBlockUp = () => {
+        setBlockDragPreview(null)
+        if (pendingTargetIndex !== fromIndex) {
+          reorderBlocks(fromIndex, pendingTargetIndex, { recordHistory: false })
+        }
+        window.removeEventListener('pointermove', onBlockMove)
+        window.removeEventListener('pointerup', onBlockUp)
+      }
+
+      window.addEventListener('pointermove', onBlockMove)
+      window.addEventListener('pointerup', onBlockUp)
+      return
+    }
+
     const onMove = (moveEvent: PointerEvent) => {
       const deltaSec = (moveEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
       const raw = Math.max(0, initialStart + deltaSec)
@@ -601,15 +682,6 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         }
       } else if (element.source.kind === 'bgm') {
         updateAudioSettings({ bgm_start_sec: snapped })
-      } else if (element.source.kind === 'block') {
-        const blockId = element.source.blockId
-        const targetIndex = segments.findIndex(
-          (segment) => snapped >= segment.startSec && snapped < segment.endSec
-        )
-        const fromIndex = blocks.findIndex((block) => block.id === blockId)
-        if (targetIndex >= 0 && fromIndex >= 0 && targetIndex !== fromIndex) {
-          reorderBlocks(fromIndex, targetIndex)
-        }
       }
     }
 
@@ -1330,6 +1402,39 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                         <span className="oc-timeline__element-label">{audioDragPreview.label}</span>
                       </div>
                     ) : null}
+                    {blockDragPreview && track.id === ADAPTED_TRACK_IDS.main ? (
+                      <>
+                        <div
+                          className="oc-timeline__block-insert-marker"
+                          style={{ left: timeToPx(blockDragPreview.insertMarkerSec, zoomLevel) }}
+                          aria-hidden
+                        />
+                        {blockDragPreview.targetIndex !== blockDragPreview.fromIndex ? (
+                          <div
+                            className="oc-timeline__element oc-timeline__element--video oc-timeline__element--ghost"
+                            style={{
+                              left: timeToPx(blockDragPreview.insertMarkerSec, zoomLevel),
+                              width: Math.max(timeToPx(blockDragPreview.duration, zoomLevel), 24),
+                            }}
+                            aria-hidden
+                          >
+                            <div
+                              className="oc-timeline__video-fill"
+                              style={{
+                                backgroundImage: (() => {
+                                  const block = blocks.find(
+                                    (item) => item.id === blockDragPreview.blockId
+                                  )
+                                  return block && sessionId
+                                    ? `url(${getBlockVideoUrl(projectId, sessionId, block)})`
+                                    : undefined
+                                })(),
+                              }}
+                            />
+                          </div>
+                        ) : null}
+                      </>
+                    ) : null}
                     {track.elements.length === 0 ? (
                       <div className="oc-timeline__empty-hint">
                         {track.id === ADAPTED_TRACK_IDS.main
@@ -1353,7 +1458,15 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                               (element.source.kind === 'overlay' &&
                                 draggingOverlayIds.includes(element.source.overlayId)) ||
                               (element.source.kind === 'audio_clip' &&
-                                draggingAudioClipId === element.source.clipId)
+                                draggingAudioClipId === element.source.clipId) ||
+                              (element.source.kind === 'block' &&
+                                blockDragPreview?.blockId === element.source.blockId)
+                            }
+                            dragTranslatePx={
+                              element.source.kind === 'block' &&
+                              blockDragPreview?.blockId === element.source.blockId
+                                ? blockDragPreview.deltaPx
+                                : 0
                             }
                             onSelect={(event) => selectElement(track.id, element, event)}
                             onPointerDown={(event) => startElementDrag(track.id, element, event)}

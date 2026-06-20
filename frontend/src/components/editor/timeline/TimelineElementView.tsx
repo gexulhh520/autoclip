@@ -9,6 +9,7 @@ interface TimelineElementViewProps {
   zoomLevel: number
   selected: boolean
   dragging?: boolean
+  dragTranslatePx?: number
   onSelect: (event: React.MouseEvent) => void
   onPointerDown: (event: React.PointerEvent) => void
   onContextMenu: (event: React.MouseEvent) => void
@@ -22,6 +23,7 @@ const TimelineElementView: React.FC<TimelineElementViewProps> = ({
   zoomLevel,
   selected,
   dragging = false,
+  dragTranslatePx = 0,
   onSelect,
   onPointerDown,
   onContextMenu,
@@ -37,7 +39,12 @@ const TimelineElementView: React.FC<TimelineElementViewProps> = ({
       className={`oc-timeline__element oc-timeline__element--${track.type}${
         selected ? ' is-selected' : ''
       }${dragging ? ' is-dragging' : ''}${element.hidden ? ' is-hidden' : ''}`}
-      style={{ left, width, backgroundColor: bgColor }}
+      style={{
+        left,
+        width,
+        backgroundColor: bgColor,
+        transform: dragTranslatePx ? `translateX(${dragTranslatePx}px)` : undefined,
+      }}
       onContextMenu={onContextMenu}
     >
       <button
