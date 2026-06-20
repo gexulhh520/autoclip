@@ -18,7 +18,7 @@ export const TEXT_PRESETS: TextPresetDefinition[] = [
       const { positionX, positionY } = normalizedToPosition(0.5, 0.5, w, h)
       return {
         content: '文本',
-        fontSize: 18,
+        fontSize: 6,
         fontWeight: 'normal',
         textAlign: 'center',
         'transform.positionX': positionX,

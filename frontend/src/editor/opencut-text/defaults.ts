@@ -24,7 +24,7 @@ export const OPENCUT_TEXT_DEFAULTS = {
   background: defaultTextBackground,
   params: {
     content: '新文本',
-    fontSize: 15,
+    fontSize: 6,
     fontFamily: 'Noto Sans SC',
     color: '#ffffff',
     textAlign: 'center',
