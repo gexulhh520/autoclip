@@ -1,7 +1,7 @@
 # 剪辑模块 · AI 剪辑 Agent 规划
 
 > **状态**：规划文档 · 供 `feature/ai-editor` 分支排期与 PR 拆分  
-> **更新**：2026-06-15  
+> **更新**：2026-06-15（§5.1 补充 gemma4 工具调用）
 > **默认模型**：Ollama 本地 · `gemma4:12b`（多模态，支持参考图 + 文字）  
 > **北极星**：用户上传参考图并描述意图 → LLM 分析排版 → 用户确认 → LLM 通过原子工具操作时间线
 
@@ -36,7 +36,7 @@
 | 工具执行（文本） | `gemma4:12b` | 同一模型即可；后续可拆「执行专用」小模型 |
 | 备选视觉模型 | `qwen2.5vl:7b` | 项目内已有推荐项，分析不稳时可 A/B |
 
-> **工程缺口（当前）**：`OllamaProvider` 已接 `/api/chat`，但 **尚未传 `images`**；剪辑 Agent 首要是补齐多模态消息。
+> **工程缺口（当前）**：`OllamaProvider` 已接 `/api/chat`，但 **尚未传 `images`**，也 **未接 `tools` / `tool_calls`**；剪辑 Agent 需补齐多模态与工具调用（见 §5.1）。
 
 ---
 
@@ -227,7 +227,214 @@
 - `backend/api/v1/editor_agent.py`  
 - 扩展 `backend/core/llm_providers.py`：`messages[]`、`images[]`、`tools[]`
 
-**gemma4 注意**：结构化任务必须 `think=false`，否则易出现空 `content`（见 `OllamaProvider._extract_message_text`）。
+**gemma4 注意**：结构化任务必须 `think=false`，否则易出现空 `content`（见 `OllamaProvider._extract_message_text`）。工具调用阶段的 `think` 策略见 **§5.1**。
+
+---
+
+## 5.1 Gemma4:12b 工具调用约定（Ollama native tools）
+
+### 能力结论
+
+| 能力 | `gemma4:12b` + Ollama | AutoClip 现状 |
+|------|------------------------|---------------|
+| 多模态（`images`） | ✅ `/api/chat` | ❌ 待 Phase A |
+| 原生工具调用（`tools` → `tool_calls`） | ✅ `/api/chat` | ❌ 待 Phase B |
+| 12B 档 Agent 可靠性 | ✅ 推荐（优于 e2b/e4b） | — |
+
+**结论**：同一模型 `gemma4:12b` 可覆盖「看图分析」与「调剪辑工具」；不必为工具单独换云模型。
+
+参考：[Ollama tool calling 文档](https://github.com/ollama/ollama/blob/main/docs/capabilities/tool-calling.mdx)
+
+### 两阶段是否都要 tools？
+
+| 阶段 | 是否用 Ollama `tools` | 原因 |
+|------|----------------------|------|
+| **Phase A · 分析排版** | **否** | 输出固定 `LayoutAnalysis` JSON 即可；附图 + `think=false` + Pydantic 校验 |
+| **Phase B · 执行剪辑** | **是（推荐）** | 模型返回 `tool_calls`，后端校验后交前端 `executeToolCall` |
+| **降级方案** | 可选 | 若 `tool_calls` 为空或畸形，解析 `content` 内 `{ "actions": [...] }` 再执行 |
+
+### `think` 参数（gemma4 专用）
+
+| 场景 | `think` | 说明 |
+|------|---------|------|
+| `analyze-layout` | `false` | 避免 token 进 reasoning，`content` 为空或 JSON 被截断 |
+| `chat` 纯问答 | `false` | 默认 |
+| `chat` 选工具（可选实验） | `true` | 部分场景 tool 选择更准；**不要把 `thinking` 写入持久对话历史** |
+| 工具结果回传后的终稿 | `false` | 合成自然语言回复给用户 |
+
+与现有代码一致：`OllamaProvider.call(..., think=False)` 为结构化任务默认值。
+
+### 请求格式（Phase B）
+
+使用 Ollama **原生** `/api/chat`（非 OpenAI 兼容 `/v1/chat/completions`），以便 `think` / `images` / `tools` 行为一致：
+
+```json
+{
+  "model": "gemma4:12b",
+  "stream": false,
+  "think": false,
+  "messages": [
+    {
+      "role": "system",
+      "content": "你是剪辑助手。只能通过 tools 修改时间线，禁止臆造 block_id。"
+    },
+    {
+      "role": "user",
+      "content": "按已保存的排版，在播放头位置加主标题「新品发布」"
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "add_text_overlay",
+        "description": "在指定时间添加文本层",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "start_sec": { "type": "number" },
+            "content": { "type": "string" },
+            "fontSize": { "type": "number" },
+            "positionX": { "type": "number" },
+            "positionY": { "type": "number" }
+          },
+          "required": ["start_sec", "content"]
+        }
+      }
+    }
+  ]
+}
+```
+
+**实现约定**
+
+- `tools` 列表由 `toolRegistry` 导出 OpenAI 兼容 schema，后端原样转发给 Ollama  
+- 单次请求工具数量：Phase B 首批 ≤8 个，避免 schema 过长占满上下文  
+- 采样建议：`temperature=0.2~0.6`（执行偏确定），`num_predict≥2048`
+
+### 响应格式（解析 `tool_calls`）
+
+Ollama 在 `message` 中返回：
+
+```json
+{
+  "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+      {
+        "function": {
+          "name": "add_text_overlay",
+          "arguments": {
+            "start_sec": 3.0,
+            "content": "新品发布",
+            "fontSize": 48,
+            "positionX": 0,
+            "positionY": -320
+          }
+        }
+      }
+    ]
+  },
+  "done_reason": "stop"
+}
+```
+
+**解析规则**
+
+1. `tool_calls` 非空 → 进入执行分支（即使 `content` 为空也正常）  
+2. `arguments` 可能是 **对象或 JSON 字符串**，需 `json.loads` 兜底  
+3. 支持**并行**多个 `tool_calls`；前端同一轮只 `pushHistory` 一次  
+4. `tool_calls` 为空且 `content` 非空 → 视为纯文本回复，不改时间线  
+5. 流式（Phase C）：先聚合全部 chunk 的 `tool_calls` 再执行，勿边收边执行  
+
+### Agent 循环（Phase B 标准流程）
+
+```text
+1. 前端：buildEditorSnapshot() + 用户消息 + layout_reference
+2. POST /agent/chat → Ollama（带 tools）
+3. 若 response.tool_calls：
+     a. 后端校验 name ∈ 白名单、参数 Pydantic
+     b. 返回给前端 { tool_calls, assistant_message? }
+     c. 前端 executeToolCall（单次 history）
+     d. 将每条结果 append 为 role=tool 消息（见下）
+     e. 再次 POST /agent/chat（同一 thread，think=false）
+4. 若无 tool_calls → 展示 assistant content，结束
+5. 限制 max_rounds=5，防止工具死循环
+```
+
+**`role: tool` 回传格式**（Ollama 多轮）
+
+```json
+{
+  "role": "tool",
+  "content": "{\"ok\":true,\"overlay_id\":\"txt-abc\"}",
+  "tool_name": "add_text_overlay"
+}
+```
+
+`content` 必须是**字符串**（JSON 序列化后的执行结果或错误信息），供模型下一轮推理。
+
+### `OllamaProvider` 扩展清单（Phase A + B）
+
+| 任务 | 方法 / 字段 | 阶段 |
+|------|-------------|------|
+| 多轮消息 | `chat(messages: list)` 替代单条 `prompt` | A |
+| 附图 | `messages[].images: list[str]` base64 | A |
+| 工具定义 | `tools: list[dict]` | B |
+| 解析工具调用 | `message.tool_calls` → `ToolCall[]` | B |
+| 返回结构 | 扩展 `LLMResponse`：`tool_calls`, `raw_message` | B |
+| 流式 | `stream=True` + chunk 聚合 | C |
+
+建议新增 `OllamaProvider.chat_completion(...)`，保留现有 `call()` 给流水线兼容。
+
+### Phase B 实现要点（工程 checklist）
+
+**后端**
+
+- [ ] `backend/schemas/editor_agent.py`：`ToolCall`, `ToolResult`, `AgentChatRequest/Response`  
+- [ ] `editor_agent_service.run_agent_turn()`：组 messages、挂 tools、解析 `tool_calls`  
+- [ ] 工具名白名单 + Pydantic 参数校验（校验失败生成 `role: tool` 错误回灌）  
+- [ ] `max_tool_rounds=5`、超时 300s（与现有 Ollama 一致）  
+- [ ] 单测：mock Ollama 返回 `tool_calls` JSON 字符串 / 对象两种形态  
+
+**前端**
+
+- [ ] `toolRegistry.ts`：name → schema + `executeToolCall` 映射  
+- [ ] `useEditorAgent.ts`：循环「chat → 执行 → 回传 tool results → 再 chat」  
+- [ ] UI：有 `tool_calls` 时先展示**操作清单**，用户确认后执行（MVP 可配置自动执行）  
+- [ ] 一轮写操作只 `pushHistory()` 一次  
+
+**System prompt（执行阶段）要点**
+
+- 已确认的 `LayoutAnalysis` 在上下文中；优先用其 `transform` / `fontSize` 填工具参数  
+- 只能使用 snapshot 里存在的 `block_id` / `overlay_id`  
+- 先 `get_timeline_summary` 再改（若模型犹豫）  
+- 一次用户意图尽量批量 `tool_calls`，减少往返  
+
+### 降级：结构化 `actions` JSON
+
+当 `tool_calls` 连续失败或模型版本不支持时，system prompt 允许仅输出：
+
+```json
+{
+  "actions": [
+    { "tool": "add_text_overlay", "args": { "start_sec": 3, "content": "标题" } }
+  ],
+  "summary": "将在 3 秒处添加标题"
+}
+```
+
+后端/前端统一走同一 `executeToolCall` 入口，不维护两套执行逻辑。
+
+### 风险（工具专用）
+
+| 风险 | 缓解 |
+|------|------|
+| 幻觉 `block_id` | 执行前校验 id ∈ snapshot；失败回灌 tool 错误 |
+| 工具死循环 | `max_tool_rounds` + 相同参数去重 |
+| `arguments` 类型错误 | Pydantic + 友好错误回模型 |
+| 上下文爆炸 | 工具 schema 精简；快照摘要；layout 不重复传图 |
 
 ---
 
@@ -294,15 +501,18 @@ frontend/src/services/editorAgentApi.ts
 
 ### Phase B — 工具执行闭环
 
-**目标**：确认分析后，一句话驱动时间线变更。
+**目标**：确认分析后，一句话驱动时间线变更（Ollama `tools` + `tool_calls`，见 §5.1）。
 
+- [ ] `OllamaProvider.chat_completion`：`tools`、`tool_calls` 解析
 - [ ] `buildEditorSnapshot`
-- [ ] 首批工具（§4.1）+ `executeToolCall`
-- [ ] `POST .../agent/chat`（tools / function calling）
+- [ ] 首批工具（§4.1）+ `executeToolCall` + `toolRegistry`
+- [ ] `POST .../agent/chat` + Agent 多轮循环（`role: tool` 回传）
+- [ ] 工具参数 Pydantic 校验 + 白名单
+- [ ] `actions` JSON 降级路径（§5.1）
 - [ ] 执行前展示操作清单；写操作单次 undo
 - [ ] 执行后 `markDirty`，可选 `flushSaveSession`
 
-**出口标准**：「按上次分析在第 3 秒加标题」可自动 `add_text_overlay` 并在预览可见。
+**出口标准**：「按上次分析在第 3 秒加标题」触发 `add_text_overlay` 的 `tool_calls`，预览可见；失败时错误可回灌模型重试。
 
 ---
 
@@ -336,6 +546,7 @@ frontend/src/services/editorAgentApi.ts
 | 问题 | 决定 |
 |------|------|
 | 模型 | 默认 Ollama `gemma4:12b`；不依赖云多模态 |
+| 工具调用 | Ollama native `tools` / `tool_calls`（Phase B）；分析阶段不用 tools |
 | 附图含义 | 排版参考输入，不是装饰能力 |
 | 流程 | 先分析 → 确认 → 再工具执行 |
 | 工具执行位置 | 前端 Zustand |
@@ -349,6 +560,7 @@ frontend/src/services/editorAgentApi.ts
 | 风险 | 缓解 |
 |------|------|
 | gemma4 JSON 不稳定 | `think=false`、短 prompt、Pydantic 重试 |
+| `tool_calls` 格式不稳 | 解析 arguments 字符串/对象；降级 `actions` JSON（§5.1） |
 | 误删时间线 | 工具白名单 + 危险操作确认 + undo |
 | 上下文过长 | 摘要快照 + 按需 query |
 | 分析与执行不一致 | 执行只读已保存 LayoutAnalysis，不重复传图 |
@@ -374,8 +586,9 @@ frontend/src/services/editorAgentApi.ts
 1. `feat(agent): ollama vision messages` — Provider + 单测  
 2. `feat(agent): analyze-layout API` — 无 UI  
 3. `feat(agent): editor agent panel phase A` — 浮窗 + 分析  
-4. `feat(agent): tool registry and executor` — Phase B 核心  
-5. `feat(agent): chat streaming and thread` — Phase C  
+4. `feat(agent): ollama tools and tool_calls parser` — §5.1 Provider + 单测  
+5. `feat(agent): tool registry and executor` — Phase B 核心  
+6. `feat(agent): chat streaming and thread` — Phase C  
 
 ---
 
