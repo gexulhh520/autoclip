@@ -73,7 +73,7 @@ import {
   buildSessionCompositionTimeline,
   shouldLinkAudioClip,
 } from '../editor/timeline/timelineBlockLink'
-import { blockTimelineVisualEndSec } from '../utils/editTimeline'
+import { blockPlaybackRate, blockTimelineVisualEndSec } from '../utils/editTimeline'
 import {
   applyAudioClipTimingClamp,
   applyOverlayElementTimingClamp,
@@ -87,6 +87,7 @@ import {
   areMainTrackBlocksAdjacent,
   clampVideoBlockTrimAgainstNeighbors,
   insertSequenceBlockGapAt,
+  insertVideoBlockSplitGap,
   removeSequenceBlockGapAt,
   clearSequenceBlockGaps,
   dropCrossTransitionsBrokenByGaps,
@@ -3066,7 +3067,12 @@ export const useEditSessionStore = create<EditSessionState>()(
           }
           current.trim.out_sec = splitAt
           draft.session.sequence.splice(index + 1, 0, second)
-          insertSequenceBlockGapAt(draft.session, index + 1)
+          insertVideoBlockSplitGap(
+            draft.session,
+            index,
+            splitAt,
+            blockPlaybackRate(current)
+          )
           draft.selectedBlockId = second.id
           draft.selectedBlockIds = [second.id]
           draft.dirty = true

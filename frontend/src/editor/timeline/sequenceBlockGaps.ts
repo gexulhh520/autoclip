@@ -200,6 +200,25 @@ export function insertSequenceBlockGapAt(session: EditSession, gapIndex: number)
   gaps.splice(gapIndex, 0, 0)
 }
 
+/**
+ * 切割后第二段保留绝对 trim.in，合成锚点会随上一段 visualEnd 后移；
+ * 用负间隙把第二段拉回，使两段首尾在合成时间轴上相接。
+ */
+export function gapSecForSplitSecondBlock(splitAtSourceSec: number, rate: number): number {
+  const safeRate = rate > 0 ? rate : 1
+  return -splitAtSourceSec / safeRate
+}
+
+export function insertVideoBlockSplitGap(
+  session: EditSession,
+  gapIndex: number,
+  splitAtSourceSec: number,
+  rate: number
+): void {
+  const gaps = ensureSequenceBlockGaps(session)
+  gaps.splice(gapIndex, 0, gapSecForSplitSecondBlock(splitAtSourceSec, rate))
+}
+
 export function clearSequenceBlockGaps(session: EditSession): void {
   session.sequence_block_gaps = []
 }
