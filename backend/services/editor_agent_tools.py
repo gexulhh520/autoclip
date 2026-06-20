@@ -317,6 +317,21 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "capture_preview_frame",
+            "description": "只读：在指定时间截取预览帧，用于检查构图/字幕安全区",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "time_sec": {"type": "number"},
+                    "max_width": {"type": "number"},
+                },
+                "required": ["time_sec"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_timeline_summary",
             "description": "只读：时间线摘要",
             "parameters": {"type": "object", "properties": {}},
@@ -354,6 +369,7 @@ EDITOR_AGENT_TOOL_NAMES = {
 
 READ_ONLY_AGENT_TOOLS = {
     "list_assets",
+    "capture_preview_frame",
     "get_timeline_summary",
     "get_block_detail",
     "get_overlay_detail",

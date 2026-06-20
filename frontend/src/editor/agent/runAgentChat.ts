@@ -1,4 +1,4 @@
-import { buildEditorSnapshot } from './buildEditorSnapshot'
+import { sanitizeToolResultForChat } from './sanitizeToolResultForChat'
 import { executeReadToolCall } from './executeToolCall'
 import { isReadOnlyAgentTool, isWriteAgentTool } from './toolRegistry'
 import { editorAgentApi } from '../../services/editorAgentApi'
@@ -98,7 +98,7 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
         messages.push({
           role: 'tool',
           tool_name: call.name,
-          content: JSON.stringify(result),
+          content: sanitizeToolResultForChat(call.name, result),
         })
       }
       continue

@@ -83,6 +83,14 @@ def test_validate_tool_calls_accepts_packaging_tools():
     assert [call.name for call in calls] == ["set_text_animation", "batch_apply_text_style"]
 
 
+def test_validate_tool_calls_accepts_capture_preview_frame():
+    calls = validate_tool_calls(
+        [{"name": "capture_preview_frame", "arguments": {"time_sec": 2.5, "max_width": 720}}]
+    )
+    assert calls[0].name == "capture_preview_frame"
+    assert calls[0].arguments["time_sec"] == 2.5
+
+
 def test_validate_tool_calls_rejects_unknown_tool():
     with pytest.raises(ValueError, match="白名单"):
         validate_tool_calls([{"name": "delete_timeline", "arguments": {}}])

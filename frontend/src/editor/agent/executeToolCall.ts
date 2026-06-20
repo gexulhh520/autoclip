@@ -6,6 +6,8 @@ import {
   getBlockDetail,
   getOverlayDetail,
 } from './buildEditorSnapshot'
+import { capturePreviewFrame } from './capturePreviewFrame'
+import { resolveCaptureMaxWidth } from './capturePreviewFrameUtils'
 import { listAssets } from './listAssets'
 import {
   parseClipIds,
@@ -103,6 +105,22 @@ export async function executeReadToolCall(
 
   try {
     switch (call.name) {
+      case 'capture_preview_frame': {
+        const projectId = context?.projectId?.trim()
+        if (!projectId) {
+          return { ok: false, tool_name: call.name, error: '缺少 projectId，无法截帧' }
+        }
+        if (call.arguments.time_sec == null || !Number.isFinite(Number(call.arguments.time_sec))) {
+          return { ok: false, tool_name: call.name, error: 'time_sec 无效' }
+        }
+        const data = await capturePreviewFrame({
+          projectId,
+          session,
+          timeSec: num(call.arguments.time_sec, 0),
+          maxWidth: resolveCaptureMaxWidth(call.arguments.max_width),
+        })
+        return { ok: true, tool_name: call.name, data }
+      }
       case 'list_assets': {
         const projectId = context?.projectId?.trim()
         if (!projectId) {

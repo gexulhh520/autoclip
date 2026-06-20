@@ -311,6 +311,21 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
   {
     type: 'function',
     function: {
+      name: 'capture_preview_frame',
+      description: '只读：在指定时间截取预览帧，用于检查构图/字幕安全区',
+      parameters: {
+        type: 'object',
+        properties: {
+          time_sec: { type: 'number' },
+          max_width: { type: 'number', description: '缩略图最大宽，默认 720' },
+        },
+        required: ['time_sec'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'get_timeline_summary',
       description: '只读：返回时间线摘要（与 EditorSnapshot 类似）',
       parameters: { type: 'object', properties: {} },
@@ -348,6 +363,7 @@ export const EDITOR_AGENT_TOOL_NAMES = EDITOR_AGENT_TOOL_DEFINITIONS.map(
 
 export const READ_ONLY_AGENT_TOOLS = new Set([
   'list_assets',
+  'capture_preview_frame',
   'get_timeline_summary',
   'get_block_detail',
   'get_overlay_detail',
@@ -409,6 +425,8 @@ export function formatToolCallSummary(name: string, args: Record<string, unknown
       return `播放头 → ${args.time_sec}s`
     case 'list_assets':
       return `列出素材 (${String(args.category ?? 'all')})`
+    case 'capture_preview_frame':
+      return `截帧 @${args.time_sec}s`
     default:
       return `${name}(${JSON.stringify(args).slice(0, 60)})`
   }
