@@ -125,6 +125,64 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "add_clips_to_timeline",
+            "description": "从素材池追加 clip 到主轨（缺省主轨末尾）",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "clip_ids": {"type": "array", "items": {"type": "string"}},
+                    "source_id": {"type": "string"},
+                    "insert_index": {"type": "number"},
+                },
+                "required": ["clip_ids"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "reorder_main_track",
+            "description": "调整主轨片段顺序",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "block_id": {"type": "string"},
+                    "to_index": {"type": "number"},
+                },
+                "required": ["block_id", "to_index"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_transition",
+            "description": "设置片段出点转场",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "block_id": {"type": "string"},
+                    "transition": {
+                        "type": "string",
+                        "enum": [
+                            "cut",
+                            "dissolve",
+                            "fade_black",
+                            "wipe_left",
+                            "wipe_right",
+                            "slide_left",
+                            "slide_right",
+                            "zoom",
+                        ],
+                    },
+                },
+                "required": ["block_id", "transition"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "list_assets",
             "description": "只读：列出当前工程可用素材（视频 clip 池、BGM、SFX）",
             "parameters": {

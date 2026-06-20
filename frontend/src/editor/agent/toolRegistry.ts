@@ -119,6 +119,64 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
   {
     type: 'function',
     function: {
+      name: 'add_clips_to_timeline',
+      description: '从素材池追加 clip 到主轨（缺省主轨末尾）',
+      parameters: {
+        type: 'object',
+        properties: {
+          clip_ids: { type: 'array', items: { type: 'string' } },
+          source_id: { type: 'string', description: '可选，多源项目' },
+          insert_index: { type: 'number', description: '主轨插入下标 0-based，缺省追加' },
+        },
+        required: ['clip_ids'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'reorder_main_track',
+      description: '调整主轨片段顺序',
+      parameters: {
+        type: 'object',
+        properties: {
+          block_id: { type: 'string' },
+          to_index: { type: 'number', description: '目标主轨下标 0-based' },
+        },
+        required: ['block_id', 'to_index'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'set_transition',
+      description: '设置片段出点转场（作用于 outgoing 片段）',
+      parameters: {
+        type: 'object',
+        properties: {
+          block_id: { type: 'string' },
+          transition: {
+            type: 'string',
+            enum: [
+              'cut',
+              'dissolve',
+              'fade_black',
+              'wipe_left',
+              'wipe_right',
+              'slide_left',
+              'slide_right',
+              'zoom',
+            ],
+          },
+        },
+        required: ['block_id', 'transition'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'list_assets',
       description: '只读：列出当前工程可用素材（视频 clip 池、BGM、SFX）',
       parameters: {
@@ -178,6 +236,12 @@ export const READ_ONLY_AGENT_TOOLS = new Set([
   'get_overlay_detail',
 ])
 
+export const ASYNC_WRITE_AGENT_TOOLS = new Set(['add_clips_to_timeline'])
+
+export function isAsyncWriteAgentTool(name: string): boolean {
+  return ASYNC_WRITE_AGENT_TOOLS.has(name)
+}
+
 export function isReadOnlyAgentTool(name: string): boolean {
   return READ_ONLY_AGENT_TOOLS.has(name)
 }
@@ -198,6 +262,12 @@ export function formatToolCallSummary(name: string, args: Record<string, unknown
       return `裁切片段 ${args.block_id}`
     case 'move_block_to_video_track':
       return `移动片段 ${args.block_id} → 轨 ${args.video_track_id}`
+    case 'add_clips_to_timeline':
+      return `追加 ${Array.isArray(args.clip_ids) ? args.clip_ids.length : 0} 个 clip 到主轨`
+    case 'reorder_main_track':
+      return `主轨排序 ${args.block_id} → #${args.to_index}`
+    case 'set_transition':
+      return `转场 ${args.block_id} → ${args.transition}`
     case 'seek_playhead':
       return `播放头 → ${args.time_sec}s`
     case 'list_assets':

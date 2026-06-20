@@ -327,7 +327,12 @@ interface EditSessionState {
   ) => Promise<void>
   detectSilenceTrim: (projectId: string, blockId: string) => Promise<number>
   splitAtInternalSilence: (projectId: string, blockId: string) => Promise<number>
-  appendClips: (projectId: string, clipIds: string[], sourceId?: string | null) => Promise<number>
+  appendClips: (
+    projectId: string,
+    clipIds: string[],
+    sourceId?: string | null,
+    options?: { insertIndex?: number }
+  ) => Promise<number>
   importMedia: (projectId: string, file: File) => Promise<void>
   copySelection: () => void
   pasteSelection: (options?: { startSec?: number; insertAfterBlockId?: string }) => void
@@ -364,7 +369,11 @@ interface EditSessionState {
   ) => void
   syncBlocksVideoScaleUniform: (blockIds: string[]) => void
   updateBlockPlaybackRate: (blockId: string, rate: number) => void
-  updateBlockTransition: (blockId: string, transition: EditBlock['transition_out']) => void
+  updateBlockTransition: (
+    blockId: string,
+    transition: EditBlock['transition_out'],
+    options?: { recordHistory?: boolean }
+  ) => void
   uploadBgm: (projectId: string, file: File) => Promise<void>
   uploadSfx: (projectId: string, file: File) => Promise<void>
   importBgmFromUrl: (projectId: string, url: string) => Promise<void>
@@ -527,8 +536,9 @@ interface EditSessionState {
   canRedo: () => boolean
   markDirty: () => void
   executeAgentToolCalls: (
-    calls: Array<{ name: string; arguments: Record<string, unknown> }>
-  ) => Array<{ ok: boolean; tool_name: string; data?: unknown; error?: string }>
+    calls: Array<{ name: string; arguments: Record<string, unknown> }>,
+    options?: { projectId?: string }
+  ) => Promise<Array<{ ok: boolean; tool_name: string; data?: unknown; error?: string }>>
   beginTimelineGesture: () => void
   reset: () => void
 }
@@ -1210,10 +1220,13 @@ export const useEditSessionStore = create<EditSessionState>()(
       setUseCompositorExport: (enabled) => set({ useCompositorExport: enabled }),
       setInspectorTab: (tab) => set({ inspectorTab: tab }),
 
-      appendClips: async (projectId, clipIds, sourceId) => {
+      appendClips: async (projectId, clipIds, sourceId, options) => {
         const { session, sequencePlayheadSec } = get()
         if (!session) throw new Error('无剪辑工程')
-        const insertIndex = resolvePlayheadInsertIndex(session, sequencePlayheadSec)
+        const insertIndex =
+          options?.insertIndex != null
+            ? Math.max(0, Math.min(options.insertIndex, session.sequence.length))
+            : resolvePlayheadInsertIndex(session, sequencePlayheadSec)
         set({ saving: true, error: null })
         try {
           const result = await editApi.appendClips(projectId, session.id, {
@@ -2648,8 +2661,10 @@ export const useEditSessionStore = create<EditSessionState>()(
         })
       },
 
-      updateBlockTransition: (blockId, transition) => {
-        pushHistory()
+      updateBlockTransition: (blockId, transition, options) => {
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
         set((state) => {
           if (!state.session) return
           const blockIndex = state.session.sequence.findIndex((item) => item.id === blockId)
@@ -3068,11 +3083,13 @@ export const useEditSessionStore = create<EditSessionState>()(
       canRedo: () => get().historyFuture.length > 0,
       markDirty: () => set({ dirty: true }),
 
-      executeAgentToolCalls: (calls) => {
+      executeAgentToolCalls: async (calls, options) => {
         const writeCalls = calls.filter((call) => !isReadOnlyAgentTool(call.name))
         if (writeCalls.length === 0) return []
         pushHistory()
-        const results = executeWriteToolCallsBatch(() => get(), writeCalls)
+        const results = await executeWriteToolCallsBatch(() => get(), writeCalls, {
+          projectId: options?.projectId,
+        })
         set({ dirty: true })
         return results
       },

@@ -119,6 +119,9 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
   }
 }
 
-export function confirmExecutePlan(calls: import('../../types/editorAgent').AgentToolCall[]) {
-  return useEditSessionStore.getState().executeAgentToolCalls(calls)
+export function confirmExecutePlan(
+  calls: import('../../types/editorAgent').AgentToolCall[],
+  projectId: string
+) {
+  return useEditSessionStore.getState().executeAgentToolCalls(calls, { projectId })
 }

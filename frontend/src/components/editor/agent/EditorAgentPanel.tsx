@@ -240,7 +240,7 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
     setExecuting(true)
     setError('')
     try {
-      const results = confirmExecutePlan(pendingPlan.tool_calls)
+      const results = await confirmExecutePlan(pendingPlan.tool_calls, projectId)
       const failed = results.find((item) => !item.ok)
       if (failed) {
         setError(failed.error ?? '部分操作失败')

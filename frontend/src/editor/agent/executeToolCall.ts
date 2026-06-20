@@ -7,6 +7,13 @@ import {
   getOverlayDetail,
 } from './buildEditorSnapshot'
 import { listAssets } from './listAssets'
+import {
+  parseClipIds,
+  resolveDefaultMainTrackAppendIndex,
+  resolveSequenceInsertIndexForMainTrack,
+  validateMainTrackReorder,
+  validateTransition,
+} from './narrativeTools'
 import { isReadOnlyAgentTool } from './toolRegistry'
 import type { AgentToolCall, AgentToolResult } from '../../types/editorAgent'
 import type { useEditSessionStore } from '../../stores/useEditSessionStore'
@@ -15,6 +22,11 @@ export type EditStore = ReturnType<typeof useEditSessionStore.getState>
 export type GetEditStore = () => EditStore
 
 export interface ExecuteReadToolContext {
+  projectId?: string
+}
+
+export interface ExecuteWriteToolOptions {
+  recordHistory?: boolean
   projectId?: string
 }
 
@@ -114,11 +126,11 @@ export async function executeReadToolCall(
   }
 }
 
-export function executeWriteToolCall(
+export async function executeWriteToolCall(
   getStore: GetEditStore,
   call: AgentToolCall,
-  options?: { recordHistory?: boolean }
-): AgentToolResult {
+  options?: ExecuteWriteToolOptions
+): Promise<AgentToolResult> {
   const recordHistory = options?.recordHistory !== false
   const store = getStore()
   const session = store.session
@@ -128,6 +140,64 @@ export function executeWriteToolCall(
 
   try {
     switch (call.name) {
+      case 'add_clips_to_timeline': {
+        const projectId = options?.projectId?.trim()
+        if (!projectId) {
+          return { ok: false, tool_name: call.name, error: '缺少 projectId，无法追加 clip' }
+        }
+        const clipIds = parseClipIds(call.arguments.clip_ids)
+        if (clipIds.length === 0) {
+          return { ok: false, tool_name: call.name, error: 'clip_ids 不能为空' }
+        }
+        const sourceId =
+          call.arguments.source_id != null ? str(call.arguments.source_id).trim() || null : null
+        const mainInsertIndex =
+          call.arguments.insert_index != null
+            ? num(call.arguments.insert_index, resolveDefaultMainTrackAppendIndex(session))
+            : resolveDefaultMainTrackAppendIndex(session)
+        const insertIndex = resolveSequenceInsertIndexForMainTrack(session, mainInsertIndex)
+        const added = await store.appendClips(projectId, clipIds, sourceId, { insertIndex })
+        return {
+          ok: true,
+          tool_name: call.name,
+          data: {
+            added_count: added,
+            clip_ids: clipIds,
+            insert_index: mainInsertIndex,
+            sequence_insert_index: insertIndex,
+          },
+        }
+      }
+      case 'reorder_main_track': {
+        const blockId = str(call.arguments.block_id)
+        const reorder = validateMainTrackReorder(session, blockId, num(call.arguments.to_index, -1))
+        if ('error' in reorder) {
+          return { ok: false, tool_name: call.name, error: reorder.error }
+        }
+        store.reorderBlocks(reorder.fromIndex, reorder.toIndex, { recordHistory })
+        return {
+          ok: true,
+          tool_name: call.name,
+          data: {
+            block_id: blockId,
+            from_index: reorder.fromIndex,
+            to_index: reorder.toIndex,
+          },
+        }
+      }
+      case 'set_transition': {
+        const blockId = str(call.arguments.block_id)
+        const transition = validateTransition(call.arguments.transition)
+        if (!transition) {
+          return { ok: false, tool_name: call.name, error: `无效转场: ${call.arguments.transition}` }
+        }
+        const block = session.sequence.find((item) => item.id === blockId)
+        if (!block) {
+          return { ok: false, tool_name: call.name, error: `片段不存在: ${blockId}` }
+        }
+        store.updateBlockTransition(blockId, transition, { recordHistory })
+        return { ok: true, tool_name: call.name, data: { block_id: blockId, transition } }
+      }
       case 'seek_playhead': {
         store.setSequencePlayheadSec(num(call.arguments.time_sec, 0))
         return { ok: true, tool_name: call.name, data: { time_sec: num(call.arguments.time_sec, 0) } }
@@ -212,7 +282,7 @@ export function executeWriteToolCall(
 export async function executeToolCall(
   getStore: GetEditStore,
   call: AgentToolCall,
-  options?: { recordHistory?: boolean; projectId?: string }
+  options?: ExecuteWriteToolOptions
 ): Promise<AgentToolResult> {
   if (isReadOnlyAgentTool(call.name)) {
     return executeReadToolCall(getStore, call, { projectId: options?.projectId })
@@ -220,9 +290,19 @@ export async function executeToolCall(
   return executeWriteToolCall(getStore, call, options)
 }
 
-export function executeWriteToolCallsBatch(
+export async function executeWriteToolCallsBatch(
   getStore: GetEditStore,
-  calls: AgentToolCall[]
-): AgentToolResult[] {
-  return calls.map((call) => executeWriteToolCall(getStore, call, { recordHistory: false }))
+  calls: AgentToolCall[],
+  options?: { projectId?: string }
+): Promise<AgentToolResult[]> {
+  const results: AgentToolResult[] = []
+  for (const call of calls) {
+    results.push(
+      await executeWriteToolCall(getStore, call, {
+        recordHistory: false,
+        projectId: options?.projectId,
+      })
+    )
+  }
+  return results
 }

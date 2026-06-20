@@ -24,6 +24,24 @@ def test_validate_tool_calls_accepts_list_assets():
     assert calls[0].arguments["category"] == "clip"
 
 
+def test_validate_tool_calls_accepts_narrative_tools():
+    calls = validate_tool_calls(
+        [
+            {
+                "name": "add_clips_to_timeline",
+                "arguments": {"clip_ids": ["c1", "c2"], "insert_index": 0},
+            },
+            {"name": "reorder_main_track", "arguments": {"block_id": "b1", "to_index": 1}},
+            {"name": "set_transition", "arguments": {"block_id": "b1", "transition": "dissolve"}},
+        ]
+    )
+    assert [call.name for call in calls] == [
+        "add_clips_to_timeline",
+        "reorder_main_track",
+        "set_transition",
+    ]
+
+
 def test_validate_tool_calls_rejects_unknown_tool():
     with pytest.raises(ValueError, match="白名单"):
         validate_tool_calls([{"name": "delete_timeline", "arguments": {}}])
