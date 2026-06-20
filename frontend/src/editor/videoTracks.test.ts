@@ -8,6 +8,7 @@ import {
   resolveMainTrackBlocks,
   resolveOverlayVideoBlocks,
   resolveVideoTracks,
+  reorderVideoTrackMetas,
 } from './videoTracks'
 
 const baseBlock = (id: string, overrides: Partial<EditBlock> = {}): EditBlock => ({
@@ -91,5 +92,22 @@ describe('resolveVideoTracks', () => {
       'a',
       'b',
     ])
+  })
+})
+
+describe('reorderVideoTrackMetas', () => {
+  it('moves a track and reindexes order', () => {
+    const tracks = [
+      { id: DEFAULT_VIDEO_TRACK_ID, name: 'Video', order: 0 },
+      { id: 'overlay-track', name: 'Video 2', order: 1 },
+      { id: 'overlay-3', name: 'Video 3', order: 2 },
+    ]
+    const next = reorderVideoTrackMetas(tracks, 2, 0)
+    expect(next.map((track) => track.id)).toEqual([
+      'overlay-3',
+      DEFAULT_VIDEO_TRACK_ID,
+      'overlay-track',
+    ])
+    expect(next.map((track) => track.order)).toEqual([0, 1, 2])
   })
 })

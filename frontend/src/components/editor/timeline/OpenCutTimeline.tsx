@@ -9,7 +9,7 @@ import { getBlockVideoUrl } from '../../../utils/editBlockMedia'
 import { extractWaveformPeaks } from '../../../utils/audioWaveform'
 import editApi from '../../../services/editApi'
 import { buildAdaptedTracks, findAudioTrackAtY, findElementInTracks, findTextTrackAtY, findVideoTrackAtY, isUserAudioAdaptedTrack, isUserTextAdaptedTrack, isUserVideoAdaptedTrack, mapTrackIdToStoreKey, resolveMainTrackBlocks, resolveTimelinePointerY, ADAPTED_TRACK_IDS } from './adapter'
-import { isMainTrackBlock } from '../../../editor/videoTracks'
+import { DEFAULT_VIDEO_TRACK_ID, isMainTrackBlock, resolveVideoTracks } from '../../../editor/videoTracks'
 import { findAudioAsset, resolveAssetDurationSec } from '../../../editor/audioTracks'
 import TimelineToolbar from './TimelineToolbar'
 import TimelineRuler from './TimelineRuler'
@@ -158,6 +158,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const setSelectedAudioClipId = useEditSessionStore((state) => state.setSelectedAudioClipId)
   const updateAudioSettings = useEditSessionStore((state) => state.updateAudioSettings)
   const reorderBlocks = useEditSessionStore((state) => state.reorderBlocks)
+  const reorderVideoTracks = useEditSessionStore((state) => state.reorderVideoTracks)
   const removeOverlayElement = useEditSessionStore((state) => state.removeOverlayElement)
   const clearBlockCaption = useEditSessionStore((state) => state.clearBlockCaption)
   const setSelectedCaptionBlockId = useEditSessionStore((state) => state.setSelectedCaptionBlockId)
@@ -222,6 +223,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     duration: number
     insertMarkerSec: number
   } | null>(null)
+  const [draggingVideoTrackId, setDraggingVideoTrackId] = useState<string | null>(null)
 
   const segments = useMemo(
     () =>
@@ -303,6 +305,26 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const clearSelection = useCallback(() => {
     clearEditorSelection()
   }, [clearEditorSelection])
+
+  const clientXToTimelineSec = useCallback(
+    (clientX: number) => {
+      const scrollElement = tracksScrollRef.current
+      if (!scrollElement) return 0
+      const rect = scrollElement.getBoundingClientRect()
+      const xInContent = clientX - rect.left + scrollElement.scrollLeft
+      return Math.max(0, pxToTime(xInContent, zoomLevel))
+    },
+    [zoomLevel]
+  )
+
+  const resolveTargetVideoTrackAtClientY = useCallback(
+    (clientY: number) => {
+      const y = resolveTimelinePointerY(clientY, tracksCanvasRef.current)
+      if (y == null) return null
+      return findVideoTrackAtY(tracks, y)
+    },
+    [tracks]
+  )
 
   const {
     handleMouseDown: handleBoxSelectMouseDown,
@@ -496,6 +518,46 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     }
   }
 
+  const startVideoTrackReorder = useCallback(
+    (videoTrackId: string, event: React.PointerEvent) => {
+      if (event.button !== 0) return
+      event.stopPropagation()
+      if (!session?.video_tracks) return
+      const sorted = resolveVideoTracks(session)
+      const fromIndex = sorted.findIndex((track) => track.id === videoTrackId)
+      if (fromIndex < 0) return
+
+      beginTimelineGesture()
+      setDraggingVideoTrackId(videoTrackId)
+      let pendingToIndex = fromIndex
+
+      const onMove = (moveEvent: PointerEvent) => {
+        const target = resolveTargetVideoTrackAtClientY(moveEvent.clientY)
+        if (!target?.videoTrackId) return
+        const toIndex = sorted.findIndex((track) => track.id === target.videoTrackId)
+        if (toIndex >= 0) pendingToIndex = toIndex
+      }
+
+      const onUp = () => {
+        setDraggingVideoTrackId(null)
+        if (pendingToIndex !== fromIndex) {
+          reorderVideoTracks(fromIndex, pendingToIndex, { recordHistory: false })
+        }
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+      }
+
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
+    },
+    [
+      session,
+      beginTimelineGesture,
+      resolveTargetVideoTrackAtClientY,
+      reorderVideoTracks,
+    ]
+  )
+
   const startElementDrag = (
     trackId: string,
     element: AdaptedElement,
@@ -564,12 +626,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       if (!isMainTrackBlock(block)) {
         beginTimelineGesture()
         let pendingTargetVideoTrackId: string | null = sourceTrack?.videoTrackId ?? null
-
-        const resolveTargetVideoTrack = (clientY: number) => {
-          const y = resolveTimelinePointerY(clientY, tracksCanvasRef.current)
-          if (y == null) return null
-          return findVideoTrackAtY(tracks, y)
-        }
+        const frozenSegments = segments
 
         const onOverlayMove = (moveEvent: PointerEvent) => {
           const deltaSec =
@@ -578,7 +635,14 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           const snapped = snapTime(raw, sequenceSnapPoints, snapEnabled)
           setSnapPoint({ time: snapped, type: 'grid' })
 
-          const videoTrack = resolveTargetVideoTrack(moveEvent.clientY)
+          const videoTrack = resolveTargetVideoTrackAtClientY(moveEvent.clientY)
+          if (videoTrack?.isMain) {
+            setDragTargetTrackId(videoTrack.id)
+            setVideoDragPreview(null)
+            pendingTargetVideoTrackId = DEFAULT_VIDEO_TRACK_ID
+            return
+          }
+
           const isCrossTrackPreview =
             videoTrack?.videoTrackId &&
             sourceTrack?.videoTrackId &&
@@ -614,9 +678,32 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           const raw = Math.max(0, initialStart + deltaSec)
           const snapped = snapTime(raw, sequenceSnapPoints, snapEnabled)
 
-          const finalVideoTrack = resolveTargetVideoTrack(upEvent.clientY)
+          const finalVideoTrack = resolveTargetVideoTrackAtClientY(upEvent.clientY)
           const targetVideoTrackId =
             finalVideoTrack?.videoTrackId ?? pendingTargetVideoTrackId
+
+          if (targetVideoTrackId === DEFAULT_VIDEO_TRACK_ID) {
+            const pointerSec = snapTime(
+              clientXToTimelineSec(upEvent.clientX),
+              sequenceSnapPoints,
+              snapEnabled
+            )
+            const insertIndex = resolveBlockReorderTargetIndex(
+              pointerSec,
+              mainBlocks.length,
+              frozenSegments
+            )
+            moveBlockToVideoTrack(blockId, DEFAULT_VIDEO_TRACK_ID, {
+              recordHistory: false,
+              insertIndex,
+            })
+            setActiveVideoTrackId(DEFAULT_VIDEO_TRACK_ID)
+            void flushSaveSession(projectId)
+            window.removeEventListener('pointermove', onOverlayMove)
+            window.removeEventListener('pointerup', onOverlayUp)
+            return
+          }
+
           const isCrossTrack =
             targetVideoTrackId &&
             sourceTrack?.videoTrackId &&
@@ -659,14 +746,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       }
       const frozenSegments = segments
       let pendingTargetIndex = fromIndex
-
-      const clientXToSec = (clientX: number) => {
-        const scrollElement = tracksScrollRef.current
-        if (!scrollElement) return 0
-        const rect = scrollElement.getBoundingClientRect()
-        const xInContent = clientX - rect.left + scrollElement.scrollLeft
-        return Math.max(0, pxToTime(xInContent, zoomLevel))
-      }
+      let pendingOverlayTrackId: string | null = null
 
       setBlockDragPreview({
         blockId,
@@ -679,7 +759,32 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       })
 
       const applyMove = (moveEvent: PointerEvent) => {
-        const pointerSec = clientXToSec(moveEvent.clientX)
+        const targetVideoTrack = resolveTargetVideoTrackAtClientY(moveEvent.clientY)
+        if (targetVideoTrack && !targetVideoTrack.isMain) {
+          const pointerSec = snapTime(
+            clientXToTimelineSec(moveEvent.clientX),
+            sequenceSnapPoints,
+            snapEnabled
+          )
+          setSnapPoint({ time: pointerSec, type: 'grid' })
+          pendingOverlayTrackId = targetVideoTrack.videoTrackId!
+          pendingTargetIndex = fromIndex
+          setBlockDragPreview(null)
+          setDragTargetTrackId(targetVideoTrack.id)
+          setVideoDragPreview({
+            trackId: targetVideoTrack.id,
+            startSec: pointerSec,
+            duration: element.duration,
+            label: element.name,
+          })
+          return
+        }
+
+        pendingOverlayTrackId = null
+        setDragTargetTrackId(null)
+        setVideoDragPreview(null)
+
+        const pointerSec = clientXToTimelineSec(moveEvent.clientX)
         const targetIndex = resolveBlockReorderTargetIndex(pointerSec, fromIndex, frozenSegments)
         pendingTargetIndex = targetIndex
         const insertMarkerSec = computeBlockInsertMarkerSec(
@@ -702,11 +807,31 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
 
       const onBlockMove = rafPointerMove(applyMove)
 
-      const onBlockUp = () => {
+      const onBlockUp = (upEvent: PointerEvent) => {
         setBlockDragPreview(null)
-        if (pendingTargetIndex !== fromIndex) {
+        setVideoDragPreview(null)
+        setDragTargetTrackId(null)
+        setSnapPoint(null)
+
+        if (pendingOverlayTrackId) {
+          const snapped = snapTime(
+            clientXToTimelineSec(upEvent.clientX),
+            sequenceSnapPoints,
+            snapEnabled
+          )
+          const targetTrack = tracks.find((item) => item.videoTrackId === pendingOverlayTrackId)
+          const siblings = getTrackSiblingRanges(targetTrack?.elements ?? [], element.id)
+          if (canPlaceAtStart(siblings, element.duration, snapped)) {
+            moveBlockToVideoTrack(blockId, pendingOverlayTrackId, {
+              recordHistory: false,
+              timelineStartSec: snapped,
+            })
+            setActiveVideoTrackId(pendingOverlayTrackId)
+          }
+        } else if (pendingTargetIndex !== fromIndex) {
           reorderBlocks(fromIndex, pendingTargetIndex, { recordHistory: false })
         }
+
         window.removeEventListener('pointermove', onBlockMove)
         window.removeEventListener('pointerup', onBlockUp)
       }
@@ -1230,7 +1355,13 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
               return (
                 <div
                   key={track.id}
-                  className={`oc-timeline__label-row${activeTextTrackId === track.textTrackId || activeAudioTrackId === track.audioTrackId || activeVideoTrackId === track.videoTrackId ? ' is-active' : ''}`}
+                  className={`oc-timeline__label-row${
+                    activeTextTrackId === track.textTrackId ||
+                    activeAudioTrackId === track.audioTrackId ||
+                    activeVideoTrackId === track.videoTrackId
+                      ? ' is-active'
+                      : ''
+                  }${draggingVideoTrackId === track.videoTrackId ? ' is-dragging' : ''}`}
                   style={{ height: TRACK_HEIGHTS[track.type] }}
                   onClick={() => {
                     if (track.textTrackId) setActiveTextTrackId(track.textTrackId)
@@ -1339,7 +1470,15 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                   ) : null}
                   {TRACK_ICONS[track.type]}
                   {isUserText || isUserAudio || isUserVideo ? (
-                    <span className="oc-timeline__label-name" title={track.name}>
+                    <span
+                      className={`oc-timeline__label-name${isUserVideo ? ' oc-timeline__label-name--draggable' : ''}`}
+                      title={isUserVideo ? `${track.name}（拖动调整轨道顺序）` : track.name}
+                      onPointerDown={
+                        isUserVideo && track.videoTrackId
+                          ? (event) => startVideoTrackReorder(track.videoTrackId!, event)
+                          : undefined
+                      }
+                    >
                       {track.name}
                     </span>
                   ) : null}

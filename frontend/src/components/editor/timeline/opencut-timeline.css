@@ -510,6 +510,20 @@
   color: var(--oc-muted);
 }
 
+.oc-timeline__label-name--draggable {
+  cursor: grab;
+  touch-action: none;
+}
+
+.oc-timeline__label-row.is-dragging {
+  opacity: 0.72;
+  background: color-mix(in srgb, var(--oc-accent) 10%, var(--oc-panel-2));
+}
+
+.oc-timeline__label-row.is-dragging .oc-timeline__label-name--draggable {
+  cursor: grabbing;
+}
+
 .oc-timeline__add-track-btn {
   margin-left: auto;
   width: 18px;

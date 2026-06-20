@@ -56,7 +56,9 @@ import {
   ensureVideoTracks,
   isMainTrackBlock,
   nextVideoTrackOrder,
+  reorderVideoTrackMetas,
   resolveMainTrackBlocks,
+  resolveVideoTracks,
 } from '../editor/videoTracks'
 import { resolveCanvasDimensions } from '../editor/scene/canvas'
 import {
@@ -410,7 +412,12 @@ interface EditSessionState {
   moveBlockToVideoTrack: (
     blockId: string,
     videoTrackId: string,
-    options?: { recordHistory?: boolean; timelineStartSec?: number }
+    options?: { recordHistory?: boolean; timelineStartSec?: number; insertIndex?: number }
+  ) => void
+  reorderVideoTracks: (
+    fromIndex: number,
+    toIndex: number,
+    options?: { recordHistory?: boolean }
   ) => void
   updateBlockTimelineStart: (
     blockId: string,
@@ -1865,21 +1872,44 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (!state.session?.video_tracks) return
           const trackExists = state.session.video_tracks.some((item) => item.id === videoTrackId)
           if (!trackExists) return
-          const block = state.session.sequence.find((item) => item.id === blockId)
-          if (!block) return
+          const currentIdx = state.session.sequence.findIndex((item) => item.id === blockId)
+          if (currentIdx < 0) return
+          const block = state.session.sequence[currentIdx]!
           const wasMain = isMainTrackBlock(block)
           block.track_id = videoTrackId
           if (videoTrackId === DEFAULT_VIDEO_TRACK_ID) {
             delete block.timeline_start_sec
+            if (options?.insertIndex != null) {
+              const [moved] = state.session.sequence.splice(currentIdx, 1)
+              let insertAt = Math.max(
+                0,
+                Math.min(options.insertIndex, state.session.sequence.length)
+              )
+              if (currentIdx < insertAt) insertAt -= 1
+              state.session.sequence.splice(insertAt, 0, moved)
+            }
+            clearSequenceBlockGaps(state.session)
+            ensureTemplateCaptionOverlays(state.session)
           } else {
             block.timeline_start_sec = options?.timelineStartSec ?? block.timeline_start_sec ?? 0
+            if (wasMain) {
+              removeSequenceBlockGapAt(state.session, currentIdx)
+            }
           }
-          if (wasMain && videoTrackId !== DEFAULT_VIDEO_TRACK_ID) {
-            removeSequenceBlockGapAt(
-              state.session,
-              state.session.sequence.findIndex((item) => item.id === blockId)
-            )
-          }
+          state.dirty = true
+        })
+      },
+
+      reorderVideoTracks: (fromIndex, toIndex, options) => {
+        if (fromIndex === toIndex) return
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
+        set((state) => {
+          if (!state.session?.video_tracks) return
+          ensureVideoTracks(state.session)
+          const sorted = [...state.session.video_tracks].sort((a, b) => a.order - b.order)
+          state.session.video_tracks = reorderVideoTrackMetas(sorted, fromIndex, toIndex)
           state.dirty = true
         })
       },

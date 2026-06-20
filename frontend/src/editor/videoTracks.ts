@@ -118,3 +118,17 @@ export function resolveVideoTrackMaxEndSec(session: EditSession): number {
   }
   return maxEnd
 }
+
+/** 调整 video_tracks 顺序（时间线上下排列） */
+export function reorderVideoTrackMetas(
+  tracks: VideoTrackMeta[],
+  fromIndex: number,
+  toIndex: number
+): VideoTrackMeta[] {
+  if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return tracks
+  const next = [...tracks]
+  const [moved] = next.splice(fromIndex, 1)
+  if (!moved) return tracks
+  next.splice(toIndex, 0, moved)
+  return next.map((track, index) => ({ ...track, order: index }))
+}
