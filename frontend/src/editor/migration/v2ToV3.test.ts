@@ -139,4 +139,47 @@ describe('EditProjectV3 migration', () => {
         .params?.fontSize
     ).toBe(99)
   })
+
+  it('roundtrips overlay video track placement through project_v3 and hydrate', () => {
+    const session = loadFixtureSession('session-minimal.json')
+    const overlayTrackId = 'overlay-track-1'
+    const moved = {
+      ...session.sequence[0]!,
+      track_id: overlayTrackId,
+      timeline_start_sec: 3.5,
+    }
+    const withTracks = {
+      ...session,
+      sequence: [moved],
+      video_tracks: [
+        { id: 'default-video', name: 'Video', order: 0, hidden: false },
+        { id: overlayTrackId, name: 'Video 2', order: 1, hidden: false },
+      ],
+    }
+    const project = migrateSessionToV3(withTracks)
+    expect(project.scenes[0]?.tracks.main).toHaveLength(0)
+    expect(project.scenes[0]?.tracks.video_overlays).toHaveLength(1)
+    expect(project.scenes[0]?.tracks.video_overlays?.[0]?.start_time).toBeCloseTo(3.5, 2)
+    expect(project.scenes[0]?.tracks.video_overlays?.[0]?.properties.track_id).toBe(overlayTrackId)
+
+    const restored = flattenV3ToSession(project)
+    expect(restored.sequence[0]?.track_id).toBe(overlayTrackId)
+    expect(restored.sequence[0]?.timeline_start_sec).toBeCloseTo(3.5, 2)
+
+    const staleProject = migrateSessionToV3({
+      ...withTracks,
+      sequence: withTracks.sequence.map((block) => ({
+        ...block,
+        track_id: 'default-video',
+      })),
+    })
+    const hydrated = hydrateEditDocument({
+      ...withTracks,
+      schema_version: 3,
+      project_v3: staleProject,
+    })
+    expect(hydrated.session.sequence[0]?.track_id).toBe(overlayTrackId)
+    expect(hydrated.session.sequence[0]?.timeline_start_sec).toBeCloseTo(3.5, 2)
+    expect(hydrated.session.video_tracks).toHaveLength(2)
+  })
 })

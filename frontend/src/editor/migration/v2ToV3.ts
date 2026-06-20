@@ -3,6 +3,13 @@ import type { TransitionOutKind } from '../../types/transitions'
 import { migrateToOpenCutText } from '../opencut-text/migrate'
 import { buildCompositionTimeline } from '../scene/timelineLayout'
 import { resolveCanvasDimensions } from '../scene/canvas'
+import { blockDuration } from '../../utils/editTimeline'
+import {
+  DEFAULT_VIDEO_TRACK_ID,
+  blockTimelineStartSec,
+  resolveMainTrackBlocks,
+  resolveOverlayVideoBlocks,
+} from '../videoTracks'
 
 export type MediaAssetSource = 'ai_clip' | 'imported' | 'ai_generated' | 'extracted' | 'source_range'
 
@@ -51,6 +58,8 @@ export interface EditSceneTracks {
   main: TrackElement[]
   overlay: TrackElement[]
   audio: TrackElement[]
+  /** 非主轨视频片段（画中画 / 叠加轨） */
+  video_overlays?: TrackElement[]
 }
 
 export interface EditScene {
@@ -128,14 +137,71 @@ const mergeFlatBlockFields = (flatBlock: EditBlock, baseBlock: EditBlock): EditB
   ...baseBlock,
   playback_rate: flatBlock.playback_rate ?? baseBlock.playback_rate,
   video_transform: flatBlock.video_transform ?? baseBlock.video_transform,
+  track_id: flatBlock.track_id ?? baseBlock.track_id,
+  timeline_start_sec: flatBlock.timeline_start_sec ?? baseBlock.timeline_start_sec,
+})
+
+const blockToClipTrackElement = (
+  block: EditBlock,
+  asset: MediaAsset,
+  startTime: number,
+  transitionOut?: TransitionOutKind
+): TrackElement => ({
+  id: block.id,
+  type: 'clip',
+  asset_id: asset.id,
+  start_time: startTime,
+  duration: blockDuration(block),
+  trim_start: block.trim.in_sec,
+  trim_end: block.trim.out_sec,
+  properties: {
+    title: block.title,
+    volume: block.audio.volume,
+    fade_in_sec: block.audio.fade_in_sec ?? 0,
+    fade_out_sec: block.audio.fade_out_sec ?? 0,
+    playback_rate: block.playback_rate ?? 1,
+    video_transform: block.video_transform ?? {
+      scale_x: 1,
+      scale_y: 1,
+      position_x: 0,
+      position_y: 0,
+    },
+    ...(block.track_id ? { track_id: block.track_id } : {}),
+  },
+  transition_out: transitionOut,
+})
+
+const clipTrackElementToBlock = (
+  element: TrackElement,
+  asset: MediaAsset | undefined,
+  overrides: Partial<EditBlock> = {}
+): EditBlock => ({
+  id: element.id,
+  source_clip_id: asset?.source_clip_id ?? element.id,
+  title: String(element.properties.title ?? asset?.title ?? ''),
+  media: asset ? blockMediaFromAsset(asset) : { type: 'step6_clip', path: '' },
+  trim: { in_sec: element.trim_start, out_sec: element.trim_end },
+  overlay: overrides.overlay ?? { outline: '', content: [], recommend_reason: '' },
+  audio: {
+    volume: Number(element.properties.volume ?? 1),
+    fade_in_sec: Number(element.properties.fade_in_sec ?? 0),
+    fade_out_sec: Number(element.properties.fade_out_sec ?? 0),
+  },
+  transition_out: element.transition_out ?? 'cut',
+  duration_sec: asset?.duration_sec ?? element.duration,
+  playback_rate: Number(element.properties.playback_rate ?? 1),
+  video_transform: readBlockVideoTransform(element.properties.video_transform),
+  ...overrides,
 })
 
 export const migrateSessionToV3 = (session: EditSession): EditProjectV3 => {
   const mediaPool: MediaAsset[] = []
   const mainTrack: TrackElement[] = []
   const overlayTrack: TrackElement[] = []
+  const videoOverlays: TrackElement[] = []
   const transitionDurationSec = session.audio_settings.transition_duration_sec ?? 0.35
-  const timeline = buildCompositionTimeline(session.sequence, transitionDurationSec)
+  const mainBlocks = resolveMainTrackBlocks(session)
+  const timeline = buildCompositionTimeline(mainBlocks, transitionDurationSec, session.sequence_block_gaps)
 
   for (const segment of timeline.segments) {
     const block = segment.block
@@ -143,30 +209,9 @@ export const migrateSessionToV3 = (session: EditSession): EditProjectV3 => {
     if (!mediaPool.some((item) => item.id === asset.id)) {
       mediaPool.push(asset)
     }
-    const duration = segment.sourceDurationSec
-    mainTrack.push({
-      id: block.id,
-      type: 'clip',
-      asset_id: asset.id,
-      start_time: segment.compositionStartSec,
-      duration,
-      trim_start: block.trim.in_sec,
-      trim_end: block.trim.out_sec,
-      properties: {
-        title: block.title,
-        volume: block.audio.volume,
-        fade_in_sec: block.audio.fade_in_sec ?? 0,
-        fade_out_sec: block.audio.fade_out_sec ?? 0,
-        playback_rate: block.playback_rate ?? 1,
-        video_transform: block.video_transform ?? {
-          scale_x: 1,
-          scale_y: 1,
-          position_x: 0,
-          position_y: 0,
-        },
-      },
-      transition_out: segment.transitionOut,
-    })
+    mainTrack.push(
+      blockToClipTrackElement(block, asset, segment.compositionStartSec, segment.transitionOut)
+    )
     if (
       block.overlay.outline ||
       block.overlay.content.length > 0 ||
@@ -177,9 +222,35 @@ export const migrateSessionToV3 = (session: EditSession): EditProjectV3 => {
         type: 'template_caption',
         asset_id: asset.id,
         start_time: segment.compositionStartSec,
-        duration,
+        duration: segment.sourceDurationSec,
         trim_start: 0,
-        trim_end: duration,
+        trim_end: segment.sourceDurationSec,
+        properties: { ...block.overlay },
+      })
+    }
+  }
+
+  for (const block of resolveOverlayVideoBlocks(session)) {
+    const asset = mediaFromBlock(block)
+    if (!mediaPool.some((item) => item.id === asset.id)) {
+      mediaPool.push(asset)
+    }
+    videoOverlays.push(
+      blockToClipTrackElement(block, asset, blockTimelineStartSec(block), 'cut')
+    )
+    if (
+      block.overlay.outline ||
+      block.overlay.content.length > 0 ||
+      block.overlay.recommend_reason
+    ) {
+      overlayTrack.push({
+        id: `caption_${block.id}`,
+        type: 'template_caption',
+        asset_id: asset.id,
+        start_time: blockTimelineStartSec(block),
+        duration: blockDuration(block),
+        trim_start: 0,
+        trim_end: blockDuration(block),
         properties: { ...block.overlay },
       })
     }
@@ -256,7 +327,12 @@ export const migrateSessionToV3 = (session: EditSession): EditProjectV3 => {
       {
         id: `${session.id}_scene_0`,
         name: '主场景',
-        tracks: { main: mainTrack, overlay: overlayTrack, audio: audioTrack },
+        tracks: {
+          main: mainTrack,
+          overlay: overlayTrack,
+          audio: audioTrack,
+          ...(videoOverlays.length > 0 ? { video_overlays: videoOverlays } : {}),
+        },
         bookmarks: session.bookmarks ?? [],
       },
     ],
@@ -292,7 +368,7 @@ export const flattenV3ToSession = (project: EditProjectV3): EditSession => {
   }
 
   const assetById = new Map(project.media_pool.map((item) => [item.id, item]))
-  const sequence: EditBlock[] = scene.tracks.main
+  const mainSequence: EditBlock[] = scene.tracks.main
     .filter((element) => element.type === 'clip')
     .sort((a, b) => a.start_time - b.start_time)
     .map((element) => {
@@ -301,28 +377,39 @@ export const flattenV3ToSession = (project: EditProjectV3): EditSession => {
         (item) => item.type === 'template_caption' && item.id === `caption_${element.id}`
       )
       const overlayProps = (caption?.properties ?? {}) as EditBlock['overlay']
-      return {
-        id: element.id,
-        source_clip_id: asset?.source_clip_id ?? element.id,
-        title: String(element.properties.title ?? asset?.title ?? ''),
-        media: asset ? blockMediaFromAsset(asset) : { type: 'step6_clip', path: '' },
-        trim: { in_sec: element.trim_start, out_sec: element.trim_end },
+      return clipTrackElementToBlock(element, asset, {
         overlay: {
           outline: overlayProps.outline ?? '',
           content: overlayProps.content ?? [],
           recommend_reason: overlayProps.recommend_reason ?? '',
         },
-        audio: {
-          volume: Number(element.properties.volume ?? 1),
-          fade_in_sec: Number(element.properties.fade_in_sec ?? 0),
-          fade_out_sec: Number(element.properties.fade_out_sec ?? 0),
-        },
-        transition_out: element.transition_out ?? 'cut',
-        duration_sec: asset?.duration_sec ?? element.duration,
-        playback_rate: Number(element.properties.playback_rate ?? 1),
-        video_transform: readBlockVideoTransform(element.properties.video_transform),
-      }
+      })
     })
+
+  const overlayVideoSequence: EditBlock[] = (scene.tracks.video_overlays ?? [])
+    .filter((element) => element.type === 'clip')
+    .map((element) => {
+      const asset = element.asset_id ? assetById.get(element.asset_id) : undefined
+      const caption = scene.tracks.overlay.find(
+        (item) => item.type === 'template_caption' && item.id === `caption_${element.id}`
+      )
+      const overlayProps = (caption?.properties ?? {}) as EditBlock['overlay']
+      const trackId =
+        typeof element.properties.track_id === 'string'
+          ? element.properties.track_id
+          : undefined
+      return clipTrackElementToBlock(element, asset, {
+        track_id: trackId,
+        timeline_start_sec: element.start_time,
+        overlay: {
+          outline: overlayProps.outline ?? '',
+          content: overlayProps.content ?? [],
+          recommend_reason: overlayProps.recommend_reason ?? '',
+        },
+      })
+    })
+
+  const sequence: EditBlock[] = [...mainSequence, ...overlayVideoSequence]
 
   const canvasDims = resolveCanvasDimensions(project.export_settings)
   const overlay_elements = scene.tracks.overlay
@@ -423,7 +510,13 @@ export const hydrateEditDocument = (session: EditSession): EditDocument => {
     const project = session.project_v3 as EditProjectV3
     const fromV3 = flattenV3ToSession(project)
     const v3BlockIds = new Set(fromV3.sequence.map((block) => block.id))
+    const flatHasOverlayPlacement = session.sequence.some(
+      (block) =>
+        (block.track_id != null && block.track_id !== DEFAULT_VIDEO_TRACK_ID) ||
+        block.timeline_start_sec != null
+    )
     const flatSequenceIsAhead =
+      flatHasOverlayPlacement ||
       session.sequence.length > fromV3.sequence.length ||
       session.sequence.some((block) => !v3BlockIds.has(block.id)) ||
       session.sequence.some((block, index) => fromV3.sequence[index]?.id !== block.id)
@@ -441,14 +534,24 @@ export const hydrateEditDocument = (session: EditSession): EditDocument => {
     }
 
     const mergedSequence = flatSequenceIsAhead
-      ? session.sequence
+      ? session.sequence.map((block) => {
+          const v3Block = fromV3.sequence.find((item) => item.id === block.id)
+          if (!v3Block) return block
+          return mergeBlockOverlay(block, v3Block)
+        })
       : fromV3.sequence.map((block) => {
           const rawBlock = session.sequence.find((item) => item.id === block.id)
           if (!rawBlock) return block
           return mergeBlockOverlay(rawBlock, block)
         })
 
-    // 扁平 overlay_elements / text_tracks 是用户编辑的真实来源（project_v3 可能滞后）
+    for (const block of session.sequence) {
+      if (!mergedSequence.some((item) => item.id === block.id)) {
+        mergedSequence.push(block)
+      }
+    }
+
+    // 扁平 overlay_elements / text_tracks / video_tracks 是用户编辑的真实来源（project_v3 可能滞后）
     const overlay_elements =
       session.overlay_elements && session.overlay_elements.length > 0
         ? session.overlay_elements
@@ -458,6 +561,11 @@ export const hydrateEditDocument = (session: EditSession): EditDocument => {
       session.text_tracks && session.text_tracks.length > 0
         ? session.text_tracks
         : fromV3.text_tracks
+
+    const video_tracks =
+      session.video_tracks && session.video_tracks.length > 0
+        ? session.video_tracks
+        : fromV3.video_tracks
 
     const audio_assets =
       session.audio_assets && session.audio_assets.length > 0
@@ -488,6 +596,7 @@ export const hydrateEditDocument = (session: EditSession): EditDocument => {
       sequence: mergedSequence,
       overlay_elements,
       text_tracks,
+      video_tracks,
       audio_assets,
       audio_tracks,
       audio_elements,

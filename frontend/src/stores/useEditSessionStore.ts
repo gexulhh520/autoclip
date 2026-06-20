@@ -808,13 +808,13 @@ export const useEditSessionStore = create<EditSessionState>()(
             schema_version: 3,
             project_v3: project,
           })
+          const document = hydrateEditDocument({
+            ...updated,
+            schema_version: 3,
+          })
           set((state) => {
-            state.session = cloneSessionFromApi({
-              ...updated,
-              project_v3: project,
-              schema_version: 3,
-            })
-            state.editProject = project
+            state.session = cloneSessionFromApi(document.session)
+            state.editProject = document.project
             state.saving = false
             state.dirty = false
           })
