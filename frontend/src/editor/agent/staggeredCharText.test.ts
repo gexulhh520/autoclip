@@ -37,6 +37,29 @@ describe('staggeredCharText', () => {
     expect(overlays[0]?.params['animation.in.type']).toBe('pop')
   })
 
+  it('builds vertical column with shared center_x and increasing normY', () => {
+    const overlays = buildStaggeredCharOverlays(
+      {
+        id: 'o1',
+        type: 'text',
+        hidden: false,
+        start_sec: 0,
+        duration_sec: 3,
+        params: { content: '我爱你', fontSize: 8, fontFamily: 'Noto Sans SC' },
+      },
+      1080,
+      1920,
+      { layout: 'vertical', center_x: 0.5, center_y: 0.5, in_type: 'fade' }
+    )
+    expect(overlays).toHaveLength(3)
+    const xs = overlays.map((item) => item.params['transform.positionX'])
+    const ys = overlays.map((item) => item.params['transform.positionY'])
+    expect(new Set(xs).size).toBe(1)
+    expect(ys[0]).toBeLessThan(ys[1]!)
+    expect(ys[1]).toBeLessThan(ys[2]!)
+    expect(overlays[0]?.params['animation.in.type']).toBe('fade')
+  })
+
   it('returns empty for blank content', () => {
     const overlays = buildStaggeredCharOverlays(
       {

@@ -254,13 +254,18 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
     function: {
       name: 'split_text_overlay_by_char',
       description:
-        '将单个文本层按字拆成多层，水平居中排布，逐字错峰出现并带入场动画。用于「一个字一个字出现」「逐字动画」。会删除原层。',
+        '将单个文本层按字拆成多层并带入场动画。layout=horizontal 横排逐字出现；layout=vertical 竖排（自上而下，屏幕居中）。会删除原层。',
       parameters: {
         type: 'object',
         properties: {
           overlay_id: {
             type: 'string',
             description: '缺省用 selected_overlay_id 或唯一/最近文本层',
+          },
+          layout: {
+            type: 'string',
+            enum: ['horizontal', 'vertical'],
+            description: 'horizontal=横排逐字出现；vertical=竖排竖版，默认 horizontal',
           },
           stagger_sec: { type: 'number', description: '字与字之间的出现间隔，默认 0.28' },
           char_duration_sec: { type: 'number', description: '单字层时长，默认沿用原层' },
@@ -270,7 +275,8 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
             description: '每字入场动画，默认 pop',
           },
           in_duration_sec: { type: 'number', description: '入场动画时长，默认 0.35' },
-          center_y: { type: 'number', description: '垂直位置 0–1，0.5=屏幕正中' },
+          center_x: { type: 'number', description: '竖排时水平位置 0–1，0.5=正中' },
+          center_y: { type: 'number', description: '整列/横排垂直位置 0–1，0.5=正中' },
         },
       },
     },
@@ -463,7 +469,7 @@ export function formatToolCallSummary(name: string, args: Record<string, unknown
     case 'set_text_animation':
       return `文本动画 ${args.overlay_id}`
     case 'split_text_overlay_by_char':
-      return `逐字拆分文本层 ${args.overlay_id ?? '（自动）'}`
+      return `逐字拆分文本层 ${args.overlay_id ?? '（自动）'}${args.layout === 'vertical' ? ' · 竖排' : ''}`
     case 'batch_apply_text_style':
       return `批量文本样式 (${Array.isArray(args.overlay_ids) ? args.overlay_ids.length : '全部'})`
     case 'seek_playhead':

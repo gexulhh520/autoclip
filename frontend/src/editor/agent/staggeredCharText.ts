@@ -11,12 +11,18 @@ import { validateMotionType } from './packagingTools'
 import { mergeDefaultTextAnimation } from './defaultAnimation'
 import type { EditSession } from '../../types/editSession'
 
+export type StaggeredCharLayout = 'horizontal' | 'vertical'
+
 export interface StaggeredCharTextOptions {
+  /** horizontal=横排逐字出现；vertical=竖排（自上而下） */
+  layout?: StaggeredCharLayout
   stagger_sec?: number
   char_duration_sec?: number
   in_type?: unknown
   in_duration_sec?: number
-  /** 归一化 Y，0.5 = 屏幕垂直居中 */
+  /** 归一化 X，0.5 = 屏幕水平居中（竖排时使用） */
+  center_x?: number
+  /** 归一化 Y，0.5 = 整列垂直居中 */
   center_y?: number
 }
 
@@ -39,7 +45,11 @@ export function resolveSplitTextOverlayId(
   return overlays[overlays.length - 1]?.id ?? null
 }
 
-/** 将单层文本拆为逐字多层：水平居中排布 + 错峰 start_sec + 入场动画 */
+function resolveStaggeredCharLayout(value: unknown): StaggeredCharLayout {
+  return value === 'vertical' ? 'vertical' : 'horizontal'
+}
+
+/** 将单层文本拆为逐字多层：横/竖排 + 错峰 start_sec + 入场动画 */
 export function buildStaggeredCharOverlays(
   source: OpenCutTextOverlay,
   canvasWidth: number,
@@ -52,10 +62,12 @@ export function buildStaggeredCharOverlays(
   const optNum = (value: unknown, fallback: number) =>
     typeof value === 'number' && Number.isFinite(value) ? value : fallback
 
+  const layout = resolveStaggeredCharLayout(options.layout)
   const staggerSec = Math.max(0.05, optNum(options.stagger_sec, 0.28))
   const charDurationSec = Math.max(0.5, optNum(options.char_duration_sec, source.duration_sec))
   const inType = validateMotionType(options.in_type) ?? 'pop'
   const inDurationSec = Math.max(0.05, optNum(options.in_duration_sec, 0.35))
+  const centerX = Math.min(0.92, Math.max(0.08, optNum(options.center_x, 0.5)))
   const centerY = Math.min(0.92, Math.max(0.08, optNum(options.center_y, 0.5)))
 
   const fontSize = readNumberParam(source.params, 'fontSize', 6)
@@ -70,18 +82,17 @@ export function buildStaggeredCharOverlays(
     scaledFontSize,
   })
 
-  const charWidths = chars.map((char) => ctx.measureText(char).width)
-  const gap = scaledFontSize * 0.12
-  const totalWidth = charWidths.reduce((sum, width) => sum + width, 0) + gap * Math.max(0, chars.length - 1)
-  let xCursor = canvasWidth / 2 - totalWidth / 2
+  const positions =
+    layout === 'vertical'
+      ? buildVerticalCharPositions(chars, canvasWidth, canvasHeight, centerX, centerY, scaledFontSize)
+      : buildHorizontalCharPositions(chars, canvasWidth, canvasHeight, centerY, scaledFontSize, ctx)
 
   return chars.map((char, index) => {
-    const charWidth = charWidths[index] ?? scaledFontSize
-    const charCenterX = xCursor + charWidth / 2
-    xCursor += charWidth + gap
+    const pos = positions[index]
+    if (!pos) return null
     const { positionX, positionY } = normalizedToPosition(
-      charCenterX / canvasWidth,
-      centerY,
+      pos.normX,
+      pos.normY,
       canvasWidth,
       canvasHeight
     )
@@ -97,6 +108,7 @@ export function buildStaggeredCharOverlays(
       'transform.positionY': positionY,
       'transform.scaleX': 1,
       'transform.scaleY': 1,
+      'transform.rotate': 0,
       'animation.in.type': inType,
       'animation.in.duration': inDurationSec,
     })
@@ -110,6 +122,48 @@ export function buildStaggeredCharOverlays(
       track_id: source.track_id,
       params,
     }
+  }).filter((item): item is OpenCutTextOverlay => item != null)
+}
+
+function buildHorizontalCharPositions(
+  chars: string[],
+  canvasWidth: number,
+  canvasHeight: number,
+  centerY: number,
+  scaledFontSize: number,
+  ctx: CanvasRenderingContext2D
+): Array<{ normX: number; normY: number }> {
+  const charWidths = chars.map((char) => ctx.measureText(char).width)
+  const gap = scaledFontSize * 0.12
+  const totalWidth = charWidths.reduce((sum, width) => sum + width, 0) + gap * Math.max(0, chars.length - 1)
+  let xCursor = canvasWidth / 2 - totalWidth / 2
+
+  return chars.map((char, index) => {
+    const charWidth = charWidths[index] ?? scaledFontSize
+    const charCenterX = xCursor + charWidth / 2
+    xCursor += charWidth + gap
+    return { normX: charCenterX / canvasWidth, normY: centerY }
+  })
+}
+
+function buildVerticalCharPositions(
+  chars: string[],
+  canvasWidth: number,
+  canvasHeight: number,
+  centerX: number,
+  centerY: number,
+  scaledFontSize: number
+): Array<{ normX: number; normY: number }> {
+  const lineHeight = scaledFontSize * 1.15
+  const gap = scaledFontSize * 0.1
+  const totalHeight = chars.length * lineHeight + gap * Math.max(0, chars.length - 1)
+  const columnCenterYPx = centerY * canvasHeight
+  let yCursor = columnCenterYPx - totalHeight / 2 + lineHeight / 2
+
+  return chars.map(() => {
+    const normY = yCursor / canvasHeight
+    yCursor += lineHeight + gap
+    return { normX: centerX, normY }
   })
 }
 

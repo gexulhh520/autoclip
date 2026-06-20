@@ -473,10 +473,12 @@ export async function executeWriteToolCall(
         const createdIds = store.splitTextOverlayByChar(
           overlayId,
           {
+            layout: call.arguments.layout as 'horizontal' | 'vertical' | undefined,
             stagger_sec: call.arguments.stagger_sec as number | undefined,
             char_duration_sec: call.arguments.char_duration_sec as number | undefined,
             in_type: call.arguments.in_type,
             in_duration_sec: call.arguments.in_duration_sec as number | undefined,
+            center_x: call.arguments.center_x as number | undefined,
             center_y: call.arguments.center_y as number | undefined,
           },
           { recordHistory }

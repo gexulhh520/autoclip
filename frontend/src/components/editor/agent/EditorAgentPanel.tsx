@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { nanoid } from 'nanoid'
 import { formatAgentDebugDetail, formatAgentDebugSummary } from '../../../editor/agent/formatAgentDebug'
-import { confirmExecutePlan, planApplyLayout } from '../../../editor/agent/planApplyLayout'
+import { confirmExecutePlan, continueAgentChatAfterApply, planApplyLayout } from '../../../editor/agent/planApplyLayout'
 import { runAgentChat } from '../../../editor/agent/runAgentChat'
 import { formatToolCallSummary, isDangerousAgentTool } from '../../../editor/agent/toolRegistry'
 import { editorAgentApi } from '../../../services/editorAgentApi'
@@ -251,18 +251,61 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
 
   const handleConfirmExecute = async () => {
     if (!pendingPlan?.tool_calls.length) return
+    const appliedPlan = pendingPlan
     setExecuting(true)
     setError('')
     try {
-      const results = await confirmExecutePlan(pendingPlan.tool_calls, projectId)
+      const results = await confirmExecutePlan(appliedPlan.tool_calls, projectId)
       const failed = results.find((item) => !item.ok)
       if (failed) {
         setError(failed.error ?? '部分操作失败')
-      } else {
-        setPendingPlan(null)
-        const msg = '已应用到时间线，可预览并撤销。'
-        setSummary(msg)
-        setChatTurns((prev) => [...prev, { id: nanoid(), role: 'assistant', content: msg }])
+        return
+      }
+
+      setPendingPlan(null)
+      const appliedMsg = '已应用到时间线，可预览并撤销。'
+      setSummary(appliedMsg)
+      setChatTurns((prev) => [...prev, { id: nanoid(), role: 'assistant', content: appliedMsg }])
+
+      setLoading(true)
+      setAgentDebugTrace(null)
+      try {
+        const verifyResult = await continueAgentChatAfterApply({
+          projectId,
+          sessionId,
+          history: [
+            ...chatTurnsRef.current.map(({ role, content }) => ({ role, content })),
+            { role: 'assistant', content: appliedMsg },
+          ],
+          toolCalls: appliedPlan.tool_calls,
+          toolResults: results,
+          layoutReference: layout,
+        })
+
+        if (verifyResult.debug_trace) {
+          setAgentDebugTrace(verifyResult.debug_trace)
+        }
+
+        if (verifyResult.plan?.tool_calls.length) {
+          setPendingPlan(verifyResult.plan)
+          setChatTurns((prev) => [
+            ...prev,
+            {
+              id: nanoid(),
+              role: 'assistant',
+              content: verifyResult.assistant_message || '验证后建议进一步调整，请确认执行。',
+            },
+          ])
+        } else if (verifyResult.assistant_message.trim()) {
+          setChatTurns((prev) => [
+            ...prev,
+            { id: nanoid(), role: 'assistant', content: verifyResult.assistant_message },
+          ])
+        }
+      } catch (verifyErr: unknown) {
+        setError(extractErrorMessage(verifyErr, '执行后验证失败'))
+      } finally {
+        setLoading(false)
       }
     } catch (err: unknown) {
       setError(extractErrorMessage(err, '执行失败'))
