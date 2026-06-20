@@ -70,6 +70,19 @@ def test_validate_tool_calls_accepts_pacing_tools():
     ]
 
 
+def test_validate_tool_calls_accepts_packaging_tools():
+    calls = validate_tool_calls(
+        [
+            {
+                "name": "set_text_animation",
+                "arguments": {"overlay_id": "o1", "in_type": "fade", "in_duration_sec": 0.3},
+            },
+            {"name": "batch_apply_text_style", "arguments": {"fontSize": 6, "color": "#ffffff"}},
+        ]
+    )
+    assert [call.name for call in calls] == ["set_text_animation", "batch_apply_text_style"]
+
+
 def test_validate_tool_calls_rejects_unknown_tool():
     with pytest.raises(ValueError, match="白名单"):
         validate_tool_calls([{"name": "delete_timeline", "arguments": {}}])

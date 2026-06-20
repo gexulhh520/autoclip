@@ -252,6 +252,48 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
   {
     type: 'function',
     function: {
+      name: 'set_text_animation',
+      description: '设置文本层入场/出场动画（不含改 content）',
+      parameters: {
+        type: 'object',
+        properties: {
+          overlay_id: { type: 'string' },
+          in_type: {
+            type: 'string',
+            enum: ['none', 'fade', 'slide_up', 'slide_down', 'scale', 'pop'],
+          },
+          in_duration_sec: { type: 'number' },
+          out_type: {
+            type: 'string',
+            enum: ['none', 'fade', 'slide_up', 'slide_down', 'scale', 'pop'],
+          },
+          out_duration_sec: { type: 'number' },
+        },
+        required: ['overlay_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'batch_apply_text_style',
+      description: '批量统一文本层样式（不含改 content）',
+      parameters: {
+        type: 'object',
+        properties: {
+          overlay_ids: { type: 'array', items: { type: 'string' }, description: '缺省=全部文本层' },
+          fontSize: { type: 'number' },
+          fontFamily: { type: 'string' },
+          color: { type: 'string' },
+          fontWeight: { type: 'string' },
+          textAlign: { type: 'string' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'list_assets',
       description: '只读：列出当前工程可用素材（视频 clip 池、BGM、SFX）',
       parameters: {
@@ -359,6 +401,10 @@ export function formatToolCallSummary(name: string, args: Record<string, unknown
       return '在播放头位置切分'
     case 'remove_block':
       return `⚠ 删除片段 ${args.block_id}`
+    case 'set_text_animation':
+      return `文本动画 ${args.overlay_id}`
+    case 'batch_apply_text_style':
+      return `批量文本样式 (${Array.isArray(args.overlay_ids) ? args.overlay_ids.length : '全部'})`
     case 'seek_playhead':
       return `播放头 → ${args.time_sec}s`
     case 'list_assets':

@@ -22,6 +22,14 @@ import {
   validateVideoBlockId,
 } from './audioTools'
 import { optionalNumber, parseApplyFlag } from './pacingTools'
+import {
+  buildBatchTextStylePatch,
+  buildTextAnimationParamPatch,
+  hasStylePatchFields,
+  resolveTargetOverlayIds,
+  validateMotionType,
+  validateOverlayId,
+} from './packagingTools'
 import { isReadOnlyAgentTool } from './toolRegistry'
 import { editApi } from '../../services/editApi'
 import type { AgentToolCall, AgentToolResult } from '../../types/editorAgent'
@@ -413,7 +421,44 @@ export async function executeWriteToolCall(
         const blockId = str(call.arguments.block_id)
         const trackId = str(call.arguments.video_track_id)
         store.moveBlockToVideoTrack(blockId, trackId, { recordHistory })
-        return { ok: true, tool_name: call.name, data: { block_id: blockId, video_track_id: trackId } }
+        return { ok: true, tool_name: call.name, data: { block_id: blockId } }
+      }
+      case 'set_text_animation': {
+        const overlayId = str(call.arguments.overlay_id)
+        const overlayCheck = validateOverlayId(session, overlayId)
+        if ('error' in overlayCheck) {
+          return { ok: false, tool_name: call.name, error: overlayCheck.error }
+        }
+        if (call.arguments.in_type != null && validateMotionType(call.arguments.in_type) == null) {
+          return { ok: false, tool_name: call.name, error: `无效 in_type: ${call.arguments.in_type}` }
+        }
+        if (call.arguments.out_type != null && validateMotionType(call.arguments.out_type) == null) {
+          return { ok: false, tool_name: call.name, error: `无效 out_type: ${call.arguments.out_type}` }
+        }
+        const element = session.overlay_elements?.find((item) => item.id === overlayId)
+        const patch = buildTextAnimationParamPatch(element?.params ?? {}, call.arguments)
+        store.updateOverlayParams(overlayId, patch, { recordHistory })
+        return { ok: true, tool_name: call.name, data: { overlay_id: overlayId, ...patch } }
+      }
+      case 'batch_apply_text_style': {
+        const overlayIds = resolveTargetOverlayIds(session, call.arguments.overlay_ids)
+        if ('error' in overlayIds) {
+          return { ok: false, tool_name: call.name, error: overlayIds.error }
+        }
+        const patch = buildBatchTextStylePatch(call.arguments)
+        if (!hasStylePatchFields(patch)) {
+          return {
+            ok: false,
+            tool_name: call.name,
+            error: '至少提供 fontSize / fontFamily / color / fontWeight / textAlign 之一',
+          }
+        }
+        store.updateOverlaysParams(overlayIds, patch, { recordHistory })
+        return {
+          ok: true,
+          tool_name: call.name,
+          data: { overlay_ids: overlayIds, updated_count: overlayIds.length, ...patch },
+        }
       }
       default:
         return { ok: false, tool_name: call.name, error: `未知写工具: ${call.name}` }

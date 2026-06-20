@@ -258,6 +258,48 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "set_text_animation",
+            "description": "设置文本层入场/出场动画",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "overlay_id": {"type": "string"},
+                    "in_type": {
+                        "type": "string",
+                        "enum": ["none", "fade", "slide_up", "slide_down", "scale", "pop"],
+                    },
+                    "in_duration_sec": {"type": "number"},
+                    "out_type": {
+                        "type": "string",
+                        "enum": ["none", "fade", "slide_up", "slide_down", "scale", "pop"],
+                    },
+                    "out_duration_sec": {"type": "number"},
+                },
+                "required": ["overlay_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "batch_apply_text_style",
+            "description": "批量统一文本层样式（不含 content）",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "overlay_ids": {"type": "array", "items": {"type": "string"}},
+                    "fontSize": {"type": "number"},
+                    "fontFamily": {"type": "string"},
+                    "color": {"type": "string"},
+                    "fontWeight": {"type": "string"},
+                    "textAlign": {"type": "string"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "list_assets",
             "description": "只读：列出当前工程可用素材（视频 clip 池、BGM、SFX）",
             "parameters": {
