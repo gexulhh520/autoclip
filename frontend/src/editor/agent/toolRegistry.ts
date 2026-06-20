@@ -1,4 +1,11 @@
 /** OpenAI / Ollama 兼容的工具 schema（Phase B 首批） */
+
+export const META_AGENT_TOOLS = new Set(['submit_task_plan'])
+
+export function isMetaAgentTool(name: string): boolean {
+  return META_AGENT_TOOLS.has(name)
+}
+
 export const EDITOR_AGENT_TOOL_DEFINITIONS = [
   {
     type: 'function',
@@ -403,6 +410,33 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'submit_task_plan',
+      description:
+        '提交多步骤任务计划（不修改时间线）。用户需求含≥2个独立步骤时必须先调用；tasks 按执行顺序排列。',
+      parameters: {
+        type: 'object',
+        properties: {
+          goal: { type: 'string', description: '总体目标简述' },
+          tasks: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                title: { type: 'string' },
+                hint: { type: 'string', description: '可选：建议使用的工具或注意事项' },
+              },
+              required: ['id', 'title'],
+            },
+          },
+        },
+        required: ['goal', 'tasks'],
+      },
+    },
+  },
 ] as const
 
 export const EDITOR_AGENT_TOOL_NAMES = EDITOR_AGENT_TOOL_DEFINITIONS.map(
@@ -435,7 +469,11 @@ export function isReadOnlyAgentTool(name: string): boolean {
 }
 
 export function isWriteAgentTool(name: string): boolean {
-  return (EDITOR_AGENT_TOOL_NAMES as readonly string[]).includes(name) && !READ_ONLY_AGENT_TOOLS.has(name)
+  return (
+    (EDITOR_AGENT_TOOL_NAMES as readonly string[]).includes(name) &&
+    !READ_ONLY_AGENT_TOOLS.has(name) &&
+    !isMetaAgentTool(name)
+  )
 }
 
 export function formatToolCallSummary(name: string, args: Record<string, unknown>): string {
@@ -480,6 +518,10 @@ export function formatToolCallSummary(name: string, args: Record<string, unknown
       return `验证字幕帧 ${args.overlay_id ?? '（自动）'}`
     case 'capture_preview_frame':
       return `截帧 @${args.time_sec}s`
+    case 'submit_task_plan': {
+      const tasks = Array.isArray(args.tasks) ? args.tasks.length : 0
+      return `任务计划「${String(args.goal ?? '').slice(0, 32)}」(${tasks} 步)`
+    }
     default:
       return `${name}(${JSON.stringify(args).slice(0, 60)})`
   }

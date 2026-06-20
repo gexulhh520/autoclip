@@ -86,13 +86,15 @@ def build_chat_context_report(
 
 def classify_tool_calls(tool_calls: List[Any]) -> tuple[List[str], List[str]]:
     """按名称粗分只读 / 写（与前端 toolRegistry 语义对齐，仅用于日志）。"""
-    from backend.services.editor_agent_tools import READ_ONLY_AGENT_TOOLS
+    from backend.services.editor_agent_tools import META_AGENT_TOOLS, READ_ONLY_AGENT_TOOLS
 
     read_names: List[str] = []
     write_names: List[str] = []
     for call in tool_calls:
         name = getattr(call, "name", None) or (call.get("name") if isinstance(call, dict) else "")
         if not name:
+            continue
+        if name in META_AGENT_TOOLS:
             continue
         if name in READ_ONLY_AGENT_TOOLS:
             read_names.append(name)

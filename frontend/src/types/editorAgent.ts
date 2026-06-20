@@ -143,10 +143,31 @@ export interface AgentChatMessage {
   images?: string[]
 }
 
+export interface AgentTaskItem {
+  id: string
+  title: string
+  hint?: string
+  status?: 'pending' | 'running' | 'done' | 'failed' | 'skipped'
+  summary?: string
+}
+
+export interface AgentTaskPlan {
+  goal: string
+  tasks: AgentTaskItem[]
+}
+
+export interface AgentTaskContext {
+  user_goal?: string
+  completed_summaries?: string[]
+  current_task?: Pick<AgentTaskItem, 'id' | 'title' | 'hint'>
+  pending_tasks?: Pick<AgentTaskItem, 'id' | 'title'>[]
+}
+
 export interface AgentChatRequest {
   messages: AgentChatMessage[]
   snapshot: Record<string, unknown>
   layout_reference?: LayoutAnalysis
+  task_context?: AgentTaskContext
   max_rounds?: number
 }
 
@@ -181,7 +202,7 @@ export interface AgentDebugTrace {
   rounds: AgentRoundTrace[]
   total_rounds: number
   exhausted: boolean
-  outcome: 'plan' | 'reply' | 'exhausted'
+  outcome: 'plan' | 'reply' | 'exhausted' | 'task_plan'
 }
 
 export interface AgentChatResponse {

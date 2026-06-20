@@ -245,6 +245,73 @@
   font-weight: 500;
 }
 
+.editor-agent-panel__task-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--editor-border-light);
+  background: var(--editor-panel);
+}
+
+.editor-agent-panel__task-goal {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--editor-sub);
+}
+
+.editor-agent-panel__task-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.editor-agent-panel__task-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--editor-border-light);
+  font-size: 12px;
+  color: var(--editor-sub);
+}
+
+.editor-agent-panel__task-item--running {
+  border-color: var(--editor-accent);
+  color: var(--editor-text);
+}
+
+.editor-agent-panel__task-item--done {
+  opacity: 0.85;
+}
+
+.editor-agent-panel__task-item--failed {
+  border-color: rgba(255, 120, 120, 0.45);
+}
+
+.editor-agent-panel__task-id {
+  font-size: 11px;
+  color: var(--editor-sub);
+}
+
+.editor-agent-panel__task-title {
+  color: var(--editor-text);
+}
+
+.editor-agent-panel__task-summary {
+  grid-column: 2;
+  font-size: 11px;
+  color: var(--editor-sub);
+}
+
 .editor-agent-panel__chat {
   display: flex;
   flex-direction: column;

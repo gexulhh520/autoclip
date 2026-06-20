@@ -137,10 +137,24 @@ class AgentChatDebugInfo(BaseModel):
     write_tool_names: List[str] = Field(default_factory=list)
 
 
+class AgentTaskItemRef(BaseModel):
+    id: str
+    title: str
+    hint: Optional[str] = None
+
+
+class AgentTaskContext(BaseModel):
+    user_goal: Optional[str] = None
+    completed_summaries: List[str] = Field(default_factory=list)
+    current_task: Optional[AgentTaskItemRef] = None
+    pending_tasks: List[AgentTaskItemRef] = Field(default_factory=list)
+
+
 class AgentChatRequest(BaseModel):
     messages: List[AgentChatMessage] = Field(default_factory=list)
     snapshot: Dict[str, Any] = Field(default_factory=dict)
     layout_reference: Optional[LayoutAnalysis] = None
+    task_context: Optional[AgentTaskContext] = None
     max_rounds: int = Field(default=1, ge=1, le=5)
 
 

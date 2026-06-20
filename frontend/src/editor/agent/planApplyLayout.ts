@@ -1,6 +1,7 @@
 import { buildApplyPlanFromLayout } from './buildApplyPlan'
 import { buildEditorSnapshotFromStore } from './snapshotFromStore'
 import { confirmExecutePlan, continueAgentChatAfterApply, runAgentChat } from './runAgentChat'
+import { executeAgentTaskPlan } from './runAgentTaskOrchestrator'
 import { useEditSessionStore } from '../../stores/useEditSessionStore'
 import type { LayoutAnalysis, PendingAgentPlan } from '../../types/editorAgent'
 
@@ -45,4 +46,4 @@ export async function planApplyLayout(input: {
   }
 }
 
-export { confirmExecutePlan, continueAgentChatAfterApply }
+export { confirmExecutePlan, continueAgentChatAfterApply, executeAgentTaskPlan }

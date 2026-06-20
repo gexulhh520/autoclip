@@ -402,10 +402,40 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "submit_task_plan",
+            "description": "提交多步骤任务计划（不修改时间线）。用户需求含≥2个独立步骤时必须先调用；tasks 按执行顺序排列。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "goal": {"type": "string"},
+                    "tasks": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "title": {"type": "string"},
+                                "hint": {"type": "string"},
+                            },
+                            "required": ["id", "title"],
+                        },
+                    },
+                },
+                "required": ["goal", "tasks"],
+            },
+        },
+    },
 ]
 
 EDITOR_AGENT_TOOL_NAMES = {
     item["function"]["name"] for item in EDITOR_AGENT_TOOL_DEFINITIONS
+}
+
+META_AGENT_TOOLS = {
+    "submit_task_plan",
 }
 
 READ_ONLY_AGENT_TOOLS = {

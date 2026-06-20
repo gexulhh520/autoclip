@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { nanoid } from 'nanoid'
 import { formatAgentDebugDetail, formatAgentDebugSummary } from '../../../editor/agent/formatAgentDebug'
-import { confirmExecutePlan, continueAgentChatAfterApply, planApplyLayout } from '../../../editor/agent/planApplyLayout'
+import { confirmExecutePlan, continueAgentChatAfterApply, executeAgentTaskPlan, planApplyLayout } from '../../../editor/agent/planApplyLayout'
 import { runAgentChat } from '../../../editor/agent/runAgentChat'
 import { formatToolCallSummary, isDangerousAgentTool } from '../../../editor/agent/toolRegistry'
 import { editorAgentApi } from '../../../services/editorAgentApi'
@@ -12,6 +12,7 @@ import type {
   AgentToolCall,
   LayoutAnalysis,
   LayoutReference,
+  AgentTaskPlan,
   PendingAgentPlan,
 } from '../../../types/editorAgent'
 import { agentChatStorageKey, layoutReferenceStorageKey } from '../../../types/editorAgent'
@@ -50,6 +51,8 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
   const [summary, setSummary] = useState('')
   const [layout, setLayout] = useState<LayoutAnalysis | null>(null)
   const [pendingPlan, setPendingPlan] = useState<PendingAgentPlan | null>(null)
+  const [agentTaskPlan, setAgentTaskPlan] = useState<AgentTaskPlan | null>(null)
+  const [taskExecuting, setTaskExecuting] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [executing, setExecuting] = useState(false)
@@ -114,7 +117,7 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chatTurns, pendingPlan, loading])
+  }, [chatTurns, pendingPlan, agentTaskPlan, loading, taskExecuting])
 
   const handleImageFile = async (file: File | null | undefined, target: 'layout' | 'attach' = 'layout') => {
     if (!file || !file.type.startsWith('image/')) return
@@ -141,6 +144,7 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
     setLoading(true)
     setError('')
     setPendingPlan(null)
+    setAgentTaskPlan(null)
     setAgentDebugTrace(null)
 
     const userTurn: AgentChatTurn = {
@@ -168,7 +172,17 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
         setAgentDebugTrace(result.debug_trace)
       }
 
-      if (result.plan?.tool_calls.length) {
+      if (result.task_plan?.tasks.length) {
+        setAgentTaskPlan(result.task_plan)
+        setChatTurns((prev) => [
+          ...prev,
+          {
+            id: nanoid(),
+            role: 'assistant',
+            content: result.assistant_message || '已生成任务计划，请确认后开始逐项执行。',
+          },
+        ])
+      } else if (result.plan?.tool_calls.length) {
         setPendingPlan(result.plan)
         setChatTurns((prev) => [
           ...prev,
@@ -246,6 +260,53 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
       setError(extractErrorMessage(err, '生成执行计划失败'))
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleConfirmTaskPlan = async () => {
+    if (!agentTaskPlan?.tasks.length) return
+    const userGoal =
+      [...chatTurns].reverse().find((turn) => turn.role === 'user')?.content?.trim() ||
+      agentTaskPlan.goal
+    setTaskExecuting(true)
+    setExecuting(true)
+    setError('')
+    setAgentDebugTrace(null)
+    try {
+      const result = await executeAgentTaskPlan({
+        projectId,
+        sessionId,
+        userGoal,
+        taskPlan: agentTaskPlan,
+        layoutReference: layout,
+        onProgress: (plan) => setAgentTaskPlan(plan),
+      })
+      setAgentTaskPlan(result.taskPlan)
+      if (result.debug_trace) {
+        setAgentDebugTrace(result.debug_trace)
+      }
+      if (result.pendingPlan?.tool_calls.length) {
+        setPendingPlan(result.pendingPlan)
+        setChatTurns((prev) => [
+          ...prev,
+          {
+            id: nanoid(),
+            role: 'assistant',
+            content: result.assistant_message || '任务执行暂停，需确认危险或额外操作。',
+          },
+        ])
+        return
+      }
+      setAgentTaskPlan(null)
+      setChatTurns((prev) => [
+        ...prev,
+        { id: nanoid(), role: 'assistant', content: result.assistant_message },
+      ])
+    } catch (err: unknown) {
+      setError(extractErrorMessage(err, '任务执行失败'))
+    } finally {
+      setTaskExecuting(false)
+      setExecuting(false)
     }
   }
 
@@ -492,6 +553,51 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
           ) : null}
         </>
       )}
+
+      {agentTaskPlan ? (
+        <div className="editor-agent-panel__task-plan">
+          <p className="editor-agent-panel__plan-title">
+            任务计划 · {agentTaskPlan.tasks.length} 步
+          </p>
+          <p className="editor-agent-panel__task-goal">{agentTaskPlan.goal}</p>
+          <ul className="editor-agent-panel__task-list">
+            {agentTaskPlan.tasks.map((task) => (
+              <li
+                key={task.id}
+                className={`editor-agent-panel__task-item editor-agent-panel__task-item--${task.status ?? 'pending'}`}
+              >
+                <span className="editor-agent-panel__task-id">{task.id}</span>
+                <span className="editor-agent-panel__task-title">{task.title}</span>
+                {task.summary ? (
+                  <span className="editor-agent-panel__task-summary">{task.summary}</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+          {!taskExecuting ? (
+            <div className="editor-agent-panel__actions">
+              <button
+                type="button"
+                className="editor-agent-panel__btn editor-agent-panel__btn--primary"
+                disabled={executing || loading}
+                onClick={() => void handleConfirmTaskPlan()}
+              >
+                开始逐项执行
+              </button>
+              <button
+                type="button"
+                className="editor-agent-panel__btn"
+                disabled={executing || loading}
+                onClick={() => setAgentTaskPlan(null)}
+              >
+                取消
+              </button>
+            </div>
+          ) : (
+            <p className="editor-agent-panel__chat-status">正在执行任务…</p>
+          )}
+        </div>
+      ) : null}
 
       {pendingPlan ? (
         <div className="editor-agent-panel__plan">
