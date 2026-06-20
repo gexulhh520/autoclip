@@ -45,10 +45,7 @@ export function buildCompositorRuntimeParams(
       return getBlockVideoUrl(projectId, session.id, block)
     },
     getSourceTimeForBlock: (block, relativeSec) => {
-      const sourceOffset =
-        useSourceVideo && block.media.source_start_sec != null
-          ? block.media.source_start_sec
-          : 0
+      const sourceOffset = block.media.source_start_sec ?? 0
       return sourceOffset + block.trim.in_sec + relativeSec
     },
   }

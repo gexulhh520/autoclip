@@ -5,7 +5,13 @@ import {
   resolveVideoBlockSplitAt,
   splitAudioClipElement,
   splitOverlayElement,
+  splitVideoBlockAt,
 } from './splitAtPlayhead'
+import { buildCompositionTimeline } from '../scene/timelineLayout'
+import {
+  blockTimelineVisualEndSec,
+  blockTimelineVisualStartSec,
+} from '../../utils/editTimeline'
 
 describe('splitAtPlayhead', () => {
   it('isPlayheadSplittableInRange rejects edges', () => {
@@ -59,5 +65,30 @@ describe('splitAtPlayhead', () => {
       transition_out: 'cut',
     }
     expect(resolveVideoBlockSplitAt(block, 0, 2.5)).toBe(5)
+  })
+
+  it('splitVideoBlockAt keeps timeline contiguous without negative gaps', () => {
+    const block: EditBlock = {
+      id: 'b1',
+      title: 'clip',
+      source_clip_id: 'c1',
+      duration_sec: 10,
+      trim: { in_sec: 0, out_sec: 10 },
+      media: { type: 'step6_clip', path: '/a.mp4' },
+      overlay: { outline: '', content: [], recommend_reason: '' },
+      audio: { volume: 1 },
+      transition_out: 'cut',
+    }
+    const split = splitVideoBlockAt(block, 4)
+    expect(split.first.trim).toEqual({ in_sec: 0, out_sec: 4 })
+    expect(split.second.trim).toEqual({ in_sec: 0, out_sec: 6 })
+    expect(split.second.media.source_start_sec).toBe(4)
+
+    const timeline = buildCompositionTimeline([split.first, { ...split.second, id: 'b2' }], 0.35, [0])
+    const seg0 = timeline.segments[0]!
+    const seg1 = timeline.segments[1]!
+    const end0 = blockTimelineVisualEndSec(seg0.compositionStartSec, seg0.block)
+    const start1 = blockTimelineVisualStartSec(seg1.compositionStartSec, seg1.block)
+    expect(start1).toBeCloseTo(end0, 3)
   })
 })

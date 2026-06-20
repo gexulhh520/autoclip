@@ -177,13 +177,10 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
 
   const getSourceTimeForBlock = useCallback(
     (block: EditBlock, relativeSec: number): number => {
-      const sourceOffset =
-        useSourcePreview && block.media.source_start_sec != null
-          ? block.media.source_start_sec
-          : 0
+      const sourceOffset = block.media.source_start_sec ?? 0
       return sourceOffset + block.trim.in_sec + relativeSec
     },
-    [useSourcePreview]
+    []
   )
 
   const assetVideoUrl = useMemo(() => {

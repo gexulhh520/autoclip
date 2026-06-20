@@ -63,4 +63,12 @@ describe('compositionTimeFromVideo', () => {
     const video = { currentTime: 2.5 } as HTMLVideoElement
     expect(readVideoSourceRelativeSec(video, clip, false)).toBeCloseTo(1.5, 3)
   })
+
+  it('readVideoSourceRelativeSec honors split source offset', () => {
+    const clip = block('a', 6)
+    clip.trim = { in_sec: 0, out_sec: 6 }
+    clip.media.source_start_sec = 4
+    const video = { currentTime: 5.5 } as HTMLVideoElement
+    expect(readVideoSourceRelativeSec(video, clip, false)).toBeCloseTo(1.5, 3)
+  })
 })

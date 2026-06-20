@@ -73,7 +73,10 @@ import {
   buildSessionCompositionTimeline,
   shouldLinkAudioClip,
 } from '../editor/timeline/timelineBlockLink'
-import { blockPlaybackRate, blockTimelineVisualEndSec } from '../utils/editTimeline'
+import {
+  blockTimelineVisualEndSec,
+  blockTimelineVisualStartSec,
+} from '../utils/editTimeline'
 import {
   applyAudioClipTimingClamp,
   applyOverlayElementTimingClamp,
@@ -87,7 +90,6 @@ import {
   areMainTrackBlocksAdjacent,
   clampVideoBlockTrimAgainstNeighbors,
   insertSequenceBlockGapAt,
-  insertVideoBlockSplitGap,
   removeSequenceBlockGapAt,
   clearSequenceBlockGaps,
   dropCrossTransitionsBrokenByGaps,
@@ -138,6 +140,7 @@ import {
   resolveVideoBlockSplitAt,
   splitAudioClipElement,
   splitOverlayElement,
+  splitVideoBlockAt,
 } from '../editor/timeline/splitAtPlayhead'
 import {
   BASE_PX_PER_SEC,
@@ -1678,8 +1681,11 @@ export const useEditSessionStore = create<EditSessionState>()(
           state.selectedCaptionBlockIds = []
           state.selectedAudioClipId = null
           state.assetPreviewClip = null
-          if (options?.seekPlayhead !== false) {
-            state.sequencePlayheadSec = segment?.startSec ?? 0
+          if (options?.seekPlayhead !== false && segment) {
+            state.sequencePlayheadSec = blockTimelineVisualStartSec(
+              segment.startSec,
+              segment.block
+            )
           }
           state.isPlaying = false
         })
@@ -3057,22 +3063,11 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (!draft.session) return
           const current = draft.session.sequence[index]
           if (!current) return
-          const second: EditBlock = {
-            ...cloneSequence([current])[0]!,
-            id: nanoid(),
-            trim: {
-              in_sec: splitAt,
-              out_sec: current.trim.out_sec,
-            },
-          }
-          current.trim.out_sec = splitAt
+          const split = splitVideoBlockAt(current, splitAt)
+          draft.session.sequence[index] = split.first
+          const second: EditBlock = { ...split.second, id: nanoid() }
           draft.session.sequence.splice(index + 1, 0, second)
-          insertVideoBlockSplitGap(
-            draft.session,
-            index,
-            splitAt,
-            blockPlaybackRate(current)
-          )
+          insertSequenceBlockGapAt(draft.session, index)
           draft.selectedBlockId = second.id
           draft.selectedBlockIds = [second.id]
           draft.dirty = true

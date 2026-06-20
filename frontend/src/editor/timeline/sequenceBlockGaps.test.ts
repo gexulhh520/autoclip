@@ -10,7 +10,6 @@ import {
   applyVideoHeadTrimClamp,
   areMainTrackBlocksAdjacent,
   dropCrossTransitionsBrokenByGaps,
-  gapSecForSplitSecondBlock,
   mainTrackSegmentSeparationSec,
 } from './sequenceBlockGaps'
 
@@ -156,45 +155,5 @@ describe('sequenceBlockGaps', () => {
     session.sequence_block_gaps![0] = 1
     expect(areMainTrackBlocksAdjacent(session, 0)).toBe(false)
     expect(mainTrackSegmentSeparationSec(session, 0)).toBeCloseTo(1, 3)
-  })
-
-  it('split gap compensation keeps adjacent halves visually contiguous', () => {
-    const original = block('b', 10, { in: 0, out: 10 })
-    const first = { ...original, trim: { in_sec: 0, out_sec: 4 } }
-    const second = {
-      ...original,
-      id: 'b2',
-      trim: { in_sec: 4, out_sec: 10 },
-    }
-    const gap = gapSecForSplitSecondBlock(4, 1)
-    const timeline = buildCompositionTimeline([first, second], 0.35, [gap])
-    const seg0 = timeline.segments[0]!
-    const seg1 = timeline.segments[1]!
-    const end0 = blockTimelineVisualEndSec(seg0.compositionStartSec, seg0.block)
-    const start1 = blockTimelineVisualStartSec(seg1.compositionStartSec, seg1.block)
-    expect(start1).toBeCloseTo(end0, 3)
-    expect(mainTrackSegmentSeparationSec(
-      { ...sessionWith([first, second]), sequence_block_gaps: [gap] },
-      0
-    )).toBeCloseTo(0, 3)
-  })
-
-  it('split gap compensation accounts for playback rate', () => {
-    const original = block('b', 10, { in: 0, out: 10 })
-    original.playback_rate = 2
-    const first = { ...original, trim: { in_sec: 0, out_sec: 6 } }
-    const second = {
-      ...original,
-      id: 'b2',
-      trim: { in_sec: 6, out_sec: 10 },
-    }
-    const gap = gapSecForSplitSecondBlock(6, 2)
-    const timeline = buildCompositionTimeline([first, second], 0.35, [gap])
-    const seg0 = timeline.segments[0]!
-    const seg1 = timeline.segments[1]!
-    const end0 = blockTimelineVisualEndSec(seg0.compositionStartSec, seg0.block)
-    const start1 = blockTimelineVisualStartSec(seg1.compositionStartSec, seg1.block)
-    expect(gap).toBeCloseTo(-3, 3)
-    expect(start1).toBeCloseTo(end0, 3)
   })
 })

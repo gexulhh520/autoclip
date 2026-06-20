@@ -99,6 +99,35 @@ export function resolveSplitSelectionTarget(params: {
   return { kind: 'video_block', blockId }
 }
 
+/** 切割主轨视频：第二段 trim.in 归零，源偏移写入 media.source_start_sec，避免负间隙被裁切逻辑重置 */
+export function splitVideoBlockAt(
+  block: EditBlock,
+  splitAtSourceSec: number
+): { first: EditBlock; second: Omit<EditBlock, 'id'> } {
+  const sourceOffset = block.media.source_start_sec ?? 0
+  const cloned = JSON.parse(JSON.stringify(block)) as EditBlock
+  return {
+    first: {
+      ...JSON.parse(JSON.stringify(block)) as EditBlock,
+      trim: {
+        in_sec: block.trim.in_sec,
+        out_sec: splitAtSourceSec,
+      },
+    },
+    second: {
+      ...cloned,
+      trim: {
+        in_sec: 0,
+        out_sec: block.trim.out_sec - splitAtSourceSec,
+      },
+      media: {
+        ...cloned.media,
+        source_start_sec: sourceOffset + splitAtSourceSec,
+      },
+    },
+  }
+}
+
 export function resolveVideoBlockSplitAt(
   block: EditBlock,
   segmentStartSec: number,

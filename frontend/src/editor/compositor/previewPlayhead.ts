@@ -13,12 +13,10 @@ export function easeInOutCubic(t: number): number {
 export function readVideoSourceRelativeSec(
   video: HTMLVideoElement,
   block: EditBlock,
-  useSourceVideo: boolean
+  _useSourceVideo: boolean
 ): number {
-  if (useSourceVideo && block.media.source_start_sec != null) {
-    return video.currentTime - block.media.source_start_sec - block.trim.in_sec
-  }
-  return video.currentTime - block.trim.in_sec
+  const sourceOffset = block.media.source_start_sec ?? 0
+  return video.currentTime - sourceOffset - block.trim.in_sec
 }
 
 export function compositionTimeFromVideo(
