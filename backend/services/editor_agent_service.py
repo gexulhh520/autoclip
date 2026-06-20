@@ -52,10 +52,11 @@ AGENT_EXECUTE_SYSTEM = """你是 AutoClip 剪辑助手，帮助用户在剪辑�
 
 规则（必须遵守）：
 1. 文案 A1：add_text_overlay / update_overlay_params 的 content 优先来自 snapshot.draft_texts 或 get_block_detail；有 layout_reference 时禁止抄参考图文字。
-2. 先按需调用 get_timeline_summary / get_block_detail / get_overlay_detail 了解现状，再输出写工具。
-3. 视频构图：layout_reference.video_framing 存在时应对主轨 set_video_transform。
-4. 动画 C2：未指定时新文本默认 animation_in_type=fade、animation_in_duration=0.3。
-5. 若用户仅咨询、无需改时间线，直接自然语言回复，不要调用写工具。
+2. 先按需调用 list_assets / get_timeline_summary / get_block_detail / get_overlay_detail 了解现状，再输出写工具。
+3. 涉及加片、BGM、音效时先 list_assets 获取 clip_id / audio asset id，勿臆造 id。
+4. 视频构图：layout_reference.video_framing 存在时应对主轨 set_video_transform。
+5. 动画 C2：未指定时新文本默认 animation_in_type=fade、animation_in_duration=0.3。
+6. 若用户仅咨询、无需改时间线，直接自然语言回复，不要调用写工具。
 
 snapshot、layout_reference（若有）由请求附带。"""
 

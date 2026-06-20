@@ -90,7 +90,11 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
         { role: 'assistant', content: response.assistant_message || '' },
       ]
       for (const call of readCalls) {
-        const result = executeReadToolCall(() => useEditSessionStore.getState(), call)
+        const result = await executeReadToolCall(
+          () => useEditSessionStore.getState(),
+          call,
+          { projectId: input.projectId }
+        )
         messages.push({
           role: 'tool',
           tool_name: call.name,

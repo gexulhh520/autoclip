@@ -125,6 +125,23 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "list_assets",
+            "description": "只读：列出当前工程可用素材（视频 clip 池、BGM、SFX）",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "enum": ["clip", "bgm", "sfx", "all"],
+                        "description": "默认 all",
+                    }
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_timeline_summary",
             "description": "只读：时间线摘要",
             "parameters": {"type": "object", "properties": {}},
@@ -161,6 +178,7 @@ EDITOR_AGENT_TOOL_NAMES = {
 }
 
 READ_ONLY_AGENT_TOOLS = {
+    "list_assets",
     "get_timeline_summary",
     "get_block_detail",
     "get_overlay_detail",

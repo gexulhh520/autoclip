@@ -6,12 +6,17 @@ import {
   getBlockDetail,
   getOverlayDetail,
 } from './buildEditorSnapshot'
+import { listAssets } from './listAssets'
 import { isReadOnlyAgentTool } from './toolRegistry'
 import type { AgentToolCall, AgentToolResult } from '../../types/editorAgent'
 import type { useEditSessionStore } from '../../stores/useEditSessionStore'
 
 export type EditStore = ReturnType<typeof useEditSessionStore.getState>
 export type GetEditStore = () => EditStore
+
+export interface ExecuteReadToolContext {
+  projectId?: string
+}
 
 function num(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
@@ -55,7 +60,11 @@ function buildTextParams(args: Record<string, unknown>): Record<string, string |
   return mergeDefaultTextAnimation(params)
 }
 
-export function executeReadToolCall(getStore: GetEditStore, call: AgentToolCall): AgentToolResult {
+export async function executeReadToolCall(
+  getStore: GetEditStore,
+  call: AgentToolCall,
+  context?: ExecuteReadToolContext
+): Promise<AgentToolResult> {
   const store = getStore()
   const session = store.session
   if (!session) {
@@ -64,6 +73,14 @@ export function executeReadToolCall(getStore: GetEditStore, call: AgentToolCall)
 
   try {
     switch (call.name) {
+      case 'list_assets': {
+        const projectId = context?.projectId?.trim()
+        if (!projectId) {
+          return { ok: false, tool_name: call.name, error: '缺少 projectId，无法列出 clip 素材池' }
+        }
+        const data = await listAssets(projectId, session, call.arguments.category)
+        return { ok: true, tool_name: call.name, data }
+      }
       case 'get_timeline_summary': {
         const snapshot = buildEditorSnapshot({
           session,
@@ -192,13 +209,13 @@ export function executeWriteToolCall(
   }
 }
 
-export function executeToolCall(
+export async function executeToolCall(
   getStore: GetEditStore,
   call: AgentToolCall,
-  options?: { recordHistory?: boolean }
-): AgentToolResult {
+  options?: { recordHistory?: boolean; projectId?: string }
+): Promise<AgentToolResult> {
   if (isReadOnlyAgentTool(call.name)) {
-    return executeReadToolCall(getStore, call)
+    return executeReadToolCall(getStore, call, { projectId: options?.projectId })
   }
   return executeWriteToolCall(getStore, call, options)
 }

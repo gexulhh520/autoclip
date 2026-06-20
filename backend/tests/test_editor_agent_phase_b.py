@@ -18,6 +18,12 @@ def test_validate_tool_calls_accepts_add_text_overlay():
     assert calls[0].arguments["content"] == "示例文案"
 
 
+def test_validate_tool_calls_accepts_list_assets():
+    calls = validate_tool_calls([{"name": "list_assets", "arguments": {"category": "clip"}}])
+    assert calls[0].name == "list_assets"
+    assert calls[0].arguments["category"] == "clip"
+
+
 def test_validate_tool_calls_rejects_unknown_tool():
     with pytest.raises(ValueError, match="白名单"):
         validate_tool_calls([{"name": "delete_timeline", "arguments": {}}])

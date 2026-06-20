@@ -119,6 +119,23 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
   {
     type: 'function',
     function: {
+      name: 'list_assets',
+      description: '只读：列出当前工程可用素材（视频 clip 池、BGM、SFX）',
+      parameters: {
+        type: 'object',
+        properties: {
+          category: {
+            type: 'string',
+            enum: ['clip', 'bgm', 'sfx', 'all'],
+            description: '默认 all',
+          },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'get_timeline_summary',
       description: '只读：返回时间线摘要（与 EditorSnapshot 类似）',
       parameters: { type: 'object', properties: {} },
@@ -155,6 +172,7 @@ export const EDITOR_AGENT_TOOL_NAMES = EDITOR_AGENT_TOOL_DEFINITIONS.map(
 )
 
 export const READ_ONLY_AGENT_TOOLS = new Set([
+  'list_assets',
   'get_timeline_summary',
   'get_block_detail',
   'get_overlay_detail',
@@ -182,6 +200,8 @@ export function formatToolCallSummary(name: string, args: Record<string, unknown
       return `移动片段 ${args.block_id} → 轨 ${args.video_track_id}`
     case 'seek_playhead':
       return `播放头 → ${args.time_sec}s`
+    case 'list_assets':
+      return `列出素材 (${String(args.category ?? 'all')})`
     default:
       return `${name}(${JSON.stringify(args).slice(0, 60)})`
   }
