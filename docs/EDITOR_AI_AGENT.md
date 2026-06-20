@@ -448,7 +448,7 @@ Ollama 在 `message` 中返回：
 | 入口 | 预览区或编辑器边栏「AI 剪辑」 |
 | 布局 | ~360px 浮窗，可拖拽、可最小化 |
 | 输入 | 多行文字 + 参考图（粘贴/拖拽，1–3 张） |
-| 模式 | **仅分析** / **分析并应用** |
+| 模式 | **仅分析** / **分析并应用**（D3，两种模式并存） |
 | 展示 | 分析 JSON 折叠 + 人话摘要；执行前操作清单 |
 | 安全 | 删除轨、清空等需二次确认 |
 
@@ -513,7 +513,7 @@ frontend/src/services/editorAgentApi.ts
 - [ ] 执行前展示操作清单；写操作单次 undo
 - [ ] 执行后 `markDirty`，可选 `flushSaveSession`
 
-**出口标准**：「按上次分析在第 3 秒加标题」触发 `add_text_overlay` 的 `tool_calls`，预览可见；失败时错误可回灌模型重试。
+**出口标准**：「按上次分析在第 3 秒加文本」触发 `add_text_overlay` 的 `tool_calls`，预览可见；失败时错误可回灌模型重试。
 
 ---
 
@@ -544,15 +544,42 @@ frontend/src/services/editorAgentApi.ts
 
 ## 8. 已拍板决策
 
+### 8.1 基础架构
+
 | 问题 | 决定 |
 |------|------|
 | 模型 | 默认 Ollama `gemma4:12b`；不依赖云多模态 |
 | 工具调用 | Ollama native `tools` / `tool_calls`（Phase B）；分析阶段不用 tools |
 | 附图含义 | 排版参考输入，不是装饰能力 |
-| 流程 | 先分析 → 确认 → 再工具执行 |
 | 工具执行位置 | 前端 Zustand |
 | 撤销 | 每轮 Agent 写操作一次 history |
 | 与 compositor 重构 | 独立功能；共用 `EditSession` 与 text params |
+| 文本层命名 | 统一 `role: "text"`；素材面板仅「文本」入口 |
+| 默认字号 | 新建文本层 `fontSize: 6` |
+
+### 8.2 产品行为（2026-06-15 确认：`A1+B1+C2+D3+E1+F1+G1`）
+
+| ID | 问题 | 决定 | 实现要点 |
+|----|------|------|----------|
+| **A1** | 文案从哪来 | **只用草稿文案**；参考图只学版式 | `content` 来自 snapshot / `get_block_detail`；禁止照抄参考图文字 |
+| **B1** | 执行前确认 | **先展示操作清单**，用户点执行再写 store | 浮窗列出 tool_calls 摘要；未确认不改时间线 |
+| **C2** | 动画默认 | 轻量：**入场 `fade` 0.3s**，出场 `none` | `add_text_overlay` 未指定动画时写入 `animation.in.type=fade`、`duration=0.3` |
+| **D3** | 分析 vs 执行 | **两种模式并存**：「仅分析」/「分析并应用」 | Phase A 路径保留；应用模式走 agent/chat + 工具链 |
+| **E1** | 读草稿策略 | 每轮带**轻量快照** + 按需只读工具 | `buildEditorSnapshot`；不够再 `get_block_detail` / `get_overlay_detail` |
+| **F1** | 视频构图 | 分析出 `video_framing` 后**自动** `set_video_transform` | 主轨视频应用 `suggested_position_x/y`、scale |
+| **G1** | 字体映射 | **固定映射表**，不在表内 → 思源黑体 | 见 §8.3 |
+
+### 8.3 字体映射表（G1）
+
+| LLM / 分析输出 | 编辑器 `fontFamily` |
+|----------------|---------------------|
+| `serif`、`Noto Serif`、宋体语义 | `Noto Serif SC` |
+| `sans-serif`、`sans`、黑体语义 | `Noto Sans SC` |
+| `cursive`、书法、楷体语义 | `Ma Shan Zheng` |
+| `pingfang`、苹方 | `PingFang SC` |
+| 其他 / 未知 | `Noto Sans SC`（默认） |
+
+执行层（`executeToolCall` / `add_text_overlay`）在写入 params 前统一过此表；分析 prompt 可继续输出泛称，由执行器归一化。
 
 ---
 
