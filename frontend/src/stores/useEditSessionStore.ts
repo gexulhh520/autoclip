@@ -30,6 +30,8 @@ import {
 } from '../editor/textAnimation/params'
 import type { TextAnimationConfig } from '../editor/textAnimation/types'
 import { createOpenCutTextOverlay } from '../editor/opencut-text/build'
+import { executeWriteToolCallsBatch } from '../editor/agent/executeToolCall'
+import { isReadOnlyAgentTool } from '../editor/agent/toolRegistry'
 import { migrateToOpenCutText } from '../editor/opencut-text/migrate'
 import {
   DEFAULT_TEXT_TRACK_ID,
@@ -349,7 +351,8 @@ interface EditSessionState {
   updateBlockAudio: (blockId: string, audio: Partial<EditBlock['audio']>) => void
   updateBlockVideoTransform: (
     blockId: string,
-    patch: Partial<EditBlockVideoTransform>
+    patch: Partial<EditBlockVideoTransform>,
+    options?: { recordHistory?: boolean }
   ) => void
   updateBlocksVideoTransform: (
     blockIds: string[],
@@ -439,7 +442,10 @@ interface EditSessionState {
   ) => void
   moveOverlayToTrack: (overlayId: string, textTrackId: string, options?: { recordHistory?: boolean }) => void
   moveOverlaysToTrack: (overlayIds: string[], textTrackId: string, options?: { recordHistory?: boolean }) => void
-  addOverlayElement: (element: Omit<EditOverlayElement, 'id'>) => void
+  addOverlayElement: (
+    element: Omit<EditOverlayElement, 'id'>,
+    options?: { recordHistory?: boolean }
+  ) => void
   importSrtCaptions: (elements: EditOverlayElement[]) => void
   updateOverlayElement: (
     elementId: string,
@@ -520,6 +526,9 @@ interface EditSessionState {
   canUndo: () => boolean
   canRedo: () => boolean
   markDirty: () => void
+  executeAgentToolCalls: (
+    calls: Array<{ name: string; arguments: Record<string, unknown> }>
+  ) => Array<{ ok: boolean; tool_name: string; data?: unknown; error?: string }>
   beginTimelineGesture: () => void
   reset: () => void
 }
@@ -2023,8 +2032,10 @@ export const useEditSessionStore = create<EditSessionState>()(
         })
       },
 
-      addOverlayElement: (partial) => {
-        pushHistory()
+      addOverlayElement: (partial, options) => {
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
         const id = nanoid()
         set((state) => {
           if (!state.session) return
@@ -2543,8 +2554,10 @@ export const useEditSessionStore = create<EditSessionState>()(
         })
       },
 
-      updateBlockVideoTransform: (blockId, patch) => {
-        pushHistory()
+      updateBlockVideoTransform: (blockId, patch, options) => {
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
         set((state) => {
           if (!state.session) return
           const block = state.session.sequence.find((item) => item.id === blockId)
@@ -3054,6 +3067,15 @@ export const useEditSessionStore = create<EditSessionState>()(
       canUndo: () => get().historyPast.length > 0,
       canRedo: () => get().historyFuture.length > 0,
       markDirty: () => set({ dirty: true }),
+
+      executeAgentToolCalls: (calls) => {
+        const writeCalls = calls.filter((call) => !isReadOnlyAgentTool(call.name))
+        if (writeCalls.length === 0) return []
+        pushHistory()
+        const results = executeWriteToolCallsBatch(() => get(), writeCalls)
+        set({ dirty: true })
+        return results
+      },
       beginTimelineGesture: () => pushHistory(),
 
       reset: () =>

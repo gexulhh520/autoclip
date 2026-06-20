@@ -70,3 +70,32 @@ class AnalyzeLayoutResponse(BaseModel):
     raw_content: Optional[str] = None
     model: Optional[str] = None
     usage: Optional[Dict[str, Any]] = None
+
+
+class AgentChatMessage(BaseModel):
+    role: str
+    content: str = ""
+    tool_name: Optional[str] = None
+    images: Optional[List[str]] = None
+
+
+class AgentToolCall(BaseModel):
+    name: str
+    arguments: Dict[str, Any] = Field(default_factory=dict)
+    id: Optional[str] = None
+
+
+class AgentChatRequest(BaseModel):
+    messages: List[AgentChatMessage] = Field(default_factory=list)
+    snapshot: Dict[str, Any] = Field(default_factory=dict)
+    layout_reference: Optional[LayoutAnalysis] = None
+    max_rounds: int = Field(default=1, ge=1, le=5)
+
+
+class AgentChatResponse(BaseModel):
+    assistant_message: str = ""
+    tool_calls: List[AgentToolCall] = Field(default_factory=list)
+    finish_reason: Optional[str] = None
+    model: Optional[str] = None
+    usage: Optional[Dict[str, Any]] = None
+    raw_content: Optional[str] = None

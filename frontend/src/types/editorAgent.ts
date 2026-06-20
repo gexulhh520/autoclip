@@ -71,3 +71,47 @@ export interface LayoutReference {
 
 export const layoutReferenceStorageKey = (sessionId: string) =>
   `autoclip:layout-reference:${sessionId}`
+
+export type AgentPanelMode = 'analyze_only' | 'analyze_and_apply'
+
+export interface AgentToolCall {
+  name: string
+  arguments: Record<string, unknown>
+  id?: string
+}
+
+export interface AgentToolResult {
+  ok: boolean
+  tool_name: string
+  data?: unknown
+  error?: string
+}
+
+export interface AgentChatMessage {
+  role: string
+  content: string
+  tool_name?: string
+  images?: string[]
+}
+
+export interface AgentChatRequest {
+  messages: AgentChatMessage[]
+  snapshot: Record<string, unknown>
+  layout_reference?: LayoutAnalysis
+  max_rounds?: number
+}
+
+export interface AgentChatResponse {
+  assistant_message: string
+  tool_calls: AgentToolCall[]
+  finish_reason?: string
+  model?: string
+  usage?: Record<string, number>
+  raw_content?: string
+}
+
+export interface PendingAgentPlan {
+  summary: string
+  tool_calls: AgentToolCall[]
+  source: 'llm' | 'local'
+}

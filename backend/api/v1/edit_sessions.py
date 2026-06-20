@@ -37,7 +37,7 @@ from backend.schemas.edit_session import (
     EditSessionSilenceRegion,
     EditSessionUpdateRequest,
 )
-from backend.schemas.editor_agent import AnalyzeLayoutRequest, AnalyzeLayoutResponse
+from backend.schemas.editor_agent import AnalyzeLayoutRequest, AnalyzeLayoutResponse, AgentChatRequest, AgentChatResponse
 from backend.services.edit_session_service import EditSessionService
 from backend.services.editor_agent_service import EditorAgentService
 
@@ -945,4 +945,28 @@ async def analyze_edit_session_layout(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("排版分析失败: %s/%s", project_id, session_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/agent/chat",
+    response_model=AgentChatResponse,
+)
+async def agent_edit_session_chat(
+    project_id: str,
+    session_id: str,
+    body: AgentChatRequest,
+    session_service: EditSessionService = Depends(get_edit_session_service),
+    agent_service: EditorAgentService = Depends(get_editor_agent_service),
+):
+    """剪辑 Agent 对话（Phase B：返回 tool_calls，由前端执行）。"""
+    try:
+        session_service.get_session(project_id, session_id)
+        return agent_service.chat(body)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Agent 对话失败: %s/%s", project_id, session_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc

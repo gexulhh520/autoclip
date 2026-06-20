@@ -176,3 +176,52 @@
 .editor-agent-panel__file-input {
   display: none;
 }
+
+.editor-agent-panel__segmented {
+  display: flex;
+  gap: 8px;
+}
+
+.editor-agent-panel__segmented button {
+  flex: 1;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--editor-border-light);
+  background: var(--editor-panel);
+  color: var(--editor-sub);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.editor-agent-panel__segmented button.is-active {
+  border-color: var(--editor-accent);
+  color: var(--editor-text);
+  background: rgba(0, 202, 224, 0.08);
+}
+
+.editor-agent-panel__plan {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--editor-border-light);
+  background: var(--editor-panel);
+}
+
+.editor-agent-panel__plan-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--editor-text);
+}
+
+.editor-agent-panel__plan-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--editor-sub);
+  max-height: 140px;
+  overflow-y: auto;
+}

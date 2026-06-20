@@ -504,13 +504,13 @@ frontend/src/services/editorAgentApi.ts
 
 **目标**：确认分析后，一句话驱动时间线变更（Ollama `tools` + `tool_calls`，见 §5.1）。
 
-- [ ] `OllamaProvider.chat_completion`：`tools`、`tool_calls` 解析
-- [ ] `buildEditorSnapshot`
-- [ ] 首批工具（§4.1）+ `executeToolCall` + `toolRegistry`
-- [ ] `POST .../agent/chat` + Agent 多轮循环（`role: tool` 回传）
-- [ ] 工具参数 Pydantic 校验 + 白名单
-- [ ] `actions` JSON 降级路径（§5.1）
-- [ ] 执行前展示操作清单；写操作单次 undo
+- [x] `OllamaProvider.chat_completion`：`tools`、`tool_calls` 解析
+- [x] `buildEditorSnapshot`
+- [x] 首批工具（§4.1）+ `executeToolCall` + `toolRegistry`
+- [x] `POST .../agent/chat` + Agent 多轮循环（`role: tool` 回传）
+- [x] 工具参数 Pydantic 校验 + 白名单
+- [x] `actions` JSON 降级路径（§5.1）
+- [x] 执行前展示操作清单；写操作单次 undo
 - [ ] 执行后 `markDirty`，可选 `flushSaveSession`
 
 **出口标准**：「按上次分析在第 3 秒加文本」触发 `add_text_overlay` 的 `tool_calls`，预览可见；失败时错误可回灌模型重试。
