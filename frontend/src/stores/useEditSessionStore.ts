@@ -353,7 +353,11 @@ interface EditSessionState {
   setInspectorTab: (tab: 'video' | 'audio' | 'text' | 'animation' | 'transition') => void
   updateExportSettings: (settings: Partial<EditExportSettings>) => void
   updateAudioSettings: (settings: Partial<EditSessionAudioSettings>) => void
-  updateBlockAudio: (blockId: string, audio: Partial<EditBlock['audio']>) => void
+  updateBlockAudio: (
+    blockId: string,
+    audio: Partial<EditBlock['audio']>,
+    options?: { recordHistory?: boolean }
+  ) => void
   updateBlockVideoTransform: (
     blockId: string,
     patch: Partial<EditBlockVideoTransform>,
@@ -387,6 +391,7 @@ interface EditSessionState {
       volume?: number
       /** 为 true 时仅允许落在 proposed 起点，否则尝试同轨空隙或其它空轨 */
       strictStart?: boolean
+      recordHistory?: boolean
     }
   ) => string | null
   removeAudioClip: (clipId: string) => void
@@ -2557,13 +2562,16 @@ export const useEditSessionStore = create<EditSessionState>()(
         })
       },
 
-      updateBlockAudio: (blockId, audio) => {
-        pushHistory()
+      updateBlockAudio: (blockId, audio, options) => {
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
         set((state) => {
           if (!state.session) return
           const block = state.session.sequence.find((item) => item.id === blockId)
           if (!block) return
           block.audio = { ...block.audio, ...audio }
+          state.dirty = true
         })
       },
 
@@ -2761,7 +2769,9 @@ export const useEditSessionStore = create<EditSessionState>()(
       },
 
       addAudioClipToTimeline: (assetId, options) => {
-        pushHistory()
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
         let clipId = ''
         let added = false
         set((state) => {

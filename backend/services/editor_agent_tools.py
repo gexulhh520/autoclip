@@ -183,6 +183,44 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "add_audio_clip",
+            "description": "将 BGM 或 SFX 加到时间线",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "asset_id": {"type": "string"},
+                    "start_sec": {"type": "number"},
+                    "duration_sec": {"type": "number"},
+                    "track_id": {"type": "string"},
+                    "volume": {"type": "number"},
+                    "fade_in_sec": {"type": "number"},
+                    "fade_out_sec": {"type": "number"},
+                    "block_id": {"type": "string"},
+                },
+                "required": ["asset_id", "start_sec"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_block_audio",
+            "description": "调整视频片段原声音量与淡化",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "block_id": {"type": "string"},
+                    "volume": {"type": "number"},
+                    "fade_in_sec": {"type": "number"},
+                    "fade_out_sec": {"type": "number"},
+                },
+                "required": ["block_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "list_assets",
             "description": "只读：列出当前工程可用素材（视频 clip 池、BGM、SFX）",
             "parameters": {

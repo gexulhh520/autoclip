@@ -177,6 +177,44 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
   {
     type: 'function',
     function: {
+      name: 'add_audio_clip',
+      description: '将 BGM 或 SFX 加到时间线（asset_id 来自 list_assets）',
+      parameters: {
+        type: 'object',
+        properties: {
+          asset_id: { type: 'string' },
+          start_sec: { type: 'number' },
+          duration_sec: { type: 'number' },
+          track_id: { type: 'string' },
+          volume: { type: 'number' },
+          fade_in_sec: { type: 'number' },
+          fade_out_sec: { type: 'number' },
+          block_id: { type: 'string', description: '可选，联动到视频块' },
+        },
+        required: ['asset_id', 'start_sec'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_block_audio',
+      description: '调整视频片段原声音量与淡化',
+      parameters: {
+        type: 'object',
+        properties: {
+          block_id: { type: 'string' },
+          volume: { type: 'number' },
+          fade_in_sec: { type: 'number' },
+          fade_out_sec: { type: 'number' },
+        },
+        required: ['block_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'list_assets',
       description: '只读：列出当前工程可用素材（视频 clip 池、BGM、SFX）',
       parameters: {
@@ -268,6 +306,10 @@ export function formatToolCallSummary(name: string, args: Record<string, unknown
       return `主轨排序 ${args.block_id} → #${args.to_index}`
     case 'set_transition':
       return `转场 ${args.block_id} → ${args.transition}`
+    case 'add_audio_clip':
+      return `添加音频 ${args.asset_id} @${args.start_sec}s`
+    case 'update_block_audio':
+      return `调整片段原声 ${args.block_id}`
     case 'seek_playhead':
       return `播放头 → ${args.time_sec}s`
     case 'list_assets':

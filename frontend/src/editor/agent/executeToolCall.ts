@@ -14,8 +14,16 @@ import {
   validateMainTrackReorder,
   validateTransition,
 } from './narrativeTools'
+import {
+  buildUpdateBlockAudioPatch,
+  hasAudioPatchFields,
+  resolveBlockLinkOffset,
+  validateAudioAssetId,
+  validateVideoBlockId,
+} from './audioTools'
 import { isReadOnlyAgentTool } from './toolRegistry'
 import type { AgentToolCall, AgentToolResult } from '../../types/editorAgent'
+import type { AudioClipElement } from '../../types/editSession'
 import type { useEditSessionStore } from '../../stores/useEditSessionStore'
 
 export type EditStore = ReturnType<typeof useEditSessionStore.getState>
@@ -197,6 +205,77 @@ export async function executeWriteToolCall(
         }
         store.updateBlockTransition(blockId, transition, { recordHistory })
         return { ok: true, tool_name: call.name, data: { block_id: blockId, transition } }
+      }
+      case 'add_audio_clip': {
+        const assetId = str(call.arguments.asset_id)
+        const assetCheck = validateAudioAssetId(session, assetId)
+        if ('error' in assetCheck) {
+          return { ok: false, tool_name: call.name, error: assetCheck.error }
+        }
+        const startSec = num(call.arguments.start_sec, store.sequencePlayheadSec)
+        const blockId = call.arguments.block_id != null ? str(call.arguments.block_id) : ''
+        if (blockId) {
+          const blockCheck = validateVideoBlockId(session, blockId)
+          if ('error' in blockCheck) {
+            return { ok: false, tool_name: call.name, error: blockCheck.error }
+          }
+        }
+        const clipId = store.addAudioClipToTimeline(assetId, {
+          trackId: call.arguments.track_id != null ? str(call.arguments.track_id) : undefined,
+          startSec: Math.max(0, startSec),
+          durationSec:
+            call.arguments.duration_sec != null
+              ? Math.max(0.1, num(call.arguments.duration_sec, 0.1))
+              : undefined,
+          volume:
+            call.arguments.volume != null
+              ? Math.max(0, Math.min(2, num(call.arguments.volume, 1)))
+              : undefined,
+          strictStart: true,
+          recordHistory,
+        })
+        if (!clipId) {
+          return {
+            ok: false,
+            tool_name: call.name,
+            error: '无法放置音频（轨道冲突、素材无效或起点被占用）',
+          }
+        }
+        const postPatch: Partial<AudioClipElement> = {}
+        if (call.arguments.fade_in_sec != null) {
+          postPatch.fade_in_sec = Math.max(0, num(call.arguments.fade_in_sec, 0))
+        }
+        if (call.arguments.fade_out_sec != null) {
+          postPatch.fade_out_sec = Math.max(0, num(call.arguments.fade_out_sec, 0))
+        }
+        if (blockId) {
+          const link = resolveBlockLinkOffset(session, blockId, startSec)
+          if ('error' in link) {
+            return { ok: false, tool_name: call.name, error: link.error }
+          }
+          Object.assign(postPatch, link)
+        }
+        if (Object.keys(postPatch).length > 0) {
+          store.updateAudioClip(clipId, postPatch, { recordHistory: false })
+        }
+        return {
+          ok: true,
+          tool_name: call.name,
+          data: { clip_id: clipId, asset_id: assetId, start_sec: startSec },
+        }
+      }
+      case 'update_block_audio': {
+        const blockId = str(call.arguments.block_id)
+        const blockCheck = validateVideoBlockId(session, blockId)
+        if ('error' in blockCheck) {
+          return { ok: false, tool_name: call.name, error: blockCheck.error }
+        }
+        const patch = buildUpdateBlockAudioPatch(call.arguments)
+        if (!hasAudioPatchFields(patch)) {
+          return { ok: false, tool_name: call.name, error: '至少提供 volume / fade_in_sec / fade_out_sec 之一' }
+        }
+        store.updateBlockAudio(blockId, patch, { recordHistory })
+        return { ok: true, tool_name: call.name, data: { block_id: blockId, ...patch } }
       }
       case 'seek_playhead': {
         store.setSequencePlayheadSec(num(call.arguments.time_sec, 0))

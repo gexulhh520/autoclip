@@ -42,6 +42,19 @@ def test_validate_tool_calls_accepts_narrative_tools():
     ]
 
 
+def test_validate_tool_calls_accepts_audio_tools():
+    calls = validate_tool_calls(
+        [
+            {
+                "name": "add_audio_clip",
+                "arguments": {"asset_id": "bgm-1", "start_sec": 0, "volume": 0.5},
+            },
+            {"name": "update_block_audio", "arguments": {"block_id": "b1", "volume": 0.8}},
+        ]
+    )
+    assert [call.name for call in calls] == ["add_audio_clip", "update_block_audio"]
+
+
 def test_validate_tool_calls_rejects_unknown_tool():
     with pytest.raises(ValueError, match="白名单"):
         validate_tool_calls([{"name": "delete_timeline", "arguments": {}}])
