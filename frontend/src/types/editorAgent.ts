@@ -72,7 +72,19 @@ export interface LayoutReference {
 export const layoutReferenceStorageKey = (sessionId: string) =>
   `autoclip:layout-reference:${sessionId}`
 
-export type AgentPanelMode = 'analyze_only' | 'analyze_and_apply'
+export type AgentPanelMode = 'assistant' | 'layout_reference'
+
+/** @deprecated 使用 assistant / layout_reference */
+export type LegacyAgentPanelMode = 'analyze_only' | 'analyze_and_apply'
+
+export interface AgentChatTurn {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  imagePreview?: string
+}
+
+export const agentChatStorageKey = (sessionId: string) => `autoclip:agent-chat:${sessionId}`
 
 export interface AgentToolCall {
   name: string

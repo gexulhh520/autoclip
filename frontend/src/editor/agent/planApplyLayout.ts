@@ -1,15 +1,8 @@
 import { buildApplyPlanFromLayout } from './buildApplyPlan'
 import { buildEditorSnapshot } from './buildEditorSnapshot'
-import { executeReadToolCall } from './executeToolCall'
-import { isReadOnlyAgentTool, isWriteAgentTool } from './toolRegistry'
-import { editorAgentApi } from '../../services/editorAgentApi'
+import { confirmExecutePlan, runAgentChat } from './runAgentChat'
 import { useEditSessionStore } from '../../stores/useEditSessionStore'
-import type {
-  AgentChatMessage,
-  AgentToolCall,
-  LayoutAnalysis,
-  PendingAgentPlan,
-} from '../../types/editorAgent'
+import type { LayoutAnalysis, PendingAgentPlan } from '../../types/editorAgent'
 
 const APPLY_USER_MESSAGE =
   '请根据 layout_reference 的排版样式，将 snapshot.draft_texts 中的文案应用到时间线。' +
@@ -21,72 +14,33 @@ export async function planApplyLayout(input: {
   sessionId: string
   layout: LayoutAnalysis
   userPrompt?: string
+  imageDataUrl?: string | null
 }): Promise<PendingAgentPlan> {
-  const store = useEditSessionStore.getState()
-  const session = store.session
-  if (!session) {
-    throw new Error('无活动剪辑工程')
+  try {
+    const result = await runAgentChat({
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      userMessage: (input.userPrompt ?? APPLY_USER_MESSAGE).trim(),
+      layoutReference: input.layout,
+      imageDataUrl: input.imageDataUrl,
+    })
+    if (result.plan?.tool_calls.length) {
+      return result.plan
+    }
+  } catch {
+    // fallback below
   }
 
+  const store = useEditSessionStore.getState()
+  if (!store.session) throw new Error('无活动剪辑工程')
+
   const snapshot = buildEditorSnapshot({
-    session,
+    session: store.session,
     playheadSec: store.sequencePlayheadSec,
     selectedBlockId: store.selectedBlockId,
     selectedOverlayId: store.selectedOverlayId,
     layoutReference: input.layout,
   })
-
-  let messages: AgentChatMessage[] = [
-    {
-      role: 'user',
-      content: (input.userPrompt ?? APPLY_USER_MESSAGE).trim(),
-    },
-  ]
-
-  for (let round = 0; round < 5; round += 1) {
-    try {
-      const response = await editorAgentApi.chat(input.projectId, input.sessionId, {
-        messages,
-        snapshot: snapshot as unknown as Record<string, unknown>,
-        layout_reference: input.layout,
-        max_rounds: 1,
-      })
-
-      const readCalls = response.tool_calls.filter((call) => isReadOnlyAgentTool(call.name))
-      const writeCalls = response.tool_calls.filter((call) => isWriteAgentTool(call.name))
-
-      if (writeCalls.length > 0) {
-        return {
-          summary: response.assistant_message || `将执行 ${writeCalls.length} 个操作`,
-          tool_calls: writeCalls,
-          source: 'llm',
-        }
-      }
-
-      if (readCalls.length === 0) {
-        break
-      }
-
-      messages = [
-        ...messages,
-        {
-          role: 'assistant',
-          content: response.assistant_message || '',
-        },
-      ]
-
-      for (const call of readCalls) {
-        const result = executeReadToolCall(() => useEditSessionStore.getState(), call)
-        messages.push({
-          role: 'tool',
-          tool_name: call.name,
-          content: JSON.stringify(result),
-        })
-      }
-    } catch {
-      break
-    }
-  }
 
   const localCalls = buildApplyPlanFromLayout(snapshot, input.layout)
   return {
@@ -97,6 +51,4 @@ export async function planApplyLayout(input: {
   }
 }
 
-export function confirmExecutePlan(calls: AgentToolCall[]) {
-  return useEditSessionStore.getState().executeAgentToolCalls(calls)
-}
+export { confirmExecutePlan }
