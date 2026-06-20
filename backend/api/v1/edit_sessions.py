@@ -37,7 +37,9 @@ from backend.schemas.edit_session import (
     EditSessionSilenceRegion,
     EditSessionUpdateRequest,
 )
+from backend.schemas.editor_agent import AnalyzeLayoutRequest, AnalyzeLayoutResponse
 from backend.services.edit_session_service import EditSessionService
+from backend.services.editor_agent_service import EditorAgentService
 
 logger = logging.getLogger(__name__)
 
@@ -915,4 +917,32 @@ async def upload_edit_export_to_bilibili(
         raise
     except Exception as exc:
         logger.exception("剪辑导出投稿失败: %s/%s", project_id, session_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+def get_editor_agent_service() -> EditorAgentService:
+    return EditorAgentService()
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/agent/analyze-layout",
+    response_model=AnalyzeLayoutResponse,
+)
+async def analyze_edit_session_layout(
+    project_id: str,
+    session_id: str,
+    body: AnalyzeLayoutRequest,
+    session_service: EditSessionService = Depends(get_edit_session_service),
+    agent_service: EditorAgentService = Depends(get_editor_agent_service),
+):
+    """参考图排版分析（Phase A：不修改时间线）。"""
+    try:
+        session_service.get_session(project_id, session_id)
+        return agent_service.analyze_layout(body)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("排版分析失败: %s/%s", project_id, session_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc

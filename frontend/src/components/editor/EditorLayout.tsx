@@ -4,6 +4,7 @@ import EditorHeader from './EditorHeader'
 import EditorInspector from './EditorInspector'
 import EditorPreview from './EditorPreview'
 import OpenCutTimeline from './timeline/OpenCutTimeline'
+import EditorAgentPanel from './agent/EditorAgentPanel'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from './resizable'
 import { useEditorPanelStore } from '../../stores/useEditorPanelStore'
 import './EditorLayout.css'
@@ -91,6 +92,7 @@ const EditorLayout: React.FC<EditorLayoutProps> = ({ projectId, sessionId }) => 
           </ResizablePanel>
         </ResizablePanelGroup>
       </div>
+      <EditorAgentPanel projectId={projectId} sessionId={sessionId} />
     </div>
   )
 }

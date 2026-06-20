@@ -36,7 +36,7 @@
 | 工具执行（文本） | `gemma4:12b` | 同一模型即可；后续可拆「执行专用」小模型 |
 | 备选视觉模型 | `qwen2.5vl:7b` | 项目内已有推荐项，分析不稳时可 A/B |
 
-> **工程缺口（当前）**：`OllamaProvider` 已接 `/api/chat`，但 **尚未传 `images`**，也 **未接 `tools` / `tool_calls`**；剪辑 Agent 需补齐多模态与工具调用（见 §5.1）。
+> **工程缺口（当前）**：`OllamaProvider` 已支持 `images` 与多轮 `messages`（Phase A）；**尚未接 `tools` / `tool_calls`**（Phase B，见 §5.1）。
 
 ---
 
@@ -237,7 +237,7 @@
 
 | 能力 | `gemma4:12b` + Ollama | AutoClip 现状 |
 |------|------------------------|---------------|
-| 多模态（`images`） | ✅ `/api/chat` | ❌ 待 Phase A |
+| 多模态（`images`） | ✅ `/api/chat` | ✅ Phase A |
 | 原生工具调用（`tools` → `tool_calls`） | ✅ `/api/chat` | ❌ 待 Phase B |
 | 12B 档 Agent 可靠性 | ✅ 推荐（优于 e2b/e4b） | — |
 
@@ -488,11 +488,11 @@ frontend/src/services/editorAgentApi.ts
 
 **目标**：验证 `gemma4:12b` 看图分析是否可用。
 
-- [ ] `OllamaProvider` 支持 `images` + 多轮 `messages`
-- [ ] `POST .../agent/analyze-layout`
-- [ ] Pydantic 校验 `LayoutAnalysis`
-- [ ] 浮窗 MVP：附图 + 展示分析结果 + 复制/编辑 JSON
-- [ ] 会话内暂存 `layout_reference`（localStorage 或 session 字段）
+- [x] `OllamaProvider` 支持 `images` + 多轮 `messages`
+- [x] `POST .../agent/analyze-layout`
+- [x] Pydantic 校验 `LayoutAnalysis`
+- [x] 浮窗 MVP：附图 + 展示分析结果 + 复制/编辑 JSON
+- [x] 会话内暂存 `layout_reference`（localStorage 或 session 字段）
 - [ ] 设置项：剪辑 AI 默认模型 `gemma4:12b`
 
 **出口标准**：上传一张参考图，能稳定得到可映射到 text params 的 JSON；用户确认前不写 store。

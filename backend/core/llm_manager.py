@@ -202,6 +202,18 @@ class LLMManager:
             logger.error(f"设置提供商失败: {e}")
             raise
     
+    def chat_completion(self, messages: List[Dict[str, Any]], **kwargs) -> LLMResponse:
+        """多轮对话（剪辑 Agent：Ollama 多模态 / tools）。"""
+        if not self.current_provider:
+            raise ValueError("未配置LLM提供商，请在设置页面配置API密钥")
+        if not isinstance(self.current_provider, OllamaProvider):
+            raise ValueError("剪辑 Agent 当前仅支持 Ollama 本地模型")
+        try:
+            return self.current_provider.chat_completion(messages, **kwargs)
+        except Exception as e:
+            logger.error(f"LLM chat_completion 失败: {e}")
+            raise
+
     def call(self, prompt: str, input_data: Any = None, **kwargs) -> str:
         """调用LLM"""
         if not self.current_provider:

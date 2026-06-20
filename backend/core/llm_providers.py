@@ -8,7 +8,7 @@ import os
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Optional, Union
 from enum import Enum
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -32,12 +32,22 @@ class ModelInfo:
     description: Optional[str] = None
 
 @dataclass
+class ToolCall:
+    """Ollama / OpenAI 兼容的工具调用"""
+    name: str
+    arguments: Dict[str, Any]
+    id: Optional[str] = None
+
+
+@dataclass
 class LLMResponse:
     """LLM响应"""
     content: str
     usage: Optional[Dict[str, Any]] = None
     model: Optional[str] = None
     finish_reason: Optional[str] = None
+    tool_calls: List[ToolCall] = field(default_factory=list)
+    raw_message: Optional[Dict[str, Any]] = None
 
 class LLMProvider(ABC):
     """LLM提供商抽象基类"""
@@ -486,21 +496,75 @@ class OllamaProvider(LLMProvider):
                 return fallback
         return ""
 
-    def _post_chat(
+    @staticmethod
+    def _strip_data_url(image: str) -> str:
+        value = (image or "").strip()
+        if value.startswith("data:"):
+            comma = value.find(",")
+            if comma >= 0:
+                return value[comma + 1 :]
+        return value
+
+    @staticmethod
+    def _normalize_ollama_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        normalized: List[Dict[str, Any]] = []
+        for msg in messages:
+            role = msg.get("role")
+            if not role:
+                continue
+            item: Dict[str, Any] = {
+                "role": role,
+                "content": msg.get("content") or "",
+            }
+            images = msg.get("images")
+            if images:
+                item["images"] = [OllamaProvider._strip_data_url(img) for img in images]
+            if msg.get("tool_name"):
+                item["tool_name"] = msg["tool_name"]
+            normalized.append(item)
+        return normalized
+
+    @staticmethod
+    def _parse_tool_calls(message: Dict[str, Any]) -> List[ToolCall]:
+        tool_calls: List[ToolCall] = []
+        for idx, raw in enumerate(message.get("tool_calls") or []):
+            if not isinstance(raw, dict):
+                continue
+            fn = raw.get("function") or {}
+            name = fn.get("name") or raw.get("name") or ""
+            arguments = fn.get("arguments") or raw.get("arguments") or {}
+            if isinstance(arguments, str):
+                try:
+                    arguments = json.loads(arguments)
+                except Exception:
+                    arguments = {}
+            if not isinstance(arguments, dict):
+                arguments = {}
+            tool_calls.append(
+                ToolCall(
+                    name=name,
+                    arguments=arguments,
+                    id=raw.get("id") or f"call_{idx}",
+                )
+            )
+        return tool_calls
+
+    def _post_chat_messages(
         self,
-        full_input: str,
+        messages: List[Dict[str, Any]],
         *,
         think: bool,
         num_ctx: int,
         num_predict: int,
         timeout: int,
         extra_options: Dict[str, Any],
+        tools: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         import requests
 
-        payload = {
+        payload: Dict[str, Any] = {
             "model": self.model_name,
-            "messages": [{"role": "user", "content": full_input}],
+            "messages": self._normalize_ollama_messages(messages),
             "stream": False,
             "think": think,
             "options": {
@@ -509,6 +573,8 @@ class OllamaProvider(LLMProvider):
                 **extra_options,
             },
         }
+        if tools:
+            payload["tools"] = tools
         headers = {
             "Authorization": f"Bearer {self.api_key or 'ollama'}",
             "Content-Type": "application/json",
@@ -526,6 +592,114 @@ class OllamaProvider(LLMProvider):
                 err = {"message": resp.text}
             raise Exception(f"Ollama API调用失败 - Status: {resp.status_code}, Message: {err}")
         return resp.json()
+
+    def _post_chat(
+        self,
+        full_input: str,
+        *,
+        think: bool,
+        num_ctx: int,
+        num_predict: int,
+        timeout: int,
+        extra_options: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return self._post_chat_messages(
+            [{"role": "user", "content": full_input}],
+            think=think,
+            num_ctx=num_ctx,
+            num_predict=num_predict,
+            timeout=timeout,
+            extra_options=extra_options,
+        )
+
+    def chat_completion(
+        self,
+        messages: List[Dict[str, Any]],
+        **kwargs,
+    ) -> LLMResponse:
+        """多轮对话，支持 images 与 tools（Ollama 原生 /api/chat）。"""
+        try:
+            timeout = kwargs.pop("timeout", 300)
+            think = kwargs.pop("think", False)
+            requested_ctx = int(kwargs.pop("num_ctx", self.num_ctx))
+            num_predict = int(kwargs.pop("num_predict", kwargs.pop("max_tokens", self.num_predict)))
+            tools = kwargs.pop("tools", None)
+            extra_options = {
+                key: kwargs[key]
+                for key in ("temperature", "top_p", "top_k", "seed")
+                if key in kwargs and kwargs[key] is not None
+            }
+
+            prompt_chars = sum(len(str(msg.get("content") or "")) for msg in messages)
+            num_ctx = self._resolve_num_ctx(prompt_chars, num_predict, requested_ctx)
+            data = self._post_chat_messages(
+                messages,
+                think=think,
+                num_ctx=num_ctx,
+                num_predict=num_predict,
+                timeout=timeout,
+                extra_options=extra_options,
+                tools=tools,
+            )
+            message = data.get("message") or {}
+            content = self._extract_message_text(message)
+            tool_calls = self._parse_tool_calls(message)
+
+            if self._is_context_overflow(data, content, num_ctx):
+                larger_steps = [s for s in self._CTX_STEPS if s > num_ctx]
+                if larger_steps:
+                    retry_ctx = larger_steps[0]
+                    logger.warning(
+                        "Ollama 上下文不足（prompt=%s tokens, num_ctx=%s, 输出仅 %s 字符），"
+                        "自动以 num_ctx=%s 重试",
+                        data.get("prompt_eval_count"),
+                        num_ctx,
+                        len(content),
+                        retry_ctx,
+                    )
+                    num_ctx = retry_ctx
+                    data = self._post_chat_messages(
+                        messages,
+                        think=think,
+                        num_ctx=num_ctx,
+                        num_predict=num_predict,
+                        timeout=timeout,
+                        extra_options=extra_options,
+                        tools=tools,
+                    )
+                    message = data.get("message") or {}
+                    content = self._extract_message_text(message)
+                    tool_calls = self._parse_tool_calls(message)
+
+            usage = {
+                "prompt_tokens": data.get("prompt_eval_count"),
+                "completion_tokens": data.get("eval_count"),
+                "total_tokens": (data.get("prompt_eval_count") or 0) + (data.get("eval_count") or 0),
+            }
+            finish_reason = data.get("done_reason") or ("stop" if data.get("done") else None)
+            if self._is_context_overflow(data, content, num_ctx):
+                raise ValueError(
+                    f"Ollama 上下文窗口不足：prompt 占用约 {usage.get('prompt_tokens')} tokens，"
+                    f"num_ctx={num_ctx} 已无空间生成完整 JSON。"
+                    f"请设置环境变量 OLLAMA_NUM_CTX=65536 或换用 qwen2.5vl:7b。"
+                )
+            if not content.strip() and finish_reason == "length" and not tool_calls:
+                logger.error(
+                    "Ollama 响应为空且 finish_reason=length（prompt≈%s tokens, num_ctx=%s）",
+                    usage.get("prompt_tokens", "?"),
+                    num_ctx,
+                )
+            return LLMResponse(
+                content=content,
+                usage=usage,
+                model=self.model_name,
+                finish_reason=finish_reason,
+                tool_calls=tool_calls,
+                raw_message=message,
+            )
+        except Exception as e:
+            logger.error(f"Ollama chat_completion 失败: {str(e)}")
+            raise
 
     def call(self, prompt: str, input_data: Any = None, **kwargs) -> LLMResponse:
         """调用 Ollama 原生 chat API（支持 think / num_ctx 自动扩容）。"""
