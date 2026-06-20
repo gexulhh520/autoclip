@@ -32,7 +32,7 @@ import {
   validateMotionType,
   validateOverlayId,
 } from './packagingTools'
-import { isReadOnlyAgentTool } from './toolRegistry'
+import { resolveSplitTextOverlayId } from './staggeredCharText'
 import { editApi } from '../../services/editApi'
 import type { AgentToolCall, AgentToolResult } from '../../types/editorAgent'
 import type { AudioClipElement } from '../../types/editSession'
@@ -440,6 +440,43 @@ export async function executeWriteToolCall(
         const trackId = str(call.arguments.video_track_id)
         store.moveBlockToVideoTrack(blockId, trackId, { recordHistory })
         return { ok: true, tool_name: call.name, data: { block_id: blockId } }
+      }
+      case 'split_text_overlay_by_char': {
+        const overlayId = resolveSplitTextOverlayId(
+          session,
+          call.arguments.overlay_id,
+          store.selectedOverlayId
+        )
+        if (!overlayId) {
+          return { ok: false, tool_name: call.name, error: '无法确定要拆分的文本层 overlay_id' }
+        }
+        const createdIds = store.splitTextOverlayByChar(
+          overlayId,
+          {
+            stagger_sec: call.arguments.stagger_sec as number | undefined,
+            char_duration_sec: call.arguments.char_duration_sec as number | undefined,
+            in_type: call.arguments.in_type,
+            in_duration_sec: call.arguments.in_duration_sec as number | undefined,
+            center_y: call.arguments.center_y as number | undefined,
+          },
+          { recordHistory }
+        )
+        if (createdIds.length === 0) {
+          return {
+            ok: false,
+            tool_name: call.name,
+            error: '文本为空或文本层不存在，无法逐字拆分',
+          }
+        }
+        return {
+          ok: true,
+          tool_name: call.name,
+          data: {
+            source_overlay_id: overlayId,
+            created_overlay_ids: createdIds,
+            char_count: createdIds.length,
+          },
+        }
       }
       case 'set_text_animation': {
         const overlayId = str(call.arguments.overlay_id)

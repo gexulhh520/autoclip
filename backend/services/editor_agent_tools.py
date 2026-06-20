@@ -282,6 +282,27 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "split_text_overlay_by_char",
+            "description": "将单个文本层按字拆成多层，水平居中，逐字错峰入场。用于逐字出现/一个字一个字。会删除原层。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "overlay_id": {"type": "string"},
+                    "stagger_sec": {"type": "number"},
+                    "char_duration_sec": {"type": "number"},
+                    "in_type": {
+                        "type": "string",
+                        "enum": ["none", "fade", "slide_up", "slide_down", "scale", "pop"],
+                    },
+                    "in_duration_sec": {"type": "number"},
+                    "center_y": {"type": "number"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "batch_apply_text_style",
             "description": "批量统一文本层样式（不含 content）",
             "parameters": {

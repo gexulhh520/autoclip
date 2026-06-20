@@ -32,6 +32,10 @@ import type { TextAnimationConfig } from '../editor/textAnimation/types'
 import { createOpenCutTextOverlay } from '../editor/opencut-text/build'
 import { executeWriteToolCallsBatch } from '../editor/agent/executeToolCall'
 import { isReadOnlyAgentTool } from '../editor/agent/toolRegistry'
+import {
+  buildStaggeredCharOverlaysForSession,
+  type StaggeredCharTextOptions,
+} from '../editor/agent/staggeredCharText'
 import { migrateToOpenCutText } from '../editor/opencut-text/migrate'
 import {
   DEFAULT_TEXT_TRACK_ID,
@@ -469,6 +473,11 @@ interface EditSessionState {
     options?: { recordHistory?: boolean }
   ) => void
   importSrtCaptions: (elements: EditOverlayElement[]) => void
+  splitTextOverlayByChar: (
+    overlayId: string,
+    options?: StaggeredCharTextOptions,
+    execOptions?: { recordHistory?: boolean }
+  ) => string[]
   updateOverlayElement: (
     elementId: string,
     patch: Partial<EditOverlayElement>,
@@ -2155,6 +2164,58 @@ export const useEditSessionStore = create<EditSessionState>()(
           state.selectedCaptionBlockIds = []
           state.dirty = true
         })
+      },
+
+      splitTextOverlayByChar: (overlayId, options, execOptions) => {
+        const session = get().session
+        if (!session?.overlay_elements) return []
+        const source = session.overlay_elements.find((item) => item.id === overlayId)
+        if (!source) return []
+        const elements = buildStaggeredCharOverlaysForSession(
+          session,
+          overlayId,
+          options ?? {},
+          get().previewVideoNaturalSize
+        )
+        if (elements.length === 0) return []
+
+        if (execOptions?.recordHistory !== false) {
+          pushHistory()
+        }
+        const createdIds = elements.map((element) => element.id)
+        set((state) => {
+          if (!state.session?.overlay_elements) return
+          ensureTextTracks(state.session)
+          const trackId = source.track_id ?? state.activeTextTrackId ?? DEFAULT_TEXT_TRACK_ID
+          state.session.overlay_elements = state.session.overlay_elements.filter(
+            (item) => item.id !== overlayId
+          )
+          state.session.overlay_elements.push(
+            ...elements.map((element) => ({ ...element, track_id: element.track_id ?? trackId }))
+          )
+          for (const element of elements) {
+            const created = state.session.overlay_elements.find((item) => item.id === element.id)
+            if (!created) continue
+            created.start_sec = clampOverlayStartOnTrack(
+              state.session,
+              created.track_id ?? trackId,
+              created.duration_sec,
+              created.start_sec,
+              created.id
+            )
+            if (state.timelineBlockLinkEnabled) {
+              attachOverlayBlockLink(state.session, created)
+            }
+          }
+          state.selectedOverlayId = createdIds[createdIds.length - 1] ?? null
+          state.selectedOverlayIds = createdIds
+          state.selectedBlockId = null
+          state.selectedBlockIds = []
+          state.selectedCaptionBlockId = null
+          state.selectedCaptionBlockIds = []
+          state.dirty = true
+        })
+        return createdIds
       },
 
       updateOverlayElement: (elementId, patch, options) => {

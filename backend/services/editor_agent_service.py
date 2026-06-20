@@ -75,6 +75,7 @@ AGENT_EXECUTE_SYSTEM = """你是 AutoClip 剪辑助手，帮助用户在剪辑�
 11. 超出画面时：缩小 fontSize、textAlign=center、position 居中靠下；长文案可换行，勿 capture_preview_frame 循环自检。
 12. 同一轮可同时输出多个写 tool（如改文案 + 加动画），避免为每个小改动单独再跑一轮只读调研。
 13. EditorSnapshot 已在每次请求附带；get_timeline_summary 回传为精简摘要，勿因缺字段重复调用只读工具。
+14. 用户要「逐字出现/按字拆开/一个字一个字」时：必须用 split_text_overlay_by_char；set_text_animation 只能整层动画，无法实现逐字错峰。
 
 snapshot、layout_reference（若有）由请求附带。"""
 

@@ -252,6 +252,32 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
   {
     type: 'function',
     function: {
+      name: 'split_text_overlay_by_char',
+      description:
+        '将单个文本层按字拆成多层，水平居中排布，逐字错峰出现并带入场动画。用于「一个字一个字出现」「逐字动画」。会删除原层。',
+      parameters: {
+        type: 'object',
+        properties: {
+          overlay_id: {
+            type: 'string',
+            description: '缺省用 selected_overlay_id 或唯一/最近文本层',
+          },
+          stagger_sec: { type: 'number', description: '字与字之间的出现间隔，默认 0.28' },
+          char_duration_sec: { type: 'number', description: '单字层时长，默认沿用原层' },
+          in_type: {
+            type: 'string',
+            enum: ['none', 'fade', 'slide_up', 'slide_down', 'scale', 'pop'],
+            description: '每字入场动画，默认 pop',
+          },
+          in_duration_sec: { type: 'number', description: '入场动画时长，默认 0.35' },
+          center_y: { type: 'number', description: '垂直位置 0–1，0.5=屏幕正中' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'set_text_animation',
       description: '设置文本层入场/出场动画（不含改 content）',
       parameters: {
@@ -419,6 +445,8 @@ export function formatToolCallSummary(name: string, args: Record<string, unknown
       return `⚠ 删除片段 ${args.block_id}`
     case 'set_text_animation':
       return `文本动画 ${args.overlay_id}`
+    case 'split_text_overlay_by_char':
+      return `逐字拆分文本层 ${args.overlay_id ?? '（自动）'}`
     case 'batch_apply_text_style':
       return `批量文本样式 (${Array.isArray(args.overlay_ids) ? args.overlay_ids.length : '全部'})`
     case 'seek_playhead':
