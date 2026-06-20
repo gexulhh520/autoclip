@@ -1,6 +1,4 @@
 import { buildEditorSnapshotFromStore } from './snapshotFromStore'
-import { tryBuildLocalOverlayPlan } from './localOverlayPlans'
-import { isOverlayLayoutFixRequest } from './overlayLayoutFix'
 import { sanitizeToolResultForChat } from './sanitizeToolResultForChat'
 import { executeReadToolCall } from './executeToolCall'
 import { isReadOnlyAgentTool, isWriteAgentTool } from './toolRegistry'
@@ -49,32 +47,6 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
     ...messages,
     { role: 'assistant', content: assistantMessage },
   ]
-
-  const tryLocalPlan = (): PendingAgentPlan | null => {
-    const store = getStore()
-    const snapshot = buildEditorSnapshotFromStore(getStore, input.layoutReference)
-    return tryBuildLocalOverlayPlan({
-      userMessage: trimmed,
-      session: store.session,
-      selectedOverlayId: store.selectedOverlayId,
-      canvasWidth: snapshot.canvas_width,
-      canvasHeight: snapshot.canvas_height,
-    })
-  }
-
-  // 简单排版/随机字体：本地直接出计划，避免 LLM 只读工具链路过长
-  const quickPlan = tryLocalPlan()
-  if (
-    quickPlan &&
-    (isOverlayLayoutFixRequest(trimmed) || /随机|随便|任意/.test(trimmed))
-  ) {
-    const assistantMessage = quickPlan.summary
-    return {
-      assistant_message: assistantMessage,
-      history: buildAssistantHistory(assistantMessage),
-      plan: quickPlan,
-    }
-  }
 
   for (let round = 0; round < MAX_AGENT_ROUNDS; round += 1) {
     const snapshot = buildEditorSnapshotFromStore(getStore, input.layoutReference)
@@ -129,17 +101,9 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
     }
   }
 
-  const fallbackPlan = tryLocalPlan()
-  if (fallbackPlan) {
-    return {
-      assistant_message: fallbackPlan.summary,
-      history: buildAssistantHistory(fallbackPlan.summary),
-      plan: fallbackPlan,
-    }
-  }
-
   return {
-    assistant_message: '操作步骤较多，请拆分需求后重试。',
+    assistant_message:
+      '操作步骤较多（读工具轮次已用尽），请简化描述或拆分后重试。',
     history: messages,
     plan: null,
   }
