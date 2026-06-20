@@ -424,6 +424,15 @@ interface EditSessionState {
     startSec: number,
     options?: { recordHistory?: boolean }
   ) => void
+  resizeOverlayVideoBlock: (
+    blockId: string,
+    patch: {
+      timeline_start_sec?: number
+      trim_in_sec?: number
+      trim_out_sec?: number
+    },
+    options?: { recordHistory?: boolean }
+  ) => void
   moveOverlayToTrack: (overlayId: string, textTrackId: string, options?: { recordHistory?: boolean }) => void
   moveOverlaysToTrack: (overlayIds: string[], textTrackId: string, options?: { recordHistory?: boolean }) => void
   addOverlayElement: (element: Omit<EditOverlayElement, 'id'>) => void
@@ -1923,6 +1932,34 @@ export const useEditSessionStore = create<EditSessionState>()(
           const block = state.session.sequence.find((item) => item.id === blockId)
           if (!block || isMainTrackBlock(block)) return
           block.timeline_start_sec = Math.max(0, startSec)
+          state.dirty = true
+        })
+      },
+
+      resizeOverlayVideoBlock: (blockId, patch, options) => {
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
+        set((state) => {
+          if (!state.session) return
+          const block = state.session.sequence.find((item) => item.id === blockId)
+          if (!block || isMainTrackBlock(block)) return
+          const maxDur =
+            block.duration_sec > 0
+              ? block.duration_sec
+              : Math.max(block.trim.out_sec, 5)
+          if (patch.timeline_start_sec != null) {
+            block.timeline_start_sec = Math.max(0, patch.timeline_start_sec)
+          }
+          if (patch.trim_in_sec != null) {
+            block.trim.in_sec = Math.max(0, Math.min(patch.trim_in_sec, maxDur - 0.1))
+          }
+          if (patch.trim_out_sec != null) {
+            block.trim.out_sec = Math.max(
+              block.trim.in_sec + 0.1,
+              Math.min(patch.trim_out_sec, maxDur)
+            )
+          }
           state.dirty = true
         })
       },

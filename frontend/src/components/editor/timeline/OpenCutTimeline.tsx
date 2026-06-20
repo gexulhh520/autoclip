@@ -144,6 +144,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const addVideoTrack = useEditSessionStore((state) => state.addVideoTrack)
   const moveBlockToVideoTrack = useEditSessionStore((state) => state.moveBlockToVideoTrack)
   const updateBlockTimelineStart = useEditSessionStore((state) => state.updateBlockTimelineStart)
+  const resizeOverlayVideoBlock = useEditSessionStore((state) => state.resizeOverlayVideoBlock)
   const addAudioClipToTimeline = useEditSessionStore((state) => state.addAudioClipToTimeline)
   const updateAudioClip = useEditSessionStore((state) => state.updateAudioClip)
   const moveAudioClipToTrack = useEditSessionStore((state) => state.moveAudioClipToTrack)
@@ -1022,6 +1023,85 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       const blockId = element.source.blockId
       const block = blocks.find((item) => item.id === blockId)
       if (!block) return
+
+      if (!isMainTrackBlock(block)) {
+        const rate = blockPlaybackRate(block)
+        const maxDur = block.duration_sec > 0 ? block.duration_sec : Math.max(block.trim.out_sec, 5)
+        const initialStart = element.startTime
+        const initialDuration = element.duration
+        const initialTrimIn = block.trim.in_sec
+        const initialTrimOut = block.trim.out_sec
+        const initialPatch = {
+          timeline_start_sec: initialStart,
+          trim_in_sec: initialTrimIn,
+          trim_out_sec: initialTrimOut,
+        }
+        const siblings = getTrackSiblingRanges(elementTrack?.elements ?? [], blockId)
+        beginTimelineGesture()
+
+        const applyOverlayResize = (moveEvent: PointerEvent) => {
+          const deltaSec =
+            (moveEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
+          if (side === 'left') {
+            let nextStart = Math.max(0, initialStart + deltaSec)
+            let trimIn = initialTrimIn + (nextStart - initialStart) * rate
+            if (trimIn < 0) {
+              trimIn = 0
+              nextStart = initialStart - initialTrimIn / rate
+            }
+            trimIn = Math.min(trimIn, initialTrimOut - 0.1 * rate)
+            const naturalDuration = Math.max(
+              MIN_TIMELINE_ELEMENT_SEC,
+              (initialTrimOut - trimIn) / rate
+            )
+            if (!canPlaceAtStart(siblings, naturalDuration, nextStart)) {
+              resizeOverlayVideoBlock(blockId, initialPatch, { recordHistory: false })
+              return
+            }
+            resizeOverlayVideoBlock(
+              blockId,
+              {
+                timeline_start_sec: nextStart,
+                trim_in_sec: trimIn,
+                trim_out_sec: initialTrimOut,
+              },
+              { recordHistory: false }
+            )
+          } else {
+            let trimOut = initialTrimOut + deltaSec * rate
+            trimOut = Math.max(
+              initialTrimIn + MIN_TIMELINE_ELEMENT_SEC * rate,
+              Math.min(trimOut, maxDur)
+            )
+            const naturalDuration = Math.max(
+              MIN_TIMELINE_ELEMENT_SEC,
+              (trimOut - initialTrimIn) / rate
+            )
+            if (!canPlaceAtStart(siblings, naturalDuration, initialStart)) {
+              resizeOverlayVideoBlock(blockId, initialPatch, { recordHistory: false })
+              return
+            }
+            resizeOverlayVideoBlock(
+              blockId,
+              {
+                trim_in_sec: initialTrimIn,
+                trim_out_sec: trimOut,
+              },
+              { recordHistory: false }
+            )
+          }
+        }
+
+        const onMove = rafPointerMove(applyOverlayResize)
+        const onUp = () => {
+          window.removeEventListener('pointermove', onMove)
+          window.removeEventListener('pointerup', onUp)
+        }
+        window.addEventListener('pointermove', onMove)
+        window.addEventListener('pointerup', onUp)
+        return
+      }
+
       const maxDur = block.duration_sec > 0 ? block.duration_sec : Math.max(block.trim.out_sec, 5)
       const blockIndex = mainBlocks.findIndex((item) => item.id === blockId)
       const segment = segments[blockIndex]
