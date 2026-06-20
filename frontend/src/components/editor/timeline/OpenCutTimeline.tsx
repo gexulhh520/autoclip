@@ -268,6 +268,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     minZoom,
     playheadSec: sequencePlayheadSec,
     tracksScrollRef,
+    persistenceKey: session?.id ?? null,
   })
 
   const trailingPaddingPx = getTimelinePaddingPx(containerWidth, zoomLevel, minZoom)

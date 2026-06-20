@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { readTimelineZoomLevel, writeTimelineZoomLevel } from '../../../../utils/timelineZoomPrefs'
 import { TIMELINE_CONSTANTS } from '../constants'
 import { zoomToSlider } from '../zoomUtils'
 
@@ -16,6 +17,12 @@ interface UseTimelineZoomOptions {
   playheadSec: number
   tracksScrollRef: RefObject<HTMLDivElement | null>
   initialZoom?: number
+  /** 剪辑 session id：用于记住 Ctrl+滚轮 / 滑条缩放 */
+  persistenceKey?: string | null
+}
+
+function clampZoomLevel(value: number, minZoom: number): number {
+  return Math.max(minZoom, Math.min(TIMELINE_CONSTANTS.ZOOM_MAX, value))
 }
 
 export function useTimelineZoom({
@@ -24,12 +31,23 @@ export function useTimelineZoom({
   playheadSec,
   tracksScrollRef,
   initialZoom,
+  persistenceKey = null,
 }: UseTimelineZoomOptions) {
+  const readPersistedZoom = useCallback(
+    (key: string | null | undefined) => {
+      if (!key) return null
+      const stored = readTimelineZoomLevel(key)
+      return stored == null ? null : clampZoomLevel(stored, minZoom)
+    },
+    [minZoom]
+  )
+
   const [zoomLevel, setZoomLevelRaw] = useState(() =>
-    Math.max(minZoom, Math.min(TIMELINE_CONSTANTS.ZOOM_MAX, initialZoom ?? 1))
+    clampZoomLevel(readPersistedZoom(persistenceKey) ?? initialZoom ?? 1, minZoom)
   )
   const previousZoomRef = useRef(zoomLevel)
   const preZoomScrollLeftRef = useRef(0)
+  const skipPersistRef = useRef(true)
 
   const setZoomLevel = useCallback(
     (updater: number | ((prev: number) => number)) => {
@@ -47,7 +65,7 @@ export function useTimelineZoom({
           typeof zoomLevelOrUpdater === 'function'
             ? zoomLevelOrUpdater(prev)
             : zoomLevelOrUpdater
-        return Math.max(minZoom, Math.min(TIMELINE_CONSTANTS.ZOOM_MAX, nextZoom))
+        return clampZoomLevel(nextZoom, minZoom)
       })
     },
     [minZoom, setZoomLevel]
@@ -67,8 +85,26 @@ export function useTimelineZoom({
   )
 
   useEffect(() => {
+    skipPersistRef.current = true
+    const persisted = readPersistedZoom(persistenceKey)
+    wrappedSetZoomLevel(persisted ?? initialZoom ?? 1)
+  }, [persistenceKey, initialZoom, readPersistedZoom, wrappedSetZoomLevel])
+
+  useEffect(() => {
     wrappedSetZoomLevel((prev) => (prev < minZoom ? minZoom : prev))
   }, [minZoom, wrappedSetZoomLevel])
+
+  useEffect(() => {
+    if (!persistenceKey) return
+    if (skipPersistRef.current) {
+      skipPersistRef.current = false
+      return
+    }
+    const timer = window.setTimeout(() => {
+      writeTimelineZoomLevel(persistenceKey, zoomLevel)
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [persistenceKey, zoomLevel])
 
   useLayoutEffect(() => {
     const previousZoom = previousZoomRef.current
