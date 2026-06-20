@@ -148,6 +148,7 @@ class AgentTaskContext(BaseModel):
     completed_summaries: List[str] = Field(default_factory=list)
     current_task: Optional[AgentTaskItemRef] = None
     pending_tasks: List[AgentTaskItemRef] = Field(default_factory=list)
+    known_overlays: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class AgentChatRequest(BaseModel):

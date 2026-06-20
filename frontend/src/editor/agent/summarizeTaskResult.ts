@@ -19,6 +19,10 @@ function summarizeToolResult(call: AgentToolCall, result: AgentToolResult): stri
       const layout = call.arguments.layout === 'vertical' ? '竖排' : '横排'
       return `${label} → ${layout} ${count ?? '?'} 字`
     }
+    case 'split_text_overlays_by_char': {
+      const batch = result.data as Record<string, unknown> | undefined
+      return `${label} → 成功 ${batch?.succeeded ?? 0}，跳过 ${batch?.skipped ?? 0}，失败 ${batch?.failed ?? 0}`
+    }
     case 'add_text_overlay':
       return `${label} → 已添加`
     case 'update_overlay_params':

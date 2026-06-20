@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { EditSession } from '../../types/editSession'
 import {
   buildStaggeredCharOverlays,
+  listSplittableTextOverlayIds,
+  resolveSplitTextOverlayId,
   splitTextContentToChars,
 } from './staggeredCharText'
 
@@ -74,5 +76,23 @@ describe('staggeredCharText', () => {
       1920
     )
     expect(overlays).toHaveLength(0)
+  })
+
+  it('returns null for invalid explicit overlay id', () => {
+    const session = {
+      overlay_elements: [{ id: 'real-id', type: 'text', params: { content: '我爱你' } }],
+    } as import('../../types/editSession').EditSession
+    expect(resolveSplitTextOverlayId(session, 'fake-id', null)).toBeNull()
+    expect(resolveSplitTextOverlayId(session, 'real-id', null)).toBe('real-id')
+  })
+
+  it('lists splittable overlay ids', () => {
+    const session = {
+      overlay_elements: [
+        { id: 'a', type: 'text', params: { content: '我' } },
+        { id: 'b', type: 'text', params: { content: '我爱你' } },
+      ],
+    } as import('../../types/editSession').EditSession
+    expect(listSplittableTextOverlayIds(session)).toEqual(['b'])
   })
 })

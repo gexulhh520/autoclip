@@ -33,7 +33,14 @@ import {
   validateMotionType,
   validateOverlayId,
 } from './packagingTools'
-import { resolveSplitTextOverlayId } from './staggeredCharText'
+import {
+  describeSplitTextOverlayFailure,
+  resolveSplitTextOverlayId,
+} from './staggeredCharText'
+import {
+  buildSplitTextOverlaysBatchResult,
+  resolveBatchSplitOverlayIds,
+} from './splitTextOverlaysByChar'
 import { editApi } from '../../services/editApi'
 import type { AgentToolCall, AgentToolResult } from '../../types/editorAgent'
 import type { AudioClipElement } from '../../types/editSession'
@@ -468,7 +475,11 @@ export async function executeWriteToolCall(
           store.selectedOverlayId
         )
         if (!overlayId) {
-          return { ok: false, tool_name: call.name, error: '无法确定要拆分的文本层 overlay_id' }
+          return {
+            ok: false,
+            tool_name: call.name,
+            error: describeSplitTextOverlayFailure(session, String(call.arguments.overlay_id ?? '').trim() || null),
+          }
         }
         const createdIds = store.splitTextOverlayByChar(
           overlayId,
@@ -487,7 +498,7 @@ export async function executeWriteToolCall(
           return {
             ok: false,
             tool_name: call.name,
-            error: '文本为空或文本层不存在，无法逐字拆分',
+            error: describeSplitTextOverlayFailure(session, overlayId),
           }
         }
         return {
@@ -498,6 +509,49 @@ export async function executeWriteToolCall(
             created_overlay_ids: createdIds,
             char_count: createdIds.length,
           },
+        }
+      }
+      case 'split_text_overlays_by_char': {
+        const overlayIds = resolveBatchSplitOverlayIds(
+          session,
+          call.arguments.overlay_ids,
+          store.selectedOverlayId
+        )
+        if (overlayIds.length === 0) {
+          return {
+            ok: false,
+            tool_name: call.name,
+            error: describeSplitTextOverlayFailure(session, null),
+          }
+        }
+        const splitOptions = {
+          layout: call.arguments.layout as 'horizontal' | 'vertical' | undefined,
+          stagger_sec: call.arguments.stagger_sec as number | undefined,
+          char_duration_sec: call.arguments.char_duration_sec as number | undefined,
+          in_type: call.arguments.in_type,
+          in_duration_sec: call.arguments.in_duration_sec as number | undefined,
+          center_x: call.arguments.center_x as number | undefined,
+          center_y: call.arguments.center_y as number | undefined,
+        }
+        const batch = buildSplitTextOverlaysBatchResult(
+          () => getStore().session,
+          overlayIds,
+          (overlayId) =>
+            store.splitTextOverlayByChar(overlayId, splitOptions, { recordHistory: false })
+        )
+        if (batch.succeeded === 0 && batch.skipped === 0) {
+          const firstError = batch.items.find((item) => !item.ok)?.error
+          return {
+            ok: false,
+            tool_name: call.name,
+            error: firstError ?? describeSplitTextOverlayFailure(session, null),
+            data: batch,
+          }
+        }
+        return {
+          ok: true,
+          tool_name: call.name,
+          data: batch,
         }
       }
       case 'set_text_animation': {

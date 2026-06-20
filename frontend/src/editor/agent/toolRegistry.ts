@@ -291,6 +291,37 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
   {
     type: 'function',
     function: {
+      name: 'split_text_overlays_by_char',
+      description:
+        '批量将多个文本层按字拆分（竖排/横排）。overlay_ids 必须来自 snapshot 或 known_overlays；缺省=所有可拆分(≥2字)文本层。一次调用处理多层，优于多次 split_text_overlay_by_char。',
+      parameters: {
+        type: 'object',
+        properties: {
+          overlay_ids: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '要拆分的 overlay_id 列表；缺省自动选所有≥2字的文本层',
+          },
+          layout: {
+            type: 'string',
+            enum: ['horizontal', 'vertical'],
+          },
+          stagger_sec: { type: 'number' },
+          char_duration_sec: { type: 'number' },
+          in_type: {
+            type: 'string',
+            enum: ['none', 'fade', 'slide_up', 'slide_down', 'scale', 'pop'],
+          },
+          in_duration_sec: { type: 'number' },
+          center_x: { type: 'number' },
+          center_y: { type: 'number' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'set_text_animation',
       description: '设置文本层入场/出场动画（不含改 content）',
       parameters: {
@@ -508,6 +539,10 @@ export function formatToolCallSummary(name: string, args: Record<string, unknown
       return `文本动画 ${args.overlay_id}`
     case 'split_text_overlay_by_char':
       return `逐字拆分文本层 ${args.overlay_id ?? '（自动）'}${args.layout === 'vertical' ? ' · 竖排' : ''}`
+    case 'split_text_overlays_by_char': {
+      const count = Array.isArray(args.overlay_ids) ? args.overlay_ids.length : '全部可拆分'
+      return `批量逐字拆分 (${count})${args.layout === 'vertical' ? ' · 竖排' : ''}`
+    }
     case 'batch_apply_text_style':
       return `批量文本样式 (${Array.isArray(args.overlay_ids) ? args.overlay_ids.length : '全部'})`
     case 'seek_playhead':

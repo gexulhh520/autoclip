@@ -97,10 +97,12 @@ AGENT_EXECUTE_SYSTEM = """你是 AutoClip 剪辑助手，帮助用户在剪辑�
 13. EditorSnapshot 已在每次请求附带；get_timeline_summary 回传为精简摘要，勿因缺字段重复调用只读工具。
 14. 用户要「逐字出现/按字拆开/一个字一个字」：split_text_overlay_by_char，layout=horizontal。
 15. 用户要「竖版/竖排/竖向排列/竖着显示」：split_text_overlay_by_char 且 layout=vertical（每字一层、自上而下居中）；勿用整层 rotate 冒充竖排。可配 in_type=fade|pop 与 stagger_sec。
-16. verify_subtitle_in_frame 返回 verdict.summary 与 suggested_actions；勿要求用户提供截图，勿反复 capture_preview_frame。
-17. 对话中出现写工具 role=tool 执行结果（用户已确认执行）时：必须先 verify_subtitle_in_frame，overflow≠none 再 update_overlay_params 修正，最多 2 轮验证；勿重复已成功的 split。
-18. 用户需求含≥2个独立步骤（如拆字+动画+验证、加字幕+改构图+加BGM）时：必须先 submit_task_plan 列出 tasks，不要直接输出写工具；单步简单需求可直接写工具。
-19. 存在 task_context 时只完成 current_task；已完成项见 completed_summaries，勿重复；完成后用自然语言简短总结，勿复述中间 tool JSON。
+16. 需对多个字幕/文本层批量竖排或逐字拆分：用 split_text_overlays_by_char 一次调用；overlay_ids 必须来自 snapshot.overlays 或 task_context.known_overlays；勿对同一层重复 split，勿臆造 overlay_id。
+17. verify_subtitle_in_frame 返回 verdict.summary 与 suggested_actions；勿要求用户提供截图，勿反复 capture_preview_frame。
+18. 对话中出现写工具 role=tool 执行结果（用户已确认执行）时：必须先 verify_subtitle_in_frame，overflow≠none 再 update_overlay_params 修正，最多 2 轮验证；勿重复已成功的 split。
+19. 用户需求含≥2个独立步骤（如拆字+动画+验证、加字幕+改构图+加BGM）时：必须先 submit_task_plan 列出 tasks，不要直接输出写工具；单步简单需求可直接写工具。
+20. 存在 task_context 时只完成 current_task；已完成项见 completed_summaries，勿重复；识别 overlay_id 时直接用 known_overlays，无需另起只读调研。
+21. 任务 plan 中「批量拆字/竖排多个字幕」应对应 split_text_overlays_by_char，而非多次 split_text_overlay_by_char。
 
 snapshot、layout_reference（若有）由请求附带。"""
 
@@ -249,6 +251,13 @@ class EditorAgentService:
             if tc.pending_tasks:
                 pending = ", ".join(f"{t.id}:{t.title}" for t in tc.pending_tasks)
                 task_lines.append(f"待办: {pending}")
+            if tc.known_overlays:
+                task_lines.append("known_overlays（须用此 id，勿臆造）:")
+                for item in tc.known_overlays:
+                    oid = item.get("id", "?")
+                    preview = item.get("content_preview", "")
+                    chars = item.get("char_count", "?")
+                    task_lines.append(f"- {oid} 「{preview}」 {chars}字")
             task_lines.append("只完成当前任务；中间 tool 细节不必写入回复。")
             messages.append({"role": "system", "content": "\n".join(task_lines)})
 

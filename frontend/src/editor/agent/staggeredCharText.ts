@@ -30,19 +30,93 @@ export function splitTextContentToChars(content: string): string[] {
   return [...content.replace(/\s+/g, '')]
 }
 
+export interface TextOverlayPreview {
+  id: string
+  content_preview: string
+  char_count: number
+}
+
+export function listTextOverlayPreviews(session: EditSession): TextOverlayPreview[] {
+  return (session.overlay_elements ?? [])
+    .filter((item) => item.type === 'text' && !item.hidden)
+    .map((item) => {
+      const content = readStringParam(item.params, 'content', '')
+      const chars = splitTextContentToChars(content)
+      return {
+        id: item.id,
+        content_preview: content.slice(0, 24),
+        char_count: chars.length,
+      }
+    })
+}
+
+export function listSplittableTextOverlayIds(session: EditSession): string[] {
+  return listTextOverlayPreviews(session)
+    .filter((item) => item.char_count >= 2)
+    .map((item) => item.id)
+}
+
 export function resolveSplitTextOverlayId(
   session: EditSession,
   overlayIdInput: unknown,
   selectedOverlayId: string | null
 ): string | null {
   const explicit = String(overlayIdInput ?? '').trim()
-  if (explicit) return explicit
+  if (explicit) {
+    return session.overlay_elements?.some((item) => item.id === explicit) ? explicit : null
+  }
   if (selectedOverlayId && session.overlay_elements?.some((item) => item.id === selectedOverlayId)) {
     return selectedOverlayId
   }
+  const splittable = listSplittableTextOverlayIds(session)
+  if (splittable.length === 1) return splittable[0]!
   const overlays = session.overlay_elements ?? []
   if (overlays.length === 1) return overlays[0]!.id
   return overlays[overlays.length - 1]?.id ?? null
+}
+
+export function resolveSplitTextOverlayIds(
+  session: EditSession,
+  overlayIdsInput: unknown,
+  selectedOverlayId: string | null
+): string[] {
+  if (Array.isArray(overlayIdsInput)) {
+    const ids = overlayIdsInput
+      .map((item) => String(item ?? '').trim())
+      .filter(Boolean)
+    const unique = [...new Set(ids)]
+    return unique.filter((id) => session.overlay_elements?.some((item) => item.id === id))
+  }
+  const single = resolveSplitTextOverlayId(session, overlayIdsInput, selectedOverlayId)
+  if (single) return [single]
+  return listSplittableTextOverlayIds(session)
+}
+
+export function describeSplitTextOverlayFailure(
+  session: EditSession,
+  overlayId: string | null
+): string {
+  const previews = listTextOverlayPreviews(session)
+  const available = previews
+    .map((item) => `${item.id}「${item.content_preview}」(${item.char_count}字)`)
+    .join('；')
+
+  if (overlayId) {
+    const target = previews.find((item) => item.id === overlayId)
+    if (!target) {
+      return `文本层 ${overlayId} 不存在。${available ? `当前文本层: ${available}` : '当前无文本层'}`
+    }
+    if (target.char_count === 0) {
+      return `文本层 ${overlayId} 内容为空，无法拆分`
+    }
+    if (target.char_count === 1) {
+      return `文本层 ${overlayId} 已是单字「${target.content_preview}」，无需再 split`
+    }
+  }
+
+  return available
+    ? `无法逐字拆分。可拆分的文本层: ${available}`
+    : '无法逐字拆分：当前没有可拆分的文本层'
 }
 
 function resolveStaggeredCharLayout(value: unknown): StaggeredCharLayout {

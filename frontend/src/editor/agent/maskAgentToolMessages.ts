@@ -53,6 +53,8 @@ function summarizeMaskedTool(toolName: string, content: string): string {
         const summary = verdict?.summary ?? ''
         return `${toolName}: overflow=${overflow} ${String(summary).slice(0, 60)}`
       }
+      case 'split_text_overlays_by_char':
+        return `${toolName}: ok=${data?.succeeded ?? '?'} fail=${data?.failed ?? '?'} skip=${data?.skipped ?? '?'}`
       default:
         return `${toolName}: ok`
     }

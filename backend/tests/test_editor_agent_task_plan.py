@@ -19,3 +19,20 @@ def test_validate_tool_calls_accepts_submit_task_plan():
     )
     assert calls[0].name == "submit_task_plan"
     assert len(calls[0].arguments["tasks"]) == 2
+
+
+def test_validate_tool_calls_accepts_split_text_overlays_by_char():
+    calls = validate_tool_calls(
+        [
+            {
+                "name": "split_text_overlays_by_char",
+                "arguments": {
+                    "overlay_ids": ["o1", "o2"],
+                    "layout": "vertical",
+                    "in_type": "fade",
+                },
+            }
+        ]
+    )
+    assert calls[0].name == "split_text_overlays_by_char"
+    assert calls[0].arguments["layout"] == "vertical"

@@ -155,6 +155,26 @@ export function compactToolResultData(
       return { ...result, data: compactCapturePreview(data) }
     case 'verify_subtitle_in_frame':
       return result
+    case 'split_text_overlays_by_char': {
+      const data = result.data as Record<string, unknown> | undefined
+      return {
+        ...result,
+        data: {
+          succeeded: data?.succeeded,
+          failed: data?.failed,
+          skipped: data?.skipped,
+          items: Array.isArray(data?.items)
+            ? (data.items as Array<Record<string, unknown>>).map((item) => ({
+                source_overlay_id: item.source_overlay_id,
+                ok: item.ok,
+                skipped: item.skipped,
+                char_count: item.char_count,
+                error: item.error,
+              }))
+            : [],
+        },
+      }
+    }
     default:
       return result
   }

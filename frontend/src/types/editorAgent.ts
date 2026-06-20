@@ -161,6 +161,7 @@ export interface AgentTaskContext {
   completed_summaries?: string[]
   current_task?: Pick<AgentTaskItem, 'id' | 'title' | 'hint'>
   pending_tasks?: Pick<AgentTaskItem, 'id' | 'title'>[]
+  known_overlays?: Array<{ id: string; content_preview: string; char_count: number }>
 }
 
 export interface AgentChatRequest {

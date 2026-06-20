@@ -1,10 +1,12 @@
 import { formatAgentDebugSummary } from './formatAgentDebug'
+import { listTextOverlayPreviews } from './staggeredCharText'
 import {
   confirmExecutePlan,
   MAX_TASK_EXEC_ROUNDS,
   runAgentChatLoop,
   type RunAgentChatResult,
 } from './runAgentChat'
+import { useEditSessionStore } from '../../stores/useEditSessionStore'
 import type {
   AgentTaskPlan,
   LayoutAnalysis,
@@ -69,6 +71,9 @@ export async function executeAgentTaskPlan(
       title: task.title,
     }))
 
+    const session = useEditSessionStore.getState().session
+    const knownOverlays = session ? listTextOverlayPreviews(session) : []
+
     const taskResult: RunAgentChatResult = await runAgentChatLoop(
       {
         projectId: input.projectId,
@@ -90,6 +95,7 @@ export async function executeAgentTaskPlan(
             hint: current.hint,
           },
           pending_tasks: pendingTasks,
+          known_overlays: knownOverlays,
         },
       }
     )

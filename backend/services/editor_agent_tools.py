@@ -308,6 +308,32 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "split_text_overlays_by_char",
+            "description": "批量按字拆分多个文本层。overlay_ids 须来自 snapshot/known_overlays；缺省=所有可拆分文本层。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "overlay_ids": {"type": "array", "items": {"type": "string"}},
+                    "layout": {
+                        "type": "string",
+                        "enum": ["horizontal", "vertical"],
+                    },
+                    "stagger_sec": {"type": "number"},
+                    "char_duration_sec": {"type": "number"},
+                    "in_type": {
+                        "type": "string",
+                        "enum": ["none", "fade", "slide_up", "slide_down", "scale", "pop"],
+                    },
+                    "in_duration_sec": {"type": "number"},
+                    "center_x": {"type": "number"},
+                    "center_y": {"type": "number"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "batch_apply_text_style",
             "description": "批量统一文本层样式（不含 content）",
             "parameters": {
