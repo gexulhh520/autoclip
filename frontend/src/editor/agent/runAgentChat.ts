@@ -1,3 +1,4 @@
+import { buildEditorSnapshot } from './buildEditorSnapshot'
 import { sanitizeToolResultForChat } from './sanitizeToolResultForChat'
 import { executeReadToolCall } from './executeToolCall'
 import { isReadOnlyAgentTool, isWriteAgentTool } from './toolRegistry'
