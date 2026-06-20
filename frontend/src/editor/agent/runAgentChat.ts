@@ -300,4 +300,4 @@ export function confirmExecutePlan(calls: AgentToolCall[], projectId: string) {
   return useEditSessionStore.getState().executeAgentToolCalls(calls, { projectId })
 }
 
-export { MAX_TASK_EXEC_ROUNDS, runAgentChatLoop }
+export { MAX_TASK_EXEC_ROUNDS }
