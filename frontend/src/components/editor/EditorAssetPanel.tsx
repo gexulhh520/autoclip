@@ -139,7 +139,6 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
       return
     }
     if (isTauriApp()) {
-      setImportingVideo(true)
       try {
         const { open } = await import('@tauri-apps/plugin-dialog')
         const selected = await open({
@@ -147,19 +146,29 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
           filters: [{ name: 'Video', extensions: VIDEO_IMPORT_EXTENSIONS }],
         })
         if (!selected || Array.isArray(selected)) return
-        const result = await importMediaFromPath(projectId, selected)
-        const name = selected.split(/[/\\]/).pop() || selected
-        message.success(
-          formatVideoImportSuccessMessage(result.title || name, result.import_method)
-        )
+
+        setImportingVideo(true)
+        try {
+          const result = await importMediaFromPath(projectId, selected)
+          const name = selected.split(/[/\\]/).pop() || selected
+          message.success(
+            formatVideoImportSuccessMessage(result.title || name, result.import_method)
+          )
+        } catch (error: unknown) {
+          const err = error as { userMessage?: string }
+          message.error(
+            err.userMessage ||
+              (error instanceof Error ? error.message : '视频导入失败')
+          )
+        } finally {
+          setImportingVideo(false)
+        }
       } catch (error: unknown) {
         const err = error as { userMessage?: string }
         message.error(
           err.userMessage ||
-            (error instanceof Error ? error.message : '视频导入失败')
+            (error instanceof Error ? error.message : '无法打开文件选择器')
         )
-      } finally {
-        setImportingVideo(false)
       }
       return
     }

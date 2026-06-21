@@ -695,9 +695,9 @@ class EditSessionService:
         title: str,
         insert_index: Optional[int] = None,
     ) -> tuple[EditSession, EditBlock]:
-        info = VideoProcessor.get_video_info(media_file)
-        duration_sec = float(info.get("duration") or 0.0)
+        duration_sec = VideoProcessor.probe_video_duration_sec(media_file)
         if duration_sec <= 0:
+            logger.warning("导入视频时长探测失败，使用占位时长: %s", media_file)
             duration_sec = 0.1
 
         safe_title = (title or "导入视频").strip()[:64] or "导入视频"
@@ -763,6 +763,11 @@ class EditSessionService:
         import_id = f"import-{uuid.uuid4().hex[:12]}"
         dest = media_dir / f"{import_id}{suffix}"
         media_file, link_method = self._prepare_import_video_source(source, dest)
+        logger.info(
+            "路径导入链接完成 method=%s source=%s",
+            link_method,
+            source.name,
+        )
 
         session, block = self._finalize_imported_video(
             project_id,

@@ -773,6 +773,64 @@ class VideoProcessor:
             return False
     
     @staticmethod
+    def _run_ffprobe_duration(cmd: List[str], *, timeout_sec: float) -> float:
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='ignore',
+                timeout=timeout_sec,
+            )
+            if result.returncode != 0:
+                return 0.0
+            raw = (result.stdout or '').strip()
+            if not raw:
+                return 0.0
+            val = float(raw.splitlines()[0])
+            return val if val > 0 else 0.0
+        except (subprocess.TimeoutExpired, ValueError, OSError) as exc:
+            logger.debug("ffprobe 时长探测失败: %s", exc)
+            return 0.0
+
+    @staticmethod
+    def probe_video_duration_sec(
+        video_path: Path,
+        *,
+        fast_timeout_sec: float = 6.0,
+        fallback_timeout_sec: float = 20.0,
+    ) -> float:
+        """快速探测视频时长（秒），避免解析全部 stream 导致长片导入卡住。"""
+        ffprobe_bin = get_ffprobe_path()
+        path_str = str(video_path)
+
+        fast_cmd = [
+            ffprobe_bin,
+            '-v', 'error',
+            '-probesize', '65536',
+            '-analyzeduration', '500000',
+            '-show_entries', 'format=duration',
+            '-of', 'default=noprint_wrappers=1:nokey=1',
+            path_str,
+        ]
+        duration = VideoProcessor._run_ffprobe_duration(fast_cmd, timeout_sec=fast_timeout_sec)
+        if duration > 0:
+            return duration
+
+        fallback_cmd = [
+            ffprobe_bin,
+            '-v', 'error',
+            '-show_entries', 'format=duration',
+            '-of', 'default=noprint_wrappers=1:nokey=1',
+            path_str,
+        ]
+        return VideoProcessor._run_ffprobe_duration(
+            fallback_cmd,
+            timeout_sec=fallback_timeout_sec,
+        )
+
+    @staticmethod
     def get_video_info(video_path: Path) -> Dict:
         """
         获取视频信息

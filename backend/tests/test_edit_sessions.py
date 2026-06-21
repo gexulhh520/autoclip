@@ -563,8 +563,8 @@ def test_import_media_endpoint(tmp_path, monkeypatch):
         lambda _pid: project_dir,
     )
     monkeypatch.setattr(
-        "backend.utils.video_processor.VideoProcessor.get_video_info",
-        lambda _path: {"duration": 12.5},
+        "backend.utils.video_processor.VideoProcessor.probe_video_duration_sec",
+        lambda _path, **_kwargs: 12.5,
     )
 
     client = TestClient(app)
@@ -645,8 +645,8 @@ def test_import_media_path_endpoint(tmp_path, monkeypatch):
         lambda _pid: project_dir,
     )
     monkeypatch.setattr(
-        "backend.utils.video_processor.VideoProcessor.get_video_info",
-        lambda _path: {"duration": 42.0},
+        "backend.utils.video_processor.VideoProcessor.probe_video_duration_sec",
+        lambda _path, **_kwargs: 42.0,
     )
 
     client = TestClient(app)
@@ -732,8 +732,8 @@ def test_import_media_path_reference_when_link_fails(tmp_path, monkeypatch):
         lambda _pid: project_dir,
     )
     monkeypatch.setattr(
-        "backend.utils.video_processor.VideoProcessor.get_video_info",
-        lambda _path: {"duration": 12.0},
+        "backend.utils.video_processor.VideoProcessor.probe_video_duration_sec",
+        lambda _path, **_kwargs: 12.0,
     )
     monkeypatch.setattr(
         "backend.services.edit_session_service.os.link",
