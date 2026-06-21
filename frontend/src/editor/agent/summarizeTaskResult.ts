@@ -39,6 +39,8 @@ function summarizeToolResult(call: AgentToolCall, result: AgentToolResult): stri
       return `${label} → 已更新`
     case 'set_text_animation':
       return `${label} → 动画已设置`
+    case 'set_visual_filter':
+      return `${label} → ${data?.label ?? data?.visual_filter ?? '?'}`
     case 'verify_subtitle_in_frame': {
       const verdict = data?.verdict as Record<string, unknown> | undefined
       const overflow = verdict?.overflow ?? '?'

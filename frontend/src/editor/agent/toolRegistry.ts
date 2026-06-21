@@ -205,6 +205,25 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
   {
     type: 'function',
     function: {
+      name: 'set_visual_filter',
+      description:
+        '设置整片视觉滤镜（预览与导出全局生效，非单片段）。高对比=mono_contrast；柔和单色=mono_soft；冷色=mono_cool；暖色=mono_warm；取消=none。勿用 set_video_transform。',
+      parameters: {
+        type: 'object',
+        properties: {
+          visual_filter: {
+            type: 'string',
+            enum: ['none', 'mono_soft', 'mono_contrast', 'mono_cool', 'mono_warm'],
+            description: '也可用中文：高对比、柔和单色、冷色克制、暖色克制',
+          },
+        },
+        required: ['visual_filter'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'update_block_trim',
       description: '更新片段裁切入出点（秒，相对源媒体）',
       parameters: {
@@ -655,6 +674,8 @@ export function formatToolCallSummary(name: string, args: Record<string, unknown
       return `更新文本层 ${args.overlay_id}`
     case 'set_video_transform':
       return `调整视频 ${args.block_id} 构图`
+    case 'set_visual_filter':
+      return `设置滤镜 ${String(args.visual_filter ?? '')}`
     case 'update_block_trim':
       return `裁切片段 ${args.block_id}`
     case 'move_block_to_video_track':

@@ -40,6 +40,7 @@ import {
 } from './addCaptionsForBlocks'
 import { executeApplyCaptionTemplate } from './applyCaptionTemplate'
 import { executeClearAllCaptions, executeClearBlockCaptions } from './clearCaptions'
+import { executeSetVisualFilter } from './setVisualFilter'
 import {
   describeSplitTextOverlayFailure,
   resolveBatchSplitPlacement,
@@ -553,6 +554,13 @@ export async function executeWriteToolCall(
           { recordHistory }
         )
         return { ok: true, tool_name: call.name, data: { block_id: blockId } }
+      }
+      case 'set_visual_filter': {
+        const result = executeSetVisualFilter(getStore, call.arguments.visual_filter)
+        if ('error' in result) {
+          return { ok: false, tool_name: call.name, error: result.error }
+        }
+        return { ok: true, tool_name: call.name, data: result }
       }
       case 'update_block_trim': {
         const blockId = str(call.arguments.block_id)

@@ -2,6 +2,13 @@
 from backend.services.editor_agent_tools import validate_tool_calls
 
 
+def test_validate_tool_calls_accepts_set_visual_filter():
+    calls = validate_tool_calls(
+        [{"name": "set_visual_filter", "arguments": {"visual_filter": "mono_contrast"}}]
+    )
+    assert calls[0].arguments["visual_filter"] == "mono_contrast"
+
+
 def test_validate_tool_calls_accepts_clear_caption_tools():
     calls = validate_tool_calls(
         [

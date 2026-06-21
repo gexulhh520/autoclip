@@ -38,6 +38,7 @@ export interface EditorSnapshot {
   canvas_width: number
   canvas_height: number
   fps: number
+  visual_filter: string
   draft_texts: string[]
   blocks: EditorSnapshotBlockSummary[]
   overlays: EditorSnapshotOverlaySummary[]
@@ -100,6 +101,7 @@ export function buildEditorSnapshot(input: {
     canvas_width: dims.width,
     canvas_height: dims.height,
     fps: session.export_settings.fps,
+    visual_filter: session.export_settings.visual_filter ?? 'none',
     draft_texts: collectDraftTexts(session),
     blocks: (session.sequence ?? []).map((block) => {
       const content = (block.overlay?.content ?? []).join(' ').trim()

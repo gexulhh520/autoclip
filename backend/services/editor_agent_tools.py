@@ -198,6 +198,29 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "set_visual_filter",
+            "description": "设置整片视觉滤镜（全局）。高对比=mono_contrast。勿用 set_video_transform。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "visual_filter": {
+                        "type": "string",
+                        "enum": [
+                            "none",
+                            "mono_soft",
+                            "mono_contrast",
+                            "mono_cool",
+                            "mono_warm",
+                        ],
+                    },
+                },
+                "required": ["visual_filter"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "update_block_trim",
             "description": "更新片段裁切入出点",
             "parameters": {
