@@ -612,6 +612,35 @@ export async function executeWriteToolCall(
         )
         return { ok: true, tool_name: call.name, data: { block_id: blockId } }
       }
+      case 'extract_moment_clips': {
+        const blockId = str(call.arguments.block_id)
+        const rawMatches = call.arguments.matches
+        if (!Array.isArray(rawMatches) || rawMatches.length === 0) {
+          return { ok: false, tool_name: call.name, error: 'matches 不能为空' }
+        }
+        const matches = rawMatches.map((item) => ({
+          start_sec: num((item as Record<string, unknown>).start_sec, 0),
+          end_sec: num((item as Record<string, unknown>).end_sec, 0),
+          timeline_start_sec: num((item as Record<string, unknown>).timeline_start_sec, 0),
+          timeline_end_sec: num((item as Record<string, unknown>).timeline_end_sec, 0),
+          trim_in_sec: num((item as Record<string, unknown>).trim_in_sec, 0),
+          trim_out_sec: num((item as Record<string, unknown>).trim_out_sec, 0),
+          text_preview: str((item as Record<string, unknown>).text_preview),
+          match_score: num((item as Record<string, unknown>).match_score, 0),
+          match_reason: str((item as Record<string, unknown>).match_reason),
+          transcript_source: str((item as Record<string, unknown>).transcript_source),
+        }))
+        const createdBlockIds = store.extractBlocksFromMoments(blockId, matches, { recordHistory })
+        return {
+          ok: true,
+          tool_name: call.name,
+          data: {
+            source_block_id: blockId,
+            created_block_ids: createdBlockIds,
+            created_count: createdBlockIds.length,
+          },
+        }
+      }
       case 'move_block_to_video_track': {
         const blockId = str(call.arguments.block_id)
         const trackId = str(call.arguments.video_track_id)

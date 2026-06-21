@@ -1,4 +1,8 @@
-import { create } from 'zustand'
+import {
+  buildMomentExtractSpecs,
+  cloneBlockForMomentExtract,
+  insertMomentExtractBlocks,
+} from '../editor/agent/extractMomentsToTimeline'
 import { immer } from 'zustand/middleware/immer'
 import { nanoid } from 'nanoid'
 import editApi from '../services/editApi'
@@ -351,6 +355,11 @@ interface EditSessionState {
   pasteSelection: (options?: { startSec?: number; insertAfterBlockId?: string }) => void
   clipboardHasContent: () => boolean
   duplicateBlock: (blockId: string) => void
+  extractBlocksFromMoments: (
+    sourceBlockId: string,
+    matches: import('../types/editorAgent').MatchedMoment[],
+    options?: { recordHistory?: boolean }
+  ) => string[]
   duplicateOverlay: (overlayId: string, startSec?: number) => void
   duplicateAudioClip: (clipId: string, startSec?: number) => void
   setSnapEnabled: (enabled: boolean) => void
@@ -1576,6 +1585,29 @@ export const useEditSessionStore = create<EditSessionState>()(
           state.selectedBlockIds = [copy.id]
           state.dirty = true
         })
+      },
+
+      extractBlocksFromMoments: (sourceBlockId, matches, options) => {
+        const { session } = get()
+        if (!session) return []
+        const sourceBlock = session.sequence.find((item) => item.id === sourceBlockId)
+        if (!sourceBlock) return []
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
+        const specs = buildMomentExtractSpecs(sourceBlock, matches)
+        const newBlocks = specs.map((spec) => cloneBlockForMomentExtract(sourceBlock, spec))
+        let createdIds: string[] = []
+        set((state) => {
+          if (!state.session) return
+          createdIds = insertMomentExtractBlocks(state.session, sourceBlockId, newBlocks)
+          if (createdIds.length > 0) {
+            state.selectedBlockId = createdIds[0]!
+            state.selectedBlockIds = [createdIds[0]!]
+          }
+          state.dirty = true
+        })
+        return createdIds
       },
 
       duplicateOverlay: (overlayId, startSec) => {

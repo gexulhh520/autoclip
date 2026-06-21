@@ -1,10 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { isMomentSearchRequest } from './momentSearchFastPath'
+import {
+  hasCutIntent,
+  hasExtractCachedIntent,
+  isMomentSearchRequest,
+} from './momentSearchFastPath'
 
 describe('momentSearchFastPath', () => {
-  it('routes cut requests to full agent loop', () => {
+  it('routes cut requests to search+extract path', () => {
     expect(isMomentSearchRequest('找到视频中所有打斗的片段')).toBe(true)
     expect(isMomentSearchRequest('找到所有打斗场景并切割出来')).toBe(false)
+    expect(hasCutIntent('找到所有打斗场景并切割出来')).toBe(true)
+  })
+
+  it('detects follow-up extract from cached search', () => {
+    expect(hasExtractCachedIntent('按检索结果裁剪到时间线')).toBe(true)
+    expect(isMomentSearchRequest('按检索结果裁剪到时间线')).toBe(false)
   })
 
   it('detects moment search requests', () => {

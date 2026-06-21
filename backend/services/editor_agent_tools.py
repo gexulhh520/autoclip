@@ -365,6 +365,24 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "extract_moment_clips",
+            "description": "将 find_block_moments 的 matches 批量裁成独立时间线片段",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "block_id": {"type": "string"},
+                    "matches": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                    },
+                },
+                "required": ["block_id", "matches"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "split_block_at_playhead",
             "description": "在播放头位置切分选中目标",
             "parameters": {"type": "object", "properties": {}},

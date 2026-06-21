@@ -368,6 +368,26 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
   {
     type: 'function',
     function: {
+      name: 'extract_moment_clips',
+      description:
+        '将 find_block_moments 返回的 matches 批量裁成独立时间线片段（插入源片段之后）。',
+      parameters: {
+        type: 'object',
+        properties: {
+          block_id: { type: 'string', description: '源片段 block_id' },
+          matches: {
+            type: 'array',
+            description: 'find_block_moments 返回的 matches 数组',
+            items: { type: 'object' },
+          },
+        },
+        required: ['block_id', 'matches'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'split_block_at_playhead',
       description: '在播放头位置切分当前选中的视频/文本/音频（需先 seek_playhead）',
       parameters: { type: 'object', properties: {} },
@@ -671,6 +691,7 @@ export const BATCH_AUTO_WRITE_TOOLS_FRONTEND = new Set([
   'split_text_overlay_by_char',
   'split_text_overlays_by_char',
   'batch_apply_text_style',
+  'extract_moment_clips',
 ])
 
 export const READ_ONLY_AGENT_TOOLS = new Set([
@@ -738,6 +759,10 @@ export function formatToolCallSummary(name: string, args: Record<string, unknown
       return `设置滤镜 ${String(args.visual_filter ?? '')}`
     case 'update_block_trim':
       return `裁切片段 ${args.block_id}`
+    case 'extract_moment_clips': {
+      const count = Array.isArray(args.matches) ? args.matches.length : 0
+      return `批量裁出 ${count} 段到时间线（${args.block_id}）`
+    }
     case 'move_block_to_video_track':
       return `移动片段 ${args.block_id} → 轨 ${args.video_track_id}`
     case 'add_clips_to_timeline':
