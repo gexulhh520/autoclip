@@ -17,6 +17,7 @@
 
 .editor-agent-panel.is-collapsed {
   width: auto;
+  height: auto;
   max-height: none;
 }
 
