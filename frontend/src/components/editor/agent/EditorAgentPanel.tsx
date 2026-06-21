@@ -297,7 +297,10 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
         ])
         return
       }
-      setAgentTaskPlan(null)
+      const allDone = result.taskPlan.tasks.every((task) => task.status === 'done')
+      if (allDone) {
+        setAgentTaskPlan(null)
+      }
       setChatTurns((prev) => [
         ...prev,
         { id: nanoid(), role: 'assistant', content: result.assistant_message },

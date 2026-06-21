@@ -1,5 +1,7 @@
 import { resolveCanvasDimensions } from '../scene/canvas'
+import { buildCompositionTimeline } from '../scene/timelineLayout'
 import { DEFAULT_VIDEO_TRACK_ID, getBlockTrackId } from '../videoTracks'
+import { blockTimelineVisualEndSec, blockTimelineVisualStartSec } from '../../utils/editTimeline'
 import { readStringParam } from '../opencut-text/params'
 import type { EditSession } from '../../types/editSession'
 import type { LayoutAnalysis } from '../../types/editorAgent'
@@ -12,6 +14,9 @@ export interface EditorSnapshotBlockSummary {
   trim_in_sec: number
   trim_out_sec: number
   duration_sec: number
+  /** 合成时间轴上的可视起点（秒），用于 add_text_overlay.start_sec */
+  timeline_start_sec?: number
+  timeline_end_sec?: number
   overlay_outline: string
   overlay_content_preview: string
 }
@@ -70,6 +75,22 @@ export function buildEditorSnapshot(input: {
   const { session } = input
   const dims = resolveCanvasDimensions(session.export_settings)
 
+  const mainBlocks = (session.sequence ?? []).filter(
+    (block) => getBlockTrackId(block) === DEFAULT_VIDEO_TRACK_ID
+  )
+  const composition = buildCompositionTimeline(
+    mainBlocks,
+    session.transition_duration_sec ?? 0.5,
+    session.sequence_block_gaps
+  )
+  const blockTimeline = new Map<string, { start: number; end: number }>()
+  for (const segment of composition.segments) {
+    blockTimeline.set(segment.block.id, {
+      start: blockTimelineVisualStartSec(segment.compositionStartSec, segment.block),
+      end: blockTimelineVisualEndSec(segment.compositionStartSec, segment.block),
+    })
+  }
+
   return {
     session_id: session.id,
     session_name: session.name,
@@ -82,6 +103,7 @@ export function buildEditorSnapshot(input: {
     draft_texts: collectDraftTexts(session),
     blocks: (session.sequence ?? []).map((block) => {
       const content = (block.overlay?.content ?? []).join(' ').trim()
+      const timeline = blockTimeline.get(block.id)
       return {
         id: block.id,
         title: block.title ?? '',
@@ -89,6 +111,8 @@ export function buildEditorSnapshot(input: {
         trim_in_sec: block.trim.in_sec,
         trim_out_sec: block.trim.out_sec,
         duration_sec: blockDuration(block),
+        timeline_start_sec: timeline?.start,
+        timeline_end_sec: timeline?.end,
         overlay_outline: block.overlay?.outline ?? '',
         overlay_content_preview: content.slice(0, 80),
       }
