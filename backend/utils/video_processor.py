@@ -774,23 +774,37 @@ class VideoProcessor:
     
     @staticmethod
     def _run_ffprobe_duration(cmd: List[str], *, timeout_sec: float) -> float:
+        creationflags = subprocess.CREATE_NO_WINDOW if platform.system() == 'Windows' else 0
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            creationflags=creationflags,
+        )
         try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                errors='ignore',
-                timeout=timeout_sec,
+            stdout, _stderr = proc.communicate(timeout=timeout_sec)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            try:
+                proc.communicate(timeout=3)
+            except subprocess.TimeoutExpired:
+                pass
+            logger.warning(
+                "ffprobe 时长探测超时 (%.0fs): %s",
+                timeout_sec,
+                cmd[-1] if cmd else '',
             )
-            if result.returncode != 0:
+            return 0.0
+
+        try:
+            if proc.returncode != 0:
                 return 0.0
-            raw = (result.stdout or '').strip()
+            raw = (stdout.decode('utf-8', errors='ignore') if isinstance(stdout, bytes) else stdout or '').strip()
             if not raw:
                 return 0.0
             val = float(raw.splitlines()[0])
             return val if val > 0 else 0.0
-        except (subprocess.TimeoutExpired, ValueError, OSError) as exc:
+        except (ValueError, OSError) as exc:
             logger.debug("ffprobe 时长探测失败: %s", exc)
             return 0.0
 

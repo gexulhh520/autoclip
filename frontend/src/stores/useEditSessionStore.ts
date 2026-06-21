@@ -352,6 +352,7 @@ interface EditSessionState {
   ) => Promise<number>
   importMedia: (projectId: string, file: File) => Promise<import('../types/editSession').EditSessionImportMediaResponse>
   importMediaFromPath: (projectId: string, sourcePath: string) => Promise<import('../types/editSession').EditSessionImportMediaResponse>
+  applyImportedBlockNaturalDuration: (blockId: string, durationSec: number) => void
   copySelection: () => void
   pasteSelection: (options?: { startSec?: number; insertAfterBlockId?: string }) => void
   clipboardHasContent: () => boolean
@@ -1398,6 +1399,21 @@ export const useEditSessionStore = create<EditSessionState>()(
           })
           throw error
         }
+      },
+
+      applyImportedBlockNaturalDuration: (blockId, durationSec) => {
+        if (!Number.isFinite(durationSec) || durationSec <= 0) return
+        set((state) => {
+          if (!state.session) return
+          const block = state.session.sequence.find((item) => item.id === blockId)
+          if (!block || block.media?.type !== 'imported_clip') return
+          if (block.duration_sec > 0.1) return
+          block.duration_sec = durationSec
+          if (block.trim.out_sec <= 0.1) {
+            block.trim.out_sec = durationSec
+          }
+          state.dirty = true
+        })
       },
 
       copySelection: () => {

@@ -657,7 +657,7 @@ def test_import_media_path_endpoint(tmp_path, monkeypatch):
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["title"] == "source-long"
-    assert payload["duration_sec"] == 42.0
+    assert payload["duration_sec"] == 0.0
     assert payload.get("import_method") in {"hardlink", "symlink", "reference"}
     assert len(payload["session"]["sequence"]) == 1
 
@@ -752,4 +752,5 @@ def test_import_media_path_reference_when_link_fails(tmp_path, monkeypatch):
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["import_method"] == "reference"
+    assert payload["duration_sec"] == 0.0
     assert Path(payload["session"]["sequence"][0]["media"]["path"]).resolve() == source_video.resolve()

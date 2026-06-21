@@ -7,6 +7,7 @@ import OpenCutTimeline from './timeline/OpenCutTimeline'
 import EditorAgentPanel from './agent/EditorAgentPanel'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from './resizable'
 import { useEditorPanelStore } from '../../stores/useEditorPanelStore'
+import { useSyncImportedBlockDurations } from '../../editor/hooks/useSyncImportedBlockDurations'
 import './EditorLayout.css'
 import './panels/opencut-panels.css'
 
@@ -18,6 +19,7 @@ interface EditorLayoutProps {
 const EditorLayout: React.FC<EditorLayoutProps> = ({ projectId, sessionId }) => {
   const panels = useEditorPanelStore((state) => state.panels)
   const setPanel = useEditorPanelStore((state) => state.setPanel)
+  useSyncImportedBlockDurations(projectId, sessionId)
 
   return (
     <div className="editor-shell">

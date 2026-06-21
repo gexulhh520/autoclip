@@ -694,11 +694,15 @@ class EditSessionService:
         import_id: str,
         title: str,
         insert_index: Optional[int] = None,
+        defer_duration_probe: bool = False,
     ) -> tuple[EditSession, EditBlock]:
-        duration_sec = VideoProcessor.probe_video_duration_sec(media_file)
-        if duration_sec <= 0:
-            logger.warning("导入视频时长探测失败，使用占位时长: %s", media_file)
-            duration_sec = 0.1
+        if defer_duration_probe:
+            duration_sec = 0.0
+        else:
+            duration_sec = VideoProcessor.probe_video_duration_sec(media_file)
+            if duration_sec <= 0:
+                logger.warning("导入视频时长探测失败，使用占位时长: %s", media_file)
+                duration_sec = 0.1
 
         safe_title = (title or "导入视频").strip()[:64] or "导入视频"
         block = EditBlock(
@@ -778,6 +782,13 @@ class EditSessionService:
             import_id=import_id,
             title=source.stem,
             insert_index=insert_index,
+            defer_duration_probe=True,
+        )
+        logger.info(
+            "路径导入完成 block_id=%s method=%s duration_pending=%s",
+            block.id,
+            link_method,
+            block.duration_sec <= 0,
         )
         return session, block, link_method
 
