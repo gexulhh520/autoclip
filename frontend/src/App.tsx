@@ -7,6 +7,7 @@ import EditorHubPage from './pages/EditorHubPage'
 import ProjectDetailPage from './pages/ProjectDetailPage'
 import SettingsPage from './pages/SettingsPage'
 import TemplatesPage from './pages/TemplatesPage'
+import EditSessionPage from './pages/EditSessionPage'
 import MaterialLibraryPage from './pages/MaterialLibraryPage'
 import { trackPageview } from './analytics/posthog'
 
