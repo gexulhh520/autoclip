@@ -101,6 +101,36 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
   {
     type: 'function',
     function: {
+      name: 'clear_block_captions',
+      description:
+        '删除指定视频片段的字幕（含竖排单字层与模板字幕），并清空该片段 draft 文案。block_ids 须来自 known_blocks。',
+      parameters: {
+        type: 'object',
+        properties: {
+          block_ids: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '要清空字幕的主轨片段 id 列表',
+          },
+        },
+        required: ['block_ids'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'clear_all_captions',
+      description: '删除主轨所有片段的字幕层（含竖排拆字），并清空各片段 draft 文案。纯删除，不添加新字幕。',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'add_text_overlay',
       description:
         '【不推荐 Agent 使用】单条文本层。批量字幕请用 apply_caption_template。仅当用户明确指定某一时刻的单条文字时使用。',
@@ -559,6 +589,8 @@ export const LEGACY_WRITE_AGENT_TOOLS = new Set(['add_captions_for_blocks'])
 export const BATCH_AUTO_WRITE_TOOLS_FRONTEND = new Set([
   'apply_caption_template',
   'add_captions_for_blocks',
+  'clear_block_captions',
+  'clear_all_captions',
   'split_text_overlay_by_char',
   'split_text_overlays_by_char',
   'batch_apply_text_style',
@@ -608,6 +640,12 @@ export function formatToolCallSummary(name: string, args: Record<string, unknown
       const position = String(args.position ?? 'bottom_center')
       return `模板字幕 ${layout}/${position} × ${entries} 段`
     }
+    case 'clear_block_captions': {
+      const count = Array.isArray(args.block_ids) ? args.block_ids.length : 0
+      return `删除 ${count} 个片段字幕`
+    }
+    case 'clear_all_captions':
+      return '删除主轨全部字幕'
     case 'add_captions_for_blocks': {
       const layout = args.layout === 'vertical' ? '竖排' : '横排'
       const blocks = Array.isArray(args.block_ids) ? args.block_ids.length : '全部片段'

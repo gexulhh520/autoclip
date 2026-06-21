@@ -2,6 +2,17 @@
 from backend.services.editor_agent_tools import validate_tool_calls
 
 
+def test_validate_tool_calls_accepts_clear_caption_tools():
+    calls = validate_tool_calls(
+        [
+            {"name": "clear_block_captions", "arguments": {"block_ids": ["b1", "b2"]}},
+            {"name": "clear_all_captions", "arguments": {}},
+        ]
+    )
+    assert calls[0].name == "clear_block_captions"
+    assert calls[1].name == "clear_all_captions"
+
+
 def test_validate_tool_calls_accepts_apply_caption_template_with_replace_existing():
     calls = validate_tool_calls(
         [

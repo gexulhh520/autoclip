@@ -100,6 +100,31 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "clear_block_captions",
+            "description": "删除指定片段字幕（含竖排单字层），清空 draft。block_ids 来自 known_blocks。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "block_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                },
+                "required": ["block_ids"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "clear_all_captions",
+            "description": "删除主轨全部字幕层，不添加新字幕。",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "add_text_overlay",
             "description": "【不推荐】单条文本层；批量字幕请用 apply_caption_template。",
             "parameters": {

@@ -172,6 +172,17 @@ export function compactToolResultData(
         },
       }
     }
+    case 'clear_block_captions':
+    case 'clear_all_captions': {
+      const data = result.data as Record<string, unknown> | undefined
+      return {
+        ...result,
+        data: {
+          blocks_targeted: data?.blocks_targeted,
+          overlays_removed: data?.overlays_removed,
+        },
+      }
+    }
     case 'split_text_overlays_by_char': {
       const data = result.data as Record<string, unknown> | undefined
       return {

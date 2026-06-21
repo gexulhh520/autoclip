@@ -32,6 +32,8 @@ export const MAX_AUTO_EXECUTE_WRITE_CALLS = 8
 export const BATCH_AUTO_WRITE_TOOLS = new Set([
   'apply_caption_template',
   'add_captions_for_blocks',
+  'clear_block_captions',
+  'clear_all_captions',
   'split_text_overlay_by_char',
   'split_text_overlays_by_char',
   'batch_apply_text_style',

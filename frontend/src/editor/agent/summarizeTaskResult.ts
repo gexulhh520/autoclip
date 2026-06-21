@@ -30,6 +30,11 @@ function summarizeToolResult(call: AgentToolCall, result: AgentToolResult): stri
       const data = result.data as Record<string, unknown> | undefined
       return `${label} → 新增 ${data?.overlays_added ?? 0}，跳过 ${data?.overlays_skipped ?? 0}，${data?.layout ?? '?'}/${data?.position ?? '?'}`
     }
+    case 'clear_block_captions':
+    case 'clear_all_captions': {
+      const data = result.data as Record<string, unknown> | undefined
+      return `${label} → 删除 ${data?.overlays_removed ?? 0} 层`
+    }
     case 'update_overlay_params':
       return `${label} → 已更新`
     case 'set_text_animation':

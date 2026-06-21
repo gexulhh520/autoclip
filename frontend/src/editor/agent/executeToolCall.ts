@@ -39,6 +39,7 @@ import {
   type AddCaptionsForBlocksArguments,
 } from './addCaptionsForBlocks'
 import { executeApplyCaptionTemplate } from './applyCaptionTemplate'
+import { executeClearAllCaptions, executeClearBlockCaptions } from './clearCaptions'
 import {
   describeSplitTextOverlayFailure,
   resolveBatchSplitPlacement,
@@ -459,6 +460,30 @@ export async function executeWriteToolCall(
             ok: false,
             tool_name: call.name,
             error: data.items.find((i) => i.error)?.error ?? '未能应用字幕模板',
+            data,
+          }
+        }
+        return { ok: true, tool_name: call.name, data }
+      }
+      case 'clear_block_captions': {
+        const data = executeClearBlockCaptions(getStore, call.arguments.block_ids, { recordHistory })
+        if (data.items.some((item) => item.error) && data.overlays_removed === 0) {
+          return {
+            ok: false,
+            tool_name: call.name,
+            error: data.items.find((item) => item.error)?.error ?? '未能删除字幕',
+            data,
+          }
+        }
+        return { ok: true, tool_name: call.name, data }
+      }
+      case 'clear_all_captions': {
+        const data = executeClearAllCaptions(getStore, { recordHistory })
+        if (data.overlays_removed === 0 && data.items.some((item) => item.error)) {
+          return {
+            ok: false,
+            tool_name: call.name,
+            error: data.items.find((item) => item.error)?.error ?? '未能删除字幕',
             data,
           }
         }
