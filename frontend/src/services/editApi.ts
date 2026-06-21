@@ -135,6 +135,21 @@ export const editApi = {
     )) as EditSessionImportMediaResponse
   },
 
+  importMediaFromPath: async (
+    projectId: string,
+    sessionId: string,
+    sourcePath: string,
+    options?: { insertIndex?: number }
+  ): Promise<EditSessionImportMediaResponse> => {
+    return (await api.post(
+      `/projects/${projectId}/edit-sessions/${sessionId}/import-media-path`,
+      {
+        source_path: sourcePath,
+        insert_index: options?.insertIndex ?? null,
+      }
+    )) as EditSessionImportMediaResponse
+  },
+
   getAudioAssetUrl: (projectId: string, sessionId: string, assetId: string): string => {
     const base = api.defaults.baseURL || '/api/v1'
     return `${base}/projects/${projectId}/edit-sessions/${sessionId}/audio-assets/${assetId}`

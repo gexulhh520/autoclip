@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -643,42 +644,41 @@ class EditSessionService:
         )
 
     _IMPORT_VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}
+    _IMPORT_COPY_CHUNK_BYTES = 8 * 1024 * 1024
 
-    def import_media_file(
+    @classmethod
+    def _normalize_import_suffix(cls, suffix: str) -> str:
+        normalized = (suffix or "").lower()
+        return normalized if normalized in cls._IMPORT_VIDEO_SUFFIXES else ".mp4"
+
+    @classmethod
+    def _copy_import_video_source(cls, source: Path, dest: Path) -> None:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with source.open("rb") as src, dest.open("wb") as dst:
+            shutil.copyfileobj(src, dst, length=cls._IMPORT_COPY_CHUNK_BYTES)
+
+    def _finalize_imported_video(
         self,
         project_id: str,
         session_id: str,
-        file_name: str,
-        content: bytes,
+        session: EditSession,
+        project_dir: Path,
+        dest: Path,
         *,
+        import_id: str,
+        title: str,
         insert_index: Optional[int] = None,
     ) -> tuple[EditSession, EditBlock]:
-        if not content:
-            raise ValueError("视频文件为空")
-
-        session = self.get_session(project_id, session_id)
-        project_dir = get_project_directory(project_id)
-        media_dir = _edit_sessions_dir(project_dir) / session_id / "media"
-        media_dir.mkdir(parents=True, exist_ok=True)
-
-        suffix = Path(file_name).suffix.lower()
-        if suffix not in self._IMPORT_VIDEO_SUFFIXES:
-            suffix = ".mp4"
-
-        import_id = f"import-{uuid.uuid4().hex[:12]}"
-        dest = media_dir / f"{import_id}{suffix}"
-        dest.write_bytes(content)
-
         info = VideoProcessor.get_video_info(dest)
         duration_sec = float(info.get("duration") or 0.0)
         if duration_sec <= 0:
             duration_sec = 0.1
 
-        title = Path(file_name).stem.strip() or "导入视频"
+        safe_title = (title or "导入视频").strip()[:64] or "导入视频"
         block = EditBlock(
             id=str(uuid.uuid4()),
             source_clip_id=import_id,
-            title=title[:64],
+            title=safe_title,
             media=EditBlockMedia(
                 type="imported_clip",
                 path=_relative_project_path(project_dir, dest),
@@ -702,6 +702,111 @@ class EditSessionService:
         )
         saved_block = next((item for item in updated.sequence if item.id == block.id), block)
         return updated, saved_block
+
+    def import_media_from_path(
+        self,
+        project_id: str,
+        session_id: str,
+        source_path: str,
+        *,
+        insert_index: Optional[int] = None,
+    ) -> tuple[EditSession, EditBlock]:
+        raw = (source_path or "").strip()
+        if not raw:
+            raise ValueError("source_path 不能为空")
+
+        source = Path(raw).expanduser()
+        try:
+            source = source.resolve(strict=True)
+        except FileNotFoundError as exc:
+            raise ValueError(f"视频文件不存在: {raw}") from exc
+        if not source.is_file():
+            raise ValueError("路径不是有效视频文件")
+        if source.stat().st_size <= 0:
+            raise ValueError("视频文件为空")
+
+        suffix = source.suffix.lower()
+        if suffix not in self._IMPORT_VIDEO_SUFFIXES:
+            raise ValueError(f"不支持的视频格式: {suffix or '(无扩展名)'}")
+
+        session = self.get_session(project_id, session_id)
+        project_dir = get_project_directory(project_id)
+        media_dir = _edit_sessions_dir(project_dir) / session_id / "media"
+        media_dir.mkdir(parents=True, exist_ok=True)
+
+        import_id = f"import-{uuid.uuid4().hex[:12]}"
+        dest = media_dir / f"{import_id}{suffix}"
+        self._copy_import_video_source(source, dest)
+
+        return self._finalize_imported_video(
+            project_id,
+            session_id,
+            session,
+            project_dir,
+            dest,
+            import_id=import_id,
+            title=source.stem,
+            insert_index=insert_index,
+        )
+
+    def import_media_file(
+        self,
+        project_id: str,
+        session_id: str,
+        file_name: str,
+        content: bytes,
+        *,
+        insert_index: Optional[int] = None,
+    ) -> tuple[EditSession, EditBlock]:
+        if not content:
+            raise ValueError("视频文件为空")
+
+        session = self.get_session(project_id, session_id)
+        project_dir = get_project_directory(project_id)
+        media_dir = _edit_sessions_dir(project_dir) / session_id / "media"
+        media_dir.mkdir(parents=True, exist_ok=True)
+
+        suffix = self._normalize_import_suffix(Path(file_name).suffix)
+        import_id = f"import-{uuid.uuid4().hex[:12]}"
+        dest = media_dir / f"{import_id}{suffix}"
+        dest.write_bytes(content)
+
+        title = Path(file_name).stem.strip() or "导入视频"
+        return self._finalize_imported_video(
+            project_id,
+            session_id,
+            session,
+            project_dir,
+            dest,
+            import_id=import_id,
+            title=title,
+            insert_index=insert_index,
+        )
+
+    def import_media_file_to_path(
+        self,
+        project_id: str,
+        session_id: str,
+        file_name: str,
+        dest: Path,
+        *,
+        insert_index: Optional[int] = None,
+    ) -> tuple[EditSession, EditBlock]:
+        """上传流已写入 dest 后，完成导入 block 创建。"""
+        session = self.get_session(project_id, session_id)
+        project_dir = get_project_directory(project_id)
+        import_id = f"import-{uuid.uuid4().hex[:12]}"
+        title = Path(file_name).stem.strip() or "导入视频"
+        return self._finalize_imported_video(
+            project_id,
+            session_id,
+            session,
+            project_dir,
+            dest,
+            import_id=import_id,
+            title=title,
+            insert_index=insert_index,
+        )
 
     def _import_bgm_from_local_file(
         self,

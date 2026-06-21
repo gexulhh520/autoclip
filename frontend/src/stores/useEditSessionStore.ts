@@ -346,6 +346,7 @@ interface EditSessionState {
     options?: { insertIndex?: number }
   ) => Promise<number>
   importMedia: (projectId: string, file: File) => Promise<void>
+  importMediaFromPath: (projectId: string, sourcePath: string) => Promise<void>
   copySelection: () => void
   pasteSelection: (options?: { startSec?: number; insertAfterBlockId?: string }) => void
   clipboardHasContent: () => boolean
@@ -567,6 +568,37 @@ interface EditSessionState {
   ) => Promise<Array<{ ok: boolean; tool_name: string; data?: unknown; error?: string }>>
   beginTimelineGesture: () => void
   reset: () => void
+}
+
+function buildStateAfterImportMedia(
+  result: import('../types/editSession').EditSessionImportMediaResponse,
+  insertIndex: number
+) {
+  const shifted = shiftTimelineElementsAfterVideoInsert(result.session, insertIndex, 1)
+  cleanupImportedClipCaptions(result.session)
+  const templateMigrated = ensureTemplateCaptionOverlays(result.session)
+  const transitionDur = transitionDurationSec(result.session)
+  const segments = buildCompositionTimelineSegments(
+    result.session.sequence,
+    BASE_PX_PER_SEC,
+    transitionDur,
+    result.session.sequence_block_gaps
+  )
+  const importedSegment = segments.find((item) => item.block.id === result.block_id)
+  return {
+    session: result.session,
+    dirty: templateMigrated || shifted,
+    selectedBlockId: result.block_id,
+    selectedBlockIds: [result.block_id],
+    selectedOverlayId: null,
+    selectedOverlayIds: [],
+    selectedCaptionBlockId: null,
+    selectedCaptionBlockIds: [],
+    sequencePlayheadSec: importedSegment?.startSec ?? 0,
+    isPlaying: false,
+    historyPast: [],
+    historyFuture: [],
+  }
 }
 
 export const useEditSessionStore = create<EditSessionState>()(
@@ -1319,31 +1351,33 @@ export const useEditSessionStore = create<EditSessionState>()(
           const result = await editApi.importMedia(projectId, session.id, file, {
             insertIndex,
           })
-          const shifted = shiftTimelineElementsAfterVideoInsert(result.session, insertIndex, 1)
-          cleanupImportedClipCaptions(result.session)
-          const templateMigrated = ensureTemplateCaptionOverlays(result.session)
-          const transitionDur = transitionDurationSec(result.session)
-          const segments = buildCompositionTimelineSegments(
-            result.session.sequence,
-            BASE_PX_PER_SEC,
-            transitionDur,
-            result.session.sequence_block_gaps
-          )
-          const importedSegment = segments.find((item) => item.block.id === result.block_id)
           set({
-            session: result.session,
             saving: false,
-            dirty: templateMigrated || shifted,
-            selectedBlockId: result.block_id,
-            selectedBlockIds: [result.block_id],
-            selectedOverlayId: null,
-            selectedOverlayIds: [],
-            selectedCaptionBlockId: null,
-            selectedCaptionBlockIds: [],
-            sequencePlayheadSec: importedSegment?.startSec ?? 0,
-            isPlaying: false,
-            historyPast: [],
-            historyFuture: [],
+            ...buildStateAfterImportMedia(result, insertIndex),
+          })
+        } catch (error: unknown) {
+          set({
+            saving: false,
+            error: error instanceof Error ? error.message : '导入视频失败',
+          })
+          throw error
+        }
+      },
+
+      importMediaFromPath: async (projectId, sourcePath) => {
+        const { session, sequencePlayheadSec } = get()
+        if (!session) throw new Error('无剪辑工程')
+        const trimmed = sourcePath.trim()
+        if (!trimmed) throw new Error('视频路径无效')
+        const insertIndex = resolvePlayheadInsertIndex(session, sequencePlayheadSec)
+        set({ saving: true, error: null })
+        try {
+          const result = await editApi.importMediaFromPath(projectId, session.id, trimmed, {
+            insertIndex,
+          })
+          set({
+            saving: false,
+            ...buildStateAfterImportMedia(result, insertIndex),
           })
         } catch (error: unknown) {
           set({

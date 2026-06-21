@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
@@ -27,6 +29,7 @@ from backend.schemas.edit_session import (
     EditSessionExportJobStatusResponse,
     EditSessionExportResponse,
     EditSessionImportMediaResponse,
+    EditSessionImportMediaPathRequest,
     EditSessionImportBgmUrlRequest,
     EditSessionListResponse,
     EditSessionPreviewOverlayRequest,
@@ -49,7 +52,8 @@ from backend.schemas.editor_agent import (
     AgentChatRequest,
     AgentChatResponse,
 )
-from backend.services.edit_session_service import EditSessionService
+from backend.core.path_utils import get_project_directory
+from backend.services.edit_session_service import EditSessionService, _edit_sessions_dir
 from backend.services.editor_agent_service import EditorAgentService
 
 logger = logging.getLogger(__name__)
@@ -718,18 +722,83 @@ async def import_edit_session_media(
     insert_index: int | None = Form(default=None),
     service: EditSessionService = Depends(get_edit_session_service),
 ):
+    """Web 端：流式上传视频（分块写盘，避免整文件进内存）。"""
+    dest: Path | None = None
     try:
         if not file.filename:
             raise HTTPException(status_code=400, detail="缺少文件名")
-        content = await file.read()
-        if not content:
+
+        project_dir = get_project_directory(project_id)
+        media_dir = _edit_sessions_dir(project_dir) / session_id / "media"
+        media_dir.mkdir(parents=True, exist_ok=True)
+
+        suffix = EditSessionService._normalize_import_suffix(Path(file.filename).suffix)
+        import_id = f"import-{uuid.uuid4().hex[:12]}"
+        dest = media_dir / f"{import_id}{suffix}"
+
+        total_bytes = 0
+        with dest.open("wb") as f_out:
+            while True:
+                chunk = await file.read(EditSessionService._IMPORT_COPY_CHUNK_BYTES)
+                if not chunk:
+                    break
+                f_out.write(chunk)
+                total_bytes += len(chunk)
+
+        if total_bytes <= 0:
+            if dest.exists():
+                dest.unlink(missing_ok=True)
             raise HTTPException(status_code=400, detail="视频文件为空")
-        session, block = service.import_media_file(
+
+        session, block = service.import_media_file_to_path(
             project_id,
             session_id,
             file.filename,
-            content,
+            dest,
             insert_index=insert_index,
+        )
+        return EditSessionImportMediaResponse(
+            session=session,
+            block_id=block.id,
+            title=block.title,
+            duration_sec=block.duration_sec,
+        )
+    except FileNotFoundError as exc:
+        if dest and dest.exists():
+            dest.unlink(missing_ok=True)
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        if dest and dest.exists():
+            dest.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPException:
+        if dest and dest.exists():
+            dest.unlink(missing_ok=True)
+        raise
+    except Exception as exc:
+        if dest and dest.exists():
+            dest.unlink(missing_ok=True)
+        logger.exception("导入视频失败: %s/%s", project_id, session_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/import-media-path",
+    response_model=EditSessionImportMediaResponse,
+)
+async def import_edit_session_media_path(
+    project_id: str,
+    session_id: str,
+    body: EditSessionImportMediaPathRequest,
+    service: EditSessionService = Depends(get_edit_session_service),
+):
+    """桌面端：从本地路径复制视频，跳过 HTTP 整文件上传。"""
+    try:
+        session, block = service.import_media_from_path(
+            project_id,
+            session_id,
+            body.source_path,
+            insert_index=body.insert_index,
         )
         return EditSessionImportMediaResponse(
             session=session,
@@ -741,10 +810,8 @@ async def import_edit_session_media(
         raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except HTTPException:
-        raise
     except Exception as exc:
-        logger.exception("导入视频失败: %s/%s", project_id, session_id)
+        logger.exception("路径导入视频失败: %s/%s", project_id, session_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

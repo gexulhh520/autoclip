@@ -20,6 +20,9 @@ import SfxAssetsView from './panels/assets/views/SfxAssetsView'
 import BgmAssetsView from './panels/assets/views/BgmAssetsView'
 import TransitionTypePicker from './TransitionTypePicker'
 import { areMainTrackBlocksAdjacent } from '../../editor/timeline/sequenceBlockGaps'
+import { isTauriApp } from '../../utils/desktopMode'
+
+const VIDEO_IMPORT_EXTENSIONS = ['mp4', 'mov', 'mkv', 'webm', 'm4v', 'avi']
 
 interface ProjectClip {
   id: string
@@ -45,6 +48,7 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
   const updateBlockTransition = useEditSessionStore((state) => state.updateBlockTransition)
   const appendClips = useEditSessionStore((state) => state.appendClips)
   const importMedia = useEditSessionStore((state) => state.importMedia)
+  const importMediaFromPath = useEditSessionStore((state) => state.importMediaFromPath)
   const importSrtCaptions = useEditSessionStore((state) => state.importSrtCaptions)
   const setInspectorTab = useEditSessionStore((state) => state.setInspectorTab)
   const previewBurnSubtitles = useEditSessionStore((state) => state.previewBurnSubtitles)
@@ -124,6 +128,37 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
     }
   }
 
+  const handlePickImportVideo = async () => {
+    if (!session) {
+      message.error('剪辑工程尚未加载，请稍候再试')
+      return
+    }
+    if (isTauriApp()) {
+      setImportingVideo(true)
+      try {
+        const { open } = await import('@tauri-apps/plugin-dialog')
+        const selected = await open({
+          multiple: false,
+          filters: [{ name: 'Video', extensions: VIDEO_IMPORT_EXTENSIONS }],
+        })
+        if (!selected || Array.isArray(selected)) return
+        await importMediaFromPath(projectId, selected)
+        const name = selected.split(/[/\\]/).pop() || selected
+        message.success(`「${name}」已导入并加入时间线`)
+      } catch (error: unknown) {
+        const err = error as { userMessage?: string }
+        message.error(
+          err.userMessage ||
+            (error instanceof Error ? error.message : '视频导入失败')
+        )
+      } finally {
+        setImportingVideo(false)
+      }
+      return
+    }
+    videoInputRef.current?.click()
+  }
+
   const renderMedia = () => (
     <OpenCutPanelView
       title="素材"
@@ -145,7 +180,7 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
             type="button"
             className="editor-import-btn"
             disabled={importingVideo || saving || loading || !session}
-            onClick={() => videoInputRef.current?.click()}
+            onClick={() => void handlePickImportVideo()}
           >
             <PlusOutlined /> {importingVideo ? '导入中…' : '导入'}
           </button>
