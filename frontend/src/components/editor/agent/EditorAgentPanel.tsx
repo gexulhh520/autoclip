@@ -17,6 +17,9 @@ import type {
   PendingAgentPlan,
 } from '../../../types/editorAgent'
 import { agentChatStorageKey, agentExecutionLedgerStorageKey, layoutReferenceStorageKey } from '../../../types/editorAgent'
+import { useEditSessionStore } from '../../../stores/useEditSessionStore'
+import { useAgentPanelStore } from '../../../stores/useAgentPanelStore'
+import { blockPlaybackRate } from '../../../utils/editTimeline'
 import './EditorAgentPanel.css'
 import { useFloatingPanelDrag } from './useFloatingPanelDrag'
 
@@ -35,9 +38,36 @@ const readFileAsDataUrl = (file: File): Promise<string> =>
     reader.readAsDataURL(file)
   })
 
+const formatClipDuration = (durationSec: number): string => {
+  if (durationSec >= 60) {
+    const minutes = Math.floor(durationSec / 60)
+    const seconds = durationSec % 60
+    return `${minutes}:${seconds.toFixed(1).padStart(4, '0')}`
+  }
+  return `${durationSec.toFixed(1)} 秒`
+}
+
+const blockVisibleDurationSec = (block: {
+  trim: { in_sec: number; out_sec: number }
+  playback_rate?: number
+}): number => {
+  const rate = blockPlaybackRate(block)
+  return Math.max(0, block.trim.out_sec - block.trim.in_sec) / rate
+}
+
 const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionId }) => {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const session = useEditSessionStore((state) => state.session)
+  const focusedBlockId = useAgentPanelStore(
+    (state) => state.focusedBlockBySession[sessionId] ?? null
+  )
+  const focusRequest = useAgentPanelStore((state) => state.focusRequest)
+  const clearFocusedBlock = useAgentPanelStore((state) => state.clearFocusedBlock)
+  const focusedBlock =
+    focusedBlockId != null
+      ? session?.sequence.find((block) => block.id === focusedBlockId) ?? null
+      : null
   const [collapsed, setCollapsed] = useState(false)
   const [mode, setMode] = useState<AgentPanelMode>('assistant')
   const [chatInput, setChatInput] = useState('')
@@ -66,6 +96,18 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
   }, [executionLedger])
 
   const { panelRef, panelStyle, dragging, onHeaderPointerDown } = useFloatingPanelDrag(AGENT_PANEL_POS_KEY)
+
+  useEffect(() => {
+    if (!focusRequest || focusRequest.sessionId !== sessionId) return
+    setCollapsed(false)
+    setMode('assistant')
+  }, [focusRequest, sessionId])
+
+  useEffect(() => {
+    if (!focusedBlockId || !session) return
+    const exists = session.sequence.some((block) => block.id === focusedBlockId)
+    if (!exists) clearFocusedBlock(sessionId)
+  }, [focusedBlockId, session, sessionId, clearFocusedBlock])
 
   const layoutStorageKey = layoutReferenceStorageKey(sessionId)
   const chatStorageKey = agentChatStorageKey(sessionId)
@@ -445,6 +487,27 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
             用自然语言描述需求：加字、改样式、移视频、裁片段等。改时间线前会展示操作清单。
           </p>
 
+          {focusedBlock ? (
+            <div className="editor-agent-panel__focus">
+              <div className="editor-agent-panel__focus-body">
+                <span className="editor-agent-panel__focus-label">提问片段</span>
+                <span className="editor-agent-panel__focus-title">
+                  {focusedBlock.title || '未命名片段'}
+                </span>
+                <span className="editor-agent-panel__focus-meta">
+                  {formatClipDuration(blockVisibleDurationSec(focusedBlock))}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="editor-agent-panel__focus-clear"
+                onClick={() => clearFocusedBlock(sessionId)}
+              >
+                移除
+              </button>
+            </div>
+          ) : null}
+
           <div className="editor-agent-panel__chat">
             {chatTurns.length === 0 ? (
               <p className="editor-agent-panel__chat-empty">
@@ -481,7 +544,11 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
               className="editor-agent-panel__textarea"
               value={chatInput}
               onChange={(event) => setChatInput(event.target.value)}
-              placeholder="描述你想对剪辑区做的操作…"
+              placeholder={
+                focusedBlock
+                  ? `针对「${focusedBlock.title || '当前片段'}」提问，例如：这段有多长？`
+                  : '描述你想对剪辑区做的操作…'
+              }
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
                   event.preventDefault()

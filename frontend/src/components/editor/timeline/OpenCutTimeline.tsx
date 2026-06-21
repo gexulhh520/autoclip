@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Eye, EyeOff, Volume2, VolumeX } from 'lucide-react'
 import { useEditSessionStore } from '../../../stores/useEditSessionStore'
+import { useAgentPanelStore } from '../../../stores/useAgentPanelStore'
 import {
   buildCompositionTimelineSegments,
   getCompositionTotalDuration,
@@ -1316,12 +1317,18 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     }
   }
 
-  const handleContextAction = (action: 'split' | 'delete' | 'duplicate') => {
+  const handleContextAction = (action: 'split' | 'delete' | 'duplicate' | 'add_to_agent') => {
     if (!contextMenu) return
     const found = findElementInTracks(tracks, contextMenu.trackId, contextMenu.elementId)
     if (!found) return
     const { element } = found
     if (action === 'split') splitSelectionAtPlayhead()
+    if (action === 'add_to_agent') {
+      if (element.source.kind === 'block' && sessionId) {
+        setSelectedBlockId(element.source.blockId)
+        useAgentPanelStore.getState().focusBlock(sessionId, element.source.blockId)
+      }
+    }
     if (action === 'delete') {
       if (element.source.kind === 'overlay') removeOverlayElement(element.source.overlayId)
       else if (element.source.kind === 'caption') clearBlockCaption(element.source.blockId)
@@ -1349,6 +1356,11 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const bookmarkAtPlayhead = bookmarks.some(
     (item) => Math.abs(item.time_sec - sequencePlayheadSec) < 0.05
   )
+
+  const contextMenuElement = useMemo(() => {
+    if (!contextMenu) return null
+    return findElementInTracks(tracks, contextMenu.trackId, contextMenu.elementId)?.element ?? null
+  }, [contextMenu, tracks])
 
   const tracksHeight = Math.min(800, Math.max(120, getTotalTracksHeight(tracks)))
   const playheadHeight = TIMELINE_CONSTANTS.HEADER_HEIGHT_PX + tracksHeight
@@ -1919,6 +1931,15 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
               >
                 分割
               </button>
+              {contextMenuElement?.source.kind === 'block' ? (
+                <button
+                  type="button"
+                  className="oc-timeline__context-item"
+                  onClick={() => handleContextAction('add_to_agent')}
+                >
+                  添加到 AI 助手
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="oc-timeline__context-item"

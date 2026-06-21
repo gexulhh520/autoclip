@@ -8,6 +8,17 @@ import type { LayoutAnalysis } from '../../types/editorAgent'
 import { VISUAL_FILTER_IDS, visualFilterLabel } from './setVisualFilter'
 import { collectDraftTexts } from './collectDraftTexts'
 
+export interface EditorSnapshotFocusBlock {
+  id: string
+  title: string
+  track_id: string
+  trim_in_sec: number
+  trim_out_sec: number
+  duration_sec: number
+  timeline_start_sec?: number
+  timeline_end_sec?: number
+}
+
 export interface EditorSnapshotBlockSummary {
   id: string
   title: string
@@ -46,6 +57,9 @@ export interface EditorSnapshot {
   overlays: EditorSnapshotOverlaySummary[]
   selected_block_id: string | null
   selected_overlay_id: string | null
+  /** 用户从时间线「添加到 AI 助手」钉住的片段；问答「这段/当前片段」优先指此 block */
+  focused_block_id: string | null
+  focused_block: EditorSnapshotFocusBlock | null
   layout_reference?: LayoutAnalysis
 }
 
@@ -73,6 +87,7 @@ export function buildEditorSnapshot(input: {
   playheadSec: number
   selectedBlockId?: string | null
   selectedOverlayId?: string | null
+  focusedBlockId?: string | null
   layoutReference?: LayoutAnalysis | null
 }): EditorSnapshot {
   const { session } = input
@@ -93,6 +108,25 @@ export function buildEditorSnapshot(input: {
       end: blockTimelineVisualEndSec(segment.compositionStartSec, segment.block),
     })
   }
+
+  const focusedBlockId = input.focusedBlockId ?? null
+  const focusedBlockRaw =
+    focusedBlockId != null
+      ? (session.sequence ?? []).find((block) => block.id === focusedBlockId) ?? null
+      : null
+  const focusedTimeline = focusedBlockRaw ? blockTimeline.get(focusedBlockRaw.id) : undefined
+  const focusedBlock: EditorSnapshotFocusBlock | null = focusedBlockRaw
+    ? {
+        id: focusedBlockRaw.id,
+        title: focusedBlockRaw.title ?? '',
+        track_id: getBlockTrackId(focusedBlockRaw),
+        trim_in_sec: focusedBlockRaw.trim.in_sec,
+        trim_out_sec: focusedBlockRaw.trim.out_sec,
+        duration_sec: blockDuration(focusedBlockRaw),
+        timeline_start_sec: focusedTimeline?.start,
+        timeline_end_sec: focusedTimeline?.end,
+      }
+    : null
 
   return {
     session_id: session.id,
@@ -134,6 +168,8 @@ export function buildEditorSnapshot(input: {
     })),
     selected_block_id: input.selectedBlockId ?? null,
     selected_overlay_id: input.selectedOverlayId ?? null,
+    focused_block_id: focusedBlock?.id ?? null,
+    focused_block: focusedBlock,
     layout_reference: input.layoutReference ?? undefined,
   }
 }
