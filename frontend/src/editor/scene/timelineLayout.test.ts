@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest'
 import type { EditBlock } from '../../types/editSession'
 import {
   buildCompositionTimeline,
+  findActiveSegmentAtCompositionTime,
   findCrossTransitionAtTime,
   mainTrackTransitionJunctionSec,
   mapCompositionTimeToRelativeSource,
   mapIncomingRelativeDuringCrossTransition,
+  resolveCompositionPlayhead,
   resolveCrossTransitionWindow,
 } from './timelineLayout'
+import { blockTimelineVisualEndSec, blockTimelineVisualStartSec } from '../../utils/editTimeline'
 
 const block = (
   id: string,
@@ -71,5 +74,56 @@ describe('timelineLayout transition continuity', () => {
 
     expect(inAfter).toBeGreaterThan(inAtEnd - 0.01)
     expect(inAfter - inAtEnd).toBeCloseTo(0.003, 3)
+  })
+})
+
+describe('resolveCompositionPlayhead', () => {
+  it('maps playhead to source-relative time inside trimmed clip', () => {
+    const trimmed: EditBlock = {
+      ...block('a', 10),
+      trim: { in_sec: 2, out_sec: 8 },
+    }
+    const segments = buildCompositionTimeline([trimmed], 0.35).segments.map((segment) => ({
+      block: segment.block,
+      startSec: segment.compositionStartSec,
+      endSec: segment.compositionStartSec + segment.sourceDurationSec,
+      duration: segment.sourceDurationSec,
+      left: 0,
+      width: 0,
+      dissolveOutSec: segment.dissolveOutSec,
+    }))
+    const visualStart = blockTimelineVisualStartSec(segments[0]!.startSec, trimmed)
+    const atMid = visualStart + 1.5
+
+    const resolved = resolveCompositionPlayhead(atMid, segments)
+    expect(resolved).not.toBeNull()
+    expect(resolved!.relativeSec).toBeCloseTo(1.5, 3)
+
+    const timeline = buildCompositionTimeline([trimmed], 0.35)
+    const active = findActiveSegmentAtCompositionTime(timeline, atMid)
+    expect(active?.block.id).toBe('a')
+    expect(mapCompositionTimeToRelativeSource(active!, atMid, timeline)).toBeCloseTo(1.5, 3)
+  })
+
+  it('returns null when playhead is outside visual clip bounds', () => {
+    const trimmed: EditBlock = {
+      ...block('a', 10),
+      trim: { in_sec: 2, out_sec: 8 },
+    }
+    const segments = buildCompositionTimeline([trimmed], 0.35).segments.map((segment) => ({
+      block: segment.block,
+      startSec: segment.compositionStartSec,
+      endSec: segment.compositionStartSec + segment.sourceDurationSec,
+      duration: segment.sourceDurationSec,
+      left: 0,
+      width: 0,
+      dissolveOutSec: segment.dissolveOutSec,
+    }))
+    const visualStart = blockTimelineVisualStartSec(segments[0]!.startSec, trimmed)
+
+    expect(resolveCompositionPlayhead(visualStart - 0.5, segments)).toBeNull()
+    expect(
+      findActiveSegmentAtCompositionTime(buildCompositionTimeline([trimmed], 0.35), visualStart - 0.5)
+    ).toBeNull()
   })
 })

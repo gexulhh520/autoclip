@@ -191,7 +191,7 @@ export function findActiveSegmentAtCompositionTime(
     }
   }
 
-  return timeline.segments[timeline.segments.length - 1] ?? null
+  return null
 }
 
 /** 转场叠化区内，下一段尚未到可视起点时的源内相对时间 */
@@ -283,14 +283,16 @@ export function resolveCompositionPlayhead(
   if (segments.length === 0) return null
   const clamped = Math.max(0, sequencePlayheadSec)
   for (const segment of segments) {
-    if (clamped < segment.endSec || segment === segments[segments.length - 1]) {
-      const relativeSec = Math.min(
-        Math.max(0, clamped - segment.startSec),
-        segment.duration
-      )
-      return { segment, relativeSec }
+    const visualStart = blockTimelineVisualStartSec(segment.startSec, segment.block)
+    const visualEnd = blockTimelineVisualEndSec(segment.startSec, segment.block)
+    if (clamped < visualStart - 0.001 || clamped >= visualEnd + 0.001) {
+      continue
     }
+    const relativeSec = Math.min(
+      Math.max(0, clamped - visualStart),
+      segment.duration
+    )
+    return { segment, relativeSec }
   }
-  const last = segments[segments.length - 1]
-  return { segment: last, relativeSec: last.duration }
+  return null
 }

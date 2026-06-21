@@ -207,7 +207,9 @@ const playheadSecForBlock = (session: EditSession, blockId: string): number => {
     transitionDurationSec(session),
     session.sequence_block_gaps
   )
-  return segments.find((segment) => segment.block.id === blockId)?.startSec ?? 0
+  const segment = segments.find((item) => item.block.id === blockId)
+  if (!segment) return 0
+  return blockTimelineVisualStartSec(segment.startSec, segment.block)
 }
 
 const compositionTotalDuration = (session: EditSession): number => {
@@ -637,7 +639,7 @@ export const useEditSessionStore = create<EditSessionState>()(
       if (!session) return
       const pxPerSec = (timelineZoom / 100) * BASE_PX_PER_SEC
       const segments = buildCompositionTimelineSegments(
-        session.sequence,
+        resolveMainTrackBlocks(session),
         pxPerSec,
         transitionDurationSec(session),
         session.sequence_block_gaps
@@ -1739,7 +1741,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           return
         }
         const segments = buildCompositionTimelineSegments(
-          session.sequence,
+          resolveMainTrackBlocks(session),
           24,
           transitionDurationSec(session),
           session.sequence_block_gaps

@@ -243,6 +243,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     if (segments.length === 0) return
     const atPlayhead = resolveCompositionPlayhead(sequencePlayheadSec, segments)
     if (atPlayhead) return
+    if (sequencePlayheadSec > 0.01) return
     const first = segments[0]
     setSequencePlayheadSec(blockTimelineVisualStartSec(first.startSec, first.block))
   }, [

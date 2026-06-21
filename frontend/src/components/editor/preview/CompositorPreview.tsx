@@ -31,6 +31,47 @@ import type { PreviewVideoLayerProps } from '../../../editor/scene/adapters/prev
 
 const PAUSED_SEEK_THRESHOLD_SEC = 0.03
 
+function seekVideoToTarget(
+  video: HTMLVideoElement,
+  target: number,
+  options: { play: boolean; forceSeek: boolean }
+): boolean {
+  const drift = Math.abs(video.currentTime - target)
+  const mustSeek = options.forceSeek || drift > PAUSED_SEEK_THRESHOLD_SEC
+
+  const startPlayback = () => {
+    if (options.play) {
+      void video.play().catch(() => undefined)
+    } else {
+      video.pause()
+    }
+  }
+
+  if (!mustSeek) {
+    startPlayback()
+    return false
+  }
+
+  if (!video.seeking && drift < 0.001) {
+    startPlayback()
+    return false
+  }
+
+  let settled = false
+  const finish = () => {
+    if (settled) return
+    settled = true
+    startPlayback()
+  }
+
+  video.addEventListener('seeked', finish, { once: true })
+  video.currentTime = target
+  requestAnimationFrame(() => {
+    if (!video.seeking) finish()
+  })
+  return true
+}
+
 export interface CompositorPreviewProps {
   session: EditSession
   sceneBuilderInput: SceneBuilderInput
@@ -331,27 +372,20 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       let didSeek = false
       if (isPlaying) {
         if (!skipSeek && (forceSeek || rebinding)) {
-          video.currentTime = target
-          didSeek = true
-          const startPlayback = () => {
-            void video.play().catch(() => undefined)
-          }
-          if (forceSeek && video.seeking) {
-            video.addEventListener('seeked', startPlayback, { once: true })
-          } else {
-            startPlayback()
-          }
+          didSeek = seekVideoToTarget(video, target, { play: true, forceSeek: true })
         } else {
           void video.play().catch(() => undefined)
         }
         return didSeek
       }
 
-      if (forceSeek || Math.abs(video.currentTime - target) > PAUSED_SEEK_THRESHOLD_SEC) {
-        video.currentTime = target
-        didSeek = true
+      if (forceSeek) {
+        didSeek = seekVideoToTarget(video, target, { play: false, forceSeek: true })
+      } else if (Math.abs(video.currentTime - target) > PAUSED_SEEK_THRESHOLD_SEC) {
+        didSeek = seekVideoToTarget(video, target, { play: false, forceSeek: false })
+      } else {
+        video.pause()
       }
-      video.pause()
       return didSeek
     },
     [getSourceTimeForBlock, getVideoUrlForBlock, isPlaying]
