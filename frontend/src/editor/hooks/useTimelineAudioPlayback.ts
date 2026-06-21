@@ -209,10 +209,13 @@ export function useTimelineAudioPlayback({
 
   useEffect(() => {
     return () => {
-      containerRef.current?.remove()
-      containerRef.current = null
+      for (const audio of elementsRef.current.values()) {
+        audio.pause()
+      }
       elementsRef.current.clear()
       clipModeRef.current.clear()
+      containerRef.current?.remove()
+      containerRef.current = null
     }
   }, [])
 }

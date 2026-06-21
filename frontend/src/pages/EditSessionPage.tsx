@@ -61,6 +61,7 @@ const EditSessionPage: React.FC = () => {
     if (!projectId || !sessionId) return
     void loadSession(projectId, sessionId)
     return () => {
+      useEditSessionStore.getState().setPlaying(false)
       const pid = projectId
       void useEditSessionStore.getState().flushSaveSession(pid).finally(() => {
         useEditSessionStore.getState().reset()
