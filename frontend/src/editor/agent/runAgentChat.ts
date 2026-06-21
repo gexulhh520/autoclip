@@ -30,6 +30,7 @@ const MAX_POST_APPLY_ROUNDS = 6
 export const MAX_AUTO_EXECUTE_WRITE_CALLS = 8
 
 export const BATCH_AUTO_WRITE_TOOLS = new Set([
+  'apply_caption_template',
   'add_captions_for_blocks',
   'split_text_overlay_by_char',
   'split_text_overlays_by_char',
@@ -213,7 +214,7 @@ export async function runAgentChatLoop(
         debugTrace.outcome = 'plan'
         const assistantMessage =
           response.assistant_message ||
-          `写操作过多（本轮 ${nonBatchWriteCount}，累计 ${totalNonBatchWrites}），请确认后执行；每段加字幕请改用 add_captions_for_blocks。`
+          `写操作过多（本轮 ${nonBatchWriteCount}，累计 ${totalNonBatchWrites}），请确认后执行；批量字幕请改用 apply_caption_template。`
         return finishResult(
           debugTrace,
           {

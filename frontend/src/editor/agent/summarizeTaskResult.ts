@@ -25,9 +25,10 @@ function summarizeToolResult(call: AgentToolCall, result: AgentToolResult): stri
     }
     case 'add_text_overlay':
       return `${label} → 已添加`
+    case 'apply_caption_template':
     case 'add_captions_for_blocks': {
       const data = result.data as Record<string, unknown> | undefined
-      return `${label} → 新增 ${data?.overlays_added ?? 0}，跳过 ${data?.overlays_skipped ?? 0}`
+      return `${label} → 新增 ${data?.overlays_added ?? 0}，跳过 ${data?.overlays_skipped ?? 0}，模板 ${data?.template ?? '?'}`
     }
     case 'update_overlay_params':
       return `${label} → 已更新`

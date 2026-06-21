@@ -22,8 +22,60 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
   {
     type: 'function',
     function: {
+      name: 'apply_caption_template',
+      description:
+        '按模板批量添加字幕（推荐）。LLM 只传 entries[{block_id,text}] 与 template/style/animation；位置/字号/竖排拆字由模板引擎计算，禁止传 position/fontSize/start_sec。一次调用处理全部片段，勿循环 add_text_overlay。',
+      parameters: {
+        type: 'object',
+        properties: {
+          template: {
+            type: 'string',
+            enum: ['vertical_stagger', 'horizontal_center', 'bottom_safe', 'top_safe'],
+            description: 'vertical_stagger=竖排逐字+动画；bottom_safe=底部安全区横排',
+          },
+          entries: {
+            type: 'array',
+            description: '每段字幕：block_id 须来自 known_blocks',
+            items: {
+              type: 'object',
+              properties: {
+                block_id: { type: 'string' },
+                text: { type: 'string', description: '字幕正文，建议 2–12 字' },
+              },
+              required: ['block_id', 'text'],
+            },
+          },
+          style: {
+            type: 'object',
+            properties: {
+              fontFamily: { type: 'string' },
+              color: { type: 'string' },
+              fontWeight: { type: 'string' },
+            },
+          },
+          animation: {
+            type: 'object',
+            properties: {
+              in_type: {
+                type: 'string',
+                enum: ['none', 'fade', 'slide_up', 'slide_down', 'scale', 'pop'],
+              },
+              in_duration_sec: { type: 'number' },
+              stagger_sec: { type: 'number', description: '竖排逐字间隔（秒）' },
+            },
+          },
+          skip_existing: { type: 'boolean', description: '默认 true' },
+        },
+        required: ['entries'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'add_text_overlay',
-      description: '在指定时间添加文本层。content 必须来自 draft_texts，禁止抄参考图。role 固定 text。',
+      description:
+        '【不推荐 Agent 使用】单条文本层。批量字幕请用 apply_caption_template。仅当用户明确指定某一时刻的单条文字时使用。',
       parameters: {
         type: 'object',
         properties: {
@@ -45,50 +97,6 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
           animation_in_duration: { type: 'number' },
         },
         required: ['start_sec', 'content'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'add_captions_for_blocks',
-      description:
-        '为每个主轨视频片段添加一条字幕（一次调用，勿循环 add_text_overlay）。每段不同文案用 block_captions；统一文案用 content；仅有可读草稿时用 use_block_draft。layout=vertical 竖排拆字+动画。',
-      parameters: {
-        type: 'object',
-        properties: {
-          content: { type: 'string', description: '全部片段统一文案' },
-          block_captions: {
-            type: 'array',
-            description: '每段独立文案（LLM 生成），每项含 block_id + content',
-            items: {
-              type: 'object',
-              properties: {
-                block_id: { type: 'string' },
-                content: { type: 'string' },
-              },
-              required: ['block_id', 'content'],
-            },
-          },
-          use_block_draft: {
-            type: 'boolean',
-            description: '仅当片段 outline/content 为可读文案时使用',
-          },
-          block_ids: { type: 'array', items: { type: 'string' }, description: '缺省=全部主轨片段' },
-          skip_existing: { type: 'boolean', description: '默认 true，避免重复加字幕' },
-          layout: { type: 'string', enum: ['horizontal', 'vertical'] },
-          fontSize: { type: 'number' },
-          fontFamily: { type: 'string' },
-          color: { type: 'string' },
-          fontWeight: { type: 'string' },
-          in_type: {
-            type: 'string',
-            enum: ['none', 'fade', 'slide_up', 'slide_down', 'scale', 'pop'],
-          },
-          in_duration_sec: { type: 'number' },
-          stagger_sec: { type: 'number' },
-        },
-        required: [],
       },
     },
   },
@@ -518,6 +526,16 @@ export const EDITOR_AGENT_TOOL_NAMES = EDITOR_AGENT_TOOL_DEFINITIONS.map(
   (item) => item.function.name
 )
 
+export const LEGACY_WRITE_AGENT_TOOLS = new Set(['add_captions_for_blocks'])
+
+export const BATCH_AUTO_WRITE_TOOLS_FRONTEND = new Set([
+  'apply_caption_template',
+  'add_captions_for_blocks',
+  'split_text_overlay_by_char',
+  'split_text_overlays_by_char',
+  'batch_apply_text_style',
+])
+
 export const READ_ONLY_AGENT_TOOLS = new Set([
   'list_assets',
   'verify_subtitle_in_frame',
@@ -545,7 +563,8 @@ export function isReadOnlyAgentTool(name: string): boolean {
 
 export function isWriteAgentTool(name: string): boolean {
   return (
-    (EDITOR_AGENT_TOOL_NAMES as readonly string[]).includes(name) &&
+    ((EDITOR_AGENT_TOOL_NAMES as readonly string[]).includes(name) ||
+      LEGACY_WRITE_AGENT_TOOLS.has(name)) &&
     !READ_ONLY_AGENT_TOOLS.has(name) &&
     !isMetaAgentTool(name)
   )
@@ -555,6 +574,11 @@ export function formatToolCallSummary(name: string, args: Record<string, unknown
   switch (name) {
     case 'add_text_overlay':
       return `添加文本「${String(args.content ?? '').slice(0, 24)}」@${args.start_sec ?? 0}s`
+    case 'apply_caption_template': {
+      const entries = Array.isArray(args.entries) ? args.entries.length : 0
+      const tpl = String(args.template ?? 'vertical_stagger')
+      return `模板字幕 ${tpl} × ${entries} 段`
+    }
     case 'add_captions_for_blocks': {
       const layout = args.layout === 'vertical' ? '竖排' : '横排'
       const blocks = Array.isArray(args.block_ids) ? args.block_ids.length : '全部片段'

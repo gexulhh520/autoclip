@@ -21,8 +21,68 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "apply_caption_template",
+            "description": "按模板批量添加字幕。LLM 只传 entries[{block_id,text}] 与 template/style/animation；位置字号由引擎计算。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "template": {
+                        "type": "string",
+                        "enum": [
+                            "vertical_stagger",
+                            "horizontal_center",
+                            "bottom_safe",
+                            "top_safe",
+                        ],
+                    },
+                    "entries": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "block_id": {"type": "string"},
+                                "text": {"type": "string"},
+                            },
+                            "required": ["block_id", "text"],
+                        },
+                    },
+                    "style": {
+                        "type": "object",
+                        "properties": {
+                            "fontFamily": {"type": "string"},
+                            "color": {"type": "string"},
+                            "fontWeight": {"type": "string"},
+                        },
+                    },
+                    "animation": {
+                        "type": "object",
+                        "properties": {
+                            "in_type": {
+                                "type": "string",
+                                "enum": [
+                                    "none",
+                                    "fade",
+                                    "slide_up",
+                                    "slide_down",
+                                    "scale",
+                                    "pop",
+                                ],
+                            },
+                            "in_duration_sec": {"type": "number"},
+                            "stagger_sec": {"type": "number"},
+                        },
+                    },
+                    "skip_existing": {"type": "boolean"},
+                },
+                "required": ["entries"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "add_text_overlay",
-            "description": "添加文本层。content 必须来自 snapshot.draft_texts，禁止抄参考图。",
+            "description": "【不推荐】单条文本层；批量字幕请用 apply_caption_template。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -44,45 +104,6 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
                     "animation_in_duration": {"type": "number"},
                 },
                 "required": ["start_sec", "content"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "add_captions_for_blocks",
-            "description": "为每个主轨片段添加一条字幕（一次调用）。每段文案用 block_captions；layout=vertical 竖排拆字+动画。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "content": {"type": "string"},
-                    "block_captions": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "block_id": {"type": "string"},
-                                "content": {"type": "string"},
-                            },
-                            "required": ["block_id", "content"],
-                        },
-                    },
-                    "use_block_draft": {"type": "boolean"},
-                    "block_ids": {"type": "array", "items": {"type": "string"}},
-                    "skip_existing": {"type": "boolean"},
-                    "layout": {"type": "string", "enum": ["horizontal", "vertical"]},
-                    "fontSize": {"type": "number"},
-                    "fontFamily": {"type": "string"},
-                    "color": {"type": "string"},
-                    "fontWeight": {"type": "string"},
-                    "in_type": {
-                        "type": "string",
-                        "enum": ["none", "fade", "slide_up", "slide_down", "scale", "pop"],
-                    },
-                    "in_duration_sec": {"type": "number"},
-                    "stagger_sec": {"type": "number"},
-                },
-                "required": [],
             },
         },
     },
@@ -497,7 +518,7 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
 
 EDITOR_AGENT_TOOL_NAMES = {
     item["function"]["name"] for item in EDITOR_AGENT_TOOL_DEFINITIONS
-}
+} | {"add_captions_for_blocks"}
 
 META_AGENT_TOOLS = {
     "submit_task_plan",

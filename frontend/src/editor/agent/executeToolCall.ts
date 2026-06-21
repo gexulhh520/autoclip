@@ -38,6 +38,7 @@ import {
   executeAddCaptionsForBlocks,
   type AddCaptionsForBlocksArguments,
 } from './addCaptionsForBlocks'
+import { executeApplyCaptionTemplate } from './applyCaptionTemplate'
 import {
   describeSplitTextOverlayFailure,
   resolveBatchSplitPlacement,
@@ -423,6 +424,42 @@ export async function executeWriteToolCall(
           { recordHistory }
         )
         return { ok: true, tool_name: call.name, data: { overlay_id: getStore().selectedOverlayId } }
+      }
+      case 'apply_caption_template': {
+        const styleRaw = call.arguments.style as Record<string, unknown> | undefined
+        const animRaw = call.arguments.animation as Record<string, unknown> | undefined
+        const data = executeApplyCaptionTemplate(
+          getStore,
+          {
+            template: call.arguments.template,
+            entries: call.arguments.entries as import('./applyCaptionTemplate').CaptionTemplateEntry[],
+            style: styleRaw
+              ? {
+                  fontFamily: styleRaw.fontFamily as string | undefined,
+                  color: styleRaw.color as string | undefined,
+                  fontWeight: styleRaw.fontWeight as string | undefined,
+                }
+              : undefined,
+            animation: animRaw
+              ? {
+                  in_type: animRaw.in_type,
+                  in_duration_sec: animRaw.in_duration_sec as number | undefined,
+                  stagger_sec: animRaw.stagger_sec as number | undefined,
+                }
+              : undefined,
+            skip_existing: call.arguments.skip_existing as boolean | undefined,
+          },
+          { recordHistory }
+        )
+        if (data.overlays_added === 0 && data.overlays_skipped === 0 && data.items.some((i) => i.error)) {
+          return {
+            ok: false,
+            tool_name: call.name,
+            error: data.items.find((i) => i.error)?.error ?? '未能应用字幕模板',
+            data,
+          }
+        }
+        return { ok: true, tool_name: call.name, data }
       }
       case 'add_captions_for_blocks': {
         const data = executeAddCaptionsForBlocks(

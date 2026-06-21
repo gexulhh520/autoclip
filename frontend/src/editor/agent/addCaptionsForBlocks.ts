@@ -1,12 +1,12 @@
 import { buildEditorSnapshot } from './buildEditorSnapshot'
-import { mapFontFamily } from './fontMapping'
-import { mergeDefaultTextAnimation } from './defaultAnimation'
+import {
+  executeApplyCaptionTemplate,
+  migrateAddCaptionsArgs,
+  type ApplyCaptionTemplateResult,
+} from './applyCaptionTemplate'
 import { pickBlockDraftCaption } from './pickBlockDraftCaption'
-import { resolveBatchSplitPlacement } from './staggeredCharText'
-import { resolveCanvasDimensions } from '../scene/canvas'
 import { readStringParam } from '../opencut-text/params'
 import { DEFAULT_VIDEO_TRACK_ID } from '../videoTracks'
-import { validateMotionType } from './packagingTools'
 import type { EditSession } from '../../types/editSession'
 import type { useEditSessionStore } from '../../stores/useEditSessionStore'
 
@@ -19,9 +19,7 @@ export interface BlockCaptionItem {
 
 export interface AddCaptionsForBlocksArguments {
   content?: string
-  /** LLM 为每段指定的字幕文案（优先于 content / use_block_draft） */
   block_captions?: BlockCaptionItem[]
-  /** 为 true 时按片段 outline/content/title 取文案 */
   use_block_draft?: boolean
   block_ids?: string[]
   skip_existing?: boolean
@@ -35,56 +33,7 @@ export interface AddCaptionsForBlocksArguments {
   stagger_sec?: number
 }
 
-export interface AddCaptionsForBlocksItem {
-  block_id: string
-  timeline_start_sec: number
-  overlay_id?: string
-  skipped?: boolean
-  split_char_count?: number
-  error?: string
-}
-
-export interface AddCaptionsForBlocksResult {
-  content: string
-  blocks_targeted: number
-  overlays_added: number
-  overlays_skipped: number
-  split_char_layers: number
-  items: AddCaptionsForBlocksItem[]
-}
-
-function num(value: unknown, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
-}
-
-function str(value: unknown, fallback = ''): string {
-  return typeof value === 'string' ? value : fallback
-}
-
-function buildCaptionParams(
-  args: AddCaptionsForBlocksArguments
-): Record<string, string | number | boolean> {
-  const params: Record<string, string | number | boolean> = {
-    content: str(args.content, '文本'),
-    fontSize: num(args.fontSize, 6),
-    fontFamily: mapFontFamily(str(args.fontFamily)),
-    color: str(args.color, '#ffffff'),
-    fontWeight: str(args.fontWeight, 'normal'),
-    textAlign: 'center',
-    lineHeight: 1.2,
-    'transform.positionX': 0,
-    'transform.positionY': 0,
-    'transform.scaleX': 1,
-    'transform.scaleY': 1,
-    'transform.rotate': 0,
-  }
-  const inType = validateMotionType(args.in_type)
-  if (inType) {
-    params['animation.in.type'] = inType
-    params['animation.in.duration'] = num(args.in_duration_sec, 0.35)
-  }
-  return mergeDefaultTextAnimation(params)
-}
+export type AddCaptionsForBlocksResult = ApplyCaptionTemplateResult & { content: string }
 
 export function blockAlreadyHasCaption(
   session: EditSession,
@@ -105,19 +54,11 @@ export function blockAlreadyHasCaption(
   return false
 }
 
-function parseBlockCaptions(raw: unknown): Map<string, string> {
-  const map = new Map<string, string>()
-  if (!Array.isArray(raw)) return map
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue
-    const record = item as Record<string, unknown>
-    const blockId = str(record.block_id).trim()
-    const content = str(record.content).trim()
-    if (blockId && content) map.set(blockId, content)
-  }
-  return map
+function str(value: unknown, fallback = ''): string {
+  return typeof value === 'string' ? value : fallback
 }
 
+/** @deprecated 内部兼容；Agent 请用 apply_caption_template */
 export function executeAddCaptionsForBlocks(
   getStore: GetEditStore,
   args: AddCaptionsForBlocksArguments,
@@ -125,165 +66,89 @@ export function executeAddCaptionsForBlocks(
 ): AddCaptionsForBlocksResult {
   const store = getStore()
   const session = store.session
-  if (!session) {
-    return {
-      content: str(args.content),
-      blocks_targeted: 0,
-      overlays_added: 0,
-      overlays_skipped: 0,
-      split_char_layers: 0,
-      items: [{ block_id: '', timeline_start_sec: 0, error: '无活动剪辑工程' }],
-    }
-  }
 
-  const blockCaptionMap = parseBlockCaptions(args.block_captions)
-  const hasBlockCaptions = blockCaptionMap.size > 0
-  const useBlockDraft = !hasBlockCaptions && args.use_block_draft === true
-  const uniformContent = str(args.content).trim()
-
-  if (!hasBlockCaptions && !useBlockDraft && !uniformContent) {
-    return {
-      content: '',
-      blocks_targeted: 0,
-      overlays_added: 0,
-      overlays_skipped: 0,
-      split_char_layers: 0,
-      items: [
-        {
-          block_id: '',
-          timeline_start_sec: 0,
-          error:
-            '须提供 content、block_captions（每段文案）或 use_block_draft=true（且片段有可读草稿）',
-        },
-      ],
-    }
-  }
-
-  const snapshot = buildEditorSnapshot({
-    session,
-    playheadSec: store.sequencePlayheadSec,
-    selectedBlockId: store.selectedBlockId,
-    selectedOverlayId: store.selectedOverlayId,
-  })
-
-  const idFilter = Array.isArray(args.block_ids)
-    ? new Set(args.block_ids.map((id) => String(id).trim()).filter(Boolean))
-    : null
-
-  const targets = snapshot.blocks
-    .filter((block) => block.track_id === DEFAULT_VIDEO_TRACK_ID)
-    .filter((block) => block.timeline_start_sec != null)
-    .filter((block) => !idFilter || idFilter.has(block.id))
-    .map((block) => ({
-      block_id: block.id,
-      timeline_start_sec: block.timeline_start_sec!,
-      duration_sec: block.duration_sec,
-    }))
-
-  const skipExisting = args.skip_existing !== false
-  const layout = args.layout === 'vertical' ? 'vertical' : 'horizontal'
-  const items: AddCaptionsForBlocksItem[] = []
-  let overlaysAdded = 0
-  let overlaysSkipped = 0
-  let splitCharLayers = 0
-
-  const dims = resolveCanvasDimensions(session.export_settings, store.previewVideoNaturalSize ?? null)
-
-  if (options?.recordHistory !== false && targets.length > 0) {
-    // history pushed by executeAgentToolCalls batch wrapper
-  }
-
-  for (const target of targets) {
-    const blockContent = hasBlockCaptions
-      ? (blockCaptionMap.get(target.block_id) ?? '')
-      : useBlockDraft
-        ? pickBlockDraftCaption(session, target.block_id)
-        : uniformContent
-    if (!blockContent.trim()) {
-      items.push({
-        block_id: target.block_id,
-        timeline_start_sec: target.timeline_start_sec,
-        error: hasBlockCaptions ? 'block_captions 中缺少该片段文案' : '片段无可用草稿文案',
-      })
-      continue
-    }
-
-    const splitAfterAdd =
-      layout === 'vertical' && blockContent.replace(/\s+/g, '').length >= 2
-
-    if (skipExisting && blockAlreadyHasCaption(session, target.timeline_start_sec, blockContent)) {
-      overlaysSkipped += 1
-      items.push({
-        block_id: target.block_id,
-        timeline_start_sec: target.timeline_start_sec,
-        skipped: true,
-      })
-      continue
-    }
-
-    const params = buildCaptionParams({ ...args, content: blockContent })
-    store.addOverlayElement(
-      {
-        type: 'text',
-        hidden: false,
-        start_sec: target.timeline_start_sec,
-        duration_sec: target.duration_sec,
-        params,
-      },
-      { recordHistory: false }
+  if (Array.isArray(args.block_captions) && args.block_captions.length > 0) {
+    const result = executeApplyCaptionTemplate(
+      getStore,
+      migrateAddCaptionsArgs(args as unknown as Record<string, unknown>),
+      options
     )
+    return { ...result, content: '(block_captions)' }
+  }
 
-    const overlayId = getStore().selectedOverlayId
-    if (!overlayId) {
-      items.push({
-        block_id: target.block_id,
-        timeline_start_sec: target.timeline_start_sec,
-        error: '添加文本层失败',
-      })
-      continue
-    }
-
-    overlaysAdded += 1
-    let splitCharCount = 0
-
-    if (splitAfterAdd) {
-      const placement = resolveBatchSplitPlacement(
-        getStore().session!,
-        [overlayId],
-        dims.width,
-        dims.height
-      )
-      const place = placement.get(overlayId)
-      const createdIds = store.splitTextOverlayByChar(
-        overlayId,
-        {
-          layout: 'vertical',
+  if (session && args.use_block_draft) {
+    const snapshot = buildEditorSnapshot({
+      session,
+      playheadSec: store.sequencePlayheadSec,
+      selectedBlockId: store.selectedBlockId,
+      selectedOverlayId: store.selectedOverlayId,
+    })
+    const entries = snapshot.blocks
+      .filter((block) => block.track_id === DEFAULT_VIDEO_TRACK_ID)
+      .map((block) => ({
+        block_id: block.id,
+        text: pickBlockDraftCaption(session, block.id),
+      }))
+      .filter((item) => item.text.trim())
+    const result = executeApplyCaptionTemplate(
+      getStore,
+      {
+        template: args.layout === 'vertical' ? 'vertical_stagger' : 'bottom_safe',
+        entries,
+        style: {
+          fontFamily: args.fontFamily,
+          color: args.color,
+          fontWeight: args.fontWeight,
+        },
+        animation: {
           in_type: args.in_type,
           in_duration_sec: args.in_duration_sec,
           stagger_sec: args.stagger_sec,
-          center_x: place?.center_x,
-          center_y: place?.center_y,
         },
-        { recordHistory: false }
-      )
-      splitCharCount = createdIds.length
-      splitCharLayers += splitCharCount
-    }
+        skip_existing: args.skip_existing,
+      },
+      options
+    )
+    return { ...result, content: '(per-block draft)' }
+  }
 
-    items.push({
-      block_id: target.block_id,
-      timeline_start_sec: target.timeline_start_sec,
-      overlay_id: overlayId,
-      split_char_count: splitCharCount > 0 ? splitCharCount : undefined,
+  const uniform = str(args.content).trim()
+  if (session && uniform) {
+    const snapshot = buildEditorSnapshot({
+      session,
+      playheadSec: store.sequencePlayheadSec,
+      selectedBlockId: store.selectedBlockId,
+      selectedOverlayId: store.selectedOverlayId,
     })
+    const idFilter = Array.isArray(args.block_ids)
+      ? new Set(args.block_ids.map((id) => String(id).trim()).filter(Boolean))
+      : null
+    const entries = snapshot.blocks
+      .filter((block) => block.track_id === DEFAULT_VIDEO_TRACK_ID)
+      .filter((block) => !idFilter || idFilter.has(block.id))
+      .map((block) => ({ block_id: block.id, text: uniform }))
+    const result = executeApplyCaptionTemplate(
+      getStore,
+      {
+        template: args.layout === 'vertical' ? 'vertical_stagger' : 'bottom_safe',
+        entries,
+        style: {
+          fontFamily: args.fontFamily,
+          color: args.color,
+          fontWeight: args.fontWeight,
+        },
+        animation: {
+          in_type: args.in_type,
+          in_duration_sec: args.in_duration_sec,
+          stagger_sec: args.stagger_sec,
+        },
+        skip_existing: args.skip_existing,
+      },
+      options
+    )
+    return { ...result, content: uniform }
   }
 
-  return {
-    content: hasBlockCaptions ? '(block_captions)' : useBlockDraft ? '(per-block draft)' : uniformContent,
-    blocks_targeted: targets.length,
-    overlays_added: overlaysAdded,
-    overlays_skipped: overlaysSkipped,
-    split_char_layers: splitCharLayers,
-    items,
-  }
+  const result = executeApplyCaptionTemplate(getStore, migrateAddCaptionsArgs(args as unknown as Record<string, unknown>), options)
+  return { ...result, content: '' }
 }

@@ -131,7 +131,7 @@ async function runSingleTaskLoop(
         {
           role: 'user',
           content:
-            '上一轮未改动时间线。你必须在本轮输出写 tool_calls（如 add_captions_for_blocks / split_text_overlays_by_char）完成「' +
+            '上一轮未改动时间线。你必须在本轮输出写 tool_calls（如 apply_caption_template）完成「' +
             current.title +
             '」，不要只说已完成。',
         },

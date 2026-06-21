@@ -155,12 +155,13 @@ export function compactToolResultData(
       return { ...result, data: compactCapturePreview(data) }
     case 'verify_subtitle_in_frame':
       return result
+    case 'apply_caption_template':
     case 'add_captions_for_blocks': {
       const data = result.data as Record<string, unknown> | undefined
       return {
         ...result,
         data: {
-          content: data?.content,
+          template: data?.template,
           blocks_targeted: data?.blocks_targeted,
           overlays_added: data?.overlays_added,
           overlays_skipped: data?.overlays_skipped,

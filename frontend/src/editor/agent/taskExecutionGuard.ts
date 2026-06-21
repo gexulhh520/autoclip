@@ -14,7 +14,7 @@ export function isPostCaptionAnimationTask(
   if (!/动画|入场/.test(text)) return false
   if (/添加文本|加字幕|文案/.test(text)) return false
   return completedSummaries.some((item) =>
-    /竖排字幕|add_captions_for_blocks|已.*段.*字幕|拆字/.test(item)
+    /竖排字幕|apply_caption_template|add_captions_for_blocks|已.*段.*字幕|拆字/.test(item)
   )
 }
 
@@ -50,7 +50,7 @@ export function buildTaskExecutionMessages(
   }
   if (taskExpectsTimelineWrites(task)) {
     lines.push(
-      '本任务须调用写工具改动时间线（如 add_captions_for_blocks、split_text_overlays_by_char、set_text_animation），禁止仅用「已完成」文字回复。'
+      '本任务须调用写工具改动时间线（如 apply_caption_template、split_text_overlays_by_char），禁止仅用「已完成」文字回复。'
     )
     if (
       /每段|各段|各片段|每个片段|每条.*片段|所有片段|各视频|每段视频/.test(
@@ -59,7 +59,7 @@ export function buildTaskExecutionMessages(
       /字幕|加字|文本|文案/.test(`${task.title} ${userGoal}`)
     ) {
       lines.push(
-        '为多个片段加字幕：一次 add_captions_for_blocks（layout=vertical 可竖排+动画）。每段文案不同须用 block_captions: [{block_id, content}, ...]；禁止循环 add_text_overlay。片段 title 为 id/hash 或用户要求随机/自拟文案时，由你生成短句写入 block_captions，勿 use_block_draft。'
+        '为多个片段加字幕：一次 apply_caption_template（template=vertical_stagger 竖排+动画）。entries: [{block_id, text}, ...]；禁止 position/fontSize/start_sec 与循环 add_text_overlay。'
       )
     }
   }

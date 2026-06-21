@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from backend.services.editor_agent_tools import EDITOR_AGENT_TOOL_NAMES
+from backend.services.editor_agent_tools import EDITOR_AGENT_TOOL_DEFINITIONS, EDITOR_AGENT_TOOL_NAMES
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TOOL_REGISTRY = REPO_ROOT / "frontend" / "src" / "editor" / "agent" / "toolRegistry.ts"
@@ -15,13 +15,17 @@ def _frontend_tool_names() -> set[str]:
     return set(re.findall(r"name: '([a-z_]+)'", text))
 
 
-def test_backend_includes_add_captions_for_blocks():
+def test_backend_includes_apply_caption_template():
+    assert "apply_caption_template" in EDITOR_AGENT_TOOL_NAMES
+
+
+def test_backend_legacy_add_captions_still_whitelisted():
     assert "add_captions_for_blocks" in EDITOR_AGENT_TOOL_NAMES
 
 
 def test_frontend_backend_agent_tool_names_match():
     frontend = _frontend_tool_names()
-    backend = set(EDITOR_AGENT_TOOL_NAMES)
+    backend = {item["function"]["name"] for item in EDITOR_AGENT_TOOL_DEFINITIONS}
     assert frontend == backend, (
         f"工具白名单不一致\n仅前端: {sorted(frontend - backend)}\n仅后端: {sorted(backend - frontend)}"
     )
