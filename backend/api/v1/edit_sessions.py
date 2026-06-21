@@ -764,6 +764,7 @@ async def import_edit_session_media(
             block_id=block.id,
             title=block.title,
             duration_sec=block.duration_sec,
+            import_method="upload",
         )
     except FileNotFoundError as exc:
         if dest and dest.exists():
@@ -794,9 +795,9 @@ async def import_edit_session_media_path(
     body: EditSessionImportMediaPathRequest,
     service: EditSessionService = Depends(get_edit_session_service),
 ):
-    """桌面端：从本地路径复制视频，跳过 HTTP 整文件上传。"""
+    """桌面端：从本地路径导入视频（硬链接/引用，避免整文件复制）。"""
     try:
-        session, block = service.import_media_from_path(
+        session, block, import_method = service.import_media_from_path(
             project_id,
             session_id,
             body.source_path,
@@ -807,6 +808,7 @@ async def import_edit_session_media_path(
             block_id=block.id,
             title=block.title,
             duration_sec=block.duration_sec,
+            import_method=import_method,
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc

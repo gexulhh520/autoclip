@@ -147,7 +147,8 @@ export const editApi = {
     }
     return (await api.post(
       `/projects/${projectId}/edit-sessions/${sessionId}/import-media`,
-      formData
+      formData,
+      { timeout: 1_800_000 }
     )) as EditSessionImportMediaResponse
   },
 

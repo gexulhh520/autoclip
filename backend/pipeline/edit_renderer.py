@@ -223,9 +223,10 @@ def _resolve_clip_render_window(
 
 def _resolve_input_video(project_dir: Path, block: EditBlock) -> Path:
     if block.media.path:
-        candidate = project_dir / block.media.path
+        raw = Path(block.media.path)
+        candidate = raw if raw.is_absolute() else project_dir / block.media.path
         if candidate.exists():
-            return candidate
+            return candidate.resolve()
     raise FileNotFoundError(f"找不到片段视频: {block.media.path}")
 
 

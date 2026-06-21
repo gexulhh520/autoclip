@@ -658,8 +658,98 @@ def test_import_media_path_endpoint(tmp_path, monkeypatch):
     payload = response.json()
     assert payload["title"] == "source-long"
     assert payload["duration_sec"] == 42.0
+    assert payload.get("import_method") in {"hardlink", "symlink", "reference"}
     assert len(payload["session"]["sequence"]) == 1
 
     media_dir = project_dir / "edit_sessions" / session_id / "media"
-    imported = next(media_dir.glob("import-*.mp4"))
-    assert imported.read_bytes() == source_video.read_bytes()
+    method = payload.get("import_method")
+    if method in {"hardlink", "symlink"}:
+        imported = next(media_dir.glob("import-*.mp4"))
+        assert imported.read_bytes() == source_video.read_bytes()
+    else:
+        media_path = payload["session"]["sequence"][0]["media"]["path"]
+        assert Path(media_path) == source_video.resolve()
+
+
+def test_import_media_path_reference_when_link_fails(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from backend.main import app
+
+    project_id = "edit-import-media-ref"
+    session_id = "sess-import-ref"
+    project_dir = tmp_path / "projects" / project_id
+    session_path = project_dir / "edit_sessions" / f"{session_id}.json"
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    session_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "id": session_id,
+                "project_id": project_id,
+                "name": "引用导入测试",
+                "overlay_snapshot": {},
+                "sequence": [],
+                "overlay_elements": [],
+                "bookmarks": [],
+                "export_settings": {
+                    "aspect": "9:16",
+                    "height": 1080,
+                    "fps": 30,
+                    "visual_filter": "none",
+                    "fit_mode": "contain",
+                },
+                "audio_settings": {
+                    "bgm_volume": 0.28,
+                    "fade_in_sec": 0.3,
+                    "fade_out_sec": 0.3,
+                    "bgm_duck_enabled": True,
+                    "bgm_duck_ratio": 8,
+                    "use_source_video": True,
+                    "transition_duration_sec": 0.35,
+                },
+                "created_at": "2026-01-01T00:00:00",
+                "updated_at": "2026-01-01T00:00:00",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    source_video = tmp_path / "external-source.mp4"
+    source_video.write_bytes(b"ref")
+
+    monkeypatch.setattr(
+        "backend.core.path_utils.get_project_directory",
+        lambda _pid: project_dir,
+    )
+    monkeypatch.setattr(
+        "backend.api.v1.edit_sessions.get_project_directory",
+        lambda _pid: project_dir,
+    )
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+    monkeypatch.setattr(
+        "backend.utils.video_processor.VideoProcessor.get_video_info",
+        lambda _path: {"duration": 12.0},
+    )
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.os.link",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("cross-device")),
+    )
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.os.symlink",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("no symlink")),
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        f"/api/v1/projects/{project_id}/edit-sessions/{session_id}/import-media-path",
+        json={"source_path": str(source_video)},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["import_method"] == "reference"
+    assert Path(payload["session"]["sequence"][0]["media"]["path"]).resolve() == source_video.resolve()

@@ -339,6 +339,10 @@ class EditSessionImportMediaResponse(BaseModel):
     block_id: str
     title: str
     duration_sec: float
+    import_method: Optional[str] = Field(
+        default=None,
+        description="路径导入方式：hardlink|symlink|reference|upload",
+    )
 
 
 class EditSessionImportMediaPathRequest(BaseModel):

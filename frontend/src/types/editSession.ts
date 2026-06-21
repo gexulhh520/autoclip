@@ -236,6 +236,8 @@ export interface EditSessionImportMediaResponse {
   block_id: string
   title: string
   duration_sec: number
+  /** hardlink | symlink | reference | upload */
+  import_method?: string | null
 }
 
 export interface EditSessionRegenerateRequest {

@@ -22,6 +22,7 @@ import TransitionTypePicker from './TransitionTypePicker'
 import { areMainTrackBlocksAdjacent } from '../../editor/timeline/sequenceBlockGaps'
 import { isTauriApp } from '../../utils/desktopMode'
 import { useAgentPanelStore } from '../../stores/useAgentPanelStore'
+import { formatVideoImportSuccessMessage } from '../../utils/videoImportMessage'
 
 const VIDEO_IMPORT_EXTENSIONS = ['mp4', 'mov', 'mkv', 'webm', 'm4v', 'avi']
 
@@ -117,8 +118,10 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
     }
     setImportingVideo(true)
     try {
-      await importMedia(projectId, file)
-      message.success(`「${file.name}」已导入并加入时间线`)
+      const result = await importMedia(projectId, file)
+      message.success(
+        formatVideoImportSuccessMessage(result.title || file.name, result.import_method)
+      )
     } catch (error: unknown) {
       const err = error as { userMessage?: string }
       message.error(
@@ -144,9 +147,11 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
           filters: [{ name: 'Video', extensions: VIDEO_IMPORT_EXTENSIONS }],
         })
         if (!selected || Array.isArray(selected)) return
-        await importMediaFromPath(projectId, selected)
+        const result = await importMediaFromPath(projectId, selected)
         const name = selected.split(/[/\\]/).pop() || selected
-        message.success(`「${name}」已导入并加入时间线`)
+        message.success(
+          formatVideoImportSuccessMessage(result.title || name, result.import_method)
+        )
       } catch (error: unknown) {
         const err = error as { userMessage?: string }
         message.error(

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import uuid
 from datetime import datetime, timezone
@@ -652,6 +653,31 @@ class EditSessionService:
         return normalized if normalized in cls._IMPORT_VIDEO_SUFFIXES else ".mp4"
 
     @classmethod
+    def _prepare_import_video_source(cls, source: Path, dest: Path) -> tuple[Path, str]:
+        """尽量硬链接/符号链接或路径引用，避免大文件整盘复制。"""
+        source = source.resolve()
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists():
+            dest.unlink()
+
+        if source == dest.resolve():
+            return source, "reference"
+
+        try:
+            os.link(source, dest)
+            return dest.resolve(), "hardlink"
+        except OSError as exc:
+            logger.debug("导入硬链接失败，尝试符号链接: %s", exc)
+
+        try:
+            os.symlink(source, dest)
+            return dest.resolve(), "symlink"
+        except OSError as exc:
+            logger.debug("导入符号链接失败，改用路径引用: %s", exc)
+
+        return source, "reference"
+
+    @classmethod
     def _copy_import_video_source(cls, source: Path, dest: Path) -> None:
         dest.parent.mkdir(parents=True, exist_ok=True)
         with source.open("rb") as src, dest.open("wb") as dst:
@@ -663,13 +689,13 @@ class EditSessionService:
         session_id: str,
         session: EditSession,
         project_dir: Path,
-        dest: Path,
+        media_file: Path,
         *,
         import_id: str,
         title: str,
         insert_index: Optional[int] = None,
     ) -> tuple[EditSession, EditBlock]:
-        info = VideoProcessor.get_video_info(dest)
+        info = VideoProcessor.get_video_info(media_file)
         duration_sec = float(info.get("duration") or 0.0)
         if duration_sec <= 0:
             duration_sec = 0.1
@@ -681,7 +707,7 @@ class EditSessionService:
             title=safe_title,
             media=EditBlockMedia(
                 type="imported_clip",
-                path=_relative_project_path(project_dir, dest),
+                path=_relative_project_path(project_dir, media_file.resolve()),
             ),
             trim=EditBlockTrim(in_sec=0.0, out_sec=duration_sec),
             overlay=EditBlockOverlay(outline="", content=[], recommend_reason=""),
@@ -710,7 +736,7 @@ class EditSessionService:
         source_path: str,
         *,
         insert_index: Optional[int] = None,
-    ) -> tuple[EditSession, EditBlock]:
+    ) -> tuple[EditSession, EditBlock, str]:
         raw = (source_path or "").strip()
         if not raw:
             raise ValueError("source_path 不能为空")
@@ -736,18 +762,19 @@ class EditSessionService:
 
         import_id = f"import-{uuid.uuid4().hex[:12]}"
         dest = media_dir / f"{import_id}{suffix}"
-        self._copy_import_video_source(source, dest)
+        media_file, link_method = self._prepare_import_video_source(source, dest)
 
-        return self._finalize_imported_video(
+        session, block = self._finalize_imported_video(
             project_id,
             session_id,
             session,
             project_dir,
-            dest,
+            media_file,
             import_id=import_id,
             title=source.stem,
             insert_index=insert_index,
         )
+        return session, block, link_method
 
     def import_media_file(
         self,

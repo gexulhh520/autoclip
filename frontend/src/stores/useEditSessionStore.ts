@@ -350,8 +350,8 @@ interface EditSessionState {
     sourceId?: string | null,
     options?: { insertIndex?: number }
   ) => Promise<number>
-  importMedia: (projectId: string, file: File) => Promise<void>
-  importMediaFromPath: (projectId: string, sourcePath: string) => Promise<void>
+  importMedia: (projectId: string, file: File) => Promise<import('../types/editSession').EditSessionImportMediaResponse>
+  importMediaFromPath: (projectId: string, sourcePath: string) => Promise<import('../types/editSession').EditSessionImportMediaResponse>
   copySelection: () => void
   pasteSelection: (options?: { startSec?: number; insertAfterBlockId?: string }) => void
   clipboardHasContent: () => boolean
@@ -1365,6 +1365,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             saving: false,
             ...buildStateAfterImportMedia(result, insertIndex),
           })
+          return result
         } catch (error: unknown) {
           set({
             saving: false,
@@ -1389,6 +1390,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             saving: false,
             ...buildStateAfterImportMedia(result, insertIndex),
           })
+          return result
         } catch (error: unknown) {
           set({
             saving: false,
