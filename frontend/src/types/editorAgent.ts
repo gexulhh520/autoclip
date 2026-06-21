@@ -170,6 +170,8 @@ export interface FindBlockMomentsRequest {
   block_id: string
   search_criteria: string
   max_results?: number
+  /** balanced：默认召回；high：更低预筛阈值、更多验证帧 */
+  recall_mode?: 'balanced' | 'high'
   timeline_start_sec: number
   timeline_end_sec: number
   duration_sec: number

@@ -64,6 +64,7 @@ def test_find_moments_in_transcript():
 
 def test_is_visual_primary_search():
     assert is_visual_primary_search("找到所有打斗场景") is True
+    assert is_visual_primary_search("找到枪战镜头") is True
     assert is_visual_primary_search("富有哲学的话") is False
     assert resolve_search_strategy("找到所有打斗场景") == "visual_primary"
     assert resolve_search_strategy("找到诗歌片段") == "text_primary"

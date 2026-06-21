@@ -378,6 +378,7 @@ class EditorAgentService:
             max_results,
             client_sample_times_sec=list(request.sample_times_sec or []),
             client_frames=frame_dicts or None,
+            recall_mode=str(request.recall_mode or "balanced"),
         )
 
         return FindBlockMomentsResponse(

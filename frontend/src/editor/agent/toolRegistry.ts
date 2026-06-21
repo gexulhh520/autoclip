@@ -566,19 +566,24 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
     function: {
       name: 'find_block_moments',
       description:
-        '只读：按用户描述检索视频片段。结合转写/字幕文本（哲学、金句、共鸣台词）与画面抽帧（打斗、动作、场景）。返回 matches 含时间线与 trim，可据此裁切',
+        '只读：按用户描述检索视频片段。画面类（打斗/枪战/追逐）走信号预筛+LLM验证；文本类走转写。返回 matches 含时间线与 trim',
       parameters: {
         type: 'object',
         properties: {
           block_id: { type: 'string', description: '目标片段；缺省用 AI 钉住或当前选中' },
           search_criteria: {
             type: 'string',
-            description: '检索条件，如「所有打斗场面」「富有哲学的话」「能引起共鸣的片段」',
+            description: '检索条件，如「所有打斗场面」「枪战部分」「富有哲学的话」',
           },
           max_results: { type: 'number', description: '最多返回 1–24 条，默认 12' },
+          recall_mode: {
+            type: 'string',
+            enum: ['balanced', 'high'],
+            description: '画面检索召回：balanced 默认；high 更低预筛阈值、更多验证帧',
+          },
           frame_sample_count: {
             type: 'number',
-            description: '画面检索抽帧数；缺省按时长自动',
+            description: '无转写时的均匀画面抽帧数；缺省按时长自动',
           },
           include_visual: {
             type: 'boolean',

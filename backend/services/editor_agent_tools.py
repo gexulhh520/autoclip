@@ -547,7 +547,7 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "find_block_moments",
-            "description": "只读：按用户描述检索片段（文本+画面）。打斗/场景用画面；金句/哲学/共鸣用转写",
+            "description": "只读：按用户描述检索片段。打斗/枪战/追逐走信号预筛+LLM验证；金句/哲学/共鸣用转写",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -557,6 +557,11 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
                         "description": "检索条件",
                     },
                     "max_results": {"type": "number"},
+                    "recall_mode": {
+                        "type": "string",
+                        "enum": ["balanced", "high"],
+                        "description": "画面检索召回强度",
+                    },
                     "frame_sample_count": {"type": "number"},
                     "include_visual": {"type": "boolean"},
                     "max_width": {"type": "number"},

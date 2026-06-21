@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import math
 import re
 import subprocess
 import tempfile
@@ -25,7 +26,7 @@ MAX_EXTRACT_FRAME_WIDTH = 480
 WHISPER_SKIP_MIN_DURATION_SEC = 180.0
 
 VISUAL_PRIMARY_CRITERIA = re.compile(
-    r"打斗|打架|格斗|搏击|交手|枪战|追逐|动作场面|武打|搏斗|对打|械斗|拳脚"
+    r"打斗|打架|格斗|搏击|交手|枪战|交火|射击|火力|追逐|追赶|飙车|动作场面|武打|搏斗|对打|械斗|拳脚"
 )
 
 VISUAL_TEXT_CRITERIA = re.compile(
@@ -35,6 +36,15 @@ VISUAL_TEXT_CRITERIA = re.compile(
 COARSE_VISUAL_FRAME_CAP = 12
 FINE_FRAMES_PER_RANGE = 4
 FINE_VISUAL_FRAME_CAP = 24
+VERIFY_FRAMES_PER_CANDIDATE_BALANCED = 4
+VERIFY_FRAMES_PER_CANDIDATE_HIGH = 6
+VERIFY_FRAME_CAP_BALANCED = 80
+VERIFY_FRAME_CAP_HIGH = 120
+VERIFY_REFINE_FRAMES_PER_RANGE = 6
+VERIFY_REFINE_FRAME_CAP = 64
+FALLBACK_UNIFORM_INTERVAL_BALANCED = 60.0
+FALLBACK_UNIFORM_INTERVAL_HIGH = 90.0
+MAX_CANDIDATE_WINDOWS_FOR_SAMPLING = 20
 TEXT_CONFIRM_FRAMES_PER_MATCH = 2
 TEXT_CONFIRM_FRAME_CAP = 16
 
@@ -52,13 +62,16 @@ FIND_MOMENTS_SYSTEM = """你是视频片段检索助手。用户会给出检索�
 - 金句/哲学/共鸣：按语义与情感匹配，不限于出现 exact 关键词"""
 
 VISUAL_FRAME_MATCH_SYSTEM = """你是视频画面检索助手。用户给出检索条件与一帧预览图时间戳。
-判断该帧画面是否符合检索条件（如打斗、追逐、特定场景、人物情绪、屏幕/画面上的文字等）。
+判断该帧画面是否符合检索条件（如打斗、枪战、追逐、特定场景、人物情绪、屏幕/画面上的文字等）。
 只输出 JSON：{"match_score":0-1,"matches":true/false,"reason":"15-40字"}
 
-- 打斗/动作：肢体冲突、击打、格斗、明显对抗
+- 打斗/格斗：肢体冲突、击打、擒拿、明显对抗（无枪也可）
+- 枪战/交火：持枪瞄准或射击、枪口火光、掩体对射、中弹倒地等；纯爆炸/烟花/无关持枪特写不算
+- 追逐/追逃：高速追赶、被追或追人、车辆/奔跑追逃
 - 诗歌/古诗词/字幕文字：画面或硬字幕中出现诗句、文言、竖排古文字、书法字卡等
 - 画面氛围/共鸣：靠构图、表情、情境；无明确视觉证据时 matches=false、score<0.5
-- 纯口播台词类：画面中无字幕且无法从画面推断内容时，不要臆造台词，matches=false"""
+- 纯口播台词类：画面中无字幕且无法从画面推断内容时，不要臆造台词，matches=false
+- 预筛可疑不等于符合；必须在本帧看到与检索条件一致的视觉证据"""
 
 
 @dataclass
@@ -152,6 +165,43 @@ def build_timeline_sample_times_for_moments(
     return sorted({round(value, 3) for value in times})[:max_frames]
 
 
+def build_verify_sample_times_for_candidates(
+    candidate_ranges: List[Tuple[float, float, float, str]],
+    timeline_start_sec: float,
+    duration_sec: float,
+    *,
+    recall_mode: str = "balanced",
+) -> List[float]:
+    """在预筛候选区内抽验证帧，并叠加稀疏均匀 fallback。"""
+    high = recall_mode == "high"
+    frames_per_range = (
+        VERIFY_FRAMES_PER_CANDIDATE_HIGH if high else VERIFY_FRAMES_PER_CANDIDATE_BALANCED
+    )
+    max_frames = VERIFY_FRAME_CAP_HIGH if high else VERIFY_FRAME_CAP_BALANCED
+    fallback_interval = (
+        FALLBACK_UNIFORM_INTERVAL_HIGH if high else FALLBACK_UNIFORM_INTERVAL_BALANCED
+    )
+
+    times: List[float] = []
+    ordered = sorted(candidate_ranges, key=lambda row: row[2], reverse=True)
+    for tl_start, tl_end, _score, _reason in ordered[:MAX_CANDIDATE_WINDOWS_FOR_SAMPLING]:
+        span = max(0.2, tl_end - tl_start)
+        for index in range(max(1, frames_per_range)):
+            ratio = (index + 1) / (frames_per_range + 1)
+            times.append(tl_start + span * ratio)
+
+    duration = max(0.1, duration_sec)
+    fallback_count = max(3, min(16, int(math.ceil(duration / fallback_interval))))
+    times.extend(
+        build_uniform_timeline_sample_times(
+            timeline_start_sec,
+            duration_sec,
+            fallback_count,
+        )
+    )
+    return sorted({round(value, 3) for value in times})[:max_frames]
+
+
 def build_timeline_sample_times_for_ranges(
     ranges: List[Tuple[float, float, float, str]],
     *,
@@ -167,6 +217,122 @@ def build_timeline_sample_times_for_ranges(
         if len(times) >= max_frames:
             break
     return sorted({round(value, 3) for value in times})[:max_frames]
+
+
+def visual_search_prefilter_llm(
+    llm_manager: Any,
+    project_dir: Path,
+    block: Dict[str, Any],
+    search_criteria: str,
+    timeline_start_sec: float,
+    duration_sec: float,
+    max_results: int,
+    *,
+    recall_mode: str = "balanced",
+) -> Tuple[List[MatchedMoment], int]:
+    """画面类检索：信号预筛召回候选区 → 抽帧 → 视觉 LLM 验证 → 命中区间精化。"""
+    from backend.services.moment_signal_prefilter import build_moment_candidate_windows
+
+    candidate_ranges = build_moment_candidate_windows(
+        project_dir,
+        block,
+        timeline_start_sec,
+        duration_sec,
+        search_criteria,
+        recall_mode="high" if recall_mode == "high" else "balanced",
+    )
+
+    verify_times = build_verify_sample_times_for_candidates(
+        candidate_ranges,
+        timeline_start_sec,
+        duration_sec,
+        recall_mode=recall_mode,
+    )
+    frame_dicts = extract_block_sample_frames(
+        project_dir,
+        block,
+        verify_times,
+        timeline_start_sec,
+        duration_sec,
+    )
+    total_frames = len(frame_dicts)
+    if not frame_dicts:
+        return [], 0
+
+    hits = find_moments_in_frames(
+        llm_manager,
+        search_criteria,
+        frame_dicts,
+        max_results=max_results,
+    )
+    if not hits:
+        return [], total_frames
+
+    verify_interval = max(2.0, duration_sec / max(len(verify_times), 1))
+    llm_ranges = merge_visual_frame_hits(
+        hits,
+        verify_interval,
+        max_results,
+    )
+    fine_times = build_timeline_sample_times_for_ranges(
+        llm_ranges,
+        frames_per_range=VERIFY_REFINE_FRAMES_PER_RANGE,
+        max_frames=VERIFY_REFINE_FRAME_CAP,
+    )
+    if not fine_times:
+        return build_matched_moments_from_timeline_ranges(
+            block,
+            timeline_start_sec,
+            duration_sec,
+            llm_ranges,
+            "visual",
+        ), total_frames
+
+    fine_dicts = extract_block_sample_frames(
+        project_dir,
+        block,
+        fine_times,
+        timeline_start_sec,
+        duration_sec,
+    )
+    total_frames += len(fine_dicts)
+    if not fine_dicts:
+        return build_matched_moments_from_timeline_ranges(
+            block,
+            timeline_start_sec,
+            duration_sec,
+            llm_ranges,
+            "visual",
+        ), total_frames
+
+    fine_hits = find_moments_in_frames(
+        llm_manager,
+        search_criteria,
+        fine_dicts,
+        max_results=max_results,
+    )
+    if not fine_hits:
+        return build_matched_moments_from_timeline_ranges(
+            block,
+            timeline_start_sec,
+            duration_sec,
+            llm_ranges,
+            "visual",
+        ), total_frames
+
+    fine_interval = max(1.5, duration_sec / max(len(fine_times), 1) * 0.4)
+    fine_ranges = merge_visual_frame_hits(
+        fine_hits,
+        fine_interval,
+        max_results,
+    )
+    return build_matched_moments_from_timeline_ranges(
+        block,
+        timeline_start_sec,
+        duration_sec,
+        fine_ranges,
+        "visual",
+    ), total_frames
 
 
 def visual_search_two_pass(
@@ -320,6 +486,7 @@ def search_block_moments_staged(
     *,
     client_sample_times_sec: Optional[List[float]] = None,
     client_frames: Optional[List[Dict[str, Any]]] = None,
+    recall_mode: str = "balanced",
 ) -> StagedMomentSearchResult:
     """分段检索：文本优先走转写；画面类走粗筛+候选区加密抽帧；诗/字幕类文本后再画面确认。"""
     criteria = (search_criteria or "").strip()
@@ -420,7 +587,7 @@ def search_block_moments_staged(
 
     if strategy == "visual_primary":
         project_dir = get_project_directory(project_id)
-        visual_moments, frame_count = visual_search_two_pass(
+        visual_moments, frame_count = visual_search_prefilter_llm(
             llm_manager,
             project_dir,
             block,
@@ -428,10 +595,20 @@ def search_block_moments_staged(
             timeline_start_sec,
             duration,
             max_results,
+            recall_mode=recall_mode,
         )
         visual_frame_count += frame_count
         all_matches.extend(visual_moments)
-        note_parts.append(f"画面两阶段检索：{frame_count} 帧")
+        profile_note = ""
+        try:
+            from backend.services.moment_signal_prefilter import resolve_criteria_profile
+
+            profile_note = f"，profile={resolve_criteria_profile(criteria)}"
+        except Exception:
+            pass
+        note_parts.append(
+            f"信号预筛+LLM验证：{frame_count} 帧（recall={recall_mode}{profile_note}）"
+        )
     elif not segments and client_sample_times_sec:
         project_dir = get_project_directory(project_id)
         frame_dicts = extract_block_sample_frames(

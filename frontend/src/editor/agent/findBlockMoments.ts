@@ -71,11 +71,14 @@ export async function findBlockMoments(input: {
     ? Number(input.args.max_results)
     : 12
   const includeVisual = input.args.include_visual !== false
+  const recallModeRaw = String(input.args.recall_mode ?? 'balanced').trim()
+  const recallMode = recallModeRaw === 'high' ? 'high' : 'balanced'
 
   const response = await editorAgentApi.findBlockMoments(input.projectId, input.sessionId, {
     block_id: blockId,
     search_criteria: searchCriteria,
     max_results: maxResults,
+    recall_mode: recallMode,
     timeline_start_sec: timelineWindow.start_sec,
     timeline_end_sec: timelineWindow.end_sec,
     duration_sec: timelineWindow.duration_sec,
