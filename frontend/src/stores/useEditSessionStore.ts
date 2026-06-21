@@ -2594,8 +2594,24 @@ export const useEditSessionStore = create<EditSessionState>()(
       setPlaying: (playing) => set({ isPlaying: playing }),
       setSequencePlayheadSec: (sec) => {
         const clamped = clampPlayhead(sec)
-        set({ sequencePlayheadSec: clamped, isPlaying: false })
-        syncSelectionToPlayhead(clamped)
+        set((state) => {
+          state.sequencePlayheadSec = clamped
+          state.isPlaying = false
+          if (!state.session) return
+          const pxPerSec = (state.timelineZoom / 100) * BASE_PX_PER_SEC
+          const segments = buildCompositionTimelineSegments(
+            resolveMainTrackBlocks(state.session),
+            pxPerSec,
+            transitionDurationSec(state.session),
+            state.session.sequence_block_gaps
+          )
+          const resolved = resolveCompositionPlayhead(clamped, segments)
+          if (!resolved) return
+          const nextBlockId = resolved.segment.block.id
+          if (state.selectedBlockId === nextBlockId) return
+          state.selectedBlockId = nextBlockId
+          state.selectedBlockIds = [nextBlockId]
+        })
       },
       advanceSequencePlayhead: (sec) => {
         const clamped = clampPlayhead(sec)

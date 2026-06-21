@@ -352,6 +352,25 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     [getVideoRefForBlock]
   )
 
+  const buildPausedFrameCaches = useCallback(
+    (layers: PreviewVideoLayerProps[]): Map<string, HTMLCanvasElement> | undefined => {
+      const pool = getDecoderPool()
+      if (!pool) return undefined
+      const caches = new Map<string, HTMLCanvasElement>()
+      for (const layer of layers) {
+        const video = pool.get(layer.block.id)
+        if (!video) continue
+        const cache = pool.getFrameCache(layer.block.id)
+        capturePreviewVideoFrame(video, cache)
+        if (hasPreviewVideoFrameCache(cache)) {
+          caches.set(layer.block.id, cache)
+        }
+      }
+      return caches.size > 0 ? caches : undefined
+    },
+    [getDecoderPool]
+  )
+
   const syncVideoElement = useCallback(
     (
       video: HTMLVideoElement | null,
@@ -387,9 +406,11 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         return didSeek
       }
 
-      if (forceSeek || Math.abs(video.currentTime - target) > PAUSED_SEEK_THRESHOLD_SEC) {
-        video.currentTime = target
-        didSeek = true
+      if (forceSeek || Math.abs(video.currentTime - target) > PAUSED_SEEK_THRESHOLD_SEC || rebinding) {
+        if (Math.abs(video.currentTime - target) > 0.001 || rebinding) {
+          video.currentTime = target
+          didSeek = true
+        }
       }
       video.pause()
       return didSeek
@@ -539,8 +560,11 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         if (!descriptor) return
 
         const videos = collectVideosForLayers(vm.videoLayers)
-        const videoFrameCaches =
-          vm.inDissolve && isPlaying ? buildCrossFrameCaches(vm.videoLayers) : undefined
+        const videoFrameCaches = isPlaying
+          ? vm.inDissolve
+            ? buildCrossFrameCaches(vm.videoLayers)
+            : undefined
+          : buildPausedFrameCaches(vm.videoLayers)
 
         renderFrameDescriptorToCanvas(ctx, descriptor, {
           videos,
@@ -555,14 +579,17 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       paintGenerationRef.current = generation
       const isCurrentGeneration = () => paintGenerationRef.current === generation
 
+      renderCanvas()
+
       if (anySeek) {
         paintAfterVideoSync(
           [...collectVideosForLayers(vm.videoLayers).values()],
-          renderCanvas,
+          () => {
+            if (!isCurrentGeneration()) return
+            renderCanvas()
+          },
           isCurrentGeneration
         )
-      } else {
-        renderCanvas()
       }
 
       return compositionSec
@@ -578,6 +605,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       buildDescriptorAt,
       collectVideosForLayers,
       buildCrossFrameCaches,
+      buildPausedFrameCaches,
       previewBurnSubtitles,
       captionsHidden,
       captionsMuted,
@@ -610,11 +638,17 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     wasPlayingRef.current = isPlaying
   }, [isPlaying, paintAt])
 
+  const scrubPaintRafRef = useRef(0)
+
   useEffect(() => {
-    if (isPlaying) return
-    wasInCrossRef.current = false
-    lastReportedPlayheadRef.current = sequencePlayheadSec
-    paintAt(sequencePlayheadSec, true)
+    if (isPlaying) return undefined
+    cancelAnimationFrame(scrubPaintRafRef.current)
+    scrubPaintRafRef.current = requestAnimationFrame(() => {
+      wasInCrossRef.current = false
+      lastReportedPlayheadRef.current = sequencePlayheadSec
+      paintAt(sequencePlayheadSec, true)
+    })
+    return () => cancelAnimationFrame(scrubPaintRafRef.current)
   }, [isPlaying, sequencePlayheadSec, paintAt, sceneBuilderInput, videoNaturalSize])
 
   useEffect(() => {
