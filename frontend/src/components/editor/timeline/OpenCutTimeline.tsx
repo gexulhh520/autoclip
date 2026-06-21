@@ -30,7 +30,7 @@ import { usePlayheadDrag, useTimelineSeek } from './hooks/useTimelineSeek'
 import { useTimelineBoxSelect } from './hooks/useTimelineBoxSelect'
 import { resolveContextMenuPosition } from './contextMenuPosition'
 import { getTemplateOverlayIdsForBlock } from '../../../editor/migration/templateCaptionOverlays'
-import { blockPlaybackRate, collectSequenceSnapPoints, snapTime, blockTimelineVisualStartSec, blockTimelineVisualEndSec } from '../../../utils/editTimeline'
+import { blockPlaybackRate, collectCompositionVisualSnapPoints, snapTime, blockTimelineVisualStartSec, blockTimelineVisualEndSec } from '../../../utils/editTimeline'
 import {
   canPlaceAtStart,
   clampResizeLeftAvoidingOverlap,
@@ -261,7 +261,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
 
   const totalDuration = Math.max(compositionDuration, calculateTotalDuration(tracks), 1)
   const sequenceSnapPoints = useMemo(
-    () => collectSequenceSnapPoints(segments, bookmarks),
+    () => collectCompositionVisualSnapPoints(segments, bookmarks),
     [segments, bookmarks]
   )
 

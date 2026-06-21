@@ -193,6 +193,22 @@ export function collectSequenceSnapPoints(
   return Array.from(points).sort((a, b) => a - b)
 }
 
+/** 与时间轴片段可视左/右缘对齐的吸附点（含入出点裁剪） */
+export function collectCompositionVisualSnapPoints(
+  segments: CompositionTimelineSegment[],
+  bookmarks: TimelineBookmark[] = []
+): number[] {
+  const points = new Set<number>([0])
+  for (const segment of segments) {
+    points.add(blockTimelineVisualStartSec(segment.startSec, segment.block))
+    points.add(blockTimelineVisualEndSec(segment.startSec, segment.block))
+  }
+  for (const bookmark of bookmarks) {
+    points.add(bookmark.time_sec)
+  }
+  return Array.from(points).sort((a, b) => a - b)
+}
+
 export function collectTrimSnapPoints(
   maxDur: number,
   srtBoundaries: number[] = []

@@ -29,6 +29,29 @@ import {
 } from '../../../editor/scene'
 import type { PreviewVideoLayerProps } from '../../../editor/scene/adapters/previewAdapter'
 
+const PLAYBACK_DRIFT_THRESHOLD_SEC = 0.12
+const PAUSED_SEEK_THRESHOLD_SEC = 0.03
+
+function startVideoPlaybackAfterSeek(
+  video: HTMLVideoElement,
+  target: number,
+  needsSeek: boolean
+) {
+  const startPlayback = () => {
+    void video.play().catch(() => undefined)
+  }
+  if (!needsSeek) {
+    startPlayback()
+    return
+  }
+  video.currentTime = target
+  if (Math.abs(video.currentTime - target) < 0.02 && !video.seeking) {
+    startPlayback()
+    return
+  }
+  video.addEventListener('seeked', startPlayback, { once: true })
+}
+
 export interface CompositorPreviewProps {
   session: EditSession
   sceneBuilderInput: SceneBuilderInput
@@ -185,6 +208,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
   const resolveCompositionSecRef = useRef<() => number>(() => sequencePlayheadSec)
   const paintAtRef = useRef<(compositionSec: number, forceSeek: boolean) => number>(() => 0)
+
   const isPlayingRef = useRef(isPlaying)
   isPlayingRef.current = isPlaying
 
@@ -210,9 +234,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
             return
           }
 
-          if (!isPlayingRef.current) {
-            paintAtRef.current(resolveCompositionSecRef.current(), true)
-          }
+          paintAtRef.current(resolveCompositionSecRef.current(), true)
         },
       })
     }
@@ -325,17 +347,23 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       video.volume = audioMuted ? 0 : Math.min(1, Math.max(0, layer.volume))
       video.playbackRate = Math.max(0.25, Math.min(4, layer.playbackRate || 1))
 
+      const driftThreshold = isPlaying ? PLAYBACK_DRIFT_THRESHOLD_SEC : PAUSED_SEEK_THRESHOLD_SEC
+      const needsSeek =
+        !skipSeek &&
+        (forceSeek ||
+          rebinding ||
+          Math.abs(video.currentTime - target) > driftThreshold)
+
       let didSeek = false
       if (isPlaying) {
-        if (!skipSeek && (forceSeek || rebinding)) {
-          video.currentTime = target
+        if (needsSeek) {
           didSeek = true
         }
-        void video.play().catch(() => undefined)
+        startVideoPlaybackAfterSeek(video, target, needsSeek)
         return didSeek
       }
 
-      if (forceSeek || Math.abs(video.currentTime - target) > 0.03) {
+      if (needsSeek) {
         video.currentTime = target
         didSeek = true
       }
