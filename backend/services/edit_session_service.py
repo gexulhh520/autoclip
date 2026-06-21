@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
+from backend.core.path_utils import get_project_directory
 from backend.services.session_clip_pool_service import (
     POOL_SCOPE,
     POOL_SOURCE,
