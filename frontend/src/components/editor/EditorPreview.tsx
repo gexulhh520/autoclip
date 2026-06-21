@@ -9,8 +9,15 @@ import { useEditSessionStore } from '../../stores/useEditSessionStore'
 import {
   formatTimecode,
   getCompositionTotalDuration,
+  buildCompositionTimelineSegments,
+  resolveCompositionPlayhead,
+  blockTimelineVisualStartSec,
 } from '../../utils/editTimeline'
-import { resolveMainTrackBlocks, resolveVideoTrackMaxEndSec } from '../../editor/videoTracks'
+import {
+  resolveMainTrackBlocks,
+  resolveOverlayVideoBlocks,
+  resolveVideoTrackMaxEndSec,
+} from '../../editor/videoTracks'
 import { resolveCanvasAspectRatio } from '../../utils/editAspectRatios'
 import { formatExportSettingsSummary } from '../../utils/editExportSummary'
 import {
@@ -61,6 +68,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const setSelectedOverlayId = useEditSessionStore((state) => state.setSelectedOverlayId)
   const setSelectedCaptionBlockId = useEditSessionStore((state) => state.setSelectedCaptionBlockId)
   const setSelectedBlockId = useEditSessionStore((state) => state.setSelectedBlockId)
+  const setAssetPreviewClip = useEditSessionStore((state) => state.setAssetPreviewClip)
   const setBoxSelection = useEditSessionStore((state) => state.setBoxSelection)
   const clearEditorSelection = useEditSessionStore((state) => state.clearEditorSelection)
   const beginOverlayDragHistory = useEditSessionStore((state) => state.beginOverlayDragHistory)
@@ -73,6 +81,15 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const setPreviewVideoNaturalSize = useEditSessionStore((state) => state.setPreviewVideoNaturalSize)
 
   const isAssetPreview = Boolean(assetPreviewClip)
+  const assetVideoUrl = useMemo(() => {
+    if (!assetPreviewClip) return ''
+    return projectApi.getClipVideoUrl(
+      projectId,
+      assetPreviewClip.clipId,
+      assetPreviewClip.title
+    )
+  }, [assetPreviewClip, projectId])
+  const shouldUseAssetPreview = isAssetPreview && Boolean(assetVideoUrl)
   const clipAudioMuted = timelineTrackMuted.mainVideo || timelineTrackMuted.audioWave
   const captionsMuted = timelineTrackMuted.overlayCaption
   const captionsHidden = useEditSessionStore((state) => state.timelineTrackHidden.overlayCaption)
@@ -94,6 +111,16 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     [videoTrackMuted]
   )
   const blocks = session?.sequence ?? []
+  const mainBlocksForPreview = useMemo(
+    () => (session ? resolveMainTrackBlocks(session) : []),
+    [session]
+  )
+  const hasTimelineVideo = useMemo(
+    () =>
+      mainBlocksForPreview.length > 0 ||
+      (session ? resolveOverlayVideoBlocks(session).length > 0 : false),
+    [mainBlocksForPreview, session]
+  )
   const transitionDurationSec = session?.audio_settings?.transition_duration_sec ?? 0.35
   const useSourcePreview = session?.audio_settings?.use_source_video ?? false
 
@@ -135,9 +162,9 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   )
 
   const renderScene = useMemo(() => {
-    if (!sceneBuilderInput || isAssetPreview) return null
+    if (!sceneBuilderInput || shouldUseAssetPreview) return null
     return resolveSceneAt(sceneBuilderInput, sequencePlayheadSec, videoNaturalSize)
-  }, [sceneBuilderInput, isAssetPreview, sequencePlayheadSec, videoNaturalSize])
+  }, [sceneBuilderInput, shouldUseAssetPreview, sequencePlayheadSec, videoNaturalSize])
 
   const previewVm = useMemo(() => {
     if (!renderScene) return null
@@ -183,27 +210,50 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     []
   )
 
-  const assetVideoUrl = useMemo(() => {
-    if (!assetPreviewClip) return ''
-    return projectApi.getClipVideoUrl(
-      projectId,
-      assetPreviewClip.clipId,
-      assetPreviewClip.title
-    )
-  }, [assetPreviewClip, projectId])
-
   const hasTimelineAudio = (session?.audio_elements?.length ?? 0) > 0
   const primaryVideoLayer = previewVm?.videoLayers[0] ?? null
+  const showCompositorPreview =
+    Boolean(session && sceneBuilderInput && (primaryVideoLayer || hasTimelineVideo))
+
   useTimelineAudioPlayback({
     projectId,
     sessionId,
     session,
     playheadSec: sequencePlayheadSec,
     isPlaying,
-    isAssetPreview,
+    isAssetPreview: shouldUseAssetPreview,
     audioTrackMuted,
   })
 
+  useEffect(() => {
+    if (assetPreviewClip && !assetVideoUrl) {
+      setAssetPreviewClip(null)
+    }
+  }, [assetPreviewClip, assetVideoUrl, setAssetPreviewClip])
+
+  useEffect(() => {
+    if (!session || shouldUseAssetPreview || primaryVideoLayer) return
+    if (mainBlocksForPreview.length === 0) return
+    const segments = buildCompositionTimelineSegments(
+      mainBlocksForPreview,
+      50,
+      transitionDurationSec,
+      session.sequence_block_gaps
+    )
+    if (segments.length === 0) return
+    const atPlayhead = resolveCompositionPlayhead(sequencePlayheadSec, segments)
+    if (atPlayhead) return
+    const first = segments[0]
+    setSequencePlayheadSec(blockTimelineVisualStartSec(first.startSec, first.block))
+  }, [
+    session,
+    shouldUseAssetPreview,
+    primaryVideoLayer,
+    mainBlocksForPreview,
+    sequencePlayheadSec,
+    transitionDurationSec,
+    setSequencePlayheadSec,
+  ])
 
   useEffect(() => {
     const blockId = primaryVideoLayer?.block.id
@@ -265,9 +315,11 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     await frame.requestFullscreen()
   }
 
-  const canPreview = isAssetPreview ? Boolean(assetVideoUrl) : Boolean(primaryVideoLayer)
-  const displayCurrentSec = isAssetPreview ? assetPreviewTimeSec : sequencePlayheadSec
-  const displayTotalSec = isAssetPreview ? assetPreviewDurationSec : totalDuration
+  const canPreview = shouldUseAssetPreview
+    ? Boolean(assetVideoUrl)
+    : Boolean(primaryVideoLayer || hasTimelineVideo)
+  const displayCurrentSec = shouldUseAssetPreview ? assetPreviewTimeSec : sequencePlayheadSec
+  const displayTotalSec = shouldUseAssetPreview ? assetPreviewDurationSec : totalDuration
 
   const frameStyle = {
     '--preview-ar-w': canvasAspect.width,
@@ -326,7 +378,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
             className={`editor-preview-frame editor-preview-frame--canvas editor-preview-frame--compositor${isFullscreen ? ' is-fullscreen' : ''}`}
             style={isFullscreen ? undefined : frameStyle}
           >
-            {isAssetPreview && assetVideoUrl ? (
+            {shouldUseAssetPreview ? (
               <PreviewVideoLayer
                 videoUrl={assetVideoUrl}
                 showBlurBackground={showBlurBackground}
@@ -339,7 +391,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                 onTimeUpdate={(video) => setAssetPreviewTimeSec(video.currentTime)}
                 onEnded={handleAssetPreviewEnded}
               />
-            ) : primaryVideoLayer && session && sceneBuilderInput ? (
+            ) : showCompositorPreview ? (
               <CompositorPreview
                 session={session}
                 sceneBuilderInput={sceneBuilderInput}

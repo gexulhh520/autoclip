@@ -48,8 +48,34 @@ const readZIndex = (item: FrameItem): number => {
   return item.kind === 'scene_effect' ? 10_000 : 9_000
 }
 
-const layerRgbaScratch = new OffscreenCanvas(1, 1)
-let layerRgbaCtx: OffscreenCanvasRenderingContext2D | null = null
+let layerRgbaScratch: OffscreenCanvas | HTMLCanvasElement | null = null
+let layerRgbaCtx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null = null
+
+const getLayerRgbaScratch = (
+  frameWidth: number,
+  frameHeight: number
+): {
+  canvas: OffscreenCanvas | HTMLCanvasElement
+  ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D
+} | null => {
+  if (!layerRgbaScratch) {
+    layerRgbaScratch =
+      typeof OffscreenCanvas !== 'undefined'
+        ? new OffscreenCanvas(1, 1)
+        : document.createElement('canvas')
+  }
+  if (layerRgbaScratch.width !== frameWidth || layerRgbaScratch.height !== frameHeight) {
+    layerRgbaScratch.width = frameWidth
+    layerRgbaScratch.height = frameHeight
+    layerRgbaCtx = layerRgbaScratch.getContext('2d') as
+      | OffscreenCanvasRenderingContext2D
+      | CanvasRenderingContext2D
+      | null
+  }
+  const ctx = layerRgbaCtx ?? layerRgbaScratch.getContext('2d')
+  if (!ctx) return null
+  return { canvas: layerRgbaScratch, ctx }
+}
 
 const resolveLayerDrawTransform = (
   transform: VisualTransform,
@@ -120,20 +146,16 @@ const drawRgbaInTransform = (
     layerScale?: number
   }
 ): void => {
-  if (layerRgbaScratch.width !== frameWidth || layerRgbaScratch.height !== frameHeight) {
-    layerRgbaScratch.width = frameWidth
-    layerRgbaScratch.height = frameHeight
-    layerRgbaCtx = layerRgbaScratch.getContext('2d')
-  }
-  const scratchCtx = layerRgbaCtx ?? layerRgbaScratch.getContext('2d')
-  if (!scratchCtx) return
+  const scratch = getLayerRgbaScratch(frameWidth, frameHeight)
+  if (!scratch) return
+  const { canvas: scratchCanvas, ctx: scratchCtx } = scratch
   scratchCtx.putImageData(
     new ImageData(new Uint8ClampedArray(rgba), frameWidth, frameHeight),
     0,
     0
   )
   withLayerDrawState(ctx, transform, opacity, { filter, ...layerOptions }, (resolved) => {
-    ctx.drawImage(layerRgbaScratch, resolved.x, resolved.y, resolved.width, resolved.height)
+    ctx.drawImage(scratchCanvas, resolved.x, resolved.y, resolved.width, resolved.height)
   })
 }
 
