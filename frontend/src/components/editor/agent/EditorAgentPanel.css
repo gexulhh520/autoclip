@@ -147,6 +147,33 @@
   font-family: inherit;
 }
 
+.editor-agent-panel__recall-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--editor-sub);
+  cursor: pointer;
+  user-select: none;
+}
+
+.editor-agent-panel__recall-toggle input {
+  accent-color: var(--editor-accent);
+  cursor: pointer;
+}
+
+.editor-agent-panel__recall-toggle span:first-of-type {
+  color: var(--editor-text);
+}
+
+.editor-agent-panel__recall-hint {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--editor-sub);
+  opacity: 0.85;
+}
+
 .editor-agent-panel__actions {
   display: flex;
   gap: 8px;

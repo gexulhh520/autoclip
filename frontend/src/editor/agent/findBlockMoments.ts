@@ -6,6 +6,10 @@ import {
   resolveMomentSearchFrameSampleCount,
   resolveMomentSearchSampleTimesSec,
 } from './momentSearchFrameUtils'
+import {
+  formatMomentRecallModeHint,
+  resolveMomentRecallMode,
+} from './momentRecallMode'
 import { editorAgentApi } from '../../services/editorAgentApi'
 import { useAgentPanelStore } from '../../stores/useAgentPanelStore'
 import type { MatchedMoment } from '../../types/editorAgent'
@@ -71,8 +75,13 @@ export async function findBlockMoments(input: {
     ? Number(input.args.max_results)
     : 12
   const includeVisual = input.args.include_visual !== false
-  const recallModeRaw = String(input.args.recall_mode ?? 'balanced').trim()
-  const recallMode = recallModeRaw === 'high' ? 'high' : 'balanced'
+  const recallMode = resolveMomentRecallMode({
+    sessionId: input.sessionId,
+    session: input.session,
+    blockId,
+    args: input.args,
+    searchCriteria,
+  })
 
   const response = await editorAgentApi.findBlockMoments(input.projectId, input.sessionId, {
     block_id: blockId,
@@ -97,6 +106,6 @@ export async function findBlockMoments(input: {
     transcript_segment_count: response.transcript_segment_count,
     visual_frame_count: response.visual_frame_count,
     matches: response.matches,
-    note: response.note,
+    note: [formatMomentRecallModeHint(recallMode), response.note].filter(Boolean).join('\n'),
   }
 }

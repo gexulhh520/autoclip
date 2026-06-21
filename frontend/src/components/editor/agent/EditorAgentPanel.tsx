@@ -73,6 +73,10 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
     (state) => state.lastMomentSearchBySession[sessionId] ?? null
   )
   const clearLastMomentSearch = useAgentPanelStore((state) => state.clearLastMomentSearch)
+  const highRecallSearchEnabled = useAgentPanelStore((state) => state.highRecallSearchEnabled)
+  const setHighRecallSearchEnabled = useAgentPanelStore(
+    (state) => state.setHighRecallSearchEnabled
+  )
   const focusedBlock =
     focusedBlockId != null
       ? session?.sequence.find((block) => block.id === focusedBlockId) ?? null
@@ -639,7 +643,7 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
               onChange={(event) => setChatInput(event.target.value)}
               placeholder={
                 focusedBlock
-                  ? `针对「${focusedBlock.title || '当前片段'}」提问，例如：这段有多长？`
+                  ? `针对「${focusedBlock.title || '当前片段'}」提问，例如：这段有多长？找打斗/枪战片段？`
                   : '描述你想对剪辑区做的操作…'
               }
               onKeyDown={(event) => {
@@ -649,6 +653,19 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
                 }
               }}
             />
+
+            <label className="editor-agent-panel__recall-toggle" title="打斗/枪战/追逐等画面检索：更多预筛与 LLM 验证帧，耗时更长">
+              <input
+                type="checkbox"
+                checked={highRecallSearchEnabled}
+                disabled={loading}
+                onChange={(event) => setHighRecallSearchEnabled(event.target.checked)}
+              />
+              <span>高召回检索</span>
+              <span className="editor-agent-panel__recall-hint">
+                长片找打斗/枪战等画面时建议开启
+              </span>
+            </label>
 
             <div className="editor-agent-panel__actions">
               <button
