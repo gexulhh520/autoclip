@@ -49,6 +49,8 @@ from backend.schemas.editor_agent import (
     AnalyzeVideoContentResponse,
     FindBlockMomentsRequest,
     FindBlockMomentsResponse,
+    ExportMomentClipsRequest,
+    ExportMomentClipsResponse,
     AgentChatRequest,
     AgentChatResponse,
 )
@@ -1103,6 +1105,39 @@ async def find_edit_session_block_moments(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("片段检索失败: %s/%s", project_id, session_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/export-moment-clips",
+    response_model=ExportMomentClipsResponse,
+)
+async def export_edit_session_moment_clips(
+    project_id: str,
+    session_id: str,
+    body: ExportMomentClipsRequest,
+    session_service: EditSessionService = Depends(get_edit_session_service),
+):
+    """将 Agent 检索匹配片段 ffmpeg 切出并写入项目素材池。"""
+    try:
+        result = session_service.export_moment_matches_to_clip_pool(
+            project_id,
+            session_id,
+            body.block_id,
+            [match.model_dump() for match in body.matches],
+        )
+        return ExportMomentClipsResponse(
+            block_id=result["block_id"],
+            created_count=int(result.get("created_count") or 0),
+            clip_ids=list(result.get("clip_ids") or []),
+            note=str(result.get("note") or ""),
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("moment 导出素材池失败: %s/%s", project_id, session_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

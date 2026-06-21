@@ -11,7 +11,6 @@ import { parseSubmitTaskPlan } from './parseTaskPlan'
 import { tryContentAnalysisFastPath } from './contentAnalysisFastPath'
 import {
   tryExtractCachedMomentsFastPath,
-  tryMomentSearchAndExtractFastPath,
   tryMomentSearchFastPath,
 } from './momentSearchFastPath'
 import { sanitizeToolResultForChat } from './sanitizeToolResultForChat'
@@ -50,6 +49,7 @@ export const BATCH_AUTO_WRITE_TOOLS = new Set([
   'split_text_overlays_by_char',
   'batch_apply_text_style',
   'extract_moment_clips',
+  'export_moment_clips_to_pool',
 ])
 
 /** 单任务执行轮次上限 */
@@ -383,15 +383,6 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
       getStore: () => useEditSessionStore.getState(),
     })
     if (extractCached) return extractCached
-
-    const momentExtract = await tryMomentSearchAndExtractFastPath({
-      projectId: input.projectId,
-      sessionId: input.sessionId,
-      userMessage: trimmed,
-      executionLedger: input.executionLedger,
-      getStore: () => useEditSessionStore.getState(),
-    })
-    if (momentExtract) return momentExtract
 
     const momentFastPath = await tryMomentSearchFastPath({
       projectId: input.projectId,

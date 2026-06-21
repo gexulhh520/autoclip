@@ -2,8 +2,10 @@ import { findBlockMoments } from './findBlockMoments'
 import { formatAgentDebugSummary } from './formatAgentDebug'
 import type { FindBlockMomentsResult } from './findBlockMoments'
 import {
-  formatMomentExtractReply,
-} from './extractMomentsToTimeline'
+  applyMomentExtractToPool,
+  applyMomentExtractToTimeline,
+  formatMomentExportChoiceHint,
+} from './applyMomentExport'
 import type { AgentChatMessage } from '../../types/editorAgent'
 import { useAgentPanelStore } from '../../stores/useAgentPanelStore'
 import type { useEditSessionStore } from '../../stores/useEditSessionStore'
@@ -19,17 +21,20 @@ const ANALYZE_ONLY_PATTERN =
 const WRITE_CONFLICT_PATTERN =
   /加字幕|加字|去气口|滤镜|删除片段|移动视频|apply_caption|split_text|set_visual_filter/i
 
-const CUT_INTENT_PATTERN = /切割|切出来|裁切|剪出来|拆成|分成.*段|单独剪|裁出来|裁剪出来|提取.*时间线|帮我裁|自动裁/i
-
 const EXTRACT_CACHED_PATTERN =
   /按.*检索|上面的|刚才|这些.*(裁|切|提取)|帮.*(裁|切|提取)|把.*(裁|切|提取)|按检索结果|裁到时间线/i
 
-export function hasCutIntent(message: string): boolean {
-  return CUT_INTENT_PATTERN.test(message.trim())
+export function hasExtractCachedIntent(message: string): boolean {
+  return resolveMomentExportTarget(message) != null
 }
 
-export function hasExtractCachedIntent(message: string): boolean {
-  return EXTRACT_CACHED_PATTERN.test(message.trim())
+export function resolveMomentExportTarget(message: string): 'timeline' | 'pool' | null {
+  const text = message.trim()
+  if (!text) return null
+  if (/素材池|进素材池|写入素材池/.test(text)) return 'pool'
+  if (/时间线|裁到时间线|进时间线|裁切|裁剪|裁出来|切出来|切割/.test(text)) return 'timeline'
+  if (EXTRACT_CACHED_PATTERN.test(text)) return 'timeline'
+  return null
 }
 
 export function isMomentSearchRequest(message: string): boolean {
@@ -37,7 +42,6 @@ export function isMomentSearchRequest(message: string): boolean {
   if (!text) return false
   if (WRITE_CONFLICT_PATTERN.test(text)) return false
   if (ANALYZE_ONLY_PATTERN.test(text)) return false
-  if (hasCutIntent(text)) return false
   if (hasExtractCachedIntent(text)) return false
   return MOMENT_SEARCH_PATTERN.test(text)
 }
@@ -80,7 +84,7 @@ export function formatMomentSearchReply(result: FindBlockMomentsResult): string 
   }
 
   lines.push('')
-  lines.push('可以说「按检索结果裁剪到时间线」自动裁出以上片段。')
+  lines.push(formatMomentExportChoiceHint(result.matches.length))
   if (result.note) {
     lines.push('')
     lines.push(result.note)
@@ -102,35 +106,16 @@ export interface MomentSearchFastPathResult {
   debug_summary?: string
 }
 
-function applyMomentExtract(
-  getStore: GetEditStore,
-  cached: {
-    blockId: string
-    blockTitle: string
-    searchCriteria: string
-    matches: FindBlockMomentsResult['matches']
-  }
-): { createdBlockIds: string[]; assistant_message: string } {
-  const store = getStore()
-  const createdBlockIds = store.extractBlocksFromMoments(cached.blockId, cached.matches)
-  const assistant_message = formatMomentExtractReply({
-    blockTitle: cached.blockTitle,
-    searchCriteria: cached.searchCriteria,
-    createdCount: createdBlockIds.length,
-    matchCount: cached.matches.length,
-    createdBlockIds,
-  })
-  return { createdBlockIds, assistant_message }
-}
-
-/** 复用上轮检索结果，直接裁到时间线 */
+/** 复用上轮检索结果，按文本意图导出到时间线或素材池 */
 export async function tryExtractCachedMomentsFastPath(input: {
+  projectId: string
   sessionId: string
   userMessage: string
   executionLedger?: string[]
   getStore: GetEditStore
 }): Promise<MomentSearchFastPathResult | null> {
-  if (!hasExtractCachedIntent(input.userMessage)) return null
+  const target = resolveMomentExportTarget(input.userMessage)
+  if (!target) return null
 
   const cached = useAgentPanelStore.getState().getLastMomentSearch(input.sessionId)
   if (!cached || cached.matches.length === 0) return null
@@ -140,87 +125,28 @@ export async function tryExtractCachedMomentsFastPath(input: {
     throw new Error('无活动剪辑工程')
   }
 
-  const { assistant_message } = applyMomentExtract(getStore, cached)
-  const debugTrace = {
-    rounds: [{ round: 1, read_tools: [] as string[], write_tools: ['extract_moment_clips'] }],
-    total_rounds: 1,
-    exhausted: false,
-    outcome: 'reply' as const,
+  let assistant_message = ''
+  let writeTool = 'extract_moment_clips'
+  if (target === 'pool') {
+    const result = await applyMomentExtractToPool(input.getStore, {
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      blockId: cached.blockId,
+      blockTitle: cached.blockTitle,
+      searchCriteria: cached.searchCriteria,
+      matches: cached.matches,
+    })
+    assistant_message = result.assistant_message
+    writeTool = 'export_moment_clips_to_pool'
+  } else {
+    const result = applyMomentExtractToTimeline(input.getStore, cached)
+    assistant_message = result.assistant_message
   }
 
-  return {
-    assistant_message,
-    history: [
-      { role: 'user', content: input.userMessage },
-      { role: 'assistant', content: assistant_message },
-    ],
-    execution_ledger: input.executionLedger,
-    plan: null,
-    debug_trace: debugTrace,
-    debug_summary: formatAgentDebugSummary(debugTrace),
-  }
-}
-
-/** 检索 + 自动裁到时间线 */
-export async function tryMomentSearchAndExtractFastPath(input: {
-  projectId: string
-  sessionId: string
-  userMessage: string
-  executionLedger?: string[]
-  getStore: GetEditStore
-}): Promise<MomentSearchFastPathResult | null> {
-  const text = input.userMessage.trim()
-  if (!text || !hasCutIntent(text)) return null
-  if (!MOMENT_SEARCH_PATTERN.test(text)) return null
-  if (WRITE_CONFLICT_PATTERN.test(text)) return null
-
-  const store = input.getStore()
-  if (!store.session) {
-    throw new Error('无活动剪辑工程')
-  }
-
-  const data = await findBlockMoments({
-    projectId: input.projectId,
-    sessionId: input.sessionId,
-    session: store.session,
-    args: { search_criteria: text },
-    selectedBlockId: store.selectedBlockId,
-  })
-  cacheMomentSearch(input.sessionId, data)
-
-  if (data.matches.length === 0) {
-    return {
-      assistant_message: formatMomentSearchReply(data),
-      history: [
-        { role: 'user', content: input.userMessage },
-        { role: 'assistant', content: formatMomentSearchReply(data) },
-      ],
-      execution_ledger: input.executionLedger,
-      plan: null,
-      debug_trace: {
-        rounds: [{ round: 1, read_tools: ['find_block_moments'], write_tools: [] }],
-        total_rounds: 1,
-        exhausted: false,
-        outcome: 'reply',
-      },
-    }
-  }
-
-  const { assistant_message } = applyMomentExtract(getStore, {
-    blockId: data.block_id,
-    blockTitle: data.block_title,
-    searchCriteria: data.search_criteria,
-    matches: data.matches,
-  })
+  useAgentPanelStore.getState().clearLastMomentSearch(input.sessionId)
 
   const debugTrace = {
-    rounds: [
-      {
-        round: 1,
-        read_tools: ['find_block_moments'],
-        write_tools: ['extract_moment_clips'],
-      },
-    ],
+    rounds: [{ round: 1, read_tools: [] as string[], write_tools: [writeTool] }],
     total_rounds: 1,
     exhausted: false,
     outcome: 'reply' as const,

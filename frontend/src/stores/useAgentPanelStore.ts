@@ -22,12 +22,16 @@ interface AgentPanelStore {
   setLastMomentSearch: (sessionId: string, payload: CachedMomentSearch) => void
   getLastMomentSearch: (sessionId: string) => CachedMomentSearch | null
   clearLastMomentSearch: (sessionId: string) => void
+  /** 素材池刷新计数，导出后递增以触发素材面板重载 */
+  clipsRefreshNonce: number
+  bumpClipsRefreshNonce: () => void
 }
 
 export const useAgentPanelStore = create<AgentPanelStore>((set, get) => ({
   focusedBlockBySession: {},
   focusRequest: null,
   lastMomentSearchBySession: {},
+  clipsRefreshNonce: 0,
   focusBlock: (sessionId, blockId) => {
     set((state) => ({
       focusedBlockBySession: { ...state.focusedBlockBySession, [sessionId]: blockId },
@@ -57,5 +61,8 @@ export const useAgentPanelStore = create<AgentPanelStore>((set, get) => ({
       delete next[sessionId]
       return { lastMomentSearchBySession: next }
     })
+  },
+  bumpClipsRefreshNonce: () => {
+    set((state) => ({ clipsRefreshNonce: state.clipsRefreshNonce + 1 }))
   },
 }))

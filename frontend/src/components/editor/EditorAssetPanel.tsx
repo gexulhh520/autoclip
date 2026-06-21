@@ -21,6 +21,7 @@ import BgmAssetsView from './panels/assets/views/BgmAssetsView'
 import TransitionTypePicker from './TransitionTypePicker'
 import { areMainTrackBlocksAdjacent } from '../../editor/timeline/sequenceBlockGaps'
 import { isTauriApp } from '../../utils/desktopMode'
+import { useAgentPanelStore } from '../../stores/useAgentPanelStore'
 
 const VIDEO_IMPORT_EXTENSIONS = ['mp4', 'mov', 'mkv', 'webm', 'm4v', 'avi']
 
@@ -59,6 +60,7 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [projectClips, setProjectClips] = useState<ProjectClip[]>([])
   const [loadingClips, setLoadingClips] = useState(false)
   const [importingVideo, setImportingVideo] = useState(false)
+  const clipsRefreshNonce = useAgentPanelStore((state) => state.clipsRefreshNonce)
 
   const blocks = session?.sequence ?? []
   const sessionId = session?.id ?? ''
@@ -84,7 +86,7 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
     return () => {
       cancelled = true
     }
-  }, [projectId])
+  }, [projectId, clipsRefreshNonce])
 
   const handlePreviewClip = (clipId: string, title: string) => {
     setAssetPreviewClip({ clipId, title })

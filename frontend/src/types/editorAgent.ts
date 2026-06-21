@@ -187,6 +187,18 @@ export interface FindBlockMomentsResponse {
   note: string
 }
 
+export interface ExportMomentClipsRequest {
+  block_id: string
+  matches: MatchedMoment[]
+}
+
+export interface ExportMomentClipsResponse {
+  block_id: string
+  created_count: number
+  clip_ids: string[]
+  note: string
+}
+
 export interface LayoutReference {
   imageDataUrl: string
   prompt: string

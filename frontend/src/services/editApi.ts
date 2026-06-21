@@ -15,6 +15,10 @@ import type {
   EditSessionAppendResponse,
   EditSessionImportMediaResponse,
 } from '../types/editSession'
+import type {
+  ExportMomentClipsRequest,
+  ExportMomentClipsResponse,
+} from '../types/editorAgent'
 
 export const editApi = {
   listSessions: async (projectId: string): Promise<EditSession[]> => {
@@ -116,6 +120,18 @@ export const editApi = {
       `/projects/${projectId}/edit-sessions/${sessionId}/append-clips`,
       payload
     )) as EditSessionAppendResponse
+  },
+
+  exportMomentClips: async (
+    projectId: string,
+    sessionId: string,
+    payload: ExportMomentClipsRequest
+  ): Promise<ExportMomentClipsResponse> => {
+    return (await api.post(
+      `/projects/${projectId}/edit-sessions/${sessionId}/export-moment-clips`,
+      payload,
+      { timeout: 900_000 }
+    )) as ExportMomentClipsResponse
   },
 
   importMedia: async (

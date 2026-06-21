@@ -43,6 +43,7 @@ import {
 import { executeApplyCaptionTemplate } from './applyCaptionTemplate'
 import { executeClearAllCaptions, executeClearBlockCaptions } from './clearCaptions'
 import { executeSetVisualFilter } from './setVisualFilter'
+import { exportMomentsToClipPool } from './applyMomentExport'
 import {
   describeSplitTextOverlayFailure,
   resolveBatchSplitPlacement,
@@ -638,6 +639,51 @@ export async function executeWriteToolCall(
             source_block_id: blockId,
             created_block_ids: createdBlockIds,
             created_count: createdBlockIds.length,
+          },
+        }
+      }
+      case 'export_moment_clips_to_pool': {
+        const projectId = options?.projectId?.trim()
+        if (!projectId) {
+          return { ok: false, tool_name: call.name, error: '缺少 projectId' }
+        }
+        const sessionId = session.id
+        if (!sessionId) {
+          return { ok: false, tool_name: call.name, error: '缺少 sessionId' }
+        }
+        const blockId = str(call.arguments.block_id)
+        const rawMatches = call.arguments.matches
+        if (!Array.isArray(rawMatches) || rawMatches.length === 0) {
+          return { ok: false, tool_name: call.name, error: 'matches 不能为空' }
+        }
+        const matches = rawMatches.map((item) => ({
+          start_sec: num((item as Record<string, unknown>).start_sec, 0),
+          end_sec: num((item as Record<string, unknown>).end_sec, 0),
+          timeline_start_sec: num((item as Record<string, unknown>).timeline_start_sec, 0),
+          timeline_end_sec: num((item as Record<string, unknown>).timeline_end_sec, 0),
+          trim_in_sec: num((item as Record<string, unknown>).trim_in_sec, 0),
+          trim_out_sec: num((item as Record<string, unknown>).trim_out_sec, 0),
+          text_preview: str((item as Record<string, unknown>).text_preview),
+          match_score: num((item as Record<string, unknown>).match_score, 0),
+          match_reason: str((item as Record<string, unknown>).match_reason),
+          transcript_source: str((item as Record<string, unknown>).transcript_source),
+        }))
+        const result = await exportMomentsToClipPool({
+          projectId,
+          sessionId,
+          blockId,
+          matches,
+          searchCriteria: str(call.arguments.search_criteria, '检索片段'),
+          blockTitle: str(call.arguments.block_title, blockId),
+        })
+        return {
+          ok: true,
+          tool_name: call.name,
+          data: {
+            source_block_id: blockId,
+            clip_ids: result.clipIds,
+            created_count: result.clipIds.length,
+            note: result.note,
           },
         }
       }

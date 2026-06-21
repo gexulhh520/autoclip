@@ -243,6 +243,24 @@
   background: var(--editor-panel);
 }
 
+.editor-agent-panel__moment-export {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 12px 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--editor-border-light);
+  background: var(--editor-panel);
+}
+
+.editor-agent-panel__moment-export-title {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--editor-text);
+}
+
 .editor-agent-panel__plan-title {
   margin: 0;
   font-size: 12px;

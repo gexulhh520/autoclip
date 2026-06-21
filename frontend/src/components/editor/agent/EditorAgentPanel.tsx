@@ -4,6 +4,11 @@ import { formatAgentDebugDetail, formatAgentDebugSummary } from '../../../editor
 import { confirmExecutePlan, continueAgentChatAfterApply, executeAgentTaskPlan, planApplyLayout } from '../../../editor/agent/planApplyLayout'
 import { runAgentChat } from '../../../editor/agent/runAgentChat'
 import { mergeExecutionLedger, buildExecutionRecords } from '../../../editor/agent/agentExecutionLedger'
+import {
+  applyMomentExtractToPool,
+  applyMomentExtractToTimeline,
+  formatMomentExportChoiceHint,
+} from '../../../editor/agent/applyMomentExport'
 import { formatToolCallSummary, isDangerousAgentTool } from '../../../editor/agent/toolRegistry'
 import { editorAgentApi } from '../../../services/editorAgentApi'
 import type {
@@ -64,6 +69,10 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
   )
   const focusRequest = useAgentPanelStore((state) => state.focusRequest)
   const clearFocusedBlock = useAgentPanelStore((state) => state.clearFocusedBlock)
+  const lastMomentSearch = useAgentPanelStore(
+    (state) => state.lastMomentSearchBySession[sessionId] ?? null
+  )
+  const clearLastMomentSearch = useAgentPanelStore((state) => state.clearLastMomentSearch)
   const focusedBlock =
     focusedBlockId != null
       ? session?.sequence.find((block) => block.id === focusedBlockId) ?? null
@@ -89,6 +98,7 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
   const [executing, setExecuting] = useState(false)
   const [agentDebugTrace, setAgentDebugTrace] = useState<AgentDebugTrace | null>(null)
   const [showAgentDebug, setShowAgentDebug] = useState(false)
+  const [exportingMoments, setExportingMoments] = useState(false)
   const [executionLedger, setExecutionLedger] = useState<string[]>([])
   const executionLedgerRef = useRef<string[]>([])
   useEffect(() => {
@@ -462,6 +472,55 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
     }
   }
 
+  const handleExportMomentsToTimeline = async () => {
+    if (!lastMomentSearch || lastMomentSearch.matches.length === 0) return
+    setExportingMoments(true)
+    setError('')
+    try {
+      const result = applyMomentExtractToTimeline(
+        () => useEditSessionStore.getState(),
+        lastMomentSearch
+      )
+      clearLastMomentSearch(sessionId)
+      setChatTurns((prev) => [
+        ...prev,
+        { id: nanoid(), role: 'assistant', content: result.assistant_message },
+      ])
+    } catch (err: unknown) {
+      setError(extractErrorMessage(err, '裁到时间线失败'))
+    } finally {
+      setExportingMoments(false)
+    }
+  }
+
+  const handleExportMomentsToPool = async () => {
+    if (!lastMomentSearch || lastMomentSearch.matches.length === 0) return
+    setExportingMoments(true)
+    setError('')
+    try {
+      const result = await applyMomentExtractToPool(
+        () => useEditSessionStore.getState(),
+        {
+          projectId,
+          sessionId,
+          blockId: lastMomentSearch.blockId,
+          blockTitle: lastMomentSearch.blockTitle,
+          searchCriteria: lastMomentSearch.searchCriteria,
+          matches: lastMomentSearch.matches,
+        }
+      )
+      clearLastMomentSearch(sessionId)
+      setChatTurns((prev) => [
+        ...prev,
+        { id: nanoid(), role: 'assistant', content: result.assistant_message },
+      ])
+    } catch (err: unknown) {
+      setError(extractErrorMessage(err, '写入素材池失败'))
+    } finally {
+      setExportingMoments(false)
+    }
+  }
+
   const panelBody = (
     <>
       <div className="editor-agent-panel__segmented">
@@ -529,6 +588,40 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
             {loading ? <p className="editor-agent-panel__chat-status">思考中…</p> : null}
             <div ref={chatEndRef} />
           </div>
+
+          {lastMomentSearch && lastMomentSearch.matches.length > 0 ? (
+            <div className="editor-agent-panel__moment-export">
+              <p className="editor-agent-panel__moment-export-title">
+                {formatMomentExportChoiceHint(lastMomentSearch.matches.length)}
+              </p>
+              <div className="editor-agent-panel__actions">
+                <button
+                  type="button"
+                  className="editor-agent-panel__btn editor-agent-panel__btn--primary"
+                  disabled={exportingMoments || loading}
+                  onClick={() => void handleExportMomentsToTimeline()}
+                >
+                  {exportingMoments ? '导出中…' : `裁到时间线（${lastMomentSearch.matches.length}）`}
+                </button>
+                <button
+                  type="button"
+                  className="editor-agent-panel__btn"
+                  disabled={exportingMoments || loading}
+                  onClick={() => void handleExportMomentsToPool()}
+                >
+                  写入素材池
+                </button>
+                <button
+                  type="button"
+                  className="editor-agent-panel__btn"
+                  disabled={exportingMoments}
+                  onClick={() => clearLastMomentSearch(sessionId)}
+                >
+                  暂不
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           <div className="editor-agent-panel__composer">
             {attachImage ? (

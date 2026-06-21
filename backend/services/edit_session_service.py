@@ -1007,6 +1007,130 @@ class EditSessionService:
                 return path
         raise FileNotFoundError(f"未找到音频资源: {asset_id}")
 
+    def export_moment_matches_to_clip_pool(
+        self,
+        project_id: str,
+        session_id: str,
+        block_id: str,
+        matches: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """将检索匹配时间段 ffmpeg 切出并写入项目素材池（clips + metadata + DB）。"""
+        if not matches:
+            return {"block_id": block_id, "created_count": 0, "clip_ids": [], "note": "无匹配片段"}
+
+        session = self.get_session(project_id, session_id)
+        block = next((item for item in session.sequence if item.id == block_id), None)
+        if block is None:
+            raise ValueError(f"片段不存在: {block_id}")
+
+        project_dir = get_project_directory(project_id)
+        media_rel = str(block.media.path or "").strip()
+        if not media_rel:
+            raise ValueError("源片段无媒体文件，无法导出到素材池")
+        source_video = project_dir / media_rel
+        if not source_video.exists():
+            raise ValueError(f"媒体文件不存在: {media_rel}")
+
+        from backend.utils.video_processor import VideoProcessor
+
+        clips_dir = project_dir / "output" / "clips"
+        clips_dir.mkdir(parents=True, exist_ok=True)
+        metadata_path = project_dir / "metadata" / "clips_metadata.json"
+        entries: List[Dict[str, Any]] = []
+        if metadata_path.exists():
+            raw = _load_json(metadata_path)
+            if isinstance(raw, list):
+                entries = [item for item in raw if isinstance(item, dict)]
+
+        sorted_matches = sorted(
+            matches,
+            key=lambda item: float(item.get("trim_in_sec") or 0),
+        )
+        created_ids: List[str] = []
+
+        for index, match in enumerate(sorted_matches):
+            trim_in = float(match.get("trim_in_sec") or 0)
+            trim_out = float(match.get("trim_out_sec") or trim_in)
+            if trim_out <= trim_in + 0.1:
+                continue
+
+            preview = str(match.get("text_preview") or match.get("match_reason") or "").strip()
+            title = preview[:48] or f"检索片段 {index + 1}"
+            safe_title = title
+            for char in '\\/:*?"<>|':
+                safe_title = safe_title.replace(char, "_")
+            safe_title = safe_title.replace("\n", " ").strip()[:32] or f"clip_{index + 1}"
+
+            clip_id = f"moment-{uuid.uuid4().hex[:12]}"
+            filename = f"{clip_id}_{safe_title}.mp4"
+            dest = clips_dir / filename
+            start_srt = _seconds_to_srt_timestamp(trim_in)
+            end_srt = _seconds_to_srt_timestamp(trim_out)
+
+            if not VideoProcessor.extract_clip(source_video, dest, start_srt, end_srt):
+                logger.warning("moment 导出切片失败: %s", dest)
+                continue
+
+            rel_video = f"output/clips/{filename}"
+            metadata_entry: Dict[str, Any] = {
+                "id": clip_id,
+                "generated_title": title,
+                "outline": title,
+                "content": [preview] if preview else [title],
+                "recommend_reason": str(match.get("match_reason") or "Agent 检索导出"),
+                "start_time": start_srt,
+                "end_time": end_srt,
+                "video_path": rel_video,
+                "source": "moment_search",
+                "edit_session_id": session_id,
+                "source_block_id": block_id,
+                "match_score": match.get("match_score"),
+            }
+            entries.append(metadata_entry)
+
+            if self.db is not None:
+                from backend.models.clip import Clip, ClipStatus
+
+                duration_sec = max(1, int(round(trim_out - trim_in)))
+                self.db.add(
+                    Clip(
+                        id=clip_id,
+                        project_id=project_id,
+                        title=title,
+                        description=preview[:500] if preview else title,
+                        start_time=int(trim_in),
+                        end_time=int(trim_out),
+                        duration=duration_sec,
+                        score=float(match.get("match_score") or 0) * 10
+                        if match.get("match_score") is not None
+                        else None,
+                        status=ClipStatus.COMPLETED,
+                        video_path=str(dest),
+                        recommendation_reason=str(match.get("match_reason") or ""),
+                        clip_metadata=metadata_entry,
+                    )
+                )
+            created_ids.append(clip_id)
+
+        if self.db is not None and created_ids:
+            self.db.commit()
+
+        metadata_path.parent.mkdir(parents=True, exist_ok=True)
+        metadata_path.write_text(
+            json.dumps(entries, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        note = f"已导出 {len(created_ids)} 个切片到素材池"
+        if len(created_ids) < len(sorted_matches):
+            note += "（部分片段导出失败或时长过短已跳过）"
+        return {
+            "block_id": block_id,
+            "created_count": len(created_ids),
+            "clip_ids": created_ids,
+            "note": note,
+        }
+
     @staticmethod
     def _save_session(project_dir: Path, session: EditSession) -> None:
         path = _session_path(project_dir, session.id)

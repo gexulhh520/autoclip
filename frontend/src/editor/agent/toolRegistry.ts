@@ -388,6 +388,24 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
   {
     type: 'function',
     function: {
+      name: 'export_moment_clips_to_pool',
+      description:
+        '将 find_block_moments 的 matches ffmpeg 切出并写入项目素材池，供后续拖入时间线。',
+      parameters: {
+        type: 'object',
+        properties: {
+          block_id: { type: 'string' },
+          matches: { type: 'array', items: { type: 'object' } },
+          search_criteria: { type: 'string' },
+          block_title: { type: 'string' },
+        },
+        required: ['block_id', 'matches'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'split_block_at_playhead',
       description: '在播放头位置切分当前选中的视频/文本/音频（需先 seek_playhead）',
       parameters: { type: 'object', properties: {} },
@@ -692,6 +710,7 @@ export const BATCH_AUTO_WRITE_TOOLS_FRONTEND = new Set([
   'split_text_overlays_by_char',
   'batch_apply_text_style',
   'extract_moment_clips',
+  'export_moment_clips_to_pool',
 ])
 
 export const READ_ONLY_AGENT_TOOLS = new Set([
@@ -762,6 +781,10 @@ export function formatToolCallSummary(name: string, args: Record<string, unknown
     case 'extract_moment_clips': {
       const count = Array.isArray(args.matches) ? args.matches.length : 0
       return `批量裁出 ${count} 段到时间线（${args.block_id}）`
+    }
+    case 'export_moment_clips_to_pool': {
+      const count = Array.isArray(args.matches) ? args.matches.length : 0
+      return `导出 ${count} 段到素材池（${args.block_id}）`
     }
     case 'move_block_to_video_track':
       return `移动片段 ${args.block_id} → 轨 ${args.video_track_id}`

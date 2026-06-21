@@ -201,6 +201,18 @@ class FindBlockMomentsResponse(BaseModel):
     note: str = ""
 
 
+class ExportMomentClipsRequest(BaseModel):
+    block_id: str
+    matches: List[MatchedMoment] = Field(default_factory=list)
+
+
+class ExportMomentClipsResponse(BaseModel):
+    block_id: str
+    created_count: int = 0
+    clip_ids: List[str] = Field(default_factory=list)
+    note: str = ""
+
+
 class AgentChatMessage(BaseModel):
     role: str
     content: str = ""
