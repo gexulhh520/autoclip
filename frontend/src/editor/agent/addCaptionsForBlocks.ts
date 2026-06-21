@@ -1,7 +1,7 @@
 import { buildEditorSnapshot } from './buildEditorSnapshot'
 import { mapFontFamily } from './fontMapping'
 import { mergeDefaultTextAnimation } from './defaultAnimation'
-import { pickBlockDraftCaption } from './pickBlockDraftCaption'
+import { pickBlockDraftCaption, resolveBlockCaptionText } from './pickBlockDraftCaption'
 import { resolveBatchSplitPlacement } from './staggeredCharText'
 import { resolveCanvasDimensions } from '../scene/canvas'
 import { readStringParam } from '../opencut-text/params'
@@ -16,6 +16,8 @@ export interface AddCaptionsForBlocksArguments {
   content?: string
   /** 为 true 时按片段 outline/content/title 取文案，忽略统一 content */
   use_block_draft?: boolean
+  /** 为 true 时每段随机 2–4 个汉字（优先于 use_block_draft） */
+  use_random_caption?: boolean
   block_ids?: string[]
   skip_existing?: boolean
   layout?: 'horizontal' | 'vertical'
@@ -116,10 +118,11 @@ export function executeAddCaptionsForBlocks(
     }
   }
 
-  const useBlockDraft = args.use_block_draft === true
+  const useRandomCaption = args.use_random_caption === true
+  const useBlockDraft = !useRandomCaption && args.use_block_draft === true
   const uniformContent = str(args.content).trim()
 
-  if (!useBlockDraft && !uniformContent) {
+  if (!useRandomCaption && !useBlockDraft && !uniformContent) {
     return {
       content: '',
       blocks_targeted: 0,
@@ -165,9 +168,13 @@ export function executeAddCaptionsForBlocks(
   }
 
   for (const target of targets) {
-    const blockContent = useBlockDraft
-      ? pickBlockDraftCaption(session, target.block_id)
-      : uniformContent
+    const captionMode = useRandomCaption ? 'random' : useBlockDraft ? 'draft' : 'uniform'
+    const blockContent = resolveBlockCaptionText(
+      session,
+      target.block_id,
+      captionMode,
+      uniformContent
+    )
     if (!blockContent.trim()) {
       items.push({
         block_id: target.block_id,
@@ -248,7 +255,7 @@ export function executeAddCaptionsForBlocks(
   }
 
   return {
-    content: useBlockDraft ? '(per-block draft)' : uniformContent,
+    content: useRandomCaption ? '(random per block)' : useBlockDraft ? '(per-block draft)' : uniformContent,
     blocks_targeted: targets.length,
     overlays_added: overlaysAdded,
     overlays_skipped: overlaysSkipped,

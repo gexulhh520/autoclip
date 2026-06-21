@@ -1,5 +1,9 @@
 import { buildEditorSnapshotFromStore } from './snapshotFromStore'
-import { pickBlockDraftCaption } from './pickBlockDraftCaption'
+import {
+  isUsableCaptionDraft,
+  pickBlockDraftCaption,
+  pickRandomCaptionText,
+} from './pickBlockDraftCaption'
 import { isPostCaptionAnimationTask } from './taskExecutionGuard'
 import { DEFAULT_VIDEO_TRACK_ID } from '../videoTracks'
 import type { AgentTaskItem, AgentToolCall } from '../../types/editorAgent'
@@ -43,8 +47,17 @@ export function isReadOnlyInspectTask(task: AgentTaskItem): boolean {
 
 export function isPerBlockCaptionWriteTask(task: AgentTaskItem, userGoal: string): boolean {
   const text = taskText(task, userGoal)
-  if (!/(字幕|文本层|文案|加字)/.test(text)) return false
-  return /(每段|各片段|每个片段|所有片段|各视频|每个视频|按片段|各段)/.test(text)
+  if (/(字幕|文本层|文案|加字|文本)/.test(text)) {
+    return /(每段|各段|各片段|每个片段|所有片段|各视频|每段视频|按片段)/.test(text)
+  }
+  return (
+    /(每段|各段).*(视频|片段)/.test(userGoal) &&
+    /(字幕|竖|动画)/.test(userGoal)
+  )
+}
+
+export function wantsRandomCaptionText(text: string): boolean {
+  return /随机/.test(text)
 }
 
 export function wantsVerticalCaptionLayout(text: string): boolean {

@@ -429,6 +429,8 @@ export async function executeWriteToolCall(
           getStore,
           {
             content: str(call.arguments.content),
+            use_block_draft: call.arguments.use_block_draft as boolean | undefined,
+            use_random_caption: call.arguments.use_random_caption as boolean | undefined,
             block_ids: call.arguments.block_ids as string[] | undefined,
             skip_existing: call.arguments.skip_existing as boolean | undefined,
             layout: call.arguments.layout as AddCaptionsForBlocksArguments['layout'],
