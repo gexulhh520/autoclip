@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { message } from 'antd'
-import { PlusOutlined, StarFilled, StarOutlined } from '@ant-design/icons'
+import { message, Modal } from 'antd'
+import { PlusOutlined, StarFilled, StarOutlined, DeleteOutlined } from '@ant-design/icons'
 import { projectApi } from '../../services/api'
 import { blockDuration, useEditSessionStore } from '../../stores/useEditSessionStore'
 import { getBlockVideoUrl } from '../../utils/editBlockMedia'
@@ -71,6 +71,7 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [sessionPoolClips, setSessionPoolClips] = useState<SessionPoolClip[]>([])
   const [loadingClips, setLoadingClips] = useState(false)
   const [promotingClipId, setPromotingClipId] = useState<string | null>(null)
+  const [deletingClipId, setDeletingClipId] = useState<string | null>(null)
   const [importingVideo, setImportingVideo] = useState(false)
   const clipsRefreshNonce = useAgentPanelStore((state) => state.clipsRefreshNonce)
 
@@ -167,11 +168,62 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
     }
   }
 
+  const confirmDeleteClip = (clip: ProjectClip | SessionPoolClip, onDelete: () => Promise<void>) => {
+    const title = clip.generated_title || clip.title || clip.id
+    const onTimeline = addedClipIds.has(clip.id)
+    Modal.confirm({
+      title: '删除此 AI 切片？',
+      content: onTimeline
+        ? `「${title}」已在时间线中，删除后预览可能失效。`
+        : `将从列表移除「${title}」，此操作不可撤销。`,
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        setDeletingClipId(clip.id)
+        try {
+          await onDelete()
+          if (assetPreviewClip?.clipId === clip.id) {
+            setAssetPreviewClip(null)
+          }
+          message.success('已删除')
+        } catch (error: unknown) {
+          message.error(error instanceof Error ? error.message : '删除失败')
+          throw error
+        } finally {
+          setDeletingClipId(null)
+        }
+      },
+    })
+  }
+
+  const handleDeleteSessionPoolClip = (clipId: string, event?: React.MouseEvent) => {
+    event?.stopPropagation()
+    if (!sessionId) return
+    const clip = sessionPoolClips.find((item) => item.id === clipId)
+    if (!clip) return
+    confirmDeleteClip(clip, async () => {
+      await editApi.deleteSessionPoolClip(projectId, sessionId, clipId)
+      setSessionPoolClips((prev) => prev.filter((item) => item.id !== clipId))
+    })
+  }
+
+  const handleDeleteProjectClip = (clipId: string, event?: React.MouseEvent) => {
+    event?.stopPropagation()
+    const clip = projectClips.find((item) => item.id === clipId)
+    if (!clip) return
+    confirmDeleteClip(clip, async () => {
+      await projectApi.deleteClip(clipId)
+      setProjectClips((prev) => prev.filter((item) => item.id !== clipId))
+    })
+  }
+
   const renderClipCard = (
     clip: ProjectClip | SessionPoolClip,
     options: {
       videoUrl: string
       showPromote?: boolean
+      onDelete?: (clipId: string, event?: React.MouseEvent) => void
     }
   ) => {
     const title = clip.generated_title || clip.title || clip.id
@@ -222,6 +274,17 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
           >
             <PlusOutlined />
           </button>
+          {options.onDelete ? (
+            <button
+              type="button"
+              className="editor-media-card__add editor-media-card__add--danger"
+              title="删除切片"
+              disabled={deletingClipId === clip.id}
+              onClick={(event) => options.onDelete?.(clip.id, event)}
+            >
+              <DeleteOutlined />
+            </button>
+          ) : null}
         </div>
       </div>
     )
@@ -367,7 +430,7 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
         <div className="editor-empty-hint">加载素材…</div>
       ) : sessionPoolClips.length === 0 ? (
         <div className="editor-empty-hint">
-          Agent 检索导出会写入<strong>本草稿素材池</strong>（不进入全局素材库）。可点 ★ 收藏到桌面「素材库」。
+          Agent 检索导出会写入<strong>本草稿素材池</strong>。可点 ★ 收藏、删除按钮移除不需要的片段。
         </div>
       ) : (
         <div className="editor-media-grid">
@@ -375,6 +438,7 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
             renderClipCard(clip, {
               videoUrl: editApi.getSessionPoolClipVideoUrl(projectId, sessionId, clip.id),
               showPromote: true,
+              onDelete: handleDeleteSessionPoolClip,
             })
           )}
         </div>
@@ -394,6 +458,7 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
           {projectClips.map((clip) =>
             renderClipCard(clip, {
               videoUrl: projectApi.getClipVideoUrl(projectId, clip.id, clip.title || clip.generated_title),
+              onDelete: handleDeleteProjectClip,
             })
           )}
         </div>

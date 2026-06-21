@@ -650,6 +650,11 @@
   cursor: not-allowed;
 }
 
+.editor-media-card__add--danger:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.92);
+  color: #fff;
+}
+
 .editor-media-card.is-added {
   border-color: var(--editor-accent);
 }

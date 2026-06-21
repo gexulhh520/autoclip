@@ -218,6 +218,36 @@ async def stream_edit_session_pool_clip_video(
     )
 
 
+@router.delete("/{project_id}/edit-sessions/{session_id}/pool-clips/{clip_id}")
+async def delete_edit_session_pool_clip(
+    project_id: str,
+    session_id: str,
+    clip_id: str,
+    service: EditSessionService = Depends(get_edit_session_service),
+):
+    from backend.services.session_clip_pool_service import delete_session_pool_clip
+
+    try:
+        delete_session_pool_clip(project_id, session_id, clip_id)
+        if service.db is not None:
+            from backend.models.clip import Clip
+
+            clip = (
+                service.db.query(Clip)
+                .filter(Clip.id == clip_id, Clip.project_id == project_id)
+                .first()
+            )
+            if clip is not None:
+                service.db.delete(clip)
+                service.db.commit()
+        return {"ok": True}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("删除草稿素材失败: %s/%s/%s", project_id, session_id, clip_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @router.post("/{project_id}/edit-sessions/{session_id}/pool-clips/{clip_id}/promote-to-library")
 async def promote_edit_session_pool_clip_to_library(
     project_id: str,

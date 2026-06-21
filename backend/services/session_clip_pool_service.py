@@ -104,6 +104,38 @@ def mark_session_pool_clip_promoted(
     _save_json_list(meta_path, updated)
 
 
+def delete_session_pool_clip(
+    project_id: str,
+    session_id: str,
+    clip_id: str,
+) -> None:
+    """删除单个草稿素材池条目；已收藏到全局素材库时仅删草稿副本，保留素材库文件。"""
+    row = get_session_pool_clip(project_id, session_id, clip_id)
+    if row is None:
+        raise ValueError(f"草稿素材不存在: {clip_id}")
+
+    project_dir = get_project_directory(project_id)
+    meta_path = session_pool_metadata_path(project_dir, session_id)
+    rel = str(row.get("video_path") or "").strip()
+    if rel:
+        file_path = project_dir / rel
+        if file_path.exists() and file_path.is_file():
+            try:
+                file_path.unlink()
+            except OSError as exc:
+                logger.warning("删除 session 素材失败 %s: %s", file_path, exc)
+
+    remaining = [
+        item
+        for item in _load_json_list(meta_path)
+        if str(item.get("id") or "") != str(clip_id)
+    ]
+    if remaining:
+        _save_json_list(meta_path, remaining)
+    elif meta_path.exists():
+        meta_path.unlink(missing_ok=True)
+
+
 def delete_session_pool_assets(
     project_id: str,
     session_id: str,

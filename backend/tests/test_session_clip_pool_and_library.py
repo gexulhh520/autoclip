@@ -136,3 +136,20 @@ def test_delete_session_pool_removes_unpromoted_clips(project_layout):
     )
     assert removed == 1
     assert not project_layout["video_path"].exists()
+
+
+def test_delete_single_session_pool_clip(project_layout):
+    from backend.services.session_clip_pool_service import (
+        delete_session_pool_clip,
+        list_session_pool_clips,
+    )
+
+    delete_session_pool_clip(
+        project_layout["project_id"],
+        project_layout["session_id"],
+        project_layout["clip_id"],
+    )
+    assert list_session_pool_clips(
+        project_layout["project_id"], project_layout["session_id"]
+    ) == []
+    assert not project_layout["video_path"].exists()

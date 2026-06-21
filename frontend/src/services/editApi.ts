@@ -162,6 +162,16 @@ export const editApi = {
     )) as { ok: boolean; asset: Record<string, unknown> }
   },
 
+  deleteSessionPoolClip: async (
+    projectId: string,
+    sessionId: string,
+    clipId: string
+  ): Promise<void> => {
+    await api.delete(
+      `/projects/${projectId}/edit-sessions/${sessionId}/pool-clips/${encodeURIComponent(clipId)}`
+    )
+  },
+
   importMedia: async (
     projectId: string,
     sessionId: string,
