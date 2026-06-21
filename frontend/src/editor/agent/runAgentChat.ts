@@ -8,6 +8,7 @@ import {
 import { formatAgentDebugSummary } from './formatAgentDebug'
 import { maskStaleToolObservations } from './maskAgentToolMessages'
 import { parseSubmitTaskPlan } from './parseTaskPlan'
+import { tryContentAnalysisFastPath } from './contentAnalysisFastPath'
 import { sanitizeToolResultForChat } from './sanitizeToolResultForChat'
 import { executeReadToolCall } from './executeToolCall'
 import { isDangerousAgentTool, isMetaAgentTool, isReadOnlyAgentTool, isWriteAgentTool } from './toolRegistry'
@@ -365,6 +366,17 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
     role: 'user',
     content: trimmed || '请根据附图理解我的剪辑需求。',
     images: input.imageDataUrl ? [input.imageDataUrl] : undefined,
+  }
+
+  if (!input.imageDataUrl) {
+    const fastPath = await tryContentAnalysisFastPath({
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      userMessage: trimmed,
+      executionLedger: input.executionLedger,
+      getStore: () => useEditSessionStore.getState(),
+    })
+    if (fastPath) return fastPath
   }
 
   return runAgentChatLoop(
