@@ -6,6 +6,8 @@ import type {
   AnalyzeSubtitleFrameResponse,
   AnalyzeVideoContentRequest,
   AnalyzeVideoContentResponse,
+  FindBlockMomentsRequest,
+  FindBlockMomentsResponse,
   AgentChatRequest,
   AgentChatResponse,
 } from '../types/editorAgent'
@@ -42,6 +44,17 @@ export const editorAgentApi = {
       `/projects/${projectId}/edit-sessions/${sessionId}/agent/analyze-video-content`,
       payload
     )) as AnalyzeVideoContentResponse
+  },
+
+  findBlockMoments: async (
+    projectId: string,
+    sessionId: string,
+    payload: FindBlockMomentsRequest
+  ): Promise<FindBlockMomentsResponse> => {
+    return (await api.post(
+      `/projects/${projectId}/edit-sessions/${sessionId}/agent/find-block-moments`,
+      payload
+    )) as FindBlockMomentsResponse
   },
 
   chat: async (

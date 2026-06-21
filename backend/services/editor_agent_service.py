@@ -40,8 +40,12 @@ from backend.services.editor_agent_tools import (
 )
 from backend.services.editor_moment_search import (
     build_matched_moments,
+    build_matched_moments_from_timeline_ranges,
     collect_block_transcript,
+    find_moments_in_frames,
     find_moments_in_transcript,
+    merge_matched_moments,
+    merge_visual_frame_hits,
 )
 
 logger = logging.getLogger(__name__)
@@ -173,7 +177,7 @@ AGENT_EXECUTE_SYSTEM = """你是 AutoClip 剪辑助手，帮助用户在剪辑�
 27. 读工具只用于当次决策；读结果不进入下一轮上下文。跨轮次只保留写操作成败摘要（execution ledger）；当前状态以每次 EditorSnapshot 为准，勿重复 get_timeline_summary。
 28. snapshot.focused_block_id / focused_block 表示用户从时间线「添加到 AI 助手」钉住的片段。用户问「这段/当前片段/这个视频多长」时优先用 focused_block（含 duration_sec、trim、timeline 位置）或 get_block_detail(focused_block_id)；修改操作若针对该片段须带对应 block_id。
 29. 用户问「这段讲什么/画面内容/适合怎么剪」时：只调用一次 analyze_block_content（block_id 缺省用 focused_block_id 或 selected_block_id），禁止先连环 get_timeline_summary / get_block_detail / capture_preview_frame。该工具已含静音分段+多帧视觉分析，直接根据返回的 summary 回答用户。
-30. 用户要按条件找片段/金句/有感觉的说话/哲学传播性内容时：调用 find_block_moments（search_criteria=用户描述，block_id 缺省用 focused/selected）。返回 matches 含 trim 与时间线位置；可用 split_block_at_playhead + update_block_trim 裁出，或 add_clips_to_timeline 若素材池已有对应 clip。禁止编造未在 matches 中的时间段。
+30. 用户要按条件找片段（打斗/金句/哲学/共鸣/有感觉的说话等）时：调用 find_block_moments（search_criteria=用户描述，block_id 缺省用 focused/selected）。该工具会结合转写文本检索与画面抽帧检索。返回 matches 含 trim 与时间线位置；可用 split_block_at_playhead + update_block_trim 裁出。禁止编造未在 matches 中的时间段。
 
 snapshot、layout_reference（若有）由请求附带。"""
 
@@ -353,25 +357,7 @@ class EditorAgentService:
         if not criteria:
             raise ValueError("search_criteria 不能为空")
 
-        segments, transcript_source = collect_block_transcript(
-            project_id, session_id, block
-        )
-        if not segments:
-            return FindBlockMomentsResponse(
-                block_id=request.block_id,
-                search_criteria=criteria,
-                transcript_source=transcript_source,
-                transcript_segment_count=0,
-                matches=[],
-                note="未找到可用转写文本。请先跑导入流水线生成字幕，或在设置中安装 Whisper 后重试。",
-            )
-
-        scored = find_moments_in_transcript(
-            self.llm_manager,
-            criteria,
-            segments,
-            max_results=request.max_results,
-        )
+        max_results = max(1, min(24, int(request.max_results or 12)))
         duration = request.duration_sec
         if duration <= 0 and request.timeline_end_sec > request.timeline_start_sec:
             duration = request.timeline_end_sec - request.timeline_start_sec
@@ -379,30 +365,93 @@ class EditorAgentService:
             trim = block.get("trim") or {}
             duration = float(trim.get("out_sec") or 0) - float(trim.get("in_sec") or 0)
         timeline_start = float(request.timeline_start_sec or 0)
+        duration = max(duration, 0.1)
 
-        matches = build_matched_moments(
-            block,
-            timeline_start,
-            max(duration, 0.1),
-            transcript_source,
-            scored,
+        segments, transcript_source = collect_block_transcript(
+            project_id, session_id, block
         )
-
-        note_parts = [
-            f"转写来源：{transcript_source}，检索 {len(segments)} 段文本",
+        frame_dicts = [
+            {"time_sec": float(f.time_sec), "image_base64": f.image_base64.strip()}
+            for f in request.frames
+            if f.image_base64.strip()
         ]
+
+        all_matches: List[MatchedMoment] = []
+
+        if segments:
+            scored = find_moments_in_transcript(
+                self.llm_manager,
+                criteria,
+                segments,
+                max_results=max_results,
+            )
+            all_matches.extend(
+                build_matched_moments(
+                    block,
+                    timeline_start,
+                    duration,
+                    transcript_source,
+                    scored,
+                )
+            )
+
+        if frame_dicts:
+            visual_hits = find_moments_in_frames(
+                self.llm_manager,
+                criteria,
+                frame_dicts,
+                max_results=max_results,
+            )
+            if visual_hits:
+                sample_times = list(request.sample_times_sec or [])
+                if len(sample_times) >= 2:
+                    intervals = [
+                        sample_times[i + 1] - sample_times[i]
+                        for i in range(len(sample_times) - 1)
+                        if sample_times[i + 1] > sample_times[i]
+                    ]
+                    sample_interval = sum(intervals) / len(intervals) if intervals else duration / max(len(frame_dicts), 1)
+                else:
+                    sample_interval = duration / max(len(frame_dicts), 1)
+                ranges = merge_visual_frame_hits(
+                    visual_hits,
+                    max(sample_interval, 1.0),
+                    max_results,
+                )
+                all_matches.extend(
+                    build_matched_moments_from_timeline_ranges(
+                        block,
+                        timeline_start,
+                        duration,
+                        ranges,
+                        "visual",
+                    )
+                )
+
+        matches = merge_matched_moments(all_matches, max_results)
+
+        note_parts: List[str] = []
+        if segments:
+            note_parts.append(f"文本检索：{transcript_source}，{len(segments)} 段")
+        if frame_dicts:
+            note_parts.append(f"画面检索：{len(frame_dicts)} 帧")
+        if not segments and not frame_dicts:
+            note_parts.append(
+                "无转写且无预览帧。请确认片段已加载，或先跑导入流水线/安装 Whisper"
+            )
         if matches:
             note_parts.append(
-                "matches 中 trim_in_sec/trim_out_sec 可用于 update_block_trim；长段需先 split_block_at_playhead 再 trim"
+                "matches 含 trim_in_sec/trim_out_sec 与 timeline 时间；裁切可用 update_block_trim"
             )
         else:
-            note_parts.append("无符合检索条件的片段，可放宽条件或换 search_criteria")
+            note_parts.append("未找到符合检索条件的片段，可放宽描述或换条件")
 
         return FindBlockMomentsResponse(
             block_id=request.block_id,
             search_criteria=criteria,
-            transcript_source=transcript_source,
+            transcript_source=transcript_source if segments else "none",
             transcript_segment_count=len(segments),
+            visual_frame_count=len(frame_dicts),
             matches=[
                 MatchedMoment(
                     start_sec=m.start_sec,

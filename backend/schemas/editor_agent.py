@@ -175,13 +175,20 @@ class MatchedMoment(BaseModel):
     transcript_source: str = ""
 
 
+class FindBlockMomentsFrame(BaseModel):
+    time_sec: float = 0.0
+    image_base64: str = ""
+
+
 class FindBlockMomentsRequest(BaseModel):
     block_id: str
     search_criteria: str = Field(..., min_length=1)
-    max_results: int = Field(default=8, ge=1, le=24)
+    max_results: int = Field(default=12, ge=1, le=24)
     timeline_start_sec: float = 0.0
     timeline_end_sec: float = 0.0
     duration_sec: float = 0.0
+    sample_times_sec: List[float] = Field(default_factory=list)
+    frames: List[FindBlockMomentsFrame] = Field(default_factory=list)
 
 
 class FindBlockMomentsResponse(BaseModel):
@@ -189,6 +196,7 @@ class FindBlockMomentsResponse(BaseModel):
     search_criteria: str
     transcript_source: str = "none"
     transcript_segment_count: int = 0
+    visual_frame_count: int = 0
     matches: List[MatchedMoment] = Field(default_factory=list)
     note: str = ""
 

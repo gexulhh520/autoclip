@@ -29,6 +29,20 @@ FIND_MOMENTS_SYSTEM = """你是视频片段检索助手。用户会给出检索�
 - 只列真正符合检索条件的片段；无符合时 matches 为空数组
 - match_reason 简短中文，说明与条件的关联（可引用关键词，勿编造未出现的台词）"""
 
+VISUAL_FRAME_MATCH_SYSTEM = """你是视频画面检索助手。用户给出检索条件与一帧预览图时间戳。
+判断该帧画面是否符合检索条件（如打斗、追逐、特定场景、人物情绪等）。
+只输出 JSON：{"match_score":0-1,"matches":true/false,"reason":"15-40字"}
+
+- 打斗/动作：肢体冲突、击打、格斗、明显对抗
+- 画面氛围/共鸣：靠构图、表情、情境；无明确视觉证据时 matches=false、score<0.5
+- 台词类条件：画面中无字幕且无法从画面推断时，不要臆造台词"""
+
+
+@dataclass
+class VisualFrameHit:
+    time_sec: float
+    match_score: float
+    reason: str
 
 @dataclass
 class TranscriptSegment:
@@ -505,3 +519,173 @@ def build_matched_moments(
             )
         )
     return results
+
+
+def find_moments_in_frames(
+    llm_manager: Any,
+    search_criteria: str,
+    frames: List[Dict[str, Any]],
+    max_results: int = 8,
+) -> List[VisualFrameHit]:
+    if not frames:
+        return []
+    criteria = (search_criteria or "").strip()
+    if not criteria:
+        raise ValueError("检索条件不能为空")
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    max_workers = min(6, len(frames))
+    hits: List[VisualFrameHit] = []
+
+    def score_one(frame: Dict[str, Any]) -> Optional[VisualFrameHit]:
+        image_b64 = str(frame.get("image_base64") or "").strip()
+        if not image_b64:
+            return None
+        time_sec = float(frame.get("time_sec") or 0)
+        meta = {"time_sec": time_sec, "search_criteria": criteria}
+        messages = [
+            {"role": "system", "content": VISUAL_FRAME_MATCH_SYSTEM},
+            {
+                "role": "user",
+                "content": f"Frame meta JSON:\n{json.dumps(meta, ensure_ascii=False)}\n\n判断该帧是否符合检索条件。",
+                "images": [image_b64],
+            },
+        ]
+        response = llm_manager.chat_completion(
+            messages,
+            think=False,
+            num_predict=256,
+            timeout=120,
+            temperature=0.15,
+        )
+        parsed = llm_manager.parse_json_response(response.content or "")
+        if not isinstance(parsed, dict):
+            return None
+        score = float(parsed.get("match_score") or 0)
+        matches = parsed.get("matches")
+        if matches is False and score < 0.55:
+            return None
+        if score < 0.5:
+            return None
+        reason = str(parsed.get("reason") or "").strip()
+        return VisualFrameHit(time_sec=time_sec, match_score=score, reason=reason)
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(score_one, frame): frame for frame in frames}
+        for future in as_completed(futures):
+            try:
+                hit = future.result()
+                if hit:
+                    hits.append(hit)
+            except Exception as exc:
+                logger.warning("画面帧检索失败: %s", exc)
+
+    hits.sort(key=lambda item: item.time_sec)
+    return hits
+
+
+def merge_visual_frame_hits(
+    hits: List[VisualFrameHit],
+    sample_interval_sec: float,
+    max_results: int,
+) -> List[Tuple[float, float, float, str]]:
+    if not hits:
+        return []
+    pad = max(2.0, sample_interval_sec * 0.6)
+    merged: List[Tuple[float, float, float, str]] = []
+    cur_start = hits[0].time_sec
+    cur_end = hits[0].time_sec
+    cur_score = hits[0].match_score
+    reasons = [hits[0].reason]
+
+    for hit in hits[1:]:
+        if hit.time_sec - cur_end <= sample_interval_sec * 1.5:
+            cur_end = hit.time_sec
+            cur_score = max(cur_score, hit.match_score)
+            if hit.reason:
+                reasons.append(hit.reason)
+        else:
+            merged.append(
+                (
+                    max(0.0, cur_start - pad),
+                    cur_end + pad,
+                    cur_score,
+                    reasons[0] if reasons else "",
+                )
+            )
+            cur_start = hit.time_sec
+            cur_end = hit.time_sec
+            cur_score = hit.match_score
+            reasons = [hit.reason]
+
+    merged.append(
+        (
+            max(0.0, cur_start - pad),
+            cur_end + pad,
+            cur_score,
+            reasons[0] if reasons else "",
+        )
+    )
+    merged.sort(key=lambda row: row[2], reverse=True)
+    return merged[:max_results]
+
+
+def build_matched_moments_from_timeline_ranges(
+    block: Dict[str, Any],
+    timeline_start_sec: float,
+    timeline_duration_sec: float,
+    ranges: List[Tuple[float, float, float, str]],
+    source_label: str,
+) -> List[MatchedMoment]:
+    trim = block.get("trim") or {}
+    trim_in = float(trim.get("in_sec") or 0)
+    trim_out = float(trim.get("out_sec") or trim_in)
+    block_span = max(0.1, trim_out - trim_in)
+    duration = max(0.1, timeline_duration_sec)
+    results: List[MatchedMoment] = []
+
+    for tl_start, tl_end, score, reason in ranges:
+        offset_start = max(0.0, tl_start - timeline_start_sec)
+        offset_end = min(duration, max(offset_start + 0.1, tl_end - timeline_start_sec))
+        local_start = trim_in + (offset_start / duration) * block_span
+        local_end = trim_in + (offset_end / duration) * block_span
+        results.append(
+            MatchedMoment(
+                start_sec=round(local_start, 3),
+                end_sec=round(local_end, 3),
+                timeline_start_sec=round(tl_start, 3),
+                timeline_end_sec=round(tl_end, 3),
+                trim_in_sec=round(local_start, 3),
+                trim_out_sec=round(local_end, 3),
+                text_preview=reason[:240],
+                match_score=round(score, 3),
+                match_reason=reason[:120],
+                transcript_source=source_label,
+            )
+        )
+    return results
+
+
+def merge_matched_moments(
+    candidates: List[MatchedMoment],
+    max_results: int,
+) -> List[MatchedMoment]:
+    if not candidates:
+        return []
+    ordered = sorted(candidates, key=lambda m: m.match_score, reverse=True)
+    picked: List[MatchedMoment] = []
+    for moment in ordered:
+        if len(picked) >= max_results:
+            break
+        overlaps = False
+        for existing in picked:
+            overlap_start = max(moment.timeline_start_sec, existing.timeline_start_sec)
+            overlap_end = min(moment.timeline_end_sec, existing.timeline_end_sec)
+            span = max(0.1, moment.timeline_end_sec - moment.timeline_start_sec)
+            if overlap_end > overlap_start and (overlap_end - overlap_start) / span > 0.5:
+                overlaps = True
+                break
+        if not overlaps:
+            picked.append(moment)
+    return picked

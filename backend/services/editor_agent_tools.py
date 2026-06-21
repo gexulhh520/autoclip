@@ -512,16 +512,19 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "find_block_moments",
-            "description": "只读：按用户描述在片段转写/字幕中检索匹配时间段（金句、哲学、传播性口播等）",
+            "description": "只读：按用户描述检索片段（文本+画面）。打斗/场景用画面；金句/哲学/共鸣用转写",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "block_id": {"type": "string"},
                     "search_criteria": {
                         "type": "string",
-                        "description": "检索条件，如「有哲学感的金句」「人物说话有感染力」",
+                        "description": "检索条件",
                     },
-                    "max_results": {"type": "number", "description": "最多返回条数 1–24，默认 8"},
+                    "max_results": {"type": "number"},
+                    "frame_sample_count": {"type": "number"},
+                    "include_visual": {"type": "boolean"},
+                    "max_width": {"type": "number"},
                 },
                 "required": ["search_criteria"],
             },

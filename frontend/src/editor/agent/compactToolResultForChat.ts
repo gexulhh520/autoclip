@@ -157,6 +157,31 @@ export function compactToolResultData(
       return { ...result, data: compactListAssets(data) }
     case 'capture_preview_frame':
       return { ...result, data: compactCapturePreview(data) }
+    case 'find_block_moments': {
+      const matches = Array.isArray(data.matches) ? data.matches : []
+      return {
+        ...result,
+        data: {
+          block_id: data.block_id,
+          block_title: data.block_title,
+          search_criteria: data.search_criteria,
+          transcript_source: data.transcript_source,
+          transcript_segment_count: data.transcript_segment_count,
+          visual_frame_count: data.visual_frame_count,
+          matches: matches.slice(0, 12).map((item: Record<string, unknown>) => ({
+            timeline_start_sec: item.timeline_start_sec,
+            timeline_end_sec: item.timeline_end_sec,
+            trim_in_sec: item.trim_in_sec,
+            trim_out_sec: item.trim_out_sec,
+            match_score: item.match_score,
+            match_reason: String(item.match_reason ?? '').slice(0, 120),
+            text_preview: String(item.text_preview ?? '').slice(0, 160),
+            transcript_source: item.transcript_source,
+          })),
+          note: data.note,
+        },
+      }
+    }
     case 'analyze_block_content': {
       const visual = data.visual_analysis as Record<string, unknown> | undefined
       const audio = data.audio_analysis as Record<string, unknown> | undefined

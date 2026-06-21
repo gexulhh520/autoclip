@@ -9,6 +9,7 @@ import {
 import { capturePreviewFrame } from './capturePreviewFrame'
 import { resolveCaptureMaxWidth } from './capturePreviewFrameUtils'
 import { analyzeBlockContent } from './analyzeBlockContent'
+import { findBlockMoments } from './findBlockMoments'
 import { verifySubtitleInFrame } from './verifySubtitleInFrame'
 import { listAssets } from './listAssets'
 import {
@@ -139,6 +140,24 @@ export async function executeReadToolCall(
           args: call.arguments,
           selectedOverlayId: store.selectedOverlayId,
           playheadSec: store.sequencePlayheadSec,
+        })
+        return { ok: true, tool_name: call.name, data }
+      }
+      case 'find_block_moments': {
+        const projectId = context?.projectId?.trim()
+        if (!projectId) {
+          return { ok: false, tool_name: call.name, error: '缺少 projectId，无法检索片段' }
+        }
+        const sessionId = session.id
+        if (!sessionId) {
+          return { ok: false, tool_name: call.name, error: '缺少 sessionId，无法检索片段' }
+        }
+        const data = await findBlockMoments({
+          projectId,
+          sessionId,
+          session,
+          args: call.arguments,
+          selectedBlockId: store.selectedBlockId,
         })
         return { ok: true, tool_name: call.name, data }
       }

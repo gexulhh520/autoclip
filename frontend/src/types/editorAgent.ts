@@ -148,6 +148,45 @@ export interface AnalyzeVideoContentResponse {
   raw_content?: string
 }
 
+export interface MatchedMoment {
+  start_sec: number
+  end_sec: number
+  timeline_start_sec: number
+  timeline_end_sec: number
+  trim_in_sec: number
+  trim_out_sec: number
+  text_preview: string
+  match_score: number
+  match_reason: string
+  transcript_source: string
+}
+
+export interface FindBlockMomentsFrame {
+  time_sec: number
+  image_base64: string
+}
+
+export interface FindBlockMomentsRequest {
+  block_id: string
+  search_criteria: string
+  max_results?: number
+  timeline_start_sec: number
+  timeline_end_sec: number
+  duration_sec: number
+  sample_times_sec?: number[]
+  frames?: FindBlockMomentsFrame[]
+}
+
+export interface FindBlockMomentsResponse {
+  block_id: string
+  search_criteria: string
+  transcript_source: string
+  transcript_segment_count: number
+  visual_frame_count: number
+  matches: MatchedMoment[]
+  note: string
+}
+
 export interface LayoutReference {
   imageDataUrl: string
   prompt: string

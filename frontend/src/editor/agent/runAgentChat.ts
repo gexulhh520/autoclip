@@ -9,6 +9,7 @@ import { formatAgentDebugSummary } from './formatAgentDebug'
 import { maskStaleToolObservations } from './maskAgentToolMessages'
 import { parseSubmitTaskPlan } from './parseTaskPlan'
 import { tryContentAnalysisFastPath } from './contentAnalysisFastPath'
+import { tryMomentSearchFastPath } from './momentSearchFastPath'
 import { sanitizeToolResultForChat } from './sanitizeToolResultForChat'
 import { executeReadToolCall } from './executeToolCall'
 import { isDangerousAgentTool, isMetaAgentTool, isReadOnlyAgentTool, isWriteAgentTool } from './toolRegistry'
@@ -369,6 +370,15 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
   }
 
   if (!input.imageDataUrl) {
+    const momentFastPath = await tryMomentSearchFastPath({
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      userMessage: trimmed,
+      executionLedger: input.executionLedger,
+      getStore: () => useEditSessionStore.getState(),
+    })
+    if (momentFastPath) return momentFastPath
+
     const fastPath = await tryContentAnalysisFastPath({
       projectId: input.projectId,
       sessionId: input.sessionId,

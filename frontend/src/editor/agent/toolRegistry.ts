@@ -526,6 +526,35 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
   {
     type: 'function',
     function: {
+      name: 'find_block_moments',
+      description:
+        '只读：按用户描述检索视频片段。结合转写/字幕文本（哲学、金句、共鸣台词）与画面抽帧（打斗、动作、场景）。返回 matches 含时间线与 trim，可据此裁切',
+      parameters: {
+        type: 'object',
+        properties: {
+          block_id: { type: 'string', description: '目标片段；缺省用 AI 钉住或当前选中' },
+          search_criteria: {
+            type: 'string',
+            description: '检索条件，如「所有打斗场面」「富有哲学的话」「能引起共鸣的片段」',
+          },
+          max_results: { type: 'number', description: '最多返回 1–24 条，默认 12' },
+          frame_sample_count: {
+            type: 'number',
+            description: '画面检索抽帧数；缺省按时长自动',
+          },
+          include_visual: {
+            type: 'boolean',
+            description: '是否做画面抽帧检索，默认 true',
+          },
+          max_width: { type: 'number', description: '抽帧最大宽，默认 720' },
+        },
+        required: ['search_criteria'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'analyze_block_content',
       description:
         '只读：分析视频片段内容。均匀抽帧后每帧单独视觉分析（并发），音频分段单独节奏分析（并发），最后文本汇总；返回 summary、关键画面、剪辑建议。block_id 缺省用 focused_block_id 或 selected_block_id',
@@ -647,6 +676,7 @@ export const BATCH_AUTO_WRITE_TOOLS_FRONTEND = new Set([
 export const READ_ONLY_AGENT_TOOLS = new Set([
   'list_assets',
   'verify_subtitle_in_frame',
+  'find_block_moments',
   'analyze_block_content',
   'capture_preview_frame',
   'get_timeline_summary',
@@ -742,6 +772,8 @@ export function formatToolCallSummary(name: string, args: Record<string, unknown
       return `列出素材 (${String(args.category ?? 'all')})`
     case 'verify_subtitle_in_frame':
       return `验证字幕帧 ${args.overlay_id ?? '（自动）'}`
+    case 'find_block_moments':
+      return `检索片段「${String(args.search_criteria ?? '').slice(0, 40)}」 ${args.block_id ?? '（自动）'}`
     case 'analyze_block_content':
       return `分析片段内容 ${args.block_id ?? '（自动）'}`
     case 'capture_preview_frame':
