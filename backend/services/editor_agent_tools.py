@@ -527,8 +527,14 @@ def validate_tool_calls(raw_calls: List[Any]) -> List[AgentToolCallOut]:
             args = raw.get("arguments") or (raw.get("function") or {}).get("arguments") or {}
         else:
             continue
+        name = str(name).strip()
+        if name.startswith("functions."):
+            name = name.split(".", 1)[-1].strip()
         if name not in EDITOR_AGENT_TOOL_NAMES:
-            raise ValueError(f"工具不在白名单: {name}")
+            raise ValueError(
+                f"工具不在白名单: {name}（后端共 {len(EDITOR_AGENT_TOOL_NAMES)} 个工具；"
+                f"若刚更新代码请重启后端服务）"
+            )
         if isinstance(args, str):
             import json
 

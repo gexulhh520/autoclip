@@ -699,9 +699,13 @@ const PlanLine: React.FC<{ call: AgentToolCall }> = ({ call }) => (
 
 function extractErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'response' in err) {
-    return String(
+    const detail = String(
       (err as { response?: { data?: { detail?: string } } }).response?.data?.detail || fallback
     )
+    if (detail.includes('工具不在白名单')) {
+      return `${detail}。请重启后端（托盘图标 → 重启后端服务，或重新运行 python -m backend.desktop_main）。`
+    }
+    return detail
   }
   return err instanceof Error ? err.message : fallback
 }

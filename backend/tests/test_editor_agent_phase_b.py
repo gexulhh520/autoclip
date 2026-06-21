@@ -91,6 +91,26 @@ def test_validate_tool_calls_accepts_capture_preview_frame():
     assert calls[0].arguments["time_sec"] == 2.5
 
 
+def test_validate_tool_calls_accepts_add_captions_for_blocks():
+    calls = validate_tool_calls(
+        [
+            {
+                "name": "add_captions_for_blocks",
+                "arguments": {
+                    "block_ids": ["5639b30a-96e2-4934-ac7d-fbce1df76b08"],
+                    "block_captions": [
+                        {"block_id": "5639b30a-96e2-4934-ac7d-fbce1df76b08", "content": "春风"},
+                    ],
+                    "layout": "vertical",
+                    "in_type": "fade",
+                },
+            }
+        ]
+    )
+    assert calls[0].name == "add_captions_for_blocks"
+    assert calls[0].arguments["layout"] == "vertical"
+
+
 def test_validate_tool_calls_rejects_unknown_tool():
     with pytest.raises(ValueError, match="白名单"):
         validate_tool_calls([{"name": "delete_timeline", "arguments": {}}])
