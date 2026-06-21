@@ -440,7 +440,7 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
       </div>
 
       {mode === 'assistant' ? (
-        <>
+        <div className="editor-agent-panel__assistant">
           <p className="editor-agent-panel__hint">
             用自然语言描述需求：加字、改样式、移视频、裁片段等。改时间线前会展示操作清单。
           </p>
@@ -467,68 +467,70 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
             <div ref={chatEndRef} />
           </div>
 
-          {attachImage ? (
-            <div className="editor-agent-panel__attach-preview">
-              <img src={attachImage} alt="附件" />
-              <button type="button" onClick={() => setAttachImage('')}>
-                移除
-              </button>
-            </div>
-          ) : null}
+          <div className="editor-agent-panel__composer">
+            {attachImage ? (
+              <div className="editor-agent-panel__attach-preview">
+                <img src={attachImage} alt="附件" />
+                <button type="button" onClick={() => setAttachImage('')}>
+                  移除
+                </button>
+              </div>
+            ) : null}
 
-          <textarea
-            className="editor-agent-panel__textarea"
-            value={chatInput}
-            onChange={(event) => setChatInput(event.target.value)}
-            placeholder="描述你想对剪辑区做的操作…"
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-                event.preventDefault()
-                void handleSendChat()
-              }
-            }}
-          />
+            <textarea
+              className="editor-agent-panel__textarea"
+              value={chatInput}
+              onChange={(event) => setChatInput(event.target.value)}
+              placeholder="描述你想对剪辑区做的操作…"
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                  event.preventDefault()
+                  void handleSendChat()
+                }
+              }}
+            />
 
-          <div className="editor-agent-panel__actions">
-            <button
-              type="button"
-              className="editor-agent-panel__btn"
-              disabled={loading}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              附图
-            </button>
-            <button
-              type="button"
-              className="editor-agent-panel__btn editor-agent-panel__btn--primary"
-              disabled={loading || executing}
-              onClick={() => void handleSendChat()}
-            >
-              {loading ? '处理中…' : '发送'}
-            </button>
-          </div>
-          <p className="editor-agent-panel__hint editor-agent-panel__hint--sub">Ctrl+Enter 发送</p>
-
-          {agentDebugTrace ? (
-            <div className="editor-agent-panel__debug">
+            <div className="editor-agent-panel__actions">
               <button
                 type="button"
-                className="editor-agent-panel__debug-toggle"
-                onClick={() => setShowAgentDebug((open) => !open)}
+                className="editor-agent-panel__btn"
+                disabled={loading}
+                onClick={() => fileInputRef.current?.click()}
               >
-                {showAgentDebug ? '隐藏诊断' : '查看诊断'}
-                {agentDebugTrace.outcome === 'exhausted' ? ' · 轮次用尽' : ''}
+                附图
               </button>
-              {showAgentDebug ? (
-                <pre className="editor-agent-panel__debug-body">{formatAgentDebugDetail(agentDebugTrace)}</pre>
-              ) : (
-                <p className="editor-agent-panel__debug-summary">
-                  {formatAgentDebugSummary(agentDebugTrace)}
-                </p>
-              )}
+              <button
+                type="button"
+                className="editor-agent-panel__btn editor-agent-panel__btn--primary"
+                disabled={loading || executing}
+                onClick={() => void handleSendChat()}
+              >
+                {loading ? '处理中…' : '发送'}
+              </button>
             </div>
-          ) : null}
-        </>
+            <p className="editor-agent-panel__hint editor-agent-panel__hint--sub">Ctrl+Enter 发送</p>
+
+            {agentDebugTrace ? (
+              <div className="editor-agent-panel__debug">
+                <button
+                  type="button"
+                  className="editor-agent-panel__debug-toggle"
+                  onClick={() => setShowAgentDebug((open) => !open)}
+                >
+                  {showAgentDebug ? '隐藏诊断' : '查看诊断'}
+                  {agentDebugTrace.outcome === 'exhausted' ? ' · 轮次用尽' : ''}
+                </button>
+                {showAgentDebug ? (
+                  <pre className="editor-agent-panel__debug-body">{formatAgentDebugDetail(agentDebugTrace)}</pre>
+                ) : (
+                  <p className="editor-agent-panel__debug-summary">
+                    {formatAgentDebugSummary(agentDebugTrace)}
+                  </p>
+                )}
+              </div>
+            ) : null}
+          </div>
+        </div>
       ) : (
         <>
           <p className="editor-agent-panel__hint">

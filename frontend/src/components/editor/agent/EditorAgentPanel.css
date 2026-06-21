@@ -2,8 +2,9 @@
   position: fixed;
   right: 20px;
   bottom: 20px;
-  width: min(380px, calc(100vw - 40px));
-  max-height: min(520px, calc(100vh - 120px));
+  width: min(400px, calc(100vw - 40px));
+  height: min(680px, calc(100vh - 48px));
+  max-height: min(720px, calc(100vh - 48px));
   display: flex;
   flex-direction: column;
   background: var(--editor-panel-2);
@@ -68,9 +69,26 @@
 .editor-agent-panel__body {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
   gap: 12px;
   padding: 14px;
   overflow-y: auto;
+}
+
+.editor-agent-panel__assistant {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 10px;
+}
+
+.editor-agent-panel__composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .editor-agent-panel__hint {
@@ -194,6 +212,7 @@
 .editor-agent-panel__segmented {
   display: flex;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .editor-agent-panel__segmented button {
@@ -315,8 +334,9 @@
 .editor-agent-panel__chat {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 280px;
   gap: 8px;
-  max-height: 200px;
   overflow-y: auto;
   padding: 8px;
   border-radius: 8px;
