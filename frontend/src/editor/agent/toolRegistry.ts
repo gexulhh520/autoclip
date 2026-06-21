@@ -53,11 +53,15 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
     function: {
       name: 'add_captions_for_blocks',
       description:
-        '为每个主轨视频片段添加一条字幕（一次调用，勿循环 add_text_overlay）。start_sec 自动用 timeline_start_sec；layout=vertical 时加完后竖排拆字+动画。skip_existing 默认跳过已有同内容字幕。',
+        '为每个主轨视频片段添加一条字幕（一次调用，勿循环 add_text_overlay）。use_block_draft=true 时按片段 outline/content/title 取文案；layout=vertical 时竖排拆字+动画。skip_existing 默认跳过已有字幕。',
       parameters: {
         type: 'object',
         properties: {
-          content: { type: 'string' },
+          content: { type: 'string', description: '统一文案；use_block_draft 时可省略' },
+          use_block_draft: {
+            type: 'boolean',
+            description: '按各片段草稿文案生成字幕',
+          },
           block_ids: { type: 'array', items: { type: 'string' }, description: '缺省=全部主轨片段' },
           skip_existing: { type: 'boolean', description: '默认 true，避免重复加字幕' },
           layout: { type: 'string', enum: ['horizontal', 'vertical'] },
@@ -72,7 +76,7 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
           in_duration_sec: { type: 'number' },
           stagger_sec: { type: 'number' },
         },
-        required: ['content'],
+        required: [],
       },
     },
   },

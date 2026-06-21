@@ -25,7 +25,11 @@ const MAX_VERIFY_FIX_ROUNDS = 4
 
 export function shouldAutoVerifyAfterWrites(toolCalls: AgentToolCall[] | undefined): boolean {
   if (!toolCalls?.length) return false
-  return toolCalls.some((call) => LAYOUT_WRITE_TOOL_NAMES.has(call.name))
+  if (!toolCalls.some((call) => LAYOUT_WRITE_TOOL_NAMES.has(call.name))) return false
+  const session = useEditSessionStore.getState().session
+  const textCount = (session?.overlay_elements ?? []).filter((el) => el.type === 'text' && !el.hidden).length
+  // 过多单字层时跳过自动验证，避免截帧/API 异常
+  return textCount <= 36
 }
 
 function readVerdictFromToolContent(content: string): SubtitleFrameVerdict | null {

@@ -1,6 +1,7 @@
 import { buildEditorSnapshot } from './buildEditorSnapshot'
 import { mapFontFamily } from './fontMapping'
 import { mergeDefaultTextAnimation } from './defaultAnimation'
+import { pickBlockDraftCaption } from './pickBlockDraftCaption'
 import { resolveBatchSplitPlacement } from './staggeredCharText'
 import { resolveCanvasDimensions } from '../scene/canvas'
 import { readStringParam } from '../opencut-text/params'
@@ -12,7 +13,9 @@ import type { useEditSessionStore } from '../../stores/useEditSessionStore'
 type GetEditStore = () => ReturnType<typeof useEditSessionStore.getState>
 
 export interface AddCaptionsForBlocksArguments {
-  content: string
+  content?: string
+  /** 为 true 时按片段 outline/content/title 取文案，忽略统一 content */
+  use_block_draft?: boolean
   block_ids?: string[]
   skip_existing?: boolean
   layout?: 'horizontal' | 'vertical'
@@ -113,15 +116,17 @@ export function executeAddCaptionsForBlocks(
     }
   }
 
-  const content = str(args.content).trim()
-  if (!content) {
+  const useBlockDraft = args.use_block_draft === true
+  const uniformContent = str(args.content).trim()
+
+  if (!useBlockDraft && !uniformContent) {
     return {
       content: '',
       blocks_targeted: 0,
       overlays_added: 0,
       overlays_skipped: 0,
       split_char_layers: 0,
-      items: [{ block_id: '', timeline_start_sec: 0, error: 'content 不能为空' }],
+      items: [{ block_id: '', timeline_start_sec: 0, error: 'content 不能为空（或设 use_block_draft=true）' }],
     }
   }
 
@@ -148,7 +153,6 @@ export function executeAddCaptionsForBlocks(
 
   const skipExisting = args.skip_existing !== false
   const layout = args.layout === 'vertical' ? 'vertical' : 'horizontal'
-  const splitAfterAdd = layout === 'vertical' && content.replace(/\s+/g, '').length >= 2
   const items: AddCaptionsForBlocksItem[] = []
   let overlaysAdded = 0
   let overlaysSkipped = 0
@@ -161,7 +165,22 @@ export function executeAddCaptionsForBlocks(
   }
 
   for (const target of targets) {
-    if (skipExisting && blockAlreadyHasCaption(session, target.timeline_start_sec, content)) {
+    const blockContent = useBlockDraft
+      ? pickBlockDraftCaption(session, target.block_id)
+      : uniformContent
+    if (!blockContent.trim()) {
+      items.push({
+        block_id: target.block_id,
+        timeline_start_sec: target.timeline_start_sec,
+        error: '片段无可用草稿文案',
+      })
+      continue
+    }
+
+    const splitAfterAdd =
+      layout === 'vertical' && blockContent.replace(/\s+/g, '').length >= 2
+
+    if (skipExisting && blockAlreadyHasCaption(session, target.timeline_start_sec, blockContent)) {
       overlaysSkipped += 1
       items.push({
         block_id: target.block_id,
@@ -171,7 +190,7 @@ export function executeAddCaptionsForBlocks(
       continue
     }
 
-    const params = buildCaptionParams({ ...args, content })
+    const params = buildCaptionParams({ ...args, content: blockContent })
     store.addOverlayElement(
       {
         type: 'text',
@@ -229,7 +248,7 @@ export function executeAddCaptionsForBlocks(
   }
 
   return {
-    content,
+    content: useBlockDraft ? '(per-block draft)' : uniformContent,
     blocks_targeted: targets.length,
     overlays_added: overlaysAdded,
     overlays_skipped: overlaysSkipped,

@@ -46,7 +46,11 @@ export async function verifySubtitleInFrame(input: {
   })
 
   const dims = resolveCanvasDimensions(input.session.export_settings)
-  const overlayHints = resolveActiveOverlaysAtTime(input.session, timeSec)
+  const overlayHints = resolveActiveOverlaysAtTime(input.session, timeSec).slice(0, 16)
+
+  if (!frame.image_base64?.trim()) {
+    throw new Error('预览截帧为空，请确认预览区已加载后再验证字幕')
+  }
 
   const analysis = await editorAgentApi.analyzeSubtitleFrame(input.projectId, input.sessionId, {
     image_base64: frame.image_base64,

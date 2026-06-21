@@ -38,6 +38,19 @@ def test_validate_tool_calls_accepts_add_captions_for_blocks():
     assert calls[0].name == "add_captions_for_blocks"
     assert calls[0].arguments["layout"] == "vertical"
 
+    calls = validate_tool_calls(
+        [
+            {
+                "name": "add_captions_for_blocks",
+                "arguments": {
+                    "use_block_draft": True,
+                    "layout": "vertical",
+                },
+            }
+        ]
+    )
+    assert calls[0].arguments.get("use_block_draft") is True
+
 
 def test_validate_tool_calls_accepts_split_text_overlays_by_char():
     calls = validate_tool_calls(

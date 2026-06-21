@@ -11,6 +11,7 @@ import {
   summarizeExecutedWrites,
   taskExpectsTimelineWrites,
 } from './taskExecutionGuard'
+import { tryExecuteTaskFastPath } from './taskFastPath'
 import {
   confirmExecutePlan,
   MAX_TASK_EXEC_ROUNDS,
@@ -99,13 +100,14 @@ async function runSingleTaskLoop(
       layoutReference: input.layoutReference,
     },
     baseMessages,
-    {
-      maxRounds: MAX_TASK_EXEC_ROUNDS,
-      initialOutcome: 'reply',
-      exhaustedMessage: `任务「${current.title}」步骤过多，请手动说明还需调整什么。`,
-      autoExecuteWrites: true,
-      taskContext,
-    }
+      {
+        maxRounds: MAX_TASK_EXEC_ROUNDS,
+        initialOutcome: 'reply',
+        exhaustedMessage: `任务「${current.title}」步骤过多，请手动说明还需调整什么。`,
+        autoExecuteWrites: true,
+        taskContext,
+        maxTotalAutoWriteCalls: 10,
+      }
   )
 
   const expectsWrites = taskExpectsTimelineWrites(current)
@@ -129,7 +131,7 @@ async function runSingleTaskLoop(
         {
           role: 'user',
           content:
-            '上一轮未改动时间线。你必须在本轮输出写 tool_calls（如 add_text_overlay / split_text_overlays_by_char / set_text_animation）完成「' +
+            '上一轮未改动时间线。你必须在本轮输出写 tool_calls（如 add_captions_for_blocks / split_text_overlays_by_char）完成「' +
             current.title +
             '」，不要只说已完成。',
         },
@@ -140,6 +142,7 @@ async function runSingleTaskLoop(
         exhaustedMessage: `任务「${current.title}」重试后仍未完成写操作。`,
         autoExecuteWrites: true,
         taskContext,
+        maxTotalAutoWriteCalls: 10,
       }
     )
   }
@@ -211,13 +214,32 @@ export async function executeAgentTaskPlan(
       known_blocks: knownBlocks,
     }
 
-    const taskResult = await runSingleTaskLoop(
-      input,
-      current,
+    const fastPath = await tryExecuteTaskFastPath({
+      projectId: input.projectId,
+      userGoal: input.userGoal,
+      task: current,
       completedSummaries,
-      pendingTasks,
-      taskContext
-    )
+      getStore: () => useEditSessionStore.getState(),
+      layoutReference: input.layoutReference,
+    })
+
+    let taskResult: RunAgentChatResult
+    if (fastPath) {
+      taskResult = {
+        assistant_message: fastPath.summary,
+        history: [],
+        plan: null,
+        executed_writes: fastPath.executed_writes,
+      }
+    } else {
+      taskResult = await runSingleTaskLoop(
+        input,
+        current,
+        completedSummaries,
+        pendingTasks,
+        taskContext
+      )
+    }
 
     if (taskResult.debug_trace) {
       debugTraces.push(taskResult.debug_trace)
@@ -247,9 +269,9 @@ export async function executeAgentTaskPlan(
       }
     }
 
-    const expectsWrites = taskExpectsTimelineWrites(current)
+    const expectsWrites = taskExpectsTimelineWrites(current, completedSummaries)
     const hasWrites = (taskResult.executed_writes?.length ?? 0) > 0
-    if (expectsWrites && !hasWrites) {
+    if (expectsWrites && !hasWrites && !fastPath) {
       current.status = 'failed'
       const failureSummary = buildTaskFailureSummary(current, taskResult)
       current.summary = failureSummary

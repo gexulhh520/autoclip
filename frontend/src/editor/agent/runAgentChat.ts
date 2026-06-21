@@ -80,6 +80,8 @@ interface AgentLoopOptions {
   allowTaskPlan?: boolean
   autoExecuteWrites?: boolean
   taskContext?: AgentTaskContext
+  /** 任务内累计非批量写工具上限（含多轮） */
+  maxTotalAutoWriteCalls?: number
 }
 
 function recordRound(
@@ -196,15 +198,22 @@ export async function runAgentChatLoop(
     if (writeCalls.length > 0) {
       const hasDangerous = writeCalls.some((call) => isDangerousAgentTool(call.name))
       const nonBatchWriteCount = writeCalls.filter((call) => !BATCH_AUTO_WRITE_TOOLS.has(call.name)).length
+      const totalNonBatchWrites =
+        executedWrites.filter((call) => !BATCH_AUTO_WRITE_TOOLS.has(call.name)).length +
+        nonBatchWriteCount
+      const perRoundExceeded = nonBatchWriteCount > MAX_AUTO_EXECUTE_WRITE_CALLS
+      const totalExceeded =
+        options.maxTotalAutoWriteCalls != null &&
+        totalNonBatchWrites > options.maxTotalAutoWriteCalls
       if (
         options.autoExecuteWrites &&
         !hasDangerous &&
-        nonBatchWriteCount > MAX_AUTO_EXECUTE_WRITE_CALLS
+        (perRoundExceeded || totalExceeded)
       ) {
         debugTrace.outcome = 'plan'
         const assistantMessage =
           response.assistant_message ||
-          `写操作过多（${nonBatchWriteCount} 步），请确认后执行；每段加字幕请改用 add_captions_for_blocks。`
+          `写操作过多（本轮 ${nonBatchWriteCount}，累计 ${totalNonBatchWrites}），请确认后执行；每段加字幕请改用 add_captions_for_blocks。`
         return finishResult(
           debugTrace,
           {
