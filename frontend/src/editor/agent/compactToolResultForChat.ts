@@ -35,6 +35,8 @@ function compactTimelineSummary(data: EditorSnapshot) {
     playhead_sec: data.playhead_sec,
     total_duration_sec: data.total_duration_sec,
     aspect: data.aspect,
+    visual_filter: data.visual_filter,
+    visual_filter_options: data.visual_filter_options,
     selected_block_id: data.selected_block_id,
     selected_overlay_id: data.selected_overlay_id,
     draft_texts: data.draft_texts,

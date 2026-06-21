@@ -1,4 +1,10 @@
 import { buildEditorSnapshotFromStore } from './snapshotFromStore'
+import {
+  buildExecutionRecords,
+  buildInitialAgentMessages,
+  mergeExecutionLedger,
+  pruneEphemeralToolContext,
+} from './agentExecutionLedger'
 import { formatAgentDebugSummary } from './formatAgentDebug'
 import { maskStaleToolObservations } from './maskAgentToolMessages'
 import { parseSubmitTaskPlan } from './parseTaskPlan'
@@ -46,7 +52,10 @@ export interface RunAgentChatInput {
   projectId: string
   sessionId: string
   userMessage: string
+  /** @deprecated 不再注入多轮对话；用 executionLedger */
   history?: AgentChatMessage[]
+  /** 跨轮次写操作成败摘要（不含读工具明细） */
+  executionLedger?: string[]
   imageDataUrl?: string | null
   layoutReference?: LayoutAnalysis | null
 }
@@ -54,7 +63,7 @@ export interface RunAgentChatInput {
 export interface ContinueAgentChatAfterApplyInput {
   projectId: string
   sessionId: string
-  history: AgentChatMessage[]
+  executionLedger?: string[]
   toolCalls: AgentToolCall[]
   toolResults: AgentToolResult[]
   layoutReference?: LayoutAnalysis | null
@@ -63,6 +72,8 @@ export interface ContinueAgentChatAfterApplyInput {
 export interface RunAgentChatResult {
   assistant_message: string
   history: AgentChatMessage[]
+  /** 本轮结束后应合并进面板的写操作摘要 */
+  execution_ledger?: string[]
   plan: PendingAgentPlan | null
   task_plan?: AgentTaskPlan | null
   executed_writes?: AgentToolCall[]
@@ -85,6 +96,8 @@ interface AgentLoopOptions {
   taskContext?: AgentTaskContext
   /** 任务内累计非批量写工具上限（含多轮） */
   maxTotalAutoWriteCalls?: number
+  /** 跨轮次带入的写操作摘要 */
+  executionLedger?: string[]
 }
 
 function recordRound(
@@ -110,11 +123,18 @@ function recordRound(
 
 function finishResult(
   debugTrace: AgentDebugTrace,
-  result: Omit<RunAgentChatResult, 'debug_trace' | 'debug_summary'>,
-  executedWrites?: AgentToolCall[]
+  result: Omit<RunAgentChatResult, 'debug_trace' | 'debug_summary' | 'execution_ledger'>,
+  executedWrites?: AgentToolCall[],
+  executedWriteResults?: AgentToolResult[],
+  ledgerBase: string[] = []
 ): RunAgentChatResult {
+  const newRecords =
+    executedWrites && executedWriteResults
+      ? buildExecutionRecords(executedWrites, executedWriteResults)
+      : []
   return {
     ...result,
+    execution_ledger: mergeExecutionLedger(ledgerBase, newRecords),
     executed_writes: executedWrites,
     debug_trace: debugTrace,
     debug_summary: formatAgentDebugSummary(debugTrace),
@@ -143,6 +163,8 @@ export async function runAgentChatLoop(
   const getStore = () => useEditSessionStore.getState()
   let messages = initialMessages
   let executedWrites: AgentToolCall[] = []
+  let executedWriteResults: AgentToolResult[] = []
+  const ledgerBase = options.executionLedger ?? []
   const debugTrace: AgentDebugTrace = {
     rounds: [],
     total_rounds: 0,
@@ -152,7 +174,8 @@ export async function runAgentChatLoop(
 
   for (let round = 0; round < options.maxRounds; round += 1) {
     const snapshot = buildEditorSnapshotFromStore(getStore, input.layoutReference)
-    const { messages: maskedMessages, stats: maskStats } = maskStaleToolObservations(messages)
+    const prunedMessages = pruneEphemeralToolContext(messages)
+    const { messages: maskedMessages, stats: maskStats } = maskStaleToolObservations(prunedMessages)
 
     const response = await editorAgentApi.chat(input.projectId, input.sessionId, {
       messages: maskedMessages,
@@ -193,7 +216,9 @@ export async function runAgentChatLoop(
             plan: null,
             task_plan: parsed,
           },
-          executedWrites
+          executedWrites,
+          executedWriteResults,
+          ledgerBase
         )
       }
     }
@@ -228,7 +253,9 @@ export async function runAgentChatLoop(
               source: 'llm',
             },
           },
-          executedWrites
+          executedWrites,
+          executedWriteResults,
+          ledgerBase
         )
       }
       if (options.autoExecuteWrites && !hasDangerous) {
@@ -247,10 +274,13 @@ export async function runAgentChatLoop(
                 source: 'llm',
               },
             },
-            executedWrites
+            executedWrites,
+            [...executedWriteResults, ...results],
+            ledgerBase
           )
         }
         executedWrites = [...executedWrites, ...writeCalls]
+        executedWriteResults = [...executedWriteResults, ...results]
         messages = [
           ...messages,
           { role: 'assistant', content: response.assistant_message || '' },
@@ -272,7 +302,9 @@ export async function runAgentChatLoop(
             source: 'llm',
           },
         },
-        executedWrites
+        executedWrites,
+        executedWriteResults,
+        ledgerBase
       )
     }
 
@@ -302,7 +334,9 @@ export async function runAgentChatLoop(
         history: [...messages, { role: 'assistant', content: reply }],
         plan: null,
       },
-      executedWrites
+      executedWrites,
+      executedWriteResults,
+      ledgerBase
     )
   }
 
@@ -315,7 +349,9 @@ export async function runAgentChatLoop(
       history: messages,
       plan: null,
     },
-    executedWrites
+    executedWrites,
+    executedWriteResults,
+    ledgerBase
   )
 }
 
@@ -333,12 +369,13 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
 
   return runAgentChatLoop(
     input,
-    [...(input.history ?? []), userMsg],
+    buildInitialAgentMessages(userMsg, input.executionLedger),
     {
       maxRounds: MAX_AGENT_ROUNDS,
       initialOutcome: 'reply',
       exhaustedMessage: '操作步骤较多（读工具轮次已用尽），请简化描述或拆分后重试。',
       allowTaskPlan: true,
+      executionLedger: input.executionLedger,
     }
   )
 }
@@ -351,19 +388,24 @@ export async function continueAgentChatAfterApply(
     throw new Error('无写工具执行结果可继续')
   }
 
-  const messages: AgentChatMessage[] = [
-    ...input.history,
-    ...buildToolMessages(input.toolCalls, input.toolResults),
+  const ledger = mergeExecutionLedger(
+    input.executionLedger ?? [],
+    buildExecutionRecords(input.toolCalls, input.toolResults)
+  )
+
+  const messages = buildInitialAgentMessages(
     {
       role: 'user',
       content: '（已执行）请验证字幕/排版效果，必要时修正。',
     },
-  ]
+    ledger
+  )
 
   return runAgentChatLoop(input, messages, {
     maxRounds: MAX_POST_APPLY_ROUNDS,
     initialOutcome: 'reply',
     exhaustedMessage: '验证/修正步骤较多，请预览时间线后手动说明还需调整什么。',
+    executionLedger: ledger,
   })
 }
 

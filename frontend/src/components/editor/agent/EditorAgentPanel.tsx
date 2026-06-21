@@ -3,6 +3,7 @@ import { nanoid } from 'nanoid'
 import { formatAgentDebugDetail, formatAgentDebugSummary } from '../../../editor/agent/formatAgentDebug'
 import { confirmExecutePlan, continueAgentChatAfterApply, executeAgentTaskPlan, planApplyLayout } from '../../../editor/agent/planApplyLayout'
 import { runAgentChat } from '../../../editor/agent/runAgentChat'
+import { mergeExecutionLedger, buildExecutionRecords } from '../../../editor/agent/agentExecutionLedger'
 import { formatToolCallSummary, isDangerousAgentTool } from '../../../editor/agent/toolRegistry'
 import { editorAgentApi } from '../../../services/editorAgentApi'
 import type {
@@ -15,7 +16,7 @@ import type {
   AgentTaskPlan,
   PendingAgentPlan,
 } from '../../../types/editorAgent'
-import { agentChatStorageKey, layoutReferenceStorageKey } from '../../../types/editorAgent'
+import { agentChatStorageKey, agentExecutionLedgerStorageKey, layoutReferenceStorageKey } from '../../../types/editorAgent'
 import './EditorAgentPanel.css'
 import { useFloatingPanelDrag } from './useFloatingPanelDrag'
 
@@ -58,11 +59,17 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
   const [executing, setExecuting] = useState(false)
   const [agentDebugTrace, setAgentDebugTrace] = useState<AgentDebugTrace | null>(null)
   const [showAgentDebug, setShowAgentDebug] = useState(false)
+  const [executionLedger, setExecutionLedger] = useState<string[]>([])
+  const executionLedgerRef = useRef<string[]>([])
+  useEffect(() => {
+    executionLedgerRef.current = executionLedger
+  }, [executionLedger])
 
   const { panelRef, panelStyle, dragging, onHeaderPointerDown } = useFloatingPanelDrag(AGENT_PANEL_POS_KEY)
 
   const layoutStorageKey = layoutReferenceStorageKey(sessionId)
   const chatStorageKey = agentChatStorageKey(sessionId)
+  const ledgerStorageKey = agentExecutionLedgerStorageKey(sessionId)
 
   const persistReference = useCallback(
     (analysis: LayoutAnalysis, analysisSummary: string, image: string, userPrompt: string) => {
@@ -116,6 +123,25 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
   }, [chatTurns, chatStorageKey])
 
   useEffect(() => {
+    try {
+      const raw = localStorage.getItem(ledgerStorageKey)
+      if (!raw) return
+      const saved = JSON.parse(raw) as string[]
+      if (Array.isArray(saved)) setExecutionLedger(saved)
+    } catch {
+      localStorage.removeItem(ledgerStorageKey)
+    }
+  }, [ledgerStorageKey])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ledgerStorageKey, JSON.stringify(executionLedger.slice(-24)))
+    } catch {
+      // ignore
+    }
+  }, [executionLedger, ledgerStorageKey])
+
+  useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatTurns, pendingPlan, agentTaskPlan, loading, taskExecuting])
 
@@ -163,10 +189,14 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
         projectId,
         sessionId,
         userMessage: text,
-        history: chatTurnsRef.current.map(({ role, content }) => ({ role, content })),
+        executionLedger: executionLedgerRef.current,
         imageDataUrl: sentImage || null,
         layoutReference: layout,
       })
+
+      if (result.execution_ledger) {
+        setExecutionLedger(result.execution_ledger)
+      }
 
       if (result.debug_trace) {
         setAgentDebugTrace(result.debug_trace)
@@ -301,6 +331,12 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
       if (allDone) {
         setAgentTaskPlan(null)
       }
+      const taskRecords = result.taskPlan.tasks
+        .filter((task) => task.summary?.trim())
+        .map((task) => `[${task.id}] ${task.title}: ${task.summary!.trim()}`)
+      if (taskRecords.length > 0) {
+        setExecutionLedger((prev) => mergeExecutionLedger(prev, taskRecords))
+      }
       setChatTurns((prev) => [
         ...prev,
         { id: nanoid(), role: 'assistant', content: result.assistant_message },
@@ -321,6 +357,11 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
     try {
       const results = await confirmExecutePlan(appliedPlan.tool_calls, projectId)
       const failed = results.find((item) => !item.ok)
+      const nextLedger = mergeExecutionLedger(
+        executionLedgerRef.current,
+        buildExecutionRecords(appliedPlan.tool_calls, results)
+      )
+      setExecutionLedger(nextLedger)
       if (failed) {
         setError(failed.error ?? '部分操作失败')
         return
@@ -337,14 +378,15 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
         const verifyResult = await continueAgentChatAfterApply({
           projectId,
           sessionId,
-          history: [
-            ...chatTurnsRef.current.map(({ role, content }) => ({ role, content })),
-            { role: 'assistant', content: appliedMsg },
-          ],
+          executionLedger: nextLedger,
           toolCalls: appliedPlan.tool_calls,
           toolResults: results,
           layoutReference: layout,
         })
+
+        if (verifyResult.execution_ledger) {
+          setExecutionLedger(verifyResult.execution_ledger)
+        }
 
         if (verifyResult.debug_trace) {
           setAgentDebugTrace(verifyResult.debug_trace)

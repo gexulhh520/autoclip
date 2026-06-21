@@ -5,6 +5,7 @@ import { blockTimelineVisualEndSec, blockTimelineVisualStartSec } from '../../ut
 import { readStringParam } from '../opencut-text/params'
 import type { EditSession } from '../../types/editSession'
 import type { LayoutAnalysis } from '../../types/editorAgent'
+import { VISUAL_FILTER_IDS, visualFilterLabel } from './setVisualFilter'
 import { collectDraftTexts } from './collectDraftTexts'
 
 export interface EditorSnapshotBlockSummary {
@@ -39,6 +40,7 @@ export interface EditorSnapshot {
   canvas_height: number
   fps: number
   visual_filter: string
+  visual_filter_options: Array<{ id: string; label: string }>
   draft_texts: string[]
   blocks: EditorSnapshotBlockSummary[]
   overlays: EditorSnapshotOverlaySummary[]
@@ -102,6 +104,10 @@ export function buildEditorSnapshot(input: {
     canvas_height: dims.height,
     fps: session.export_settings.fps,
     visual_filter: session.export_settings.visual_filter ?? 'none',
+    visual_filter_options: VISUAL_FILTER_IDS.map((id) => ({
+      id,
+      label: visualFilterLabel(id),
+    })),
     draft_texts: collectDraftTexts(session),
     blocks: (session.sequence ?? []).map((block) => {
       const content = (block.overlay?.content ?? []).join(' ').trim()

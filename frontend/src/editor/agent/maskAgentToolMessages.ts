@@ -1,7 +1,7 @@
 import type { AgentChatMessage } from '../../types/editorAgent'
 
-/** 保留最近几轮 tool 回传的完整内容，更早的做 observation masking */
-export const KEEP_FULL_TOOL_ROUNDS = 1
+/** 保留最近几轮 tool 回传的完整内容；0 = 全部压成摘要（读工具同轮后也会丢弃） */
+export const KEEP_FULL_TOOL_ROUNDS = 0
 
 export interface ToolObservationMaskStats {
   tool_messages_chars: number
@@ -69,7 +69,7 @@ export function buildMaskedToolObservation(toolName: string, content: string): s
     tool_name: toolName,
     masked: true,
     summary: summarizeMaskedTool(toolName, content),
-    note: '较早的 tool 结果已遮蔽；请以 EditorSnapshot 与最近一轮 tool 回传为准',
+    note: '读/写 tool 明细已丢弃；请以 EditorSnapshot 与写操作摘要为准',
   })
 }
 

@@ -123,6 +123,9 @@ export interface AgentChatTurn {
 
 export const agentChatStorageKey = (sessionId: string) => `autoclip:agent-chat:${sessionId}`
 
+export const agentExecutionLedgerStorageKey = (sessionId: string) =>
+  `autoclip:agent-execution-ledger:${sessionId}`
+
 export interface AgentToolCall {
   name: string
   arguments: Record<string, unknown>
