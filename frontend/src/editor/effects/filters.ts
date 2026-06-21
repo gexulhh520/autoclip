@@ -19,27 +19,25 @@ export function resolveVisualFilterCss(
   return VISUAL_FILTER_CSS[filter ?? 'none']
 }
 
-const applyCanvasFilterEffect = (
+export const applyCanvasFilterEffect = (
   ctx: CanvasRenderingContext2D,
   width: number,
   height: number,
   cssFilter: string
 ): void => {
   const imageData = ctx.getImageData(0, 0, width, height)
+  const scratch = document.createElement('canvas')
+  scratch.width = width
+  scratch.height = height
+  const off = scratch.getContext('2d')
+  if (!off) return
+  off.putImageData(imageData, 0, 0)
+
   ctx.save()
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
   ctx.filter = cssFilter
-  ctx.drawImage(
-    (() => {
-      const canvas = document.createElement('canvas')
-      canvas.width = width
-      canvas.height = height
-      const off = canvas.getContext('2d')
-      off?.putImageData(imageData, 0, 0)
-      return canvas
-    })(),
-    0,
-    0
-  )
+  ctx.clearRect(0, 0, width, height)
+  ctx.drawImage(scratch, 0, 0, width, height)
   ctx.restore()
 }
 

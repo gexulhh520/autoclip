@@ -193,6 +193,7 @@ export function applyGpuEffectPass(
 
   gl.activeTexture(gl.TEXTURE0)
   gl.bindTexture(gl.TEXTURE_2D, texture)
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true)
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
@@ -207,8 +208,9 @@ export function applyGpuEffectPass(
 
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
 
+  targetCtx.setTransform(1, 0, 0, 1, 0, 0)
   targetCtx.clearRect(0, 0, width, height)
-  targetCtx.drawImage(canvas, 0, 0)
+  targetCtx.drawImage(canvas, 0, 0, width, height)
 
   gl.deleteTexture(texture)
   return true

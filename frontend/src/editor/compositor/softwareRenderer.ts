@@ -1,4 +1,5 @@
 import { applyRegisteredSceneEffect, resolveVisualFilterCss } from '../effects'
+import { applyCanvasFilterEffect } from '../effects/filters'
 import { renderTextOverlayToContext } from '../opencut-text/render'
 import { readNumberParam } from '../opencut-text/params'
 import type { OpenCutTextOverlay } from '../opencut-text/params'
@@ -245,22 +246,7 @@ const applySceneEffectToContext = (
   const filterId = effectId.replace('visual_filter.', '')
   const css = resolveVisualFilterCss(filterId as never)
   if (!css) return
-  const imageData = ctx.getImageData(0, 0, width, height)
-  ctx.save()
-  ctx.filter = css
-  ctx.drawImage(
-    (() => {
-      const canvas = document.createElement('canvas')
-      canvas.width = width
-      canvas.height = height
-      const off = canvas.getContext('2d')
-      off?.putImageData(imageData, 0, 0)
-      return canvas
-    })(),
-    0,
-    0
-  )
-  ctx.restore()
+  applyCanvasFilterEffect(ctx, width, height, css)
 }
 
 /** Canvas2D 软件合成 — 预览与 Golden 测试共用（同步） */
