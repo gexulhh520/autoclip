@@ -86,5 +86,5 @@ export async function applyMomentExtractToPool(
 
 export function formatMomentExportChoiceHint(matchCount: number): string {
   if (matchCount <= 0) return ''
-  return `找到 ${matchCount} 处匹配。请选择导出方式：`
+  return `找到 ${matchCount} 处匹配。默认写入本草稿 AI 素材；也可裁到时间线。`
 }

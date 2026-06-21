@@ -18,6 +18,8 @@ describe('momentSearchFastPath', () => {
     expect(isMomentSearchRequest('写入素材池')).toBe(false)
     expect(resolveMomentExportTarget('写入素材池')).toBe('pool')
     expect(resolveMomentExportTarget('按检索结果裁剪到时间线')).toBe('timeline')
+    expect(resolveMomentExportTarget('按检索结果裁切')).toBe('pool')
+    expect(resolveMomentExportTarget('帮我把这些裁出来')).toBe('pool')
   })
 
   it('detects combined search and export in one message', () => {

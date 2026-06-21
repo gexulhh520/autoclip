@@ -370,7 +370,7 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
     function: {
       name: 'extract_moment_clips',
       description:
-        '将 find_block_moments 返回的 matches 批量裁成独立时间线片段（插入源片段之后）。',
+        '将 find_block_moments 返回的 matches 批量裁成独立时间线片段（仅当用户明确要求加入时间线时使用）。',
       parameters: {
         type: 'object',
         properties: {

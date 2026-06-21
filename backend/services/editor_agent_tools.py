@@ -366,7 +366,7 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "export_moment_clips_to_pool",
-            "description": "将 find_block_moments 的 matches 切出并写入项目素材池",
+            "description": "将 find_block_moments 的 matches 切出并写入本草稿 AI 素材池（不入项目切片库）",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -383,7 +383,7 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "extract_moment_clips",
-            "description": "将 find_block_moments 的 matches 批量裁成独立时间线片段",
+            "description": "将 find_block_moments 的 matches 批量裁成独立时间线片段（仅当用户明确要求加入时间线时使用）",
             "parameters": {
                 "type": "object",
                 "properties": {

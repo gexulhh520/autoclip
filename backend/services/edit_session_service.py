@@ -144,6 +144,11 @@ def _build_block_from_metadata(
                 video_path = matches[0]
 
     source_video = _find_source_video(project_dir)
+    is_session_pool = (
+        clip_row.get("scope") == POOL_SCOPE
+        or clip_row.get("source") == POOL_SOURCE
+        or ("/pool/" in rel_video.replace("\\", "/") and "edit_sessions/" in rel_video)
+    )
     source_start_sec = _srt_timestamp_to_seconds(clip_row.get("start_time"))
     source_end_sec = _srt_timestamp_to_seconds(clip_row.get("end_time"))
     duration_sec = 0.0
@@ -155,12 +160,17 @@ def _build_block_from_metadata(
         info = VideoProcessor.get_video_info(video_path)
         duration_sec = float(info.get("duration") or 0.0)
         trim = EditBlockTrim(in_sec=0.0, out_sec=duration_sec or 0.0)
+        if is_session_pool:
+            source_start_sec = 0.0
+            source_end_sec = duration_sec
         media = EditBlockMedia(
             type="step6_clip",
             path=_relative_project_path(project_dir, video_path),
-            source_video_path=_relative_project_path(project_dir, source_video)
-            if source_video
-            else None,
+            source_video_path=None
+            if is_session_pool
+            else (
+                _relative_project_path(project_dir, source_video) if source_video else None
+            ),
             source_start_sec=source_start_sec,
             source_end_sec=source_end_sec,
         )
@@ -492,14 +502,22 @@ class EditSessionService:
             clip_by_id = {str(clip.id): clip for clip in clips}
             for clip_id in pending_ids:
                 clip = clip_by_id.get(str(clip_id))
-                if clip is None:
-                    raise ValueError(f"切片不存在: {clip_id}")
-                clip_row = _resolve_clip_metadata(clip, metadata_map, metadata_rows)
-                block = _build_block_from_metadata(project_dir, clip_row, db_clip_id=str(clip.id))
-                video_file = resolve_clip_video_path(project_id, clip, project_dir)
-                if video_file and video_file.exists():
-                    block.media.path = _relative_project_path(project_dir, video_file)
-                    block.media.type = "step6_clip"
+                if clip is not None:
+                    clip_row = _resolve_clip_metadata(clip, metadata_map, metadata_rows)
+                    block = _build_block_from_metadata(
+                        project_dir, clip_row, db_clip_id=str(clip.id)
+                    )
+                    video_file = resolve_clip_video_path(project_id, clip, project_dir)
+                    if video_file and video_file.exists():
+                        block.media.path = _relative_project_path(project_dir, video_file)
+                        block.media.type = "step6_clip"
+                else:
+                    clip_row = metadata_map.get(str(clip_id))
+                    if clip_row is None:
+                        raise ValueError(f"切片不存在: {clip_id}")
+                    block = _build_block_from_metadata(
+                        project_dir, clip_row, db_clip_id=str(clip_id)
+                    )
                 new_blocks.append(block)
         else:
             for clip_id in pending_ids:
@@ -1137,7 +1155,7 @@ class EditSessionService:
         block_id: str,
         matches: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        """将检索匹配时间段 ffmpeg 切出并写入项目素材池（clips + metadata + DB）。"""
+        """将检索匹配时间段 ffmpeg 切出并写入本草稿素材池（仅 clips.json + pool 目录，不入项目切片库）。"""
         if not matches:
             return {"block_id": block_id, "created_count": 0, "clip_ids": [], "note": "无匹配片段"}
 
@@ -1187,10 +1205,13 @@ class EditSessionService:
             clip_id = f"moment-{uuid.uuid4().hex[:12]}"
             filename = f"{clip_id}_{safe_title}.mp4"
             dest = clips_dir / filename
-            start_srt = _seconds_to_srt_timestamp(trim_in)
-            end_srt = _seconds_to_srt_timestamp(trim_out)
+            segment_duration = trim_out - trim_in
+            start_srt = _seconds_to_srt_timestamp(0)
+            end_srt = _seconds_to_srt_timestamp(segment_duration)
+            extract_in = _seconds_to_srt_timestamp(trim_in)
+            extract_out = _seconds_to_srt_timestamp(trim_out)
 
-            if not VideoProcessor.extract_clip(source_video, dest, start_srt, end_srt):
+            if not VideoProcessor.extract_clip(source_video, dest, extract_in, extract_out):
                 logger.warning("moment 导出切片失败: %s", dest)
                 continue
 
@@ -1213,33 +1234,7 @@ class EditSessionService:
                 "library_asset_id": None,
             }
             entries.append(metadata_entry)
-
-            if self.db is not None:
-                from backend.models.clip import Clip, ClipStatus
-
-                duration_sec = max(1, int(round(trim_out - trim_in)))
-                self.db.add(
-                    Clip(
-                        id=clip_id,
-                        project_id=project_id,
-                        title=title,
-                        description=preview[:500] if preview else title,
-                        start_time=int(trim_in),
-                        end_time=int(trim_out),
-                        duration=duration_sec,
-                        score=float(match.get("match_score") or 0) * 10
-                        if match.get("match_score") is not None
-                        else None,
-                        status=ClipStatus.COMPLETED,
-                        video_path=str(dest),
-                        recommendation_reason=str(match.get("match_reason") or ""),
-                        clip_metadata=metadata_entry,
-                    )
-                )
             created_ids.append(clip_id)
-
-        if self.db is not None and created_ids:
-            self.db.commit()
 
         metadata_path.parent.mkdir(parents=True, exist_ok=True)
         metadata_path.write_text(

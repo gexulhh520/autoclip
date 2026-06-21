@@ -599,17 +599,17 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
                   type="button"
                   className="editor-agent-panel__btn editor-agent-panel__btn--primary"
                   disabled={exportingMoments || loading}
-                  onClick={() => void handleExportMomentsToTimeline()}
+                  onClick={() => void handleExportMomentsToPool()}
                 >
-                  {exportingMoments ? '导出中…' : `裁到时间线（${lastMomentSearch.matches.length}）`}
+                  {exportingMoments ? '导出中…' : `写入本草稿 AI 素材（${lastMomentSearch.matches.length}）`}
                 </button>
                 <button
                   type="button"
                   className="editor-agent-panel__btn"
                   disabled={exportingMoments || loading}
-                  onClick={() => void handleExportMomentsToPool()}
+                  onClick={() => void handleExportMomentsToTimeline()}
                 >
-                  写入素材池
+                  裁到时间线
                 </button>
                 <button
                   type="button"

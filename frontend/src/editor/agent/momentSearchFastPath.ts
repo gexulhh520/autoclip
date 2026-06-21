@@ -48,9 +48,10 @@ export function hasMomentSearchAndExportIntent(message: string): boolean {
 export function resolveMomentExportTarget(message: string): 'timeline' | 'pool' | null {
   const text = message.trim()
   if (!text) return null
-  if (/素材池|进素材池|写入素材池|放入素材池/.test(text)) return 'pool'
-  if (/时间线|裁到时间线|进时间线|裁切|裁剪|裁出来|切出来|切割/.test(text)) return 'timeline'
-  if (EXTRACT_CACHED_PATTERN.test(text)) return 'timeline'
+  if (/素材池|本草稿|进素材池|写入素材池|放入素材池/.test(text)) return 'pool'
+  if (/时间线|裁到时间线|进时间线|加到时间线|插入时间线/.test(text)) return 'timeline'
+  if (/裁切|裁剪|裁出来|切出来|切割|提取|导出/.test(text)) return 'pool'
+  if (EXTRACT_CACHED_PATTERN.test(text)) return 'pool'
   return null
 }
 
