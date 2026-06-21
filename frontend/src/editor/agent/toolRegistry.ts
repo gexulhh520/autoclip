@@ -24,7 +24,7 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
     function: {
       name: 'apply_caption_template',
       description:
-        '批量添加字幕（推荐）。LLM 传 entries[{block_id,text}] + layout(horizontal|vertical) + position(九宫格锚点) + style/animation；禁止 positionX/Y/fontSize/start_sec。引擎负责安全区坐标与竖排拆字。',
+        '批量添加/替换字幕（推荐）。加字幕用 entries+layout+position；改横竖排时 replace_existing=true（引擎先删旧字幕再重建，text 可省略）。禁止 positionX/Y/fontSize/start_sec。',
       parameters: {
         type: 'object',
         properties: {
@@ -61,9 +61,12 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
               type: 'object',
               properties: {
                 block_id: { type: 'string' },
-                text: { type: 'string', description: '字幕正文，建议 2–12 字' },
+                text: {
+                  type: 'string',
+                  description: '字幕正文；replace_existing=true 时可省略，引擎从旧字幕合并',
+                },
               },
-              required: ['block_id', 'text'],
+              required: ['block_id'],
             },
           },
           style: {
@@ -85,7 +88,11 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
               stagger_sec: { type: 'number', description: '竖排逐字间隔（秒）' },
             },
           },
-          skip_existing: { type: 'boolean', description: '默认 true' },
+          skip_existing: { type: 'boolean', description: '默认 true；replace_existing=true 时忽略' },
+          replace_existing: {
+            type: 'boolean',
+            description: 'true=改布局/换横竖排：先删该片段现有字幕再按 layout 重建',
+          },
         },
         required: ['entries'],
       },
@@ -366,7 +373,7 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
     function: {
       name: 'split_text_overlays_by_char',
       description:
-        '批量将多个文本层按字拆分（竖排/横排）。overlay_ids 必须来自 snapshot 或 known_overlays；缺省=所有可拆分(≥2字)文本层。一次调用处理多层，优于多次 split_text_overlay_by_char。',
+        '批量将多个≥2字的整句文本层按字拆分。overlay_ids 来自 known_overlays。改全片横竖排请用 apply_caption_template(replace_existing=true)，勿用本工具（已是单字层会跳过）。',
       parameters: {
         type: 'object',
         properties: {

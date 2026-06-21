@@ -62,6 +62,11 @@ export function buildTaskExecutionMessages(
         '为多个片段加字幕：一次 apply_caption_template。entries[{block_id,text}]；layout=horizontal|vertical；position=bottom_center|top_right|center 等九宫格；禁止坐标/字号/start_sec。'
       )
     }
+    if (/改为|改成|换.*竖|换.*横|全部.*竖|全部.*横|改布局/.test(`${task.title} ${userGoal}`)) {
+      lines.push(
+        '改横竖排/换布局：apply_caption_template，replace_existing=true，layout=目标；entries 只需 block_id（text 可省略）；勿用 split_text_overlays_by_char。'
+      )
+    }
   }
   return [{ role: 'user', content: lines.join('\n') }]
 }

@@ -22,7 +22,7 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "apply_caption_template",
-            "description": "批量添加字幕。LLM 传 entries + layout + position(九宫格) + style/animation；禁止坐标字号。",
+            "description": "批量添加/替换字幕。改横竖排时 replace_existing=true；禁止坐标字号。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -61,9 +61,10 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
                                 "block_id": {"type": "string"},
                                 "text": {"type": "string"},
                             },
-                            "required": ["block_id", "text"],
+                            "required": ["block_id"],
                         },
                     },
+                    "replace_existing": {"type": "boolean"},
                     "style": {
                         "type": "object",
                         "properties": {

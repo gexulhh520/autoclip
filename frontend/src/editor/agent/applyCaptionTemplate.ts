@@ -1,5 +1,9 @@
 import { buildEditorSnapshot } from './buildEditorSnapshot'
-import { blockAlreadyHasCaption } from './addCaptionsForBlocks'
+import {
+  blockAlreadyHasCaptionText,
+  collectCaptionTextFromOverlays,
+  listBlockTextOverlays,
+} from './blockCaptionUtils'
 import { resolveCaptionPlacement, resolveLayoutAndPosition } from './captionTemplateLayout'
 import { mapFontFamily } from './fontMapping'
 import { mergeDefaultTextAnimation } from './defaultAnimation'
@@ -40,6 +44,8 @@ export interface ApplyCaptionTemplateArguments {
   style?: CaptionTemplateStyle
   animation?: CaptionTemplateAnimation
   skip_existing?: boolean
+  /** 改布局时 true：先删该片段现有字幕再重建（横↔竖） */
+  replace_existing?: boolean
 }
 
 export interface ApplyCaptionTemplateItem {
@@ -62,6 +68,7 @@ export interface ApplyCaptionTemplateResult {
   blocks_targeted: number
   overlays_added: number
   overlays_skipped: number
+  overlays_removed: number
   split_char_layers: number
   items: ApplyCaptionTemplateItem[]
 }
@@ -74,7 +81,7 @@ function str(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback
 }
 
-function parseEntries(raw: unknown): CaptionTemplateEntry[] {
+function parseEntries(raw: unknown, allowMissingText = false): CaptionTemplateEntry[] {
   if (!Array.isArray(raw)) return []
   const out: CaptionTemplateEntry[] = []
   for (const item of raw) {
@@ -82,7 +89,7 @@ function parseEntries(raw: unknown): CaptionTemplateEntry[] {
     const record = item as Record<string, unknown>
     const blockId = str(record.block_id).trim()
     const text = str(record.text || record.content).trim()
-    if (blockId && text) out.push({ block_id: blockId, text })
+    if (blockId && (text || allowMissingText)) out.push({ block_id: blockId, text })
   }
   return out
 }
@@ -129,7 +136,8 @@ export function executeApplyCaptionTemplate(
   })
   const style = args.style ?? {}
   const animation = args.animation ?? {}
-  const entries = parseEntries(args.entries)
+  const replaceExisting = args.replace_existing === true
+  const entries = parseEntries(args.entries, replaceExisting)
 
   if (!session) {
     return {
@@ -138,6 +146,7 @@ export function executeApplyCaptionTemplate(
       blocks_targeted: 0,
       overlays_added: 0,
       overlays_skipped: 0,
+      overlays_removed: 0,
       split_char_layers: 0,
       items: [{ block_id: '', timeline_start_sec: 0, text: '', layout: '', position: '', error: '无活动剪辑工程' }],
     }
@@ -150,6 +159,7 @@ export function executeApplyCaptionTemplate(
       blocks_targeted: 0,
       overlays_added: 0,
       overlays_skipped: 0,
+      overlays_removed: 0,
       split_char_layers: 0,
       items: [
         {
@@ -185,14 +195,15 @@ export function executeApplyCaptionTemplate(
   )
 
   const dims = resolveCanvasDimensions(session.export_settings, store.previewVideoNaturalSize ?? null)
-  const skipExisting = args.skip_existing !== false
+  const skipExisting = args.skip_existing !== false && !replaceExisting
   const items: ApplyCaptionTemplateItem[] = []
   let overlaysAdded = 0
   let overlaysSkipped = 0
+  let overlaysRemoved = 0
   let splitCharLayers = 0
 
   for (const entry of entries) {
-    const text = str(entry.text || entry.content).trim()
+    let text = str(entry.text || entry.content).trim()
     const target = blockById.get(entry.block_id)
     if (!target) {
       items.push({
@@ -206,6 +217,39 @@ export function executeApplyCaptionTemplate(
       continue
     }
 
+    const existingOverlays = listBlockTextOverlays(
+      session,
+      target.timeline_start_sec,
+      target.duration_sec
+    )
+
+    if (replaceExisting && existingOverlays.length > 0) {
+      if (!text) {
+        text = collectCaptionTextFromOverlays(
+          existingOverlays,
+          dims.width,
+          dims.height
+        ).trim()
+      }
+      const removeIds = existingOverlays.map((el) => el.id)
+      store.removeOverlayElements(removeIds)
+      overlaysRemoved += removeIds.length
+    }
+
+    if (!text) {
+      items.push({
+        block_id: entry.block_id,
+        timeline_start_sec: target.timeline_start_sec,
+        text: '',
+        layout: layoutPosition.layout,
+        position: layoutPosition.position,
+        error: replaceExisting
+          ? '该片段无可用字幕文案，请提供 text'
+          : 'entries 每项须含 block_id 与 text',
+      })
+      continue
+    }
+
     const placement = resolveCaptionPlacement({
       layout: args.layout,
       position: args.position,
@@ -215,7 +259,14 @@ export function executeApplyCaptionTemplate(
       canvasHeight: dims.height,
     })
 
-    if (skipExisting && blockAlreadyHasCaption(session, target.timeline_start_sec, text)) {
+    if (skipExisting && blockAlreadyHasCaptionText(
+      getStore().session!,
+      target.timeline_start_sec,
+      target.duration_sec,
+      text,
+      dims.width,
+      dims.height
+    )) {
       overlaysSkipped += 1
       items.push({
         block_id: entry.block_id,
@@ -290,6 +341,7 @@ export function executeApplyCaptionTemplate(
     blocks_targeted: entries.length,
     overlays_added: overlaysAdded,
     overlays_skipped: overlaysSkipped,
+    overlays_removed: overlaysRemoved,
     split_char_layers: splitCharLayers,
     items,
   }
@@ -327,5 +379,6 @@ export function migrateAddCaptionsArgs(raw: Record<string, unknown>): ApplyCapti
       stagger_sec: raw.stagger_sec as number | undefined,
     },
     skip_existing: raw.skip_existing as boolean | undefined,
+    replace_existing: raw.replace_existing as boolean | undefined,
   }
 }

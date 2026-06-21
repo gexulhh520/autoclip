@@ -166,6 +166,7 @@ export function compactToolResultData(
           template: data?.template,
           blocks_targeted: data?.blocks_targeted,
           overlays_added: data?.overlays_added,
+          overlays_removed: data?.overlays_removed,
           overlays_skipped: data?.overlays_skipped,
           split_char_layers: data?.split_char_layers,
         },

@@ -450,6 +450,7 @@ export async function executeWriteToolCall(
                 }
               : undefined,
             skip_existing: call.arguments.skip_existing as boolean | undefined,
+            replace_existing: call.arguments.replace_existing as boolean | undefined,
           },
           { recordHistory }
         )
@@ -474,6 +475,7 @@ export async function executeWriteToolCall(
               | undefined,
             block_ids: call.arguments.block_ids as string[] | undefined,
             skip_existing: call.arguments.skip_existing as boolean | undefined,
+            replace_existing: call.arguments.replace_existing as boolean | undefined,
             layout: call.arguments.layout as AddCaptionsForBlocksArguments['layout'],
             fontSize: call.arguments.fontSize as number | undefined,
             fontFamily: call.arguments.fontFamily as string | undefined,
