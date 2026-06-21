@@ -21,6 +21,9 @@ from backend.schemas.editor_agent import (
     AgentChatResponse,
     AgentChatDebugInfo,
     AgentToolCall,
+    FindBlockMomentsRequest,
+    FindBlockMomentsResponse,
+    MatchedMoment,
     LayoutAnalysis,
     SubtitleFrameVerdict,
     VideoContentAnalysis,
@@ -34,6 +37,11 @@ from backend.services.editor_agent_debug import (
 from backend.services.editor_agent_tools import (
     EDITOR_AGENT_TOOL_DEFINITIONS,
     validate_tool_calls,
+)
+from backend.services.editor_moment_search import (
+    build_matched_moments,
+    collect_block_transcript,
+    find_moments_in_transcript,
 )
 
 logger = logging.getLogger(__name__)
@@ -165,6 +173,7 @@ AGENT_EXECUTE_SYSTEM = """你是 AutoClip 剪辑助手，帮助用户在剪辑�
 27. 读工具只用于当次决策；读结果不进入下一轮上下文。跨轮次只保留写操作成败摘要（execution ledger）；当前状态以每次 EditorSnapshot 为准，勿重复 get_timeline_summary。
 28. snapshot.focused_block_id / focused_block 表示用户从时间线「添加到 AI 助手」钉住的片段。用户问「这段/当前片段/这个视频多长」时优先用 focused_block（含 duration_sec、trim、timeline 位置）或 get_block_detail(focused_block_id)；修改操作若针对该片段须带对应 block_id。
 29. 用户问「这段讲什么/画面内容/适合怎么剪」时：只调用一次 analyze_block_content（block_id 缺省用 focused_block_id 或 selected_block_id），禁止先连环 get_timeline_summary / get_block_detail / capture_preview_frame。该工具已含静音分段+多帧视觉分析，直接根据返回的 summary 回答用户。
+30. 用户要按条件找片段/金句/有感觉的说话/哲学传播性内容时：调用 find_block_moments（search_criteria=用户描述，block_id 缺省用 focused/selected）。返回 matches 含 trim 与时间线位置；可用 split_block_at_playhead + update_block_trim 裁出，或 add_clips_to_timeline 若素材池已有对应 clip。禁止编造未在 matches 中的时间段。
 
 snapshot、layout_reference（若有）由请求附带。"""
 
@@ -331,6 +340,85 @@ class EditorAgentService:
             model=response.model,
             usage=response.usage,
             raw_content=response.content,
+        )
+
+    def find_block_moments(
+        self,
+        request: FindBlockMomentsRequest,
+        block: Dict[str, Any],
+        session_id: str,
+        project_id: str,
+    ) -> FindBlockMomentsResponse:
+        criteria = (request.search_criteria or "").strip()
+        if not criteria:
+            raise ValueError("search_criteria 不能为空")
+
+        segments, transcript_source = collect_block_transcript(
+            project_id, session_id, block
+        )
+        if not segments:
+            return FindBlockMomentsResponse(
+                block_id=request.block_id,
+                search_criteria=criteria,
+                transcript_source=transcript_source,
+                transcript_segment_count=0,
+                matches=[],
+                note="未找到可用转写文本。请先跑导入流水线生成字幕，或在设置中安装 Whisper 后重试。",
+            )
+
+        scored = find_moments_in_transcript(
+            self.llm_manager,
+            criteria,
+            segments,
+            max_results=request.max_results,
+        )
+        duration = request.duration_sec
+        if duration <= 0 and request.timeline_end_sec > request.timeline_start_sec:
+            duration = request.timeline_end_sec - request.timeline_start_sec
+        if duration <= 0:
+            trim = block.get("trim") or {}
+            duration = float(trim.get("out_sec") or 0) - float(trim.get("in_sec") or 0)
+        timeline_start = float(request.timeline_start_sec or 0)
+
+        matches = build_matched_moments(
+            block,
+            timeline_start,
+            max(duration, 0.1),
+            transcript_source,
+            scored,
+        )
+
+        note_parts = [
+            f"转写来源：{transcript_source}，检索 {len(segments)} 段文本",
+        ]
+        if matches:
+            note_parts.append(
+                "matches 中 trim_in_sec/trim_out_sec 可用于 update_block_trim；长段需先 split_block_at_playhead 再 trim"
+            )
+        else:
+            note_parts.append("无符合检索条件的片段，可放宽条件或换 search_criteria")
+
+        return FindBlockMomentsResponse(
+            block_id=request.block_id,
+            search_criteria=criteria,
+            transcript_source=transcript_source,
+            transcript_segment_count=len(segments),
+            matches=[
+                MatchedMoment(
+                    start_sec=m.start_sec,
+                    end_sec=m.end_sec,
+                    timeline_start_sec=m.timeline_start_sec,
+                    timeline_end_sec=m.timeline_end_sec,
+                    trim_in_sec=m.trim_in_sec,
+                    trim_out_sec=m.trim_out_sec,
+                    text_preview=m.text_preview,
+                    match_score=m.match_score,
+                    match_reason=m.match_reason,
+                    transcript_source=m.transcript_source,
+                )
+                for m in matches
+            ],
+            note="；".join(note_parts),
         )
 
     def _analyze_video_frames_parallel(

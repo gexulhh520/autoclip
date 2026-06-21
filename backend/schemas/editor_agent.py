@@ -162,6 +162,37 @@ class AnalyzeVideoContentResponse(BaseModel):
     raw_content: Optional[str] = None
 
 
+class MatchedMoment(BaseModel):
+    start_sec: float = 0.0
+    end_sec: float = 0.0
+    timeline_start_sec: float = 0.0
+    timeline_end_sec: float = 0.0
+    trim_in_sec: float = 0.0
+    trim_out_sec: float = 0.0
+    text_preview: str = ""
+    match_score: float = 0.0
+    match_reason: str = ""
+    transcript_source: str = ""
+
+
+class FindBlockMomentsRequest(BaseModel):
+    block_id: str
+    search_criteria: str = Field(..., min_length=1)
+    max_results: int = Field(default=8, ge=1, le=24)
+    timeline_start_sec: float = 0.0
+    timeline_end_sec: float = 0.0
+    duration_sec: float = 0.0
+
+
+class FindBlockMomentsResponse(BaseModel):
+    block_id: str
+    search_criteria: str
+    transcript_source: str = "none"
+    transcript_segment_count: int = 0
+    matches: List[MatchedMoment] = Field(default_factory=list)
+    note: str = ""
+
+
 class AgentChatMessage(BaseModel):
     role: str
     content: str = ""

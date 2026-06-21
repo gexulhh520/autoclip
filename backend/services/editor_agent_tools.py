@@ -511,6 +511,25 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "find_block_moments",
+            "description": "只读：按用户描述在片段转写/字幕中检索匹配时间段（金句、哲学、传播性口播等）",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "block_id": {"type": "string"},
+                    "search_criteria": {
+                        "type": "string",
+                        "description": "检索条件，如「有哲学感的金句」「人物说话有感染力」",
+                    },
+                    "max_results": {"type": "number", "description": "最多返回条数 1–24，默认 8"},
+                },
+                "required": ["search_criteria"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "analyze_block_content",
             "description": "只读：分析视频片段内容（并发单帧视觉 + 音频分段节奏分析后文本汇总）。block_id 缺省用 focused/selected",
             "parameters": {
@@ -615,6 +634,7 @@ META_AGENT_TOOLS = {
 READ_ONLY_AGENT_TOOLS = {
     "list_assets",
     "verify_subtitle_in_frame",
+    "find_block_moments",
     "analyze_block_content",
     "capture_preview_frame",
     "get_timeline_summary",

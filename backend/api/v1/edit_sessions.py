@@ -44,6 +44,8 @@ from backend.schemas.editor_agent import (
     AnalyzeSubtitleFrameResponse,
     AnalyzeVideoContentRequest,
     AnalyzeVideoContentResponse,
+    FindBlockMomentsRequest,
+    FindBlockMomentsResponse,
     AgentChatRequest,
     AgentChatResponse,
 )
@@ -1002,6 +1004,38 @@ async def analyze_edit_session_video_content(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("视频内容分析失败: %s/%s", project_id, session_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/agent/find-block-moments",
+    response_model=FindBlockMomentsResponse,
+)
+async def find_edit_session_block_moments(
+    project_id: str,
+    session_id: str,
+    body: FindBlockMomentsRequest,
+    session_service: EditSessionService = Depends(get_edit_session_service),
+    agent_service: EditorAgentService = Depends(get_editor_agent_service),
+):
+    """按用户条件在片段转写文本中检索匹配时间段。"""
+    try:
+        session = session_service.get_session(project_id, session_id)
+        block = next((item for item in session.sequence if item.id == body.block_id), None)
+        if block is None:
+            raise ValueError(f"片段不存在: {body.block_id}")
+        return agent_service.find_block_moments(
+            body,
+            block.model_dump(),
+            session_id,
+            project_id,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("片段检索失败: %s/%s", project_id, session_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
