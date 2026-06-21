@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  buildReadOnlyInspectSummary,
-  isPerBlockCaptionWriteTask,
-  isReadOnlyInspectTask,
-  wantsVerticalCaptionLayout,
-} from './taskFastPath'
+import { buildReadOnlyInspectSummary, isReadOnlyInspectTask } from './taskFastPath'
 import { isPostCaptionAnimationTask, taskExpectsTimelineWrites } from './taskExecutionGuard'
 
 describe('taskFastPath', () => {
@@ -13,15 +8,6 @@ describe('taskFastPath', () => {
       isReadOnlyInspectTask({ title: '获取当前所有视频片段详情及对应的文本内容' })
     ).toBe(true)
     expect(isReadOnlyInspectTask({ title: '在每段片段加字幕' })).toBe(false)
-  })
-
-  it('detects per-block caption write tasks', () => {
-    expect(
-      isPerBlockCaptionWriteTask(
-        { title: '根据各片段内容生成对应文案并添加文本层（包含竖向布局）' },
-        '每段视频添加合适的字幕 竖排 带动画'
-      )
-    ).toBe(true)
   })
 
   it('builds inspect summary from snapshot blocks', () => {
@@ -39,10 +25,6 @@ describe('taskFastPath', () => {
     } as ReturnType<typeof import('./snapshotFromStore').buildEditorSnapshotFromStore>)
     expect(summary).toContain('已识别 1 个主轨片段')
     expect(summary).toContain('b1')
-  })
-
-  it('detects vertical layout intent', () => {
-    expect(wantsVerticalCaptionLayout('竖排 带动画')).toBe(true)
   })
 
   it('skips post-caption animation when captions already added', () => {

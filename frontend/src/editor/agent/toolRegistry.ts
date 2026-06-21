@@ -53,14 +53,26 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
     function: {
       name: 'add_captions_for_blocks',
       description:
-        '为每个主轨视频片段添加一条字幕（一次调用，勿循环 add_text_overlay）。use_block_draft=true 时按片段 outline/content/title 取文案；layout=vertical 时竖排拆字+动画。skip_existing 默认跳过已有字幕。',
+        '为每个主轨视频片段添加一条字幕（一次调用，勿循环 add_text_overlay）。每段不同文案用 block_captions；统一文案用 content；仅有可读草稿时用 use_block_draft。layout=vertical 竖排拆字+动画。',
       parameters: {
         type: 'object',
         properties: {
-          content: { type: 'string', description: '统一文案；use_block_draft 时可省略' },
+          content: { type: 'string', description: '全部片段统一文案' },
+          block_captions: {
+            type: 'array',
+            description: '每段独立文案（LLM 生成），每项含 block_id + content',
+            items: {
+              type: 'object',
+              properties: {
+                block_id: { type: 'string' },
+                content: { type: 'string' },
+              },
+              required: ['block_id', 'content'],
+            },
+          },
           use_block_draft: {
             type: 'boolean',
-            description: '按各片段草稿文案生成字幕',
+            description: '仅当片段 outline/content 为可读文案时使用',
           },
           block_ids: { type: 'array', items: { type: 'string' }, description: '缺省=全部主轨片段' },
           skip_existing: { type: 'boolean', description: '默认 true，避免重复加字幕' },

@@ -20,3 +20,20 @@ describe('addCaptionsForBlocks', () => {
     expect(blockAlreadyHasCaption(session, 10, '我很好')).toBe(false)
   })
 })
+
+describe('pickBlockDraftCaption', () => {
+  it('rejects hash-like titles', async () => {
+    const { isUsableCaptionDraft, pickBlockDraftCaption } = await import('./pickBlockDraftCaption')
+    expect(isUsableCaptionDraft('73d146e43444e8baaeb55052379efd1e')).toBe(false)
+    const session = {
+      sequence: [
+        {
+          id: 'b1',
+          title: '73d146e43444e8baaeb55052379efd1e',
+          trim: { in_sec: 0, out_sec: 3 },
+        },
+      ],
+    } as import('../../types/editSession').EditSession
+    expect(pickBlockDraftCaption(session, 'b1')).toBe('')
+  })
+})

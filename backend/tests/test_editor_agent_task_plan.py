@@ -43,13 +43,16 @@ def test_validate_tool_calls_accepts_add_captions_for_blocks():
             {
                 "name": "add_captions_for_blocks",
                 "arguments": {
-                    "use_block_draft": True,
+                    "block_captions": [
+                        {"block_id": "b1", "content": "春风"},
+                        {"block_id": "b2", "content": "得意"},
+                    ],
                     "layout": "vertical",
                 },
             }
         ]
     )
-    assert calls[0].arguments.get("use_block_draft") is True
+    assert calls[0].arguments["block_captions"][0]["content"] == "春风"
 
 
 def test_validate_tool_calls_accepts_split_text_overlays_by_char():

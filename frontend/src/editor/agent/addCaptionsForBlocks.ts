@@ -1,7 +1,7 @@
 import { buildEditorSnapshot } from './buildEditorSnapshot'
 import { mapFontFamily } from './fontMapping'
 import { mergeDefaultTextAnimation } from './defaultAnimation'
-import { pickBlockDraftCaption, resolveBlockCaptionText } from './pickBlockDraftCaption'
+import { pickBlockDraftCaption } from './pickBlockDraftCaption'
 import { resolveBatchSplitPlacement } from './staggeredCharText'
 import { resolveCanvasDimensions } from '../scene/canvas'
 import { readStringParam } from '../opencut-text/params'
@@ -12,12 +12,17 @@ import type { useEditSessionStore } from '../../stores/useEditSessionStore'
 
 type GetEditStore = () => ReturnType<typeof useEditSessionStore.getState>
 
+export interface BlockCaptionItem {
+  block_id: string
+  content: string
+}
+
 export interface AddCaptionsForBlocksArguments {
   content?: string
-  /** 为 true 时按片段 outline/content/title 取文案，忽略统一 content */
+  /** LLM 为每段指定的字幕文案（优先于 content / use_block_draft） */
+  block_captions?: BlockCaptionItem[]
+  /** 为 true 时按片段 outline/content/title 取文案 */
   use_block_draft?: boolean
-  /** 为 true 时每段随机 2–4 个汉字（优先于 use_block_draft） */
-  use_random_caption?: boolean
   block_ids?: string[]
   skip_existing?: boolean
   layout?: 'horizontal' | 'vertical'
@@ -100,6 +105,19 @@ export function blockAlreadyHasCaption(
   return false
 }
 
+function parseBlockCaptions(raw: unknown): Map<string, string> {
+  const map = new Map<string, string>()
+  if (!Array.isArray(raw)) return map
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const record = item as Record<string, unknown>
+    const blockId = str(record.block_id).trim()
+    const content = str(record.content).trim()
+    if (blockId && content) map.set(blockId, content)
+  }
+  return map
+}
+
 export function executeAddCaptionsForBlocks(
   getStore: GetEditStore,
   args: AddCaptionsForBlocksArguments,
@@ -118,18 +136,26 @@ export function executeAddCaptionsForBlocks(
     }
   }
 
-  const useRandomCaption = args.use_random_caption === true
-  const useBlockDraft = !useRandomCaption && args.use_block_draft === true
+  const blockCaptionMap = parseBlockCaptions(args.block_captions)
+  const hasBlockCaptions = blockCaptionMap.size > 0
+  const useBlockDraft = !hasBlockCaptions && args.use_block_draft === true
   const uniformContent = str(args.content).trim()
 
-  if (!useRandomCaption && !useBlockDraft && !uniformContent) {
+  if (!hasBlockCaptions && !useBlockDraft && !uniformContent) {
     return {
       content: '',
       blocks_targeted: 0,
       overlays_added: 0,
       overlays_skipped: 0,
       split_char_layers: 0,
-      items: [{ block_id: '', timeline_start_sec: 0, error: 'content 不能为空（或设 use_block_draft=true）' }],
+      items: [
+        {
+          block_id: '',
+          timeline_start_sec: 0,
+          error:
+            '须提供 content、block_captions（每段文案）或 use_block_draft=true（且片段有可读草稿）',
+        },
+      ],
     }
   }
 
@@ -168,18 +194,16 @@ export function executeAddCaptionsForBlocks(
   }
 
   for (const target of targets) {
-    const captionMode = useRandomCaption ? 'random' : useBlockDraft ? 'draft' : 'uniform'
-    const blockContent = resolveBlockCaptionText(
-      session,
-      target.block_id,
-      captionMode,
-      uniformContent
-    )
+    const blockContent = hasBlockCaptions
+      ? (blockCaptionMap.get(target.block_id) ?? '')
+      : useBlockDraft
+        ? pickBlockDraftCaption(session, target.block_id)
+        : uniformContent
     if (!blockContent.trim()) {
       items.push({
         block_id: target.block_id,
         timeline_start_sec: target.timeline_start_sec,
-        error: '片段无可用草稿文案',
+        error: hasBlockCaptions ? 'block_captions 中缺少该片段文案' : '片段无可用草稿文案',
       })
       continue
     }
@@ -255,7 +279,7 @@ export function executeAddCaptionsForBlocks(
   }
 
   return {
-    content: useRandomCaption ? '(random per block)' : useBlockDraft ? '(per-block draft)' : uniformContent,
+    content: hasBlockCaptions ? '(block_captions)' : useBlockDraft ? '(per-block draft)' : uniformContent,
     blocks_targeted: targets.length,
     overlays_added: overlaysAdded,
     overlays_skipped: overlaysSkipped,

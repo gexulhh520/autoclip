@@ -52,9 +52,14 @@ export function buildTaskExecutionMessages(
     lines.push(
       '本任务须调用写工具改动时间线（如 add_captions_for_blocks、split_text_overlays_by_char、set_text_animation），禁止仅用「已完成」文字回复。'
     )
-    if (/每段|各片段|每个片段|每条.*片段|所有片段|各视频/.test(task.title) && /字幕|加字|文本|文案/.test(task.title)) {
+    if (
+      /每段|各段|各片段|每个片段|每条.*片段|所有片段|各视频|每段视频/.test(
+        `${task.title} ${userGoal}`
+      ) &&
+      /字幕|加字|文本|文案/.test(`${task.title} ${userGoal}`)
+    ) {
       lines.push(
-        '为多个片段加字幕：必须用 add_captions_for_blocks 一次完成（layout=vertical 可竖排拆字+动画），禁止循环 10+ 次 add_text_overlay。'
+        '为多个片段加字幕：一次 add_captions_for_blocks（layout=vertical 可竖排+动画）。每段文案不同须用 block_captions: [{block_id, content}, ...]；禁止循环 add_text_overlay。片段 title 为 id/hash 或用户要求随机/自拟文案时，由你生成短句写入 block_captions，勿 use_block_draft。'
       )
     }
   }

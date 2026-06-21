@@ -51,11 +51,22 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "add_captions_for_blocks",
-            "description": "为每个主轨片段添加一条字幕（一次调用）。use_block_draft 按片段草稿；layout=vertical 竖排拆字+动画。",
+            "description": "为每个主轨片段添加一条字幕（一次调用）。每段文案用 block_captions；layout=vertical 竖排拆字+动画。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "content": {"type": "string"},
+                    "block_captions": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "block_id": {"type": "string"},
+                                "content": {"type": "string"},
+                            },
+                            "required": ["block_id", "content"],
+                        },
+                    },
                     "use_block_draft": {"type": "boolean"},
                     "block_ids": {"type": "array", "items": {"type": "string"}},
                     "skip_existing": {"type": "boolean"},
