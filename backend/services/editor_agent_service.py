@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional
 
@@ -72,8 +73,10 @@ DEFAULT_SUBTITLE_FRAME_PROMPT = (
     "请检查这一帧中的字幕/文本层是否在画面安全区内，输出 SubtitleFrameVerdict JSON。"
 )
 
-MAX_PARALLEL_VISION_CALLS = 4
+MAX_PARALLEL_VISION_CALLS = 6
 MAX_AUDIO_SEGMENT_LLM = 8
+MAX_AUDIO_SEGMENT_LLM_CAP = 24
+MAX_FRAME_OBSERVATIONS = 96
 MIN_SEGMENT_LLM_SEC = 0.2
 
 ANALYZE_VIDEO_FRAME_SYSTEM = """你是短视频单帧画面分析助手。用户会提供视频片段中的一张预览帧及时间元数据。
@@ -433,7 +436,12 @@ class EditorAgentService:
             candidates.append(item)
 
         candidates.sort(key=lambda seg: float(seg.get("duration_sec") or 0), reverse=True)
-        selected = candidates[:MAX_AUDIO_SEGMENT_LLM]
+        duration_sec = float(block_meta.get("duration_sec") or 0)
+        max_segments = min(
+            MAX_AUDIO_SEGMENT_LLM_CAP,
+            max(MAX_AUDIO_SEGMENT_LLM, int(math.ceil(duration_sec / 300)) if duration_sec > 0 else MAX_AUDIO_SEGMENT_LLM),
+        )
+        selected = candidates[:max_segments]
         if not selected:
             return []
 
@@ -600,7 +608,7 @@ class EditorAgentService:
         frame_obs_raw = parsed.get("frame_observations")
         parsed_frame_obs: List[VideoFrameObservation] = []
         if isinstance(frame_obs_raw, list) and frame_obs_raw:
-            for index, item in enumerate(frame_obs_raw[:8]):
+            for index, item in enumerate(frame_obs_raw[:MAX_FRAME_OBSERVATIONS]):
                 if not isinstance(item, dict):
                     continue
                 fallback_time = sample_times[index] if index < len(sample_times) else 0.0

@@ -9,6 +9,52 @@ export interface BlockTimelineWindow {
   duration_sec: number
 }
 
+/** 抽帧数量下限；上限内由时长自动推算，避免长片段只抽极少帧 */
+export const FRAME_SAMPLE_LIMITS = {
+  MIN: 3,
+  MAX: 96,
+} as const
+
+/** 按片段时长选择抽帧间隔（秒），长视频间隔更大以免帧数失控 */
+export function resolveFrameSampleIntervalSec(durationSec: number): number {
+  const duration = Math.max(0.1, durationSec)
+  if (duration <= 30) return Math.max(8, duration / 3)
+  if (duration <= 120) return 15
+  if (duration <= 600) return 20
+  if (duration <= 1800) return 30
+  if (duration <= 3600) return 45
+  if (duration <= 7200) return 60
+  return 90
+}
+
+/** 未指定 frame_sample_count 时，按时长自动计算抽帧数（上限 FRAME_SAMPLE_LIMITS.MAX） */
+export function resolveAutoFrameSampleCount(durationSec: number): number {
+  const duration = Math.max(0.1, durationSec)
+  const interval = resolveFrameSampleIntervalSec(duration)
+  const estimated = Math.ceil(duration / interval)
+  return Math.max(
+    FRAME_SAMPLE_LIMITS.MIN,
+    Math.min(FRAME_SAMPLE_LIMITS.MAX, estimated)
+  )
+}
+
+export function resolveFrameSampleCount(
+  durationSec: number,
+  explicitCount?: number
+): number {
+  if (
+    explicitCount != null &&
+    Number.isFinite(explicitCount) &&
+    explicitCount > 0
+  ) {
+    return Math.max(
+      FRAME_SAMPLE_LIMITS.MIN,
+      Math.min(FRAME_SAMPLE_LIMITS.MAX, Math.round(explicitCount))
+    )
+  }
+  return resolveAutoFrameSampleCount(durationSec)
+}
+
 export function resolveAnalyzeBlockId(input: {
   args: Record<string, unknown>
   focusedBlockId?: string | null
@@ -55,9 +101,9 @@ export function resolveBlockTimelineWindow(
 
 export function resolveSampleTimesSec(
   window: BlockTimelineWindow,
-  sampleCount: number
+  sampleCount?: number
 ): number[] {
-  const count = Math.max(1, Math.min(8, Math.round(sampleCount)))
+  const count = resolveFrameSampleCount(window.duration_sec, sampleCount)
   const { start_sec: start, duration_sec: duration } = window
   if (count === 1) return [start + duration * 0.5]
   return Array.from({ length: count }, (_, index) => start + ((index + 0.5) / count) * duration)
@@ -124,9 +170,10 @@ export function summarizeAudioSegments(
   }
 
   const totalSilence = silences.reduce((sum, region) => sum + (region.end - region.start), 0)
+  const maxSegments = Math.min(48, Math.max(12, Math.ceil(duration / 120)))
 
   return {
-    segments: segments.slice(0, 24),
+    segments: segments.slice(0, maxSegments),
     silence_region_count: silences.length,
     total_silence_sec: Math.round(totalSilence * 10) / 10,
     speech_ratio: Math.round(Math.max(0, Math.min(1, 1 - totalSilence / duration)) * 100) / 100,

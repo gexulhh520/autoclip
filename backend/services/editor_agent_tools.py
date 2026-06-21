@@ -517,7 +517,10 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
                 "type": "object",
                 "properties": {
                     "block_id": {"type": "string"},
-                    "frame_sample_count": {"type": "number"},
+                    "frame_sample_count": {
+                        "type": "number",
+                        "description": "抽帧数 3–96；缺省按时长自动",
+                    },
                     "include_audio_analysis": {"type": "boolean"},
                     "include_existing_text": {"type": "boolean"},
                     "user_question": {"type": "string"},

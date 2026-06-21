@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   resolveAnalyzeBlockId,
+  resolveAutoFrameSampleCount,
+  resolveFrameSampleCount,
+  resolveFrameSampleIntervalSec,
   resolveSampleTimesSec,
   summarizeAudioSegments,
 } from './analyzeBlockContentUtils'
@@ -21,6 +24,20 @@ describe('analyzeBlockContentUtils', () => {
         selectedBlockId: 'sel-1',
       })
     ).toBe('arg-1')
+  })
+
+  it('auto frame count scales with duration for long clips', () => {
+    expect(resolveAutoFrameSampleCount(30)).toBe(3)
+    expect(resolveAutoFrameSampleCount(600)).toBeGreaterThanOrEqual(20)
+    expect(resolveAutoFrameSampleCount(3600)).toBe(80)
+    expect(resolveAutoFrameSampleCount(7200)).toBe(96)
+    expect(resolveFrameSampleIntervalSec(3600)).toBe(45)
+  })
+
+  it('explicit frame count is clamped to 3–96', () => {
+    expect(resolveFrameSampleCount(3600, 3)).toBe(3)
+    expect(resolveFrameSampleCount(30, 200)).toBe(96)
+    expect(resolveFrameSampleCount(3600)).toBe(80)
   })
 
   it('samples evenly across timeline window', () => {

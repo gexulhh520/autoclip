@@ -535,7 +535,8 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
           block_id: { type: 'string', description: '目标片段；缺省用 AI 钉住或当前选中片段' },
           frame_sample_count: {
             type: 'number',
-            description: '抽帧数量 1–8，默认 3（每帧单独视觉分析后汇总）',
+            description:
+              '抽帧数量 3–96；缺省按片段时长自动（约每 45–90s 一帧，1 小时约 72 帧）。显式指定可加快短片段分析',
           },
           include_audio_analysis: {
             type: 'boolean',

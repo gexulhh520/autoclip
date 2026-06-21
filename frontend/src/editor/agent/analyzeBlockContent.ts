@@ -33,6 +33,43 @@ export interface AnalyzeBlockContentResult {
   note: string
 }
 
+const CAPTURE_BATCH_SIZE = 4
+
+/** 分批并发截帧，避免长片段一次性打满 compositor */
+async function capturePreviewFramesBatched(input: {
+  projectId: string
+  session: EditSession
+  sampleTimes: number[]
+  maxWidth: number
+}): Promise<Array<{ time_sec: number; image_base64: string; width: number; height: number }>> {
+  const frames: Array<{ time_sec: number; image_base64: string; width: number; height: number }> =
+    []
+  for (let index = 0; index < input.sampleTimes.length; index += CAPTURE_BATCH_SIZE) {
+    const batchTimes = input.sampleTimes.slice(index, index + CAPTURE_BATCH_SIZE)
+    const batchFrames = await Promise.all(
+      batchTimes.map(async (timeSec) => {
+        const frame = await capturePreviewFrame({
+          projectId: input.projectId,
+          session: input.session,
+          timeSec,
+          maxWidth: input.maxWidth,
+        })
+        if (!frame.image_base64?.trim()) {
+          throw new Error(`预览截帧为空（@${timeSec.toFixed(2)}s），请确认预览区已加载`)
+        }
+        return {
+          time_sec: frame.time_sec,
+          image_base64: frame.image_base64,
+          width: frame.width,
+          height: frame.height,
+        }
+      })
+    )
+    frames.push(...batchFrames)
+  }
+  return frames.sort((a, b) => a.time_sec - b.time_sec)
+}
+
 function readBoolArg(value: unknown, defaultValue: boolean): boolean {
   if (value === undefined || value === null) return defaultValue
   if (typeof value === 'boolean') return value
@@ -68,9 +105,10 @@ export async function analyzeBlockContent(input: {
     throw new Error(`无法解析片段时间范围: ${blockId}`)
   }
 
-  const sampleCount = Number.isFinite(Number(input.args.frame_sample_count))
-    ? Number(input.args.frame_sample_count)
-    : 3
+  const explicitSampleCount = Number(input.args.frame_sample_count)
+  const sampleCount = Number.isFinite(explicitSampleCount) && explicitSampleCount > 0
+    ? explicitSampleCount
+    : undefined
   const sampleTimes = resolveSampleTimesSec(timelineWindow, sampleCount)
   const includeAudio = readBoolArg(input.args.include_audio_analysis, true)
   const includeExistingText = readBoolArg(input.args.include_existing_text, true)
@@ -101,26 +139,12 @@ export async function analyzeBlockContent(input: {
   }
 
   const maxWidth = resolveCaptureMaxWidth(input.args.max_width)
-  const capturedFrames = await Promise.all(
-    sampleTimes.map(async (timeSec) => {
-      const frame = await capturePreviewFrame({
-        projectId: input.projectId,
-        session: input.session,
-        timeSec,
-        maxWidth,
-      })
-      if (!frame.image_base64?.trim()) {
-        throw new Error(`预览截帧为空（@${timeSec.toFixed(2)}s），请确认预览区已加载`)
-      }
-      return {
-        time_sec: frame.time_sec,
-        image_base64: frame.image_base64,
-        width: frame.width,
-        height: frame.height,
-      }
-    })
-  )
-  const frames = capturedFrames.sort((a, b) => a.time_sec - b.time_sec)
+  const frames = await capturePreviewFramesBatched({
+    projectId: input.projectId,
+    session: input.session,
+    sampleTimes,
+    maxWidth,
+  })
 
   const detail = getBlockDetail(input.session, blockId)
   const existingText =
@@ -168,7 +192,7 @@ export async function analyzeBlockContent(input: {
     visual_analysis: analysis.analysis,
     vision_model: analysis.model,
     note: audioAnalysisError
-      ? `画面单帧并发视觉分析 + 音频分段并发节奏分析，最后文本汇总；音频分段失败：${audioAnalysisError}`
-      : '画面单帧并发视觉分析 + 音频分段并发节奏分析，最后文本汇总；JPEG 未写入主对话',
+      ? `抽帧 ${frames.length} 张（按时长自动）+ 单帧并发视觉与音频分段节奏分析后文本汇总；音频分段失败：${audioAnalysisError}`
+      : `抽帧 ${frames.length} 张（未指定 frame_sample_count 时按时长自动，上限 96）+ 单帧并发视觉与音频分段节奏分析后文本汇总`,
   }
 }
