@@ -28,7 +28,7 @@ export function createPreviewDecoderPool(
     video.className = 'compositor-preview__decoder'
     video.dataset.blockId = blockId
     video.playsInline = true
-    video.preload = 'auto'
+    video.preload = 'metadata'
     video.crossOrigin = 'anonymous'
     video.addEventListener('loadedmetadata', () => {
       options.onMetadata?.(video, blockId)

@@ -402,7 +402,9 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       for (const segment of segments) {
         try {
           const url = getBlockVideoUrl(projectId, sessionId, segment.block)
-          next[segment.block.id] = await extractWaveformPeaks(url, 48)
+          next[segment.block.id] = await extractWaveformPeaks(url, 48, {
+            durationSec: segment.duration,
+          })
         } catch {
           next[segment.block.id] = []
         }
