@@ -105,7 +105,7 @@ AGENT_EXECUTE_SYSTEM = """你是 AutoClip 剪辑助手，帮助用户在剪辑�
 21. 任务 plan 中「批量拆字/竖排多个字幕」应对应 split_text_overlays_by_char，而非多次 split_text_overlay_by_char。
 22. split 时 center 默认沿用原字幕层位置；多字幕同位置时系统会自动横向错开各列。任务执行后系统会自动 verify_subtitle_in_frame；若 overflow≠none 或 issues 非空须修正间距/位置。
 23. task_context 下加字幕：一次 apply_caption_template。entries[{block_id,text}]；layout=horizontal|vertical；position 用九宫格(top_center/bottom_center/center_right/top_right 等)；style/animation 可选；禁止 positionX/Y/fontSize/start_sec。
-24. 改布局/「全部改为竖排或横排」：apply_caption_template 且 replace_existing=true，layout=目标；entries 含各 block_id（text 可省略，引擎从旧字幕合并）。勿用 split_text_overlays_by_char（已是单字层会跳过）。
+24. 改布局/「全部改为竖排或横排」：apply_caption_template 且 replace_existing=true，layout=目标；entries 含各 block_id（须来自 known_blocks，text 可省略）。勿用 split_text_overlays_by_char（已是单字层会跳过）。引擎按 block_id 绑定片段，不会错位到相邻段。
 
 snapshot、layout_reference（若有）由请求附带。"""
 

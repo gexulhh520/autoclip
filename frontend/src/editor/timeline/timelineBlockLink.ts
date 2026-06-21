@@ -47,6 +47,27 @@ export function findSegmentAtCompositionTime(
   return timeline.segments[timeline.segments.length - 1] ?? null
 }
 
+export function resolveBlockOverlayWindow(
+  session: EditSession,
+  blockId: string
+): { anchorSec: number; endSec: number; durationSec: number } | null {
+  const timeline = buildSessionCompositionTimeline(session)
+  const segment = timeline.segments.find((item) => item.block.id === blockId)
+  if (!segment) return null
+  const anchorSec = blockLinkAnchorSec(segment)
+  const endSec = segmentVisualEndSec(segment)
+  return { anchorSec, endSec, durationSec: Math.max(0, endSec - anchorSec) }
+}
+
+export function writeOverlayBlockLink(
+  element: EditOverlayElement,
+  blockId: string,
+  offsetSec: number
+): void {
+  element.params = writeParam(element.params, TIMELINE_BLOCK_ID_PARAM, blockId)
+  element.params = writeParam(element.params, TIMELINE_BLOCK_OFFSET_PARAM, offsetSec)
+}
+
 export function getOverlayBlockLink(element: EditOverlayElement): {
   blockId: string
   offsetSec: number

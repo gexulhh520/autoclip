@@ -470,13 +470,13 @@ interface EditSessionState {
   moveOverlaysToTrack: (overlayIds: string[], textTrackId: string, options?: { recordHistory?: boolean }) => void
   addOverlayElement: (
     element: Omit<EditOverlayElement, 'id'>,
-    options?: { recordHistory?: boolean }
+    options?: { recordHistory?: boolean; skipTimingClamp?: boolean }
   ) => void
   importSrtCaptions: (elements: EditOverlayElement[]) => void
   splitTextOverlayByChar: (
     overlayId: string,
     options?: StaggeredCharTextOptions,
-    execOptions?: { recordHistory?: boolean }
+    execOptions?: { recordHistory?: boolean; skipTimingClamp?: boolean }
   ) => string[]
   updateOverlayElement: (
     elementId: string,
@@ -2117,7 +2117,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             params: { ...base.params, ...(partial?.params ?? {}) },
           })
           const created = state.session.overlay_elements.find((item) => item.id === id)
-          if (created) {
+          if (created && !options?.skipTimingClamp) {
             created.start_sec = clampOverlayStartOnTrack(
               state.session,
               trackId,
@@ -2126,7 +2126,7 @@ export const useEditSessionStore = create<EditSessionState>()(
               created.id
             )
           }
-          if (created && state.timelineBlockLinkEnabled) {
+          if (created && state.timelineBlockLinkEnabled && !options?.skipTimingClamp) {
             attachOverlayBlockLink(state.session, created)
           }
           state.selectedOverlayId = id
@@ -2196,14 +2196,16 @@ export const useEditSessionStore = create<EditSessionState>()(
           for (const element of elements) {
             const created = state.session.overlay_elements.find((item) => item.id === element.id)
             if (!created) continue
-            created.start_sec = clampOverlayStartOnTrack(
-              state.session,
-              created.track_id ?? trackId,
-              created.duration_sec,
-              created.start_sec,
-              created.id
-            )
-            if (state.timelineBlockLinkEnabled) {
+            if (!execOptions?.skipTimingClamp) {
+              created.start_sec = clampOverlayStartOnTrack(
+                state.session,
+                created.track_id ?? trackId,
+                created.duration_sec,
+                created.start_sec,
+                created.id
+              )
+            }
+            if (state.timelineBlockLinkEnabled && !execOptions?.skipTimingClamp) {
               attachOverlayBlockLink(state.session, created)
             }
           }

@@ -1,11 +1,36 @@
 import { readNumberParam, readStringParam } from '../opencut-text/params'
 import { positionToNormalized } from '../opencut-text/transform'
+import {
+  getOverlayBlockLink,
+  resolveBlockOverlayWindow,
+} from '../timeline/timelineBlockLink'
 import type { EditSession } from '../../types/editSession'
 import type { OpenCutTextOverlay } from '../opencut-text/params'
 
 const BLOCK_START_TOLERANCE_SEC = 0.35
 
-/** 与片段时间窗重叠的文本层（含竖排逐字 stagger 后的各层） */
+/** 优先按 timeline.blockId 归属，否则按 start_sec 落在片段可视窗内 */
+export function listOverlaysForBlock(
+  session: EditSession,
+  blockId: string,
+  blockStartSec: number,
+  blockEndSec: number
+): OpenCutTextOverlay[] {
+  const linked = (session.overlay_elements ?? []).filter((el) => {
+    if (el.type !== 'text' || el.hidden) return false
+    return getOverlayBlockLink(el)?.blockId === blockId
+  }) as OpenCutTextOverlay[]
+  if (linked.length > 0) {
+    return linked.sort((a, b) => a.start_sec - b.start_sec)
+  }
+
+  return (session.overlay_elements ?? []).filter((el) => {
+    if (el.type !== 'text' || el.hidden) return false
+    return el.start_sec >= blockStartSec - 0.001 && el.start_sec < blockEndSec - 0.001
+  }) as OpenCutTextOverlay[]
+}
+
+/** @deprecated 用 listOverlaysForBlock */
 export function listBlockTextOverlays(
   session: EditSession,
   blockStartSec: number,
@@ -14,8 +39,7 @@ export function listBlockTextOverlays(
   const blockEnd = blockStartSec + blockDurationSec
   return (session.overlay_elements ?? []).filter((el) => {
     if (el.type !== 'text' || el.hidden) return false
-    const elEnd = el.start_sec + el.duration_sec
-    return el.start_sec < blockEnd - 0.05 && elEnd > blockStartSec + 0.05
+    return el.start_sec >= blockStartSec - 0.001 && el.start_sec < blockEnd - 0.001
   }) as OpenCutTextOverlay[]
 }
 
@@ -69,17 +93,19 @@ export function collectCaptionTextFromOverlays(
 
 export function blockHasAnyCaption(
   session: EditSession,
+  blockId: string,
   blockStartSec: number,
-  blockDurationSec: number
+  blockEndSec: number
 ): boolean {
-  return listBlockTextOverlays(session, blockStartSec, blockDurationSec).length > 0
+  return listOverlaysForBlock(session, blockId, blockStartSec, blockEndSec).length > 0
 }
 
-/** 与 blockAlreadyHasCaption 类似，但识别竖排单字层 */
+/** 识别竖排单字层；优先 block 联动归属 */
 export function blockAlreadyHasCaptionText(
   session: EditSession,
+  blockId: string,
   blockStartSec: number,
-  blockDurationSec: number,
+  blockEndSec: number,
   content: string,
   canvasWidth: number,
   canvasHeight: number
@@ -87,7 +113,7 @@ export function blockAlreadyHasCaptionText(
   const normalized = content.replace(/\s+/g, '')
   if (!normalized) return false
 
-  const overlays = listBlockTextOverlays(session, blockStartSec, blockDurationSec)
+  const overlays = listOverlaysForBlock(session, blockId, blockStartSec, blockEndSec)
   if (overlays.length === 0) return false
 
   const combined = collectCaptionTextFromOverlays(overlays, canvasWidth, canvasHeight)
@@ -102,4 +128,13 @@ export function blockAlreadyHasCaptionText(
     if (text === normalized) return true
   }
   return false
+}
+
+export function resolveBlockCaptionTiming(
+  session: EditSession,
+  blockId: string
+): { startSec: number; durationSec: number } | null {
+  const window = resolveBlockOverlayWindow(session, blockId)
+  if (!window) return null
+  return { startSec: window.anchorSec, durationSec: window.durationSec }
 }

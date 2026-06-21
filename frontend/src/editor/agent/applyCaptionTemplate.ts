@@ -2,7 +2,8 @@ import { buildEditorSnapshot } from './buildEditorSnapshot'
 import {
   blockAlreadyHasCaptionText,
   collectCaptionTextFromOverlays,
-  listBlockTextOverlays,
+  listOverlaysForBlock,
+  resolveBlockCaptionTiming,
 } from './blockCaptionUtils'
 import { resolveCaptionPlacement, resolveLayoutAndPosition } from './captionTemplateLayout'
 import { mapFontFamily } from './fontMapping'
@@ -10,6 +11,7 @@ import { mergeDefaultTextAnimation } from './defaultAnimation'
 import { resolveCanvasDimensions } from '../scene/canvas'
 import { DEFAULT_VIDEO_TRACK_ID } from '../videoTracks'
 import { validateMotionType } from './packagingTools'
+import { writeOverlayBlockLink } from '../timeline/timelineBlockLink'
 import type { EditSession } from '../../types/editSession'
 import type { useEditSessionStore } from '../../stores/useEditSessionStore'
 
@@ -122,6 +124,25 @@ function buildOverlayParams(input: {
   return mergeDefaultTextAnimation(params)
 }
 
+function bindOverlayToBlock(
+  getStore: GetEditStore,
+  overlayId: string,
+  blockId: string,
+  startSec: number,
+  durationSec: number
+): void {
+  const store = getStore()
+  const session = store.session
+  if (!session?.overlay_elements) return
+  const element = session.overlay_elements.find((item) => item.id === overlayId)
+  if (!element) return
+  element.start_sec = startSec
+  element.duration_sec = durationSec
+  const timing = resolveBlockCaptionTiming(session, blockId)
+  const offsetSec = timing ? Math.max(0, startSec - timing.startSec) : 0
+  writeOverlayBlockLink(element, blockId, offsetSec)
+}
+
 export function executeApplyCaptionTemplate(
   getStore: GetEditStore,
   args: ApplyCaptionTemplateArguments,
@@ -137,7 +158,7 @@ export function executeApplyCaptionTemplate(
   const style = args.style ?? {}
   const animation = args.animation ?? {}
   const replaceExisting = args.replace_existing === true
-  const entries = parseEntries(args.entries, replaceExisting)
+  let entries = parseEntries(args.entries, replaceExisting)
 
   if (!session) {
     return {
@@ -184,15 +205,20 @@ export function executeApplyCaptionTemplate(
   const blockById = new Map(
     snapshot.blocks
       .filter((block) => block.track_id === DEFAULT_VIDEO_TRACK_ID)
-      .filter((block) => block.timeline_start_sec != null)
+      .filter((block) => block.timeline_start_sec != null && block.timeline_end_sec != null)
       .map((block) => [
         block.id,
         {
           timeline_start_sec: block.timeline_start_sec!,
+          timeline_end_sec: block.timeline_end_sec!,
           duration_sec: block.duration_sec,
         },
       ])
   )
+
+  if (replaceExisting && entries.length === 0) {
+    entries = [...blockById.keys()].map((blockId) => ({ block_id: blockId, text: '' }))
+  }
 
   const dims = resolveCanvasDimensions(session.export_settings, store.previewVideoNaturalSize ?? null)
   const skipExisting = args.skip_existing !== false && !replaceExisting
@@ -217,10 +243,11 @@ export function executeApplyCaptionTemplate(
       continue
     }
 
-    const existingOverlays = listBlockTextOverlays(
-      session,
+    const existingOverlays = listOverlaysForBlock(
+      getStore().session ?? session,
+      entry.block_id,
       target.timeline_start_sec,
-      target.duration_sec
+      target.timeline_end_sec
     )
 
     if (replaceExisting && existingOverlays.length > 0) {
@@ -261,8 +288,9 @@ export function executeApplyCaptionTemplate(
 
     if (skipExisting && blockAlreadyHasCaptionText(
       getStore().session!,
+      entry.block_id,
       target.timeline_start_sec,
-      target.duration_sec,
+      target.timeline_end_sec,
       text,
       dims.width,
       dims.height
@@ -279,16 +307,22 @@ export function executeApplyCaptionTemplate(
       continue
     }
 
+    const blockTiming =
+      resolveBlockCaptionTiming(getStore().session ?? session, entry.block_id) ?? {
+        startSec: target.timeline_start_sec,
+        durationSec: target.timeline_end_sec - target.timeline_start_sec,
+      }
+
     const params = buildOverlayParams({ text, placement, style, animation })
     store.addOverlayElement(
       {
         type: 'text',
         hidden: false,
-        start_sec: target.timeline_start_sec,
-        duration_sec: target.duration_sec,
+        start_sec: blockTiming.startSec,
+        duration_sec: blockTiming.durationSec,
         params,
       },
-      { recordHistory: false }
+      { recordHistory: false, skipTimingClamp: true }
     )
 
     const overlayId = getStore().selectedOverlayId
@@ -304,6 +338,14 @@ export function executeApplyCaptionTemplate(
       continue
     }
 
+    bindOverlayToBlock(
+      getStore,
+      overlayId,
+      entry.block_id,
+      blockTiming.startSec,
+      blockTiming.durationSec
+    )
+
     overlaysAdded += 1
     let splitCharCount = 0
 
@@ -318,10 +360,19 @@ export function executeApplyCaptionTemplate(
           center_x: placement.normalizedCenter.x,
           center_y: placement.normalizedCenter.y,
         },
-        { recordHistory: false }
+        { recordHistory: false, skipTimingClamp: true }
       )
       splitCharCount = createdIds.length
       splitCharLayers += splitCharCount
+      const sessionAfterSplit = getStore().session
+      if (sessionAfterSplit) {
+        for (const charId of createdIds) {
+          const charEl = sessionAfterSplit.overlay_elements?.find((item) => item.id === charId)
+          if (!charEl) continue
+          const offsetSec = Math.max(0, charEl.start_sec - blockTiming.startSec)
+          writeOverlayBlockLink(charEl, entry.block_id, offsetSec)
+        }
+      }
     }
 
     items.push({
