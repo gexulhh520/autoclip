@@ -121,14 +121,19 @@ export interface CompositorPreviewProps {
 
 const PLAYBACK_END_EPSILON_SEC = 0.02
 
-function paintAfterVideoSync(videos: HTMLVideoElement[], paint: () => void) {
+function paintAfterVideoSync(
+  videos: HTMLVideoElement[],
+  paint: () => void,
+  isCurrentGeneration: () => boolean
+) {
   if (videos.length === 0) {
-    paint()
+    if (isCurrentGeneration()) paint()
     return
   }
 
   let pending = 0
   const finish = () => {
+    if (!isCurrentGeneration()) return
     pending -= 1
     if (pending <= 0) paint()
   }
@@ -136,6 +141,7 @@ function paintAfterVideoSync(videos: HTMLVideoElement[], paint: () => void) {
   for (const video of videos) {
     pending += 1
     const awaitFrame = () => {
+      if (!isCurrentGeneration()) return
       if (typeof video.requestVideoFrameCallback === 'function') {
         video.requestVideoFrameCallback(finish)
       } else {
@@ -147,6 +153,7 @@ function paintAfterVideoSync(videos: HTMLVideoElement[], paint: () => void) {
       continue
     }
     requestAnimationFrame(() => {
+      if (!isCurrentGeneration()) return
       if (video.seeking) {
         video.addEventListener('seeked', finish, { once: true })
       } else {
@@ -228,6 +235,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
   const resolveCompositionSecRef = useRef<() => number>(() => sequencePlayheadSec)
   const paintAtRef = useRef<(compositionSec: number, forceSeek: boolean) => number>(() => 0)
+  const paintGenerationRef = useRef(0)
 
   const isPlayingRef = useRef(isPlaying)
   isPlayingRef.current = isPlaying
@@ -379,13 +387,11 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         return didSeek
       }
 
-      if (forceSeek) {
-        didSeek = seekVideoToTarget(video, target, { play: false, forceSeek: true })
-      } else if (Math.abs(video.currentTime - target) > PAUSED_SEEK_THRESHOLD_SEC) {
-        didSeek = seekVideoToTarget(video, target, { play: false, forceSeek: false })
-      } else {
-        video.pause()
+      if (forceSeek || Math.abs(video.currentTime - target) > PAUSED_SEEK_THRESHOLD_SEC) {
+        video.currentTime = target
+        didSeek = true
       }
+      video.pause()
       return didSeek
     },
     [getSourceTimeForBlock, getVideoUrlForBlock, isPlaying]
@@ -545,8 +551,16 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         })
       }
 
-      if ((!isPlaying && forceSeek) || anySeek) {
-        paintAfterVideoSync([...collectVideosForLayers(vm.videoLayers).values()], renderCanvas)
+      const generation = paintGenerationRef.current + 1
+      paintGenerationRef.current = generation
+      const isCurrentGeneration = () => paintGenerationRef.current === generation
+
+      if (anySeek) {
+        paintAfterVideoSync(
+          [...collectVideosForLayers(vm.videoLayers).values()],
+          renderCanvas,
+          isCurrentGeneration
+        )
       } else {
         renderCanvas()
       }
