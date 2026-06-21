@@ -13,7 +13,7 @@ import type { useEditSessionStore } from '../../stores/useEditSessionStore'
 type GetEditStore = () => ReturnType<typeof useEditSessionStore.getState>
 
 const MOMENT_SEARCH_PATTERN =
-  /找到|找出|筛选|检索|挑选|哪些.*片段|所有.*片段|打斗|打架|格斗|金句|哲学|传播|共鸣|有感觉|能引起|剪出来|挑.*片段|符合.*条件/
+  /找到|找出|筛选|检索|挑选|哪些.*片段|所有.*片段|打斗|打架|格斗|金句|哲学|诗歌|古诗词|诗词|传播|共鸣|有感觉|能引起|剪出来|挑.*片段|符合.*条件/
 
 const ANALYZE_ONLY_PATTERN =
   /^(这段|当前片段|这个视频).*(说了什么|讲什么|说什么|内容是什么)|视频内容是什么|画面内容$/

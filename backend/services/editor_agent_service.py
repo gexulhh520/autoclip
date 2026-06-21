@@ -40,16 +40,7 @@ from backend.services.editor_agent_tools import (
     validate_tool_calls,
 )
 from backend.services.editor_moment_search import (
-    WHISPER_SKIP_MIN_DURATION_SEC,
-    build_matched_moments,
-    build_matched_moments_from_timeline_ranges,
-    collect_block_transcript,
-    extract_block_sample_frames,
-    find_moments_in_frames,
-    find_moments_in_transcript,
-    is_visual_primary_search,
-    merge_matched_moments,
-    merge_visual_frame_hits,
+    search_block_moments_staged,
 )
 
 logger = logging.getLogger(__name__)
@@ -371,109 +362,30 @@ class EditorAgentService:
         timeline_start = float(request.timeline_start_sec or 0)
         duration = max(duration, 0.1)
 
-        has_visual_plan = bool(request.sample_times_sec) or bool(request.frames)
-        skip_whisper = (
-            is_visual_primary_search(criteria)
-            and duration >= WHISPER_SKIP_MIN_DURATION_SEC
-            and has_visual_plan
-        )
-        segments, transcript_source = collect_block_transcript(
-            project_id,
-            session_id,
-            block,
-            skip_whisper=skip_whisper,
-        )
         frame_dicts = [
             {"time_sec": float(f.time_sec), "image_base64": f.image_base64.strip()}
             for f in request.frames
             if f.image_base64.strip()
         ]
-        if not frame_dicts and request.sample_times_sec:
-            project_dir = get_project_directory(project_id)
-            frame_dicts = extract_block_sample_frames(
-                project_dir,
-                block,
-                list(request.sample_times_sec),
-                timeline_start,
-                duration,
-            )
-
-        all_matches: List[MatchedMoment] = []
-
-        if segments:
-            scored = find_moments_in_transcript(
-                self.llm_manager,
-                criteria,
-                segments,
-                max_results=max_results,
-            )
-            all_matches.extend(
-                build_matched_moments(
-                    block,
-                    timeline_start,
-                    duration,
-                    transcript_source,
-                    scored,
-                )
-            )
-
-        if frame_dicts:
-            visual_hits = find_moments_in_frames(
-                self.llm_manager,
-                criteria,
-                frame_dicts,
-                max_results=max_results,
-            )
-            if visual_hits:
-                sample_times = list(request.sample_times_sec or [])
-                if len(sample_times) >= 2:
-                    intervals = [
-                        sample_times[i + 1] - sample_times[i]
-                        for i in range(len(sample_times) - 1)
-                        if sample_times[i + 1] > sample_times[i]
-                    ]
-                    sample_interval = sum(intervals) / len(intervals) if intervals else duration / max(len(frame_dicts), 1)
-                else:
-                    sample_interval = duration / max(len(frame_dicts), 1)
-                ranges = merge_visual_frame_hits(
-                    visual_hits,
-                    max(sample_interval, 1.0),
-                    max_results,
-                )
-                all_matches.extend(
-                    build_matched_moments_from_timeline_ranges(
-                        block,
-                        timeline_start,
-                        duration,
-                        ranges,
-                        "visual",
-                    )
-                )
-
-        matches = merge_matched_moments(all_matches, max_results)
-
-        note_parts: List[str] = []
-        if segments:
-            note_parts.append(f"文本检索：{transcript_source}，{len(segments)} 段")
-        if frame_dicts:
-            note_parts.append(f"画面检索：{len(frame_dicts)} 帧")
-        if not segments and not frame_dicts:
-            note_parts.append(
-                "无转写且无预览帧。请确认片段已加载，或先跑导入流水线/安装 Whisper"
-            )
-        if matches:
-            note_parts.append(
-                "matches 含 trim_in_sec/trim_out_sec 与 timeline 时间；裁切可用 update_block_trim"
-            )
-        else:
-            note_parts.append("未找到符合检索条件的片段，可放宽描述或换条件")
+        staged = search_block_moments_staged(
+            self.llm_manager,
+            project_id,
+            session_id,
+            block,
+            criteria,
+            timeline_start,
+            duration,
+            max_results,
+            client_sample_times_sec=list(request.sample_times_sec or []),
+            client_frames=frame_dicts or None,
+        )
 
         return FindBlockMomentsResponse(
             block_id=request.block_id,
             search_criteria=criteria,
-            transcript_source=transcript_source if segments else "none",
-            transcript_segment_count=len(segments),
-            visual_frame_count=len(frame_dicts),
+            transcript_source=staged.transcript_source,
+            transcript_segment_count=staged.transcript_segment_count,
+            visual_frame_count=staged.visual_frame_count,
             matches=[
                 MatchedMoment(
                     start_sec=m.start_sec,
@@ -487,9 +399,9 @@ class EditorAgentService:
                     match_reason=m.match_reason,
                     transcript_source=m.transcript_source,
                 )
-                for m in matches
+                for m in staged.matches
             ],
-            note="；".join(note_parts),
+            note="；".join(staged.note_parts),
         )
 
     def _analyze_video_frames_parallel(

@@ -10,6 +10,7 @@ describe('momentSearchFastPath', () => {
   it('detects moment search without export intent', () => {
     expect(isMomentSearchRequest('找到视频中所有打斗的片段')).toBe(true)
     expect(isMomentSearchRequest('找到所有金句片段')).toBe(true)
+    expect(isMomentSearchRequest('找到包含诗歌或古诗词的片段')).toBe(true)
   })
 
   it('routes export intents away from search-only fast path', () => {

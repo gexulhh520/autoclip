@@ -2,13 +2,18 @@
 import json
 
 from backend.services.editor_moment_search import (
+    MatchedMoment,
+    TranscriptSegment,
+    VisualFrameHit,
+    build_timeline_sample_times_for_moments,
+    build_uniform_timeline_sample_times,
+    find_moments_in_transcript,
     is_visual_primary_search,
     merge_matched_moments,
     merge_visual_frame_hits,
+    needs_visual_text_confirm,
+    resolve_search_strategy,
     timeline_sample_to_source_sec,
-    VisualFrameHit,
-    find_moments_in_transcript,
-    TranscriptSegment,
 )
 
 
@@ -60,6 +65,31 @@ def test_find_moments_in_transcript():
 def test_is_visual_primary_search():
     assert is_visual_primary_search("找到所有打斗场景") is True
     assert is_visual_primary_search("富有哲学的话") is False
+    assert resolve_search_strategy("找到所有打斗场景") == "visual_primary"
+    assert resolve_search_strategy("找到诗歌片段") == "text_primary"
+
+
+def test_needs_visual_text_confirm():
+    assert needs_visual_text_confirm("找到古诗词片段") is True
+    assert needs_visual_text_confirm("找到打斗场面") is False
+
+
+def test_build_uniform_timeline_sample_times():
+    times = build_uniform_timeline_sample_times(10.0, 100.0, 4)
+    assert len(times) == 4
+    assert times[0] > 10.0
+    assert times[-1] < 110.0
+
+
+def test_build_timeline_sample_times_for_moments():
+    moments = [
+        MatchedMoment(
+            0, 5, 20, 25, 0, 5, "床前明月光", 0.9, "古诗", "srt"
+        )
+    ]
+    times = build_timeline_sample_times_for_moments(moments, frames_per_moment=2)
+    assert len(times) == 2
+    assert all(20 < t < 25 for t in times)
 
 
 def test_timeline_sample_to_source_sec():
