@@ -50,6 +50,33 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "add_captions_for_blocks",
+            "description": "为每个主轨片段添加一条字幕（一次调用）。layout=vertical 时竖排拆字+动画；skip_existing 避免重复。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {"type": "string"},
+                    "block_ids": {"type": "array", "items": {"type": "string"}},
+                    "skip_existing": {"type": "boolean"},
+                    "layout": {"type": "string", "enum": ["horizontal", "vertical"]},
+                    "fontSize": {"type": "number"},
+                    "fontFamily": {"type": "string"},
+                    "color": {"type": "string"},
+                    "fontWeight": {"type": "string"},
+                    "in_type": {
+                        "type": "string",
+                        "enum": ["none", "fade", "slide_up", "slide_down", "scale", "pop"],
+                    },
+                    "in_duration_sec": {"type": "number"},
+                    "stagger_sec": {"type": "number"},
+                },
+                "required": ["content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "update_overlay_params",
             "description": "更新已有文本层",
             "parameters": {

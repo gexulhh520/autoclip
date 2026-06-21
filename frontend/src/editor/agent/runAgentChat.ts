@@ -26,6 +26,16 @@ const MAX_AGENT_ROUNDS = 12
 /** 用户确认执行写工具后的验证/修正轮次 */
 const MAX_POST_APPLY_ROUNDS = 6
 
+/** 任务内 auto 执行时，非批量写工具的单轮上限 */
+export const MAX_AUTO_EXECUTE_WRITE_CALLS = 8
+
+export const BATCH_AUTO_WRITE_TOOLS = new Set([
+  'add_captions_for_blocks',
+  'split_text_overlay_by_char',
+  'split_text_overlays_by_char',
+  'batch_apply_text_style',
+])
+
 /** 单任务执行轮次上限 */
 const MAX_TASK_EXEC_ROUNDS = 8
 
@@ -185,6 +195,30 @@ export async function runAgentChatLoop(
 
     if (writeCalls.length > 0) {
       const hasDangerous = writeCalls.some((call) => isDangerousAgentTool(call.name))
+      const nonBatchWriteCount = writeCalls.filter((call) => !BATCH_AUTO_WRITE_TOOLS.has(call.name)).length
+      if (
+        options.autoExecuteWrites &&
+        !hasDangerous &&
+        nonBatchWriteCount > MAX_AUTO_EXECUTE_WRITE_CALLS
+      ) {
+        debugTrace.outcome = 'plan'
+        const assistantMessage =
+          response.assistant_message ||
+          `写操作过多（${nonBatchWriteCount} 步），请确认后执行；每段加字幕请改用 add_captions_for_blocks。`
+        return finishResult(
+          debugTrace,
+          {
+            assistant_message: assistantMessage,
+            history: [...messages, { role: 'assistant', content: assistantMessage }],
+            plan: {
+              summary: assistantMessage,
+              tool_calls: writeCalls,
+              source: 'llm',
+            },
+          },
+          executedWrites
+        )
+      }
       if (options.autoExecuteWrites && !hasDangerous) {
         const results = await confirmExecutePlan(writeCalls, input.projectId)
         const failed = results.find((item) => !item.ok)

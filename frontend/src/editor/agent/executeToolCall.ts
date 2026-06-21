@@ -35,6 +35,10 @@ import {
 } from './packagingTools'
 import { resolveCanvasDimensions } from '../scene/canvas'
 import {
+  executeAddCaptionsForBlocks,
+  type AddCaptionsForBlocksArguments,
+} from './addCaptionsForBlocks'
+import {
   describeSplitTextOverlayFailure,
   resolveBatchSplitPlacement,
   resolveSplitTextOverlayId,
@@ -419,6 +423,34 @@ export async function executeWriteToolCall(
           { recordHistory }
         )
         return { ok: true, tool_name: call.name, data: { overlay_id: getStore().selectedOverlayId } }
+      }
+      case 'add_captions_for_blocks': {
+        const data = executeAddCaptionsForBlocks(
+          getStore,
+          {
+            content: str(call.arguments.content),
+            block_ids: call.arguments.block_ids as string[] | undefined,
+            skip_existing: call.arguments.skip_existing as boolean | undefined,
+            layout: call.arguments.layout as AddCaptionsForBlocksArguments['layout'],
+            fontSize: call.arguments.fontSize as number | undefined,
+            fontFamily: call.arguments.fontFamily as string | undefined,
+            color: call.arguments.color as string | undefined,
+            fontWeight: call.arguments.fontWeight as string | undefined,
+            in_type: call.arguments.in_type,
+            in_duration_sec: call.arguments.in_duration_sec as number | undefined,
+            stagger_sec: call.arguments.stagger_sec as number | undefined,
+          },
+          { recordHistory }
+        )
+        if (data.overlays_added === 0 && data.overlays_skipped === 0 && data.items.some((i) => i.error)) {
+          return {
+            ok: false,
+            tool_name: call.name,
+            error: data.items.find((i) => i.error)?.error ?? '未能为片段添加字幕',
+            data,
+          }
+        }
+        return { ok: true, tool_name: call.name, data }
       }
       case 'update_overlay_params': {
         const overlayId = str(call.arguments.overlay_id)

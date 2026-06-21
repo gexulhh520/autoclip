@@ -155,6 +155,19 @@ export function compactToolResultData(
       return { ...result, data: compactCapturePreview(data) }
     case 'verify_subtitle_in_frame':
       return result
+    case 'add_captions_for_blocks': {
+      const data = result.data as Record<string, unknown> | undefined
+      return {
+        ...result,
+        data: {
+          content: data?.content,
+          blocks_targeted: data?.blocks_targeted,
+          overlays_added: data?.overlays_added,
+          overlays_skipped: data?.overlays_skipped,
+          split_char_layers: data?.split_char_layers,
+        },
+      }
+    }
     case 'split_text_overlays_by_char': {
       const data = result.data as Record<string, unknown> | undefined
       return {

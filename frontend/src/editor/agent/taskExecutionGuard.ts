@@ -32,8 +32,13 @@ export function buildTaskExecutionMessages(
   }
   if (taskExpectsTimelineWrites(task)) {
     lines.push(
-      '本任务须调用写工具改动时间线（如 add_text_overlay、split_text_overlays_by_char、set_text_animation），禁止仅用「已完成」文字回复。'
+      '本任务须调用写工具改动时间线（如 add_captions_for_blocks、split_text_overlays_by_char、set_text_animation），禁止仅用「已完成」文字回复。'
     )
+    if (/每段|每个片段|每条.*片段/.test(task.title) && /字幕|加字|文本/.test(task.title)) {
+      lines.push(
+        '为多个片段加字幕：必须用 add_captions_for_blocks 一次完成（layout=vertical 可竖排拆字+动画），禁止循环 10+ 次 add_text_overlay。'
+      )
+    }
   }
   return [{ role: 'user', content: lines.join('\n') }]
 }

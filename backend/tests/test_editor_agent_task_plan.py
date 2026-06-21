@@ -21,7 +21,21 @@ def test_validate_tool_calls_accepts_submit_task_plan():
     assert len(calls[0].arguments["tasks"]) == 2
 
 
-def test_validate_tool_calls_accepts_split_text_overlays_by_char():
+def test_validate_tool_calls_accepts_add_captions_for_blocks():
+    calls = validate_tool_calls(
+        [
+            {
+                "name": "add_captions_for_blocks",
+                "arguments": {
+                    "content": "我很好",
+                    "layout": "vertical",
+                    "skip_existing": True,
+                    "in_type": "fade",
+                },
+            }
+        ]
+    )
+    assert calls[0].name == "add_captions_for_blocks"
     calls = validate_tool_calls(
         [
             {

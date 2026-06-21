@@ -51,6 +51,34 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
   {
     type: 'function',
     function: {
+      name: 'add_captions_for_blocks',
+      description:
+        '为每个主轨视频片段添加一条字幕（一次调用，勿循环 add_text_overlay）。start_sec 自动用 timeline_start_sec；layout=vertical 时加完后竖排拆字+动画。skip_existing 默认跳过已有同内容字幕。',
+      parameters: {
+        type: 'object',
+        properties: {
+          content: { type: 'string' },
+          block_ids: { type: 'array', items: { type: 'string' }, description: '缺省=全部主轨片段' },
+          skip_existing: { type: 'boolean', description: '默认 true，避免重复加字幕' },
+          layout: { type: 'string', enum: ['horizontal', 'vertical'] },
+          fontSize: { type: 'number' },
+          fontFamily: { type: 'string' },
+          color: { type: 'string' },
+          fontWeight: { type: 'string' },
+          in_type: {
+            type: 'string',
+            enum: ['none', 'fade', 'slide_up', 'slide_down', 'scale', 'pop'],
+          },
+          in_duration_sec: { type: 'number' },
+          stagger_sec: { type: 'number' },
+        },
+        required: ['content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'update_overlay_params',
       description: '更新已有文本层样式或位置',
       parameters: {
@@ -511,6 +539,11 @@ export function formatToolCallSummary(name: string, args: Record<string, unknown
   switch (name) {
     case 'add_text_overlay':
       return `添加文本「${String(args.content ?? '').slice(0, 24)}」@${args.start_sec ?? 0}s`
+    case 'add_captions_for_blocks': {
+      const layout = args.layout === 'vertical' ? '竖排' : '横排'
+      const blocks = Array.isArray(args.block_ids) ? args.block_ids.length : '全部片段'
+      return `每段字幕「${String(args.content ?? '').slice(0, 16)}」(${blocks}) ${layout}`
+    }
     case 'update_overlay_params':
       return `更新文本层 ${args.overlay_id}`
     case 'set_video_transform':

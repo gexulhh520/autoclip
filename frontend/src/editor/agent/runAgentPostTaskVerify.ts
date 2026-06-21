@@ -12,6 +12,7 @@ import type {
 } from '../../types/editorAgent'
 
 export const LAYOUT_WRITE_TOOL_NAMES = new Set([
+  'add_captions_for_blocks',
   'split_text_overlay_by_char',
   'split_text_overlays_by_char',
   'update_overlay_params',
