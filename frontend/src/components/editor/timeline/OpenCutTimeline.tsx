@@ -570,7 +570,21 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     if ((event.target as HTMLElement).closest('.oc-timeline__resize')) return
     event.stopPropagation()
     const startX = event.clientX
+    const startY = event.clientY
     const initialStart = element.startTime
+    let pointerMoved = false
+    const notePointerMove = (moveEvent: PointerEvent) => {
+      if (
+        !pointerMoved &&
+        (Math.abs(moveEvent.clientX - startX) > 5 || Math.abs(moveEvent.clientY - startY) > 5)
+      ) {
+        pointerMoved = true
+      }
+    }
+    const seekFromClickIfStationary = (upEvent: PointerEvent) => {
+      if (pointerMoved) return
+      seek(clientXToTimelineSec(upEvent.clientX))
+    }
     const sourceTrack = tracks.find((item) => item.id === trackId)
     const findTrackForElement = (elementId: string): AdaptedTrack | undefined =>
       tracks.find((track) => track.elements.some((item) => item.id === elementId))
@@ -633,6 +647,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         const frozenSegments = segments
 
         const onOverlayMove = (moveEvent: PointerEvent) => {
+          notePointerMove(moveEvent)
           const deltaSec =
             (moveEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
           const raw = Math.max(0, initialStart + deltaSec)
@@ -703,6 +718,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
             })
             setActiveVideoTrackId(DEFAULT_VIDEO_TRACK_ID)
             void flushSaveSession(projectId)
+            seekFromClickIfStationary(upEvent)
             window.removeEventListener('pointermove', onOverlayMove)
             window.removeEventListener('pointerup', onOverlayUp)
             return
@@ -732,6 +748,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
             }
           }
           void flushSaveSession(projectId)
+          seekFromClickIfStationary(upEvent)
           window.removeEventListener('pointermove', onOverlayMove)
           window.removeEventListener('pointerup', onOverlayUp)
         }
@@ -763,6 +780,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       })
 
       const applyMove = (moveEvent: PointerEvent) => {
+        notePointerMove(moveEvent)
         const targetVideoTrack = resolveTargetVideoTrackAtClientY(moveEvent.clientY)
         if (targetVideoTrack && !targetVideoTrack.isMain) {
           const pointerSec = snapTime(
@@ -834,6 +852,8 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           }
         } else if (pendingTargetIndex !== fromIndex) {
           reorderBlocks(fromIndex, pendingTargetIndex, { recordHistory: false })
+        } else {
+          seekFromClickIfStationary(upEvent)
         }
 
         window.removeEventListener('pointermove', onBlockMove)
@@ -846,6 +866,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     }
 
     const onMove = (moveEvent: PointerEvent) => {
+      notePointerMove(moveEvent)
       const deltaSec = (moveEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
       const raw = Math.max(0, initialStart + deltaSec)
       const snapped = snapTime(raw, sequenceSnapPoints, snapEnabled)
@@ -1005,6 +1026,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         }
         void flushSaveSession(projectId)
       }
+      seekFromClickIfStationary(upEvent)
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
     }
