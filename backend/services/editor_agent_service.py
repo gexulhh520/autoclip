@@ -13,12 +13,16 @@ from backend.schemas.editor_agent import (
     AnalyzeLayoutResponse,
     AnalyzeSubtitleFrameRequest,
     AnalyzeSubtitleFrameResponse,
+    AnalyzeVideoContentRequest,
+    AnalyzeVideoContentResponse,
     AgentChatRequest,
     AgentChatResponse,
     AgentChatDebugInfo,
     AgentToolCall,
     LayoutAnalysis,
     SubtitleFrameVerdict,
+    VideoContentAnalysis,
+    VideoFrameObservation,
 )
 from backend.services.editor_agent_debug import (
     agent_debug_enabled,
@@ -67,6 +71,26 @@ DEFAULT_SUBTITLE_FRAME_PROMPT = (
     "请检查这一帧中的字幕/文本层是否在画面安全区内，输出 SubtitleFrameVerdict JSON。"
 )
 
+ANALYZE_VIDEO_CONTENT_SYSTEM = """你是短视频内容分析助手。用户会提供同一视频片段的多张预览帧（按时间顺序）、音频静音分段摘要、已有文案（若有）。
+只输出一个 JSON 对象（不要 markdown 代码块、不要解释文字）。
+
+Schema 字段：
+- summary: 一句话概括片段内容与用途
+- subjects: string[]，画面主体/人物/物体
+- scene_types: string[]，如 talking_head、b_roll、screen_record、product、landscape、gameplay 等
+- visual_pacing: slow|medium|fast，画面节奏
+- mood: 情绪/氛围（简短中文）
+- key_moments: [{time_sec, description}]，结合 sample_times 描述关键画面变化（最多 5 条）
+- editing_suggestions: string[]，可执行的剪辑建议（如可切分点、适合加字幕的位置、画面构图问题）
+- confidence: high|medium|low
+- frame_observations: [{time_sec, scene_summary, subjects, shot_type}]，每张抽帧一条
+
+结合 audio_analysis 中的 speech/silence 分段判断口播/停顿；有 existing_text 时可对照画面，但不要照抄长文。"""
+
+DEFAULT_VIDEO_CONTENT_PROMPT = (
+    "请分析该视频片段的画面内容与节奏，结合音频分段信息输出 VideoContentAnalysis JSON。"
+)
+
 AGENT_EXECUTE_SYSTEM = """你是 AutoClip 剪辑助手，帮助用户在剪辑工作台完成各类操作。
 
 你可理解并执行的需求包括但不限于：
@@ -76,7 +100,7 @@ AGENT_EXECUTE_SYSTEM = """你是 AutoClip 剪辑助手，帮助用户在剪辑�
 - 音频：添加 BGM/SFX、调整片段原声音量与淡化
 - 节奏：静音检测裁切、播放头切分、删除片段（remove_block 为危险操作）
 - 包装：文本动画、批量统一样式（禁止 batch 改 content）
-- 感知：verify_subtitle_in_frame 截帧并由画面分析子 Agent 返回简短 JSON（不含 JPEG）；capture_preview_frame 仅调试
+- 感知：verify_subtitle_in_frame 截帧并由画面分析子 Agent 返回简短 JSON（不含 JPEG）；analyze_block_content 对片段多帧抽帧+音频静音分段做内容分析；capture_preview_frame 仅调试
 - 时间线：移动播放头、了解当前草稿结构（通过只读工具）
 
 只能通过 tools 修改时间线；禁止臆造 block_id / overlay_id。
@@ -110,6 +134,7 @@ AGENT_EXECUTE_SYSTEM = """你是 AutoClip 剪辑助手，帮助用户在剪辑�
 26. 滤镜/高对比/冷暖色调：一次 set_visual_filter（整片全局生效，非 per-block）。高对比=mono_contrast；柔和单色=mono_soft；冷色=mono_cool；暖色=mono_warm；取消=none。可选列表见 snapshot.visual_filter_options；当前值 snapshot.visual_filter。勿用 set_video_transform。
 27. 读工具只用于当次决策；读结果不进入下一轮上下文。跨轮次只保留写操作成败摘要（execution ledger）；当前状态以每次 EditorSnapshot 为准，勿重复 get_timeline_summary。
 28. snapshot.focused_block_id / focused_block 表示用户从时间线「添加到 AI 助手」钉住的片段。用户问「这段/当前片段/这个视频多长」时优先用 focused_block（含 duration_sec、trim、timeline 位置）或 get_block_detail(focused_block_id)；修改操作若针对该片段须带对应 block_id。
+29. 用户问「这段讲什么/画面内容/适合怎么剪」时：调用 analyze_block_content（block_id 缺省用 focused_block_id 或 selected_block_id）。该工具会静音分段+多帧视觉分析，返回 summary/key_moments/editing_suggestions，勿反复截帧。
 
 snapshot、layout_reference（若有）由请求附带。"""
 
@@ -200,6 +225,125 @@ class EditorAgentService:
             model=response.model,
             usage=response.usage,
             raw_content=response.content,
+        )
+
+    def analyze_video_content(
+        self, request: AnalyzeVideoContentRequest
+    ) -> AnalyzeVideoContentResponse:
+        frames = [item for item in request.frames if item.image_base64.strip()]
+        if not frames:
+            raise ValueError("预览帧不能为空")
+
+        meta = {
+            "block_id": request.block_id,
+            "block_title": request.block_title,
+            "duration_sec": request.duration_sec,
+            "timeline_start_sec": request.timeline_start_sec,
+            "timeline_end_sec": request.timeline_end_sec,
+            "trim": request.trim,
+            "sample_times_sec": request.sample_times_sec,
+            "aspect": request.aspect,
+            "canvas_width": request.canvas_width,
+            "canvas_height": request.canvas_height,
+            "audio_analysis": request.audio_analysis,
+            "existing_text": request.existing_text,
+            "user_question": request.user_question,
+        }
+        user_content = (request.prompt or "").strip() or DEFAULT_VIDEO_CONTENT_PROMPT
+        if request.user_question:
+            user_content = f"用户问题：{request.user_question}\n\n{user_content}"
+        user_content = f"Block meta JSON:\n{json.dumps(meta, ensure_ascii=False)}\n\n{user_content}"
+
+        messages = [
+            {"role": "system", "content": ANALYZE_VIDEO_CONTENT_SYSTEM},
+            {
+                "role": "user",
+                "content": user_content,
+                "images": [frame.image_base64 for frame in frames],
+            },
+        ]
+
+        response = self.llm_manager.chat_completion(
+            messages,
+            think=False,
+            num_predict=1536,
+            timeout=240,
+            temperature=0.25,
+        )
+
+        analysis = self._parse_video_content_analysis(
+            response.content or "",
+            request.sample_times_sec,
+        )
+
+        return AnalyzeVideoContentResponse(
+            analysis=analysis,
+            block_id=request.block_id,
+            model=response.model,
+            usage=response.usage,
+            raw_content=response.content,
+        )
+
+    def _parse_video_content_analysis(
+        self, raw_content: str, sample_times: List[float]
+    ) -> VideoContentAnalysis:
+        parsed = self.llm_manager.parse_json_response(raw_content)
+        if not isinstance(parsed, dict):
+            raise ValueError("模型返回的不是 JSON 对象")
+
+        confidence = str(parsed.get("confidence") or "medium").strip().lower()
+        if confidence not in {"high", "medium", "low"}:
+            confidence = "medium"
+        pacing = str(parsed.get("visual_pacing") or "medium").strip().lower()
+        if pacing not in {"slow", "medium", "fast"}:
+            pacing = "medium"
+
+        def _str_list(key: str) -> List[str]:
+            value = parsed.get(key)
+            if not isinstance(value, list):
+                return []
+            return [str(item).strip() for item in value if str(item).strip()]
+
+        key_moments_raw = parsed.get("key_moments")
+        key_moments: List[Dict[str, Any]] = []
+        if isinstance(key_moments_raw, list):
+            for item in key_moments_raw[:5]:
+                if not isinstance(item, dict):
+                    continue
+                key_moments.append(
+                    {
+                        "time_sec": float(item.get("time_sec") or 0),
+                        "description": str(item.get("description") or "").strip(),
+                    }
+                )
+
+        frame_obs_raw = parsed.get("frame_observations")
+        frame_observations: List[VideoFrameObservation] = []
+        if isinstance(frame_obs_raw, list):
+            for index, item in enumerate(frame_obs_raw[:8]):
+                if not isinstance(item, dict):
+                    continue
+                fallback_time = sample_times[index] if index < len(sample_times) else 0.0
+                subjects = item.get("subjects")
+                frame_observations.append(
+                    VideoFrameObservation(
+                        time_sec=float(item.get("time_sec") or fallback_time),
+                        scene_summary=str(item.get("scene_summary") or "").strip(),
+                        subjects=[str(s).strip() for s in subjects] if isinstance(subjects, list) else [],
+                        shot_type=str(item.get("shot_type") or "").strip(),
+                    )
+                )
+
+        return VideoContentAnalysis(
+            summary=str(parsed.get("summary") or "").strip(),
+            subjects=_str_list("subjects"),
+            scene_types=_str_list("scene_types"),
+            visual_pacing=pacing,
+            mood=str(parsed.get("mood") or "").strip(),
+            key_moments=key_moments,
+            editing_suggestions=_str_list("editing_suggestions"),
+            confidence=confidence,
+            frame_observations=frame_observations,
         )
 
     def _parse_subtitle_frame_verdict(self, raw_content: str) -> SubtitleFrameVerdict:

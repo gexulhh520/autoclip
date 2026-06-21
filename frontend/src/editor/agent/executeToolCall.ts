@@ -8,6 +8,7 @@ import {
 } from './buildEditorSnapshot'
 import { capturePreviewFrame } from './capturePreviewFrame'
 import { resolveCaptureMaxWidth } from './capturePreviewFrameUtils'
+import { analyzeBlockContent } from './analyzeBlockContent'
 import { verifySubtitleInFrame } from './verifySubtitleInFrame'
 import { listAssets } from './listAssets'
 import {
@@ -138,6 +139,24 @@ export async function executeReadToolCall(
           args: call.arguments,
           selectedOverlayId: store.selectedOverlayId,
           playheadSec: store.sequencePlayheadSec,
+        })
+        return { ok: true, tool_name: call.name, data }
+      }
+      case 'analyze_block_content': {
+        const projectId = context?.projectId?.trim()
+        if (!projectId) {
+          return { ok: false, tool_name: call.name, error: '缺少 projectId，无法分析片段内容' }
+        }
+        const sessionId = session.id
+        if (!sessionId) {
+          return { ok: false, tool_name: call.name, error: '缺少 sessionId，无法分析片段内容' }
+        }
+        const data = await analyzeBlockContent({
+          projectId,
+          sessionId,
+          session,
+          args: call.arguments,
+          selectedBlockId: store.selectedBlockId,
         })
         return { ok: true, tool_name: call.name, data }
       }

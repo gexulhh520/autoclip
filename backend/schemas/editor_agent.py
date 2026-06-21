@@ -112,6 +112,56 @@ class AnalyzeSubtitleFrameResponse(BaseModel):
     raw_content: Optional[str] = None
 
 
+class AnalyzeVideoContentFrame(BaseModel):
+    time_sec: float = 0.0
+    image_base64: str = ""
+
+
+class VideoFrameObservation(BaseModel):
+    time_sec: float = 0.0
+    scene_summary: str = ""
+    subjects: List[str] = Field(default_factory=list)
+    shot_type: str = ""
+
+
+class VideoContentAnalysis(BaseModel):
+    summary: str = ""
+    subjects: List[str] = Field(default_factory=list)
+    scene_types: List[str] = Field(default_factory=list)
+    visual_pacing: str = Field(default="medium", description="slow|medium|fast")
+    mood: str = ""
+    key_moments: List[Dict[str, Any]] = Field(default_factory=list)
+    editing_suggestions: List[str] = Field(default_factory=list)
+    confidence: str = Field(default="medium", description="high|medium|low")
+    frame_observations: List[VideoFrameObservation] = Field(default_factory=list)
+
+
+class AnalyzeVideoContentRequest(BaseModel):
+    block_id: str
+    block_title: str = ""
+    duration_sec: float = 0.0
+    timeline_start_sec: float = 0.0
+    timeline_end_sec: float = 0.0
+    trim: Dict[str, float] = Field(default_factory=dict)
+    sample_times_sec: List[float] = Field(default_factory=list)
+    frames: List[AnalyzeVideoContentFrame] = Field(default_factory=list)
+    aspect: Optional[str] = None
+    canvas_width: Optional[int] = None
+    canvas_height: Optional[int] = None
+    audio_analysis: Optional[Dict[str, Any]] = None
+    existing_text: Optional[Dict[str, str]] = None
+    user_question: Optional[str] = None
+    prompt: str = ""
+
+
+class AnalyzeVideoContentResponse(BaseModel):
+    analysis: VideoContentAnalysis
+    block_id: str
+    model: Optional[str] = None
+    usage: Optional[Dict[str, Any]] = None
+    raw_content: Optional[str] = None
+
+
 class AgentChatMessage(BaseModel):
     role: str
     content: str = ""

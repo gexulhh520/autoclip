@@ -511,6 +511,24 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "analyze_block_content",
+            "description": "只读：分析视频片段内容（多帧抽帧+音频静音分段）。block_id 缺省用 focused/selected",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "block_id": {"type": "string"},
+                    "frame_sample_count": {"type": "number"},
+                    "include_audio_analysis": {"type": "boolean"},
+                    "include_existing_text": {"type": "boolean"},
+                    "user_question": {"type": "string"},
+                    "max_width": {"type": "number"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "capture_preview_frame",
             "description": "只读：截帧调试；优先 verify_subtitle_in_frame",
             "parameters": {
@@ -594,6 +612,7 @@ META_AGENT_TOOLS = {
 READ_ONLY_AGENT_TOOLS = {
     "list_assets",
     "verify_subtitle_in_frame",
+    "analyze_block_content",
     "capture_preview_frame",
     "get_timeline_summary",
     "get_block_detail",

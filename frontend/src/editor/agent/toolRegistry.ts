@@ -526,6 +526,34 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
   {
     type: 'function',
     function: {
+      name: 'analyze_block_content',
+      description:
+        '只读：分析视频片段内容。对片段均匀抽帧做画面理解，并结合音频静音分段（speech/silence）；返回 summary、关键画面、剪辑建议。block_id 缺省用 focused_block_id 或 selected_block_id',
+      parameters: {
+        type: 'object',
+        properties: {
+          block_id: { type: 'string', description: '目标片段；缺省用 AI 钉住或当前选中片段' },
+          frame_sample_count: {
+            type: 'number',
+            description: '抽帧数量 1–5，默认 3',
+          },
+          include_audio_analysis: {
+            type: 'boolean',
+            description: '是否做音频静音分段，默认 true',
+          },
+          include_existing_text: {
+            type: 'boolean',
+            description: '是否附带已有字幕/文案对照，默认 true',
+          },
+          user_question: { type: 'string', description: '针对该片段的具体问题' },
+          max_width: { type: 'number', description: '抽帧最大宽，默认 720' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'capture_preview_frame',
       description: '只读：截帧调试（主 Agent 看不到 JPEG）；优先用 verify_subtitle_in_frame',
       parameters: {
@@ -618,6 +646,7 @@ export const BATCH_AUTO_WRITE_TOOLS_FRONTEND = new Set([
 export const READ_ONLY_AGENT_TOOLS = new Set([
   'list_assets',
   'verify_subtitle_in_frame',
+  'analyze_block_content',
   'capture_preview_frame',
   'get_timeline_summary',
   'get_block_detail',
@@ -712,6 +741,8 @@ export function formatToolCallSummary(name: string, args: Record<string, unknown
       return `列出素材 (${String(args.category ?? 'all')})`
     case 'verify_subtitle_in_frame':
       return `验证字幕帧 ${args.overlay_id ?? '（自动）'}`
+    case 'analyze_block_content':
+      return `分析片段内容 ${args.block_id ?? '（自动）'}`
     case 'capture_preview_frame':
       return `截帧 @${args.time_sec}s`
     case 'submit_task_plan': {

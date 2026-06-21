@@ -98,6 +98,56 @@ export interface AnalyzeSubtitleFrameResponse {
   raw_content?: string
 }
 
+export interface VideoFrameObservation {
+  time_sec: number
+  scene_summary: string
+  subjects: string[]
+  shot_type: string
+}
+
+export interface VideoContentAnalysis {
+  summary: string
+  subjects: string[]
+  scene_types: string[]
+  visual_pacing: string
+  mood: string
+  key_moments: Array<{ time_sec: number; description: string }>
+  editing_suggestions: string[]
+  confidence: 'high' | 'medium' | 'low' | string
+  frame_observations: VideoFrameObservation[]
+}
+
+export interface AnalyzeVideoContentFrame {
+  time_sec: number
+  image_base64: string
+}
+
+export interface AnalyzeVideoContentRequest {
+  block_id: string
+  block_title?: string
+  duration_sec: number
+  timeline_start_sec: number
+  timeline_end_sec: number
+  trim: { in_sec: number; out_sec: number }
+  sample_times_sec: number[]
+  frames: AnalyzeVideoContentFrame[]
+  aspect?: string
+  canvas_width?: number
+  canvas_height?: number
+  audio_analysis?: unknown
+  existing_text?: { outline_preview?: string; content_preview?: string }
+  user_question?: string
+  prompt?: string
+}
+
+export interface AnalyzeVideoContentResponse {
+  analysis: VideoContentAnalysis
+  block_id: string
+  model?: string
+  usage?: Record<string, number>
+  raw_content?: string
+}
+
 export interface LayoutReference {
   imageDataUrl: string
   prompt: string

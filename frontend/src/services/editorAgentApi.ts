@@ -4,6 +4,8 @@ import type {
   AnalyzeLayoutResponse,
   AnalyzeSubtitleFrameRequest,
   AnalyzeSubtitleFrameResponse,
+  AnalyzeVideoContentRequest,
+  AnalyzeVideoContentResponse,
   AgentChatRequest,
   AgentChatResponse,
 } from '../types/editorAgent'
@@ -29,6 +31,17 @@ export const editorAgentApi = {
       `/projects/${projectId}/edit-sessions/${sessionId}/agent/analyze-subtitle-frame`,
       payload
     )) as AnalyzeSubtitleFrameResponse
+  },
+
+  analyzeVideoContent: async (
+    projectId: string,
+    sessionId: string,
+    payload: AnalyzeVideoContentRequest
+  ): Promise<AnalyzeVideoContentResponse> => {
+    return (await api.post(
+      `/projects/${projectId}/edit-sessions/${sessionId}/agent/analyze-video-content`,
+      payload
+    )) as AnalyzeVideoContentResponse
   },
 
   chat: async (

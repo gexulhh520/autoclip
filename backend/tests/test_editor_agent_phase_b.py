@@ -91,6 +91,19 @@ def test_validate_tool_calls_accepts_capture_preview_frame():
     assert calls[0].arguments["time_sec"] == 2.5
 
 
+def test_validate_tool_calls_accepts_analyze_block_content():
+    calls = validate_tool_calls(
+        [
+            {
+                "name": "analyze_block_content",
+                "arguments": {"frame_sample_count": 3, "user_question": "这段讲什么"},
+            }
+        ]
+    )
+    assert calls[0].name == "analyze_block_content"
+    assert calls[0].arguments["frame_sample_count"] == 3
+
+
 def test_validate_tool_calls_accepts_add_captions_for_blocks():
     calls = validate_tool_calls(
         [

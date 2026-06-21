@@ -157,6 +157,37 @@ export function compactToolResultData(
       return { ...result, data: compactListAssets(data) }
     case 'capture_preview_frame':
       return { ...result, data: compactCapturePreview(data) }
+    case 'analyze_block_content': {
+      const visual = data.visual_analysis as Record<string, unknown> | undefined
+      const audio = data.audio_analysis as Record<string, unknown> | undefined
+      return {
+        ...result,
+        data: {
+          block_id: data.block_id,
+          block_title: data.block_title,
+          duration_sec: data.duration_sec,
+          timeline_start_sec: data.timeline_start_sec,
+          timeline_end_sec: data.timeline_end_sec,
+          trim: data.trim,
+          sample_times_sec: data.sample_times_sec,
+          existing_text: data.existing_text,
+          audio_analysis: audio
+            ? {
+                silence_region_count: audio.silence_region_count,
+                total_silence_sec: audio.total_silence_sec,
+                speech_ratio: audio.speech_ratio,
+                split_points: audio.split_points,
+                segments: Array.isArray(audio.segments)
+                  ? (audio.segments as Array<Record<string, unknown>>).slice(0, 12)
+                  : [],
+              }
+            : undefined,
+          audio_analysis_error: data.audio_analysis_error,
+          visual_analysis: visual,
+          note: data.note,
+        },
+      }
+    }
     case 'verify_subtitle_in_frame':
       return result
     case 'apply_caption_template':
