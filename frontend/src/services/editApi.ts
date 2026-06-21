@@ -134,6 +134,34 @@ export const editApi = {
     )) as ExportMomentClipsResponse
   },
 
+  listSessionPoolClips: async (
+    projectId: string,
+    sessionId: string
+  ): Promise<{ items: Array<Record<string, unknown>> }> => {
+    return (await api.get(
+      `/projects/${projectId}/edit-sessions/${sessionId}/pool-clips`
+    )) as { items: Array<Record<string, unknown>> }
+  },
+
+  getSessionPoolClipVideoUrl: (
+    projectId: string,
+    sessionId: string,
+    clipId: string
+  ): string => {
+    const base = api.defaults.baseURL || '/api/v1'
+    return `${base}/projects/${projectId}/edit-sessions/${sessionId}/pool-clips/${encodeURIComponent(clipId)}/video`
+  },
+
+  promoteSessionPoolClipToLibrary: async (
+    projectId: string,
+    sessionId: string,
+    clipId: string
+  ): Promise<{ ok: boolean; asset: Record<string, unknown> }> => {
+    return (await api.post(
+      `/projects/${projectId}/edit-sessions/${sessionId}/pool-clips/${encodeURIComponent(clipId)}/promote-to-library`
+    )) as { ok: boolean; asset: Record<string, unknown> }
+  },
+
   importMedia: async (
     projectId: string,
     sessionId: string,

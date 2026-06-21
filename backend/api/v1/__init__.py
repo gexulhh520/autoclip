@@ -31,6 +31,7 @@ from .settings import router as settings_router
 from .templates import router as templates_router
 from .edit_sessions import router as edit_sessions_router
 from .editor import router as editor_router
+from .material_library import router as material_library_router
 from .link_batch import router as link_batch_router
 from ..upload_queue import router as upload_queue_router
 from ..account_health import router as account_health_router
@@ -58,6 +59,7 @@ api_router.include_router(simple_progress_router, tags=["simple-progress"])
 api_router.include_router(settings_router, tags=["settings"])
 api_router.include_router(templates_router, prefix="/templates", tags=["templates"])
 api_router.include_router(edit_sessions_router, prefix="/projects", tags=["edit-sessions"])
+api_router.include_router(material_library_router, prefix="/library", tags=["material-library"])
 api_router.include_router(editor_router, prefix="/editor", tags=["editor"])
 api_router.include_router(upload_queue_router, tags=["upload-queue"])
 api_router.include_router(account_health_router, tags=["account-health"])

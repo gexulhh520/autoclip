@@ -70,9 +70,9 @@ export async function applyMomentExtractToPool(
     blockTitle: input.blockTitle,
   })
   const lines = [
-    `已将 ${result.clipIds.length} 段写入素材池（检索「${input.searchCriteria}」，源片段「${input.blockTitle}」）。`,
+    `已将 ${result.clipIds.length} 段写入本草稿素材池（检索「${input.searchCriteria}」，源片段「${input.blockTitle}」）。`,
     '',
-    '可在左侧素材面板预览，点击 + 添加到时间线。',
+    '可在左侧「本草稿 AI 素材」预览；点 ★ 可收藏到桌面素材库，点 + 加入时间线。',
   ]
   if (result.note) {
     lines.push('')

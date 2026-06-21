@@ -607,6 +607,21 @@
   padding: 0;
 }
 
+.editor-media-card__actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 3;
+  display: flex;
+  gap: 4px;
+}
+
+.editor-media-card__actions .editor-media-card__add {
+  position: static;
+  top: auto;
+  right: auto;
+}
+
 .editor-media-card__add {
   position: absolute;
   top: 6px;

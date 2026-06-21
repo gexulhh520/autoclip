@@ -256,7 +256,7 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'add_clips_to_timeline',
-      description: '从素材池追加 clip 到主轨（缺省主轨末尾）',
+      description: '从素材池追加 clip 到主轨（本草稿 AI 素材或项目切片，缺省主轨末尾）',
       parameters: {
         type: 'object',
         properties: {
@@ -390,7 +390,7 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
     function: {
       name: 'export_moment_clips_to_pool',
       description:
-        '将 find_block_moments 的 matches ffmpeg 切出并写入项目素材池，供后续拖入时间线。',
+        '将 find_block_moments 的 matches ffmpeg 切出并写入本草稿素材池（非全局素材库），供后续拖入时间线。',
       parameters: {
         type: 'object',
         properties: {
@@ -532,7 +532,7 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'list_assets',
-      description: '只读：列出当前工程可用素材（视频 clip 池、BGM、SFX）',
+      description: '只读：列出本草稿 AI 素材、项目切片与会话内 BGM/SFX',
       parameters: {
         type: 'object',
         properties: {

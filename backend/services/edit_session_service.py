@@ -12,7 +12,19 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from backend.core.path_utils import get_project_directory
+from backend.services.session_clip_pool_service import (
+    POOL_SCOPE,
+    POOL_SOURCE,
+    delete_session_pool_assets,
+    list_session_pool_clips,
+    session_pool_dir,
+    session_pool_metadata_map,
+    session_pool_metadata_path,
+)
+from backend.services.material_library_service import (
+    is_clip_protected_in_library,
+    promote_session_clip_to_library,
+)
 from backend.pipeline.overlay_pipeline import build_overlay_snapshot
 from backend.schemas.edit_session import (
     EditBlock,
@@ -117,12 +129,18 @@ def _build_block_from_metadata(
     db_clip_id: str,
 ) -> EditBlock:
     pipeline_id = str(clip_row.get("id") or db_clip_id)
-    clips_dir = project_dir / "output" / "clips"
     video_path: Optional[Path] = None
-    if clips_dir.exists():
-        matches = sorted(clips_dir.glob(f"{pipeline_id}_*.mp4"))
-        if matches:
-            video_path = matches[0]
+    rel_video = str(clip_row.get("video_path") or "").strip()
+    if rel_video:
+        candidate = project_dir / rel_video
+        if candidate.exists():
+            video_path = candidate
+    if video_path is None:
+        clips_dir = project_dir / "output" / "clips"
+        if clips_dir.exists():
+            matches = sorted(clips_dir.glob(f"{pipeline_id}_*.mp4"))
+            if matches:
+                video_path = matches[0]
 
     source_video = _find_source_video(project_dir)
     source_start_sec = _srt_timestamp_to_seconds(clip_row.get("start_time"))
@@ -456,6 +474,10 @@ class EditSessionService:
         project_dir = get_project_directory(project_id)
         metadata_rows = _load_clip_metadata_rows(project_dir, source_id)
         metadata_map = _load_clip_metadata_map(project_dir, source_id)
+        pool_map = session_pool_metadata_map(project_id, session_id)
+        if pool_map:
+            metadata_map = {**metadata_map, **pool_map}
+            metadata_rows = [*metadata_rows, *pool_map.values()]
         new_blocks: List[EditBlock] = []
 
         if self.db is not None:
@@ -599,6 +621,63 @@ class EditSessionService:
     def delete_session(self, project_id: str, session_id: str) -> None:
         project_dir = get_project_directory(project_id)
         path = _session_path(project_dir, session_id)
+
+        # 清理旧版写入项目 output/clips 的 moment 切片（未收藏到全局素材库的）
+        metadata_path = project_dir / "metadata" / "clips_metadata.json"
+        if metadata_path.exists():
+            raw = _load_json(metadata_path)
+            if isinstance(raw, list):
+                kept: List[Dict[str, Any]] = []
+                for row in raw:
+                    if not isinstance(row, dict):
+                        continue
+                    if str(row.get("edit_session_id") or "") != str(session_id):
+                        kept.append(row)
+                        continue
+                    clip_id = str(row.get("id") or "")
+                    if is_clip_protected_in_library(project_id, session_id, clip_id):
+                        kept.append(row)
+                        continue
+                    rel = str(row.get("video_path") or "").strip()
+                    if rel:
+                        legacy = project_dir / rel
+                        if legacy.exists() and legacy.is_file():
+                            try:
+                                legacy.unlink()
+                            except OSError:
+                                pass
+                metadata_path.write_text(
+                    json.dumps(kept, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+
+        if self.db is not None:
+            from backend.models.clip import Clip
+
+            clips = (
+                self.db.query(Clip)
+                .filter(Clip.project_id == project_id)
+                .all()
+            )
+            for clip in clips:
+                meta = getattr(clip, "clip_metadata", None) or {}
+                if not isinstance(meta, dict):
+                    continue
+                if str(meta.get("edit_session_id") or "") != str(session_id):
+                    continue
+                if is_clip_protected_in_library(
+                    project_id, session_id, str(clip.id)
+                ):
+                    continue
+                self.db.delete(clip)
+            self.db.commit()
+
+        delete_session_pool_assets(project_id, session_id, skip_library_promoted=True)
+
+        session_dir = project_dir / "edit_sessions" / session_id
+        if session_dir.exists():
+            shutil.rmtree(session_dir, ignore_errors=True)
+
         if path.exists():
             path.unlink()
 
@@ -1076,9 +1155,9 @@ class EditSessionService:
 
         from backend.utils.video_processor import VideoProcessor
 
-        clips_dir = project_dir / "output" / "clips"
+        clips_dir = session_pool_dir(project_dir, session_id)
         clips_dir.mkdir(parents=True, exist_ok=True)
-        metadata_path = project_dir / "metadata" / "clips_metadata.json"
+        metadata_path = session_pool_metadata_path(project_dir, session_id)
         entries: List[Dict[str, Any]] = []
         if metadata_path.exists():
             raw = _load_json(metadata_path)
@@ -1114,7 +1193,7 @@ class EditSessionService:
                 logger.warning("moment 导出切片失败: %s", dest)
                 continue
 
-            rel_video = f"output/clips/{filename}"
+            rel_video = f"edit_sessions/{session_id}/pool/{filename}"
             metadata_entry: Dict[str, Any] = {
                 "id": clip_id,
                 "generated_title": title,
@@ -1124,10 +1203,13 @@ class EditSessionService:
                 "start_time": start_srt,
                 "end_time": end_srt,
                 "video_path": rel_video,
-                "source": "moment_search",
+                "source": POOL_SOURCE,
+                "scope": POOL_SCOPE,
                 "edit_session_id": session_id,
                 "source_block_id": block_id,
                 "match_score": match.get("match_score"),
+                "in_library": False,
+                "library_asset_id": None,
             }
             entries.append(metadata_entry)
 
@@ -1164,7 +1246,7 @@ class EditSessionService:
             encoding="utf-8",
         )
 
-        note = f"已导出 {len(created_ids)} 个切片到素材池"
+        note = f"已导出 {len(created_ids)} 个切片到本草稿素材池"
         if len(created_ids) < len(sorted_matches):
             note += "（部分片段导出失败或时长过短已跳过）"
         return {

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { message } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { PlusOutlined, StarFilled, StarOutlined } from '@ant-design/icons'
 import { projectApi } from '../../services/api'
 import { blockDuration, useEditSessionStore } from '../../stores/useEditSessionStore'
 import { getBlockVideoUrl } from '../../utils/editBlockMedia'
@@ -22,6 +22,7 @@ import TransitionTypePicker from './TransitionTypePicker'
 import { areMainTrackBlocksAdjacent } from '../../editor/timeline/sequenceBlockGaps'
 import { isTauriApp } from '../../utils/desktopMode'
 import { useAgentPanelStore } from '../../stores/useAgentPanelStore'
+import editApi from '../../services/editApi'
 import { formatVideoImportSuccessMessage } from '../../utils/videoImportMessage'
 
 const VIDEO_IMPORT_EXTENSIONS = ['mp4', 'mov', 'mkv', 'webm', 'm4v', 'avi']
@@ -30,6 +31,14 @@ interface ProjectClip {
   id: string
   title?: string
   generated_title?: string
+}
+
+interface SessionPoolClip {
+  id: string
+  title?: string
+  generated_title?: string
+  in_library?: boolean
+  library_asset_id?: string | null
 }
 
 const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
@@ -59,7 +68,9 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
   const setAssetPreviewClip = useEditSessionStore((state) => state.setAssetPreviewClip)
 
   const [projectClips, setProjectClips] = useState<ProjectClip[]>([])
+  const [sessionPoolClips, setSessionPoolClips] = useState<SessionPoolClip[]>([])
   const [loadingClips, setLoadingClips] = useState(false)
+  const [promotingClipId, setPromotingClipId] = useState<string | null>(null)
   const [importingVideo, setImportingVideo] = useState(false)
   const clipsRefreshNonce = useAgentPanelStore((state) => state.clipsRefreshNonce)
 
@@ -73,21 +84,47 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
   useEffect(() => {
     let cancelled = false
     setLoadingClips(true)
-    void projectApi
-      .getClips(projectId)
-      .then((clips) => {
-        if (!cancelled) setProjectClips(Array.isArray(clips) ? clips : [])
-      })
-      .catch(() => {
-        if (!cancelled) setProjectClips([])
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingClips(false)
-      })
+    const loaders: Promise<void>[] = [
+      projectApi
+        .getClips(projectId)
+        .then((clips) => {
+          if (!cancelled) setProjectClips(Array.isArray(clips) ? clips : [])
+        })
+        .catch(() => {
+          if (!cancelled) setProjectClips([])
+        }),
+    ]
+    if (sessionId) {
+      loaders.push(
+        editApi
+          .listSessionPoolClips(projectId, sessionId)
+          .then((response) => {
+            if (cancelled) return
+            const items = Array.isArray(response.items) ? response.items : []
+            setSessionPoolClips(
+              items.map((item) => ({
+                id: String(item.id ?? ''),
+                title: String(item.generated_title || item.outline || item.id || ''),
+                generated_title: String(item.generated_title || item.outline || ''),
+                in_library: Boolean(item.in_library),
+                library_asset_id: item.library_asset_id as string | null | undefined,
+              }))
+            )
+          })
+          .catch(() => {
+            if (!cancelled) setSessionPoolClips([])
+          })
+      )
+    } else if (!cancelled) {
+      setSessionPoolClips([])
+    }
+    void Promise.all(loaders).finally(() => {
+      if (!cancelled) setLoadingClips(false)
+    })
     return () => {
       cancelled = true
     }
-  }, [projectId, clipsRefreshNonce])
+  }, [projectId, sessionId, clipsRefreshNonce])
 
   const handlePreviewClip = (clipId: string, title: string) => {
     setAssetPreviewClip({ clipId, title })
@@ -109,6 +146,85 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
     } catch (error: unknown) {
       message.error(error instanceof Error ? error.message : '添加失败')
     }
+  }
+
+  const handlePromoteToLibrary = async (clipId: string, event?: React.MouseEvent) => {
+    event?.stopPropagation()
+    if (!sessionId) return
+    setPromotingClipId(clipId)
+    try {
+      await editApi.promoteSessionPoolClipToLibrary(projectId, sessionId, clipId)
+      setSessionPoolClips((prev) =>
+        prev.map((clip) =>
+          clip.id === clipId ? { ...clip, in_library: true } : clip
+        )
+      )
+      message.success('已收藏到桌面素材库')
+    } catch (error: unknown) {
+      message.error(error instanceof Error ? error.message : '收藏失败')
+    } finally {
+      setPromotingClipId(null)
+    }
+  }
+
+  const renderClipCard = (
+    clip: ProjectClip | SessionPoolClip,
+    options: {
+      videoUrl: string
+      showPromote?: boolean
+    }
+  ) => {
+    const title = clip.generated_title || clip.title || clip.id
+    const added = addedClipIds.has(clip.id)
+    const previewing = assetPreviewClip?.clipId === clip.id
+    const inLibrary = 'in_library' in clip && clip.in_library
+    return (
+      <div
+        key={clip.id}
+        className={`editor-media-card ${added ? 'is-added' : ''}${
+          previewing ? ' is-previewing' : ''
+        }`}
+      >
+        <button
+          type="button"
+          className="editor-media-card__preview"
+          onClick={() => handlePreviewClip(clip.id, title)}
+        >
+          {added ? <span className="editor-media-card__badge">已添加</span> : null}
+          {inLibrary ? <span className="editor-media-card__badge">已收藏</span> : null}
+          <video
+            className="editor-media-card__thumb"
+            src={options.videoUrl}
+            muted
+            playsInline
+            preload="metadata"
+          />
+          <div className="editor-media-card__title">{title}</div>
+        </button>
+        <div className="editor-media-card__actions">
+          {options.showPromote ? (
+            <button
+              type="button"
+              className="editor-media-card__add"
+              title={inLibrary ? '已在素材库' : '收藏到素材库'}
+              disabled={inLibrary || promotingClipId === clip.id}
+              onClick={(event) => void handlePromoteToLibrary(clip.id, event)}
+            >
+              {inLibrary ? <StarFilled /> : <StarOutlined />}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="editor-media-card__add"
+            title={added ? '已在时间线' : '添加到时间线'}
+            disabled={added}
+            onClick={(event) => void handleAppendClip(clip.id, event)}
+          >
+            <PlusOutlined />
+          </button>
+        </div>
+      </div>
+    )
   }
 
   const handleImportVideo = async (file: File) => {
@@ -245,62 +361,41 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
       ) : null}
 
       <div className="editor-inspector-label" style={{ marginTop: blocks.length > 0 ? 16 : 0 }}>
+        本草稿 AI 素材
+      </div>
+      {loadingClips ? (
+        <div className="editor-empty-hint">加载素材…</div>
+      ) : sessionPoolClips.length === 0 ? (
+        <div className="editor-empty-hint">
+          Agent 检索导出会写入<strong>本草稿素材池</strong>（不进入全局素材库）。可点 ★ 收藏到桌面「素材库」。
+        </div>
+      ) : (
+        <div className="editor-media-grid">
+          {sessionPoolClips.map((clip) =>
+            renderClipCard(clip, {
+              videoUrl: editApi.getSessionPoolClipVideoUrl(projectId, sessionId, clip.id),
+              showPromote: true,
+            })
+          )}
+        </div>
+      )}
+
+      <div className="editor-inspector-label" style={{ marginTop: 16 }}>
         项目 AI 切片
       </div>
       {loadingClips ? (
         <div className="editor-empty-hint">加载切片…</div>
       ) : projectClips.length === 0 ? (
         <div className="editor-empty-hint">
-          暂无 AI 切片。「导入」会把视频<strong>直接加入下方时间线</strong>，不必先出现在此列表。
+          暂无流水线切片。「导入」会把视频<strong>直接加入时间线</strong>。
         </div>
       ) : (
         <div className="editor-media-grid">
-          {projectClips.map((clip) => {
-            const title = clip.generated_title || clip.title || clip.id
-            const added = addedClipIds.has(clip.id)
-            const previewing = assetPreviewClip?.clipId === clip.id
-            return (
-              <div
-                key={clip.id}
-                className={`editor-media-card ${added ? 'is-added' : ''}${
-                  previewing ? ' is-previewing' : ''
-                }`}
-              >
-                <button
-                  type="button"
-                  className="editor-media-card__preview"
-                  onClick={() => handlePreviewClip(clip.id, title)}
-                >
-                  {added ? <span className="editor-media-card__badge">已添加</span> : null}
-                  <video
-                    className="editor-media-card__thumb"
-                    src={projectApi.getClipVideoUrl(projectId, clip.id, title)}
-                    muted
-                    playsInline
-                    preload="metadata"
-                  />
-                  <div className="editor-media-card__title">{title}</div>
-                  {added ? (
-                    <div className="editor-media-card__meta">
-                      {blockDuration(
-                        blocks.find((b) => b.source_clip_id === clip.id)!
-                      ).toFixed(1)}
-                      s
-                    </div>
-                  ) : null}
-                </button>
-                <button
-                  type="button"
-                  className="editor-media-card__add"
-                  title={added ? '已在时间线' : '添加到时间线'}
-                  disabled={added}
-                  onClick={(event) => void handleAppendClip(clip.id, event)}
-                >
-                  <PlusOutlined />
-                </button>
-              </div>
-            )
-          })}
+          {projectClips.map((clip) =>
+            renderClipCard(clip, {
+              videoUrl: projectApi.getClipVideoUrl(projectId, clip.id, clip.title || clip.generated_title),
+            })
+          )}
         </div>
       )}
     </OpenCutPanelView>

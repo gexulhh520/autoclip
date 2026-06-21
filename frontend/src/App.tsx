@@ -7,7 +7,7 @@ import EditorHubPage from './pages/EditorHubPage'
 import ProjectDetailPage from './pages/ProjectDetailPage'
 import SettingsPage from './pages/SettingsPage'
 import TemplatesPage from './pages/TemplatesPage'
-import EditSessionPage from './pages/EditSessionPage'
+import MaterialLibraryPage from './pages/MaterialLibraryPage'
 import { trackPageview } from './analytics/posthog'
 
 function usePageviewTracking() {
@@ -31,6 +31,7 @@ function App() {
         <Route path="/ai-slice" element={<AiSlicePage />} />
         <Route path="/templates" element={<TemplatesPage />} />
         <Route path="/project/:id" element={<ProjectDetailPage />} />
+        <Route path="/library" element={<MaterialLibraryPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
     </Routes>

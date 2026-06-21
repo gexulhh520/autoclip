@@ -6,12 +6,14 @@ import {
   SettingOutlined,
   BulbOutlined,
   MoonOutlined,
+  FolderOpenOutlined,
 } from '@ant-design/icons'
 import { useTheme } from '../../context/ThemeContext'
 import DesktopSidebarHeadlessExport from './DesktopSidebarHeadlessExport'
 
 const NAV_ITEMS = [
   { key: 'home', path: '/', label: '首页', icon: <HomeOutlined /> },
+  { key: 'library', path: '/library', label: '素材库', icon: <FolderOpenOutlined /> },
   { key: 'ai-slice', path: '/ai-slice', label: 'AI 自动切片', icon: <AppstoreOutlined /> },
 ] as const
 

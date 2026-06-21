@@ -132,7 +132,7 @@ const DesktopHomePage: React.FC = () => {
 
     Modal.confirm({
       title: `删除选中的 ${selected.length} 个剪辑工程？`,
-      content: '工程文件将被删除，已导出的成片不受影响。',
+      content: '草稿工程与本草稿内 AI 素材将被删除；已收藏到「素材库」的片段会保留。',
       okText: '删除',
       cancelText: '取消',
       okButtonProps: { danger: true },

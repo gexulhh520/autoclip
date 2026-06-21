@@ -186,6 +186,56 @@ async def delete_edit_session(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@router.get("/{project_id}/edit-sessions/{session_id}/pool-clips")
+async def list_edit_session_pool_clips(project_id: str, session_id: str):
+    from backend.services.session_clip_pool_service import list_session_pool_clips
+
+    try:
+        return {"items": list_session_pool_clips(project_id, session_id)}
+    except Exception as exc:
+        logger.exception("列出草稿素材池失败: %s/%s", project_id, session_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/{project_id}/edit-sessions/{session_id}/pool-clips/{clip_id}/video")
+async def stream_edit_session_pool_clip_video(
+    project_id: str,
+    session_id: str,
+    clip_id: str,
+):
+    from fastapi.responses import FileResponse
+
+    from backend.services.session_clip_pool_service import resolve_session_pool_video_path
+
+    path = resolve_session_pool_video_path(project_id, session_id, clip_id)
+    if path is None:
+        raise HTTPException(status_code=404, detail="草稿素材不存在")
+    return FileResponse(
+        path=str(path.resolve()),
+        media_type="video/mp4",
+        filename=path.name,
+        headers={"Accept-Ranges": "bytes"},
+    )
+
+
+@router.post("/{project_id}/edit-sessions/{session_id}/pool-clips/{clip_id}/promote-to-library")
+async def promote_edit_session_pool_clip_to_library(
+    project_id: str,
+    session_id: str,
+    clip_id: str,
+):
+    from backend.services.material_library_service import promote_session_clip_to_library
+
+    try:
+        asset = promote_session_clip_to_library(project_id, session_id, clip_id)
+        return {"ok": True, "asset": asset}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("收藏到素材库失败: %s/%s/%s", project_id, session_id, clip_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @router.post("/{project_id}/edit-sessions/{session_id}/preview-overlay")
 async def preview_edit_session_overlay(
     project_id: str,
