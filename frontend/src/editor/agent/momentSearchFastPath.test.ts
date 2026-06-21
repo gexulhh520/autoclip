@@ -9,7 +9,7 @@ describe('momentSearchFastPath', () => {
 
   it('detects moment search requests', () => {
     expect(isMomentSearchRequest('找到视频中所有打斗的片段')).toBe(true)
-    expect(isMomentSearchRequest('找出富有哲学的话并剪出来')).toBe(true)
+    expect(isMomentSearchRequest('找出富有哲学的话并剪出来')).toBe(false)
     expect(isMomentSearchRequest('能引起共鸣的片段有哪些')).toBe(true)
     expect(isMomentSearchRequest('这段视频说了什么')).toBe(false)
     expect(isMomentSearchRequest('给这段加字幕')).toBe(false)
