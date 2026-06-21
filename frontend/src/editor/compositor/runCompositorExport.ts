@@ -1,7 +1,6 @@
-import { projectApi } from '../../services/api'
 import editApi from '../../services/editApi'
 import type { EditBlock, EditSession } from '../../types/editSession'
-import { getBlockVideoUrl } from '../../utils/editBlockMedia'
+import { getBlockVideoUrlForPreview, resolveBlockMediaTimeSec } from '../../utils/editBlockMedia'
 import { exportTimelineViaCompositor, type ExportTimelineOptions } from './exportTimeline'
 
 export interface CompositorExportRuntimeParams {
@@ -31,23 +30,10 @@ export function buildCompositorRuntimeParams(
     projectId,
     sessionId: session.id,
     session,
-    getVideoUrlForBlock: (block) => {
-      if (
-        useSourceVideo &&
-        block.media.source_video_path &&
-        block.media.source_start_sec != null
-      ) {
-        const sourceId = block.media.source_video_path.includes('sources/')
-          ? block.media.source_video_path.split('/').find((_, i, arr) => arr[i - 1] === 'sources')
-          : null
-        return projectApi.getSourceVideoUrl(projectId, sourceId)
-      }
-      return getBlockVideoUrl(projectId, session.id, block)
-    },
-    getSourceTimeForBlock: (block, relativeSec) => {
-      const sourceOffset = block.media.source_start_sec ?? 0
-      return sourceOffset + block.trim.in_sec + relativeSec
-    },
+    getVideoUrlForBlock: (block) =>
+      getBlockVideoUrlForPreview(projectId, session.id, block, useSourceVideo),
+    getSourceTimeForBlock: (block, relativeSec) =>
+      resolveBlockMediaTimeSec(block, relativeSec, useSourceVideo),
   }
 }
 

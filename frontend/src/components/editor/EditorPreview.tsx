@@ -4,7 +4,7 @@ import {
   renderSceneToPreviewViewModel,
   resolveSceneAt,
 } from '../../editor/scene'
-import { getBlockVideoUrl } from '../../utils/editBlockMedia'
+import { getBlockVideoUrlForPreview, resolveBlockMediaTimeSec } from '../../utils/editBlockMedia'
 import { useEditSessionStore } from '../../stores/useEditSessionStore'
 import {
   formatTimecode,
@@ -187,27 +187,16 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
 
   const getVideoUrlForBlock = useCallback(
     (block: EditBlock): string => {
-      if (
-        useSourcePreview &&
-        block.media.source_video_path &&
-        block.media.source_start_sec != null
-      ) {
-        const sourceId = block.media.source_video_path.includes('sources/')
-          ? block.media.source_video_path.split('/').find((_, i, arr) => arr[i - 1] === 'sources')
-          : null
-        return projectApi.getSourceVideoUrl(projectId, sourceId)
-      }
-      return getBlockVideoUrl(projectId, sessionId, block)
+      return getBlockVideoUrlForPreview(projectId, sessionId, block, useSourcePreview)
     },
     [projectId, sessionId, useSourcePreview]
   )
 
   const getSourceTimeForBlock = useCallback(
     (block: EditBlock, relativeSec: number): number => {
-      const sourceOffset = block.media.source_start_sec ?? 0
-      return sourceOffset + block.trim.in_sec + relativeSec
+      return resolveBlockMediaTimeSec(block, relativeSec, useSourcePreview)
     },
-    []
+    [useSourcePreview]
   )
 
   const hasTimelineAudio = (session?.audio_elements?.length ?? 0) > 0

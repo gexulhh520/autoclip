@@ -1,4 +1,5 @@
 import type { EditBlock } from '../../types/editSession'
+import { blockUsesSourceVideoPreview } from '../../utils/editBlockMedia'
 import type { CompositionTimeline } from '../scene/types'
 import {
   mapRelativeSourceToCompositionTime,
@@ -13,10 +14,12 @@ export function easeInOutCubic(t: number): number {
 export function readVideoSourceRelativeSec(
   video: HTMLVideoElement,
   block: EditBlock,
-  _useSourceVideo: boolean
+  useSourceVideo: boolean
 ): number {
-  const sourceOffset = block.media.source_start_sec ?? 0
-  return video.currentTime - sourceOffset - block.trim.in_sec
+  if (blockUsesSourceVideoPreview(block, useSourceVideo)) {
+    return video.currentTime - block.media.source_start_sec! - block.trim.in_sec
+  }
+  return video.currentTime - block.trim.in_sec
 }
 
 export function compositionTimeFromVideo(
