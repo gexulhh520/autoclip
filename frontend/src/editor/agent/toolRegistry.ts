@@ -24,14 +24,35 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
     function: {
       name: 'apply_caption_template',
       description:
-        '按模板批量添加字幕（推荐）。LLM 只传 entries[{block_id,text}] 与 template/style/animation；位置/字号/竖排拆字由模板引擎计算，禁止传 position/fontSize/start_sec。一次调用处理全部片段，勿循环 add_text_overlay。',
+        '批量添加字幕（推荐）。LLM 传 entries[{block_id,text}] + layout(horizontal|vertical) + position(九宫格锚点) + style/animation；禁止 positionX/Y/fontSize/start_sec。引擎负责安全区坐标与竖排拆字。',
       parameters: {
         type: 'object',
         properties: {
+          layout: {
+            type: 'string',
+            enum: ['horizontal', 'vertical'],
+            description: 'horizontal=横排整句；vertical=竖排逐字+动画',
+          },
+          position: {
+            type: 'string',
+            enum: [
+              'top_left',
+              'top_center',
+              'top_right',
+              'center_left',
+              'center',
+              'center_right',
+              'bottom_left',
+              'bottom_center',
+              'bottom_right',
+            ],
+            description:
+              '字幕锚点：top/bottom/center/偏左/偏右/四角等。默认 bottom_center。引擎自动换算安全区坐标。',
+          },
           template: {
             type: 'string',
             enum: ['vertical_stagger', 'horizontal_center', 'bottom_safe', 'top_safe'],
-            description: 'vertical_stagger=竖排逐字+动画；bottom_safe=底部安全区横排',
+            description: '【可选兼容】等价于 layout+position 组合，优先用 layout+position',
           },
           entries: {
             type: 'array',
@@ -576,8 +597,9 @@ export function formatToolCallSummary(name: string, args: Record<string, unknown
       return `添加文本「${String(args.content ?? '').slice(0, 24)}」@${args.start_sec ?? 0}s`
     case 'apply_caption_template': {
       const entries = Array.isArray(args.entries) ? args.entries.length : 0
-      const tpl = String(args.template ?? 'vertical_stagger')
-      return `模板字幕 ${tpl} × ${entries} 段`
+      const layout = String(args.layout ?? args.template ?? 'horizontal')
+      const position = String(args.position ?? 'bottom_center')
+      return `模板字幕 ${layout}/${position} × ${entries} 段`
     }
     case 'add_captions_for_blocks': {
       const layout = args.layout === 'vertical' ? '竖排' : '横排'

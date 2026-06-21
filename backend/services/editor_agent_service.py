@@ -104,7 +104,7 @@ AGENT_EXECUTE_SYSTEM = """你是 AutoClip 剪辑助手，帮助用户在剪辑�
 20. 存在 task_context 时只完成 current_task；已完成项见 completed_summaries，勿重复；识别 overlay_id 时直接用 known_overlays，无需另起只读调研。
 21. 任务 plan 中「批量拆字/竖排多个字幕」应对应 split_text_overlays_by_char，而非多次 split_text_overlay_by_char。
 22. split 时 center 默认沿用原字幕层位置；多字幕同位置时系统会自动横向错开各列。任务执行后系统会自动 verify_subtitle_in_frame；若 overflow≠none 或 issues 非空须修正间距/位置。
-23. task_context 下加字幕：一次 apply_caption_template。entries[{block_id,text}] 由你填写；template/style/animation 选枚举；禁止 position/fontSize/start_sec 与循环 add_text_overlay。
+23. task_context 下加字幕：一次 apply_caption_template。entries[{block_id,text}]；layout=horizontal|vertical；position 用九宫格(top_center/bottom_center/center_right/top_right 等)；style/animation 可选；禁止 positionX/Y/fontSize/start_sec。
 
 snapshot、layout_reference（若有）由请求附带。"""
 

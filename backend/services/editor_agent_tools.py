@@ -22,10 +22,28 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "apply_caption_template",
-            "description": "按模板批量添加字幕。LLM 只传 entries[{block_id,text}] 与 template/style/animation；位置字号由引擎计算。",
+            "description": "批量添加字幕。LLM 传 entries + layout + position(九宫格) + style/animation；禁止坐标字号。",
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "layout": {
+                        "type": "string",
+                        "enum": ["horizontal", "vertical"],
+                    },
+                    "position": {
+                        "type": "string",
+                        "enum": [
+                            "top_left",
+                            "top_center",
+                            "top_right",
+                            "center_left",
+                            "center",
+                            "center_right",
+                            "bottom_left",
+                            "bottom_center",
+                            "bottom_right",
+                        ],
+                    },
                     "template": {
                         "type": "string",
                         "enum": [

@@ -432,6 +432,8 @@ export async function executeWriteToolCall(
           getStore,
           {
             template: call.arguments.template,
+            layout: call.arguments.layout,
+            position: call.arguments.position,
             entries: call.arguments.entries as import('./applyCaptionTemplate').CaptionTemplateEntry[],
             style: styleRaw
               ? {

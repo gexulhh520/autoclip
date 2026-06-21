@@ -93,7 +93,8 @@ export function executeAddCaptionsForBlocks(
     const result = executeApplyCaptionTemplate(
       getStore,
       {
-        template: args.layout === 'vertical' ? 'vertical_stagger' : 'bottom_safe',
+        layout: args.layout === 'vertical' ? 'vertical' : 'horizontal',
+        position: 'bottom_center',
         entries,
         style: {
           fontFamily: args.fontFamily,
@@ -130,7 +131,8 @@ export function executeAddCaptionsForBlocks(
     const result = executeApplyCaptionTemplate(
       getStore,
       {
-        template: args.layout === 'vertical' ? 'vertical_stagger' : 'bottom_safe',
+        layout: args.layout === 'vertical' ? 'vertical' : 'horizontal',
+        position: 'bottom_center',
         entries,
         style: {
           fontFamily: args.fontFamily,

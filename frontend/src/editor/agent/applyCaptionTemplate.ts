@@ -1,6 +1,6 @@
 import { buildEditorSnapshot } from './buildEditorSnapshot'
 import { blockAlreadyHasCaption } from './addCaptionsForBlocks'
-import { resolveCaptionPlacement } from './captionTemplateLayout'
+import { resolveCaptionPlacement, resolveLayoutAndPosition } from './captionTemplateLayout'
 import { mapFontFamily } from './fontMapping'
 import { mergeDefaultTextAnimation } from './defaultAnimation'
 import { resolveCanvasDimensions } from '../scene/canvas'
@@ -32,7 +32,10 @@ export interface CaptionTemplateAnimation {
 }
 
 export interface ApplyCaptionTemplateArguments {
+  /** @deprecated 用 layout + position */
   template?: unknown
+  layout?: unknown
+  position?: unknown
   entries: CaptionTemplateEntry[]
   style?: CaptionTemplateStyle
   animation?: CaptionTemplateAnimation
@@ -43,7 +46,8 @@ export interface ApplyCaptionTemplateItem {
   block_id: string
   timeline_start_sec: number
   text: string
-  template: string
+  layout: string
+  position: string
   overlay_id?: string
   skipped?: boolean
   split_char_count?: number
@@ -51,7 +55,10 @@ export interface ApplyCaptionTemplateItem {
 }
 
 export interface ApplyCaptionTemplateResult {
-  template: string
+  layout: string
+  position: string
+  /** @deprecated */
+  template?: string
   blocks_targeted: number
   overlays_added: number
   overlays_skipped: number
@@ -115,25 +122,31 @@ export function executeApplyCaptionTemplate(
 ): ApplyCaptionTemplateResult {
   const store = getStore()
   const session = store.session
-  const templateInput = args.template ?? 'vertical_stagger'
+  const layoutPosition = resolveLayoutAndPosition({
+    layout: args.layout,
+    position: args.position,
+    template: args.template,
+  })
   const style = args.style ?? {}
   const animation = args.animation ?? {}
   const entries = parseEntries(args.entries)
 
   if (!session) {
     return {
-      template: str(templateInput, 'vertical_stagger'),
+      layout: layoutPosition.layout,
+      position: layoutPosition.position,
       blocks_targeted: 0,
       overlays_added: 0,
       overlays_skipped: 0,
       split_char_layers: 0,
-      items: [{ block_id: '', timeline_start_sec: 0, text: '', template: '', error: '无活动剪辑工程' }],
+      items: [{ block_id: '', timeline_start_sec: 0, text: '', layout: '', position: '', error: '无活动剪辑工程' }],
     }
   }
 
   if (entries.length === 0) {
     return {
-      template: str(templateInput, 'vertical_stagger'),
+      layout: layoutPosition.layout,
+      position: layoutPosition.position,
       blocks_targeted: 0,
       overlays_added: 0,
       overlays_skipped: 0,
@@ -143,7 +156,8 @@ export function executeApplyCaptionTemplate(
           block_id: '',
           timeline_start_sec: 0,
           text: '',
-          template: '',
+          layout: '',
+          position: '',
           error: 'entries 不能为空，每项须含 block_id 与 text',
         },
       ],
@@ -185,14 +199,17 @@ export function executeApplyCaptionTemplate(
         block_id: entry.block_id,
         timeline_start_sec: 0,
         text,
-        template: str(templateInput),
+        layout: layoutPosition.layout,
+        position: layoutPosition.position,
         error: `片段不存在或非主轨: ${entry.block_id}`,
       })
       continue
     }
 
     const placement = resolveCaptionPlacement({
-      template: templateInput,
+      layout: args.layout,
+      position: args.position,
+      template: args.template,
       text,
       canvasWidth: dims.width,
       canvasHeight: dims.height,
@@ -204,7 +221,8 @@ export function executeApplyCaptionTemplate(
         block_id: entry.block_id,
         timeline_start_sec: target.timeline_start_sec,
         text,
-        template: placement.template,
+        layout: placement.layout,
+        position: placement.position,
         skipped: true,
       })
       continue
@@ -228,7 +246,8 @@ export function executeApplyCaptionTemplate(
         block_id: entry.block_id,
         timeline_start_sec: target.timeline_start_sec,
         text,
-        template: placement.template,
+        layout: placement.layout,
+        position: placement.position,
         error: '添加文本层失败',
       })
       continue
@@ -258,14 +277,16 @@ export function executeApplyCaptionTemplate(
       block_id: entry.block_id,
       timeline_start_sec: target.timeline_start_sec,
       text,
-      template: placement.template,
+      layout: placement.layout,
+      position: placement.position,
       overlay_id: overlayId,
       split_char_count: splitCharCount > 0 ? splitCharCount : undefined,
     })
   }
 
   return {
-    template: str(templateInput, 'vertical_stagger'),
+    layout: layoutPosition.layout,
+    position: layoutPosition.position,
     blocks_targeted: entries.length,
     overlays_added: overlaysAdded,
     overlays_skipped: overlaysSkipped,
@@ -290,11 +311,10 @@ export function migrateAddCaptionsArgs(raw: Record<string, unknown>): ApplyCapti
   }
 
   const layout = str(raw.layout)
-  const template =
-    layout === 'vertical' ? 'vertical_stagger' : raw.template ?? 'bottom_safe'
-
   return {
-    template,
+    layout: layout === 'vertical' ? 'vertical' : undefined,
+    position: undefined,
+    template: layout === 'vertical' ? 'vertical_stagger' : raw.template ?? 'bottom_safe',
     entries,
     style: {
       fontFamily: str(raw.fontFamily) || undefined,

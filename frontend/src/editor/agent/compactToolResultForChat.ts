@@ -161,6 +161,8 @@ export function compactToolResultData(
       return {
         ...result,
         data: {
+          layout: data?.layout,
+          position: data?.position,
           template: data?.template,
           blocks_targeted: data?.blocks_targeted,
           overlays_added: data?.overlays_added,

@@ -59,7 +59,7 @@ export function buildTaskExecutionMessages(
       /字幕|加字|文本|文案/.test(`${task.title} ${userGoal}`)
     ) {
       lines.push(
-        '为多个片段加字幕：一次 apply_caption_template（template=vertical_stagger 竖排+动画）。entries: [{block_id, text}, ...]；禁止 position/fontSize/start_sec 与循环 add_text_overlay。'
+        '为多个片段加字幕：一次 apply_caption_template。entries[{block_id,text}]；layout=horizontal|vertical；position=bottom_center|top_right|center 等九宫格；禁止坐标/字号/start_sec。'
       )
     }
   }
