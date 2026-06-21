@@ -57,7 +57,7 @@ export function resolveSampleTimesSec(
   window: BlockTimelineWindow,
   sampleCount: number
 ): number[] {
-  const count = Math.max(1, Math.min(5, Math.round(sampleCount)))
+  const count = Math.max(1, Math.min(8, Math.round(sampleCount)))
   const { start_sec: start, duration_sec: duration } = window
   if (count === 1) return [start + duration * 0.5]
   return Array.from({ length: count }, (_, index) => start + ((index + 0.5) / count) * duration)

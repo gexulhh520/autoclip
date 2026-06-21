@@ -528,14 +528,14 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
     function: {
       name: 'analyze_block_content',
       description:
-        '只读：分析视频片段内容。对片段均匀抽帧做画面理解，并结合音频静音分段（speech/silence）；返回 summary、关键画面、剪辑建议。block_id 缺省用 focused_block_id 或 selected_block_id',
+        '只读：分析视频片段内容。均匀抽帧后每帧单独视觉分析（并发），音频分段单独节奏分析（并发），最后文本汇总；返回 summary、关键画面、剪辑建议。block_id 缺省用 focused_block_id 或 selected_block_id',
       parameters: {
         type: 'object',
         properties: {
           block_id: { type: 'string', description: '目标片段；缺省用 AI 钉住或当前选中片段' },
           frame_sample_count: {
             type: 'number',
-            description: '抽帧数量 1–5，默认 3',
+            description: '抽帧数量 1–8，默认 3（每帧单独视觉分析后汇总）',
           },
           include_audio_analysis: {
             type: 'boolean',

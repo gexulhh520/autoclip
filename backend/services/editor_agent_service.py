@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional
 
 from pydantic import ValidationError
@@ -71,24 +72,50 @@ DEFAULT_SUBTITLE_FRAME_PROMPT = (
     "请检查这一帧中的字幕/文本层是否在画面安全区内，输出 SubtitleFrameVerdict JSON。"
 )
 
-ANALYZE_VIDEO_CONTENT_SYSTEM = """你是短视频内容分析助手。用户会提供同一视频片段的多张预览帧（按时间顺序）、音频静音分段摘要、已有文案（若有）。
+MAX_PARALLEL_VISION_CALLS = 4
+MAX_AUDIO_SEGMENT_LLM = 8
+MIN_SEGMENT_LLM_SEC = 0.2
+
+ANALYZE_VIDEO_FRAME_SYSTEM = """你是短视频单帧画面分析助手。用户会提供视频片段中的一张预览帧及时间元数据。
 只输出一个 JSON 对象（不要 markdown 代码块、不要解释文字）。
 
 Schema 字段：
-- summary: 一句话概括片段内容与用途
+- time_sec: number，与元数据一致
+- scene_summary: 一句话描述该帧画面
 - subjects: string[]，画面主体/人物/物体
-- scene_types: string[]，如 talking_head、b_roll、screen_record、product、landscape、gameplay 等
-- visual_pacing: slow|medium|fast，画面节奏
-- mood: 情绪/氛围（简短中文）
-- key_moments: [{time_sec, description}]，结合 sample_times 描述关键画面变化（最多 5 条）
-- editing_suggestions: string[]，可执行的剪辑建议（如可切分点、适合加字幕的位置、画面构图问题）
-- confidence: high|medium|low
-- frame_observations: [{time_sec, scene_summary, subjects, shot_type}]，每张抽帧一条
+- shot_type: 景别，如 close_up、medium、wide、screen 等
+- scene_type: 场景类型，如 talking_head、b_roll、screen_record、product、landscape、gameplay 等
+- mood_hint: 简短情绪/氛围（中文）"""
 
-结合 audio_analysis 中的 speech/silence 分段判断口播/停顿；有 existing_text 时可对照画面，但不要照抄长文。"""
+ANALYZE_AUDIO_SEGMENT_SYSTEM = """你是短视频音频节奏分析助手。用户会提供片段内某一时间段的元数据（口播/静音、起止时间、时长），不含实际音频文件。
+根据时长与位置推断节奏意义与剪辑建议，不要编造具体台词。
+只输出一个 JSON 对象（不要 markdown 代码块、不要解释文字）。
+
+Schema 字段：
+- start_sec: number
+- end_sec: number
+- kind: speech|silence
+- rhythm_note: 简短中文，描述该段在节奏上的作用
+- editing_hint: 可执行的剪辑建议（如可在此静音处切分、适合保留为气口）"""
+
+AGGREGATE_VIDEO_CONTENT_SYSTEM = """你是短视频内容汇总助手。用户会提供同一视频片段的「单帧画面观察」与「音频分段笔记」（均已由子任务分析），以及片段元数据、已有文案（若有）。
+只输出一个 JSON 对象（不要 markdown 代码块、不要解释文字）。
+
+Schema 字段：
+- summary: 一句话概括片段内容与用途（综合画面与音频节奏）
+- subjects: string[]，去重合并的画面主体
+- scene_types: string[]，如 talking_head、b_roll、screen_record 等
+- visual_pacing: slow|medium|fast，结合画面变化与口播/停顿判断
+- mood: 情绪/氛围（简短中文）
+- key_moments: [{time_sec, description}]，关键画面或节奏变化（最多 5 条）
+- editing_suggestions: string[]，可执行的剪辑建议
+- confidence: high|medium|low
+- frame_observations: 必须与输入中的 frame_observations 一致（原样复制，不要改写）
+
+有 existing_text 时可对照画面笔记，但不要照抄长文；无 ASR 时不要编造具体台词。"""
 
 DEFAULT_VIDEO_CONTENT_PROMPT = (
-    "请分析该视频片段的画面内容与节奏，结合音频分段信息输出 VideoContentAnalysis JSON。"
+    "请综合单帧观察与音频分段笔记，输出 VideoContentAnalysis JSON。"
 )
 
 AGENT_EXECUTE_SYSTEM = """你是 AutoClip 剪辑助手，帮助用户在剪辑工作台完成各类操作。
@@ -100,7 +127,7 @@ AGENT_EXECUTE_SYSTEM = """你是 AutoClip 剪辑助手，帮助用户在剪辑�
 - 音频：添加 BGM/SFX、调整片段原声音量与淡化
 - 节奏：静音检测裁切、播放头切分、删除片段（remove_block 为危险操作）
 - 包装：文本动画、批量统一样式（禁止 batch 改 content）
-- 感知：verify_subtitle_in_frame 截帧并由画面分析子 Agent 返回简短 JSON（不含 JPEG）；analyze_block_content 对片段多帧抽帧+音频静音分段做内容分析；capture_preview_frame 仅调试
+- 感知：verify_subtitle_in_frame 截帧并由画面分析子 Agent 返回简短 JSON（不含 JPEG）；analyze_block_content 对片段并发单帧视觉+音频分段节奏分析后文本汇总；capture_preview_frame 仅调试
 - 时间线：移动播放头、了解当前草稿结构（通过只读工具）
 
 只能通过 tools 修改时间线；禁止臆造 block_id / overlay_id。
@@ -234,47 +261,66 @@ class EditorAgentService:
         if not frames:
             raise ValueError("预览帧不能为空")
 
-        meta = {
+        block_meta = {
             "block_id": request.block_id,
             "block_title": request.block_title,
             "duration_sec": request.duration_sec,
             "timeline_start_sec": request.timeline_start_sec,
             "timeline_end_sec": request.timeline_end_sec,
             "trim": request.trim,
-            "sample_times_sec": request.sample_times_sec,
             "aspect": request.aspect,
             "canvas_width": request.canvas_width,
             "canvas_height": request.canvas_height,
-            "audio_analysis": request.audio_analysis,
+            "existing_text": request.existing_text,
+            "user_question": request.user_question,
+        }
+
+        frame_observations = self._analyze_video_frames_parallel(frames, block_meta)
+        audio_segment_notes = self._analyze_audio_segments_parallel(
+            request.audio_analysis, block_meta
+        )
+
+        aggregate_payload = {
+            "block_meta": block_meta,
+            "frame_observations": [item.model_dump() for item in frame_observations],
+            "audio_segment_notes": audio_segment_notes,
+            "audio_stats": self._compact_audio_stats(request.audio_analysis),
             "existing_text": request.existing_text,
             "user_question": request.user_question,
         }
         user_content = (request.prompt or "").strip() or DEFAULT_VIDEO_CONTENT_PROMPT
         if request.user_question:
             user_content = f"用户问题：{request.user_question}\n\n{user_content}"
-        user_content = f"Block meta JSON:\n{json.dumps(meta, ensure_ascii=False)}\n\n{user_content}"
+        user_content = (
+            f"汇总输入 JSON:\n{json.dumps(aggregate_payload, ensure_ascii=False)}\n\n{user_content}"
+        )
 
         messages = [
-            {"role": "system", "content": ANALYZE_VIDEO_CONTENT_SYSTEM},
-            {
-                "role": "user",
-                "content": user_content,
-                "images": [frame.image_base64 for frame in frames],
-            },
+            {"role": "system", "content": AGGREGATE_VIDEO_CONTENT_SYSTEM},
+            {"role": "user", "content": user_content},
         ]
 
         response = self.llm_manager.chat_completion(
             messages,
             think=False,
             num_predict=1536,
-            timeout=240,
+            timeout=180,
             temperature=0.25,
         )
 
-        analysis = self._parse_video_content_analysis(
-            response.content or "",
-            request.sample_times_sec,
-        )
+        try:
+            analysis = self._parse_video_content_analysis(
+                response.content or "",
+                request.sample_times_sec,
+                frame_observations=frame_observations,
+            )
+        except ValueError as exc:
+            logger.warning("视频内容汇总 JSON 解析失败，回退为局部结果合并: %s", exc)
+            analysis = self._fallback_video_content_analysis(
+                frame_observations,
+                audio_segment_notes,
+                request.audio_analysis,
+            )
 
         return AnalyzeVideoContentResponse(
             analysis=analysis,
@@ -284,8 +330,242 @@ class EditorAgentService:
             raw_content=response.content,
         )
 
+    def _analyze_video_frames_parallel(
+        self,
+        frames: List[Any],
+        block_meta: Dict[str, Any],
+    ) -> List[VideoFrameObservation]:
+        workers = min(MAX_PARALLEL_VISION_CALLS, len(frames))
+        observations: List[VideoFrameObservation] = []
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(self._analyze_single_video_frame, frame, block_meta): frame
+                for frame in frames
+            }
+            for future in as_completed(futures):
+                frame = futures[future]
+                try:
+                    observations.append(future.result())
+                except Exception as exc:
+                    logger.warning(
+                        "单帧分析失败 time_sec=%s: %s",
+                        getattr(frame, "time_sec", "?"),
+                        exc,
+                    )
+                    observations.append(
+                        VideoFrameObservation(
+                            time_sec=float(getattr(frame, "time_sec", 0) or 0),
+                            scene_summary="",
+                            subjects=[],
+                            shot_type="",
+                        )
+                    )
+
+        observations.sort(key=lambda item: item.time_sec)
+        if not any(item.scene_summary.strip() for item in observations):
+            raise ValueError("所有预览帧视觉分析均失败")
+        return observations
+
+    def _analyze_single_video_frame(
+        self, frame: Any, block_meta: Dict[str, Any]
+    ) -> VideoFrameObservation:
+        meta = {
+            "time_sec": frame.time_sec,
+            "block_title": block_meta.get("block_title"),
+            "duration_sec": block_meta.get("duration_sec"),
+            "timeline_start_sec": block_meta.get("timeline_start_sec"),
+            "timeline_end_sec": block_meta.get("timeline_end_sec"),
+        }
+        messages = [
+            {"role": "system", "content": ANALYZE_VIDEO_FRAME_SYSTEM},
+            {
+                "role": "user",
+                "content": f"Frame meta JSON:\n{json.dumps(meta, ensure_ascii=False)}\n\n描述这一帧画面。",
+                "images": [frame.image_base64],
+            },
+        ]
+        response = self.llm_manager.chat_completion(
+            messages,
+            think=False,
+            num_predict=384,
+            timeout=120,
+            temperature=0.2,
+        )
+        return self._parse_single_frame_observation(
+            response.content or "",
+            float(frame.time_sec or 0),
+        )
+
+    def _parse_single_frame_observation(
+        self, raw_content: str, fallback_time: float
+    ) -> VideoFrameObservation:
+        parsed = self.llm_manager.parse_json_response(raw_content)
+        if not isinstance(parsed, dict):
+            raise ValueError("单帧分析返回的不是 JSON 对象")
+        subjects = parsed.get("subjects")
+        return VideoFrameObservation(
+            time_sec=float(parsed.get("time_sec") or fallback_time),
+            scene_summary=str(parsed.get("scene_summary") or "").strip(),
+            subjects=[str(s).strip() for s in subjects] if isinstance(subjects, list) else [],
+            shot_type=str(parsed.get("shot_type") or "").strip(),
+        )
+
+    def _analyze_audio_segments_parallel(
+        self,
+        audio_analysis: Optional[Dict[str, Any]],
+        block_meta: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        if not audio_analysis or not isinstance(audio_analysis, dict):
+            return []
+
+        segments_raw = audio_analysis.get("segments")
+        if not isinstance(segments_raw, list):
+            return []
+
+        candidates: List[Dict[str, Any]] = []
+        for item in segments_raw:
+            if not isinstance(item, dict):
+                continue
+            duration = float(item.get("duration_sec") or 0)
+            if duration < MIN_SEGMENT_LLM_SEC:
+                continue
+            candidates.append(item)
+
+        candidates.sort(key=lambda seg: float(seg.get("duration_sec") or 0), reverse=True)
+        selected = candidates[:MAX_AUDIO_SEGMENT_LLM]
+        if not selected:
+            return []
+
+        workers = min(MAX_PARALLEL_VISION_CALLS, len(selected))
+        notes: List[Dict[str, Any]] = []
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(self._analyze_single_audio_segment, seg, block_meta): seg
+                for seg in selected
+            }
+            for future in as_completed(futures):
+                seg = futures[future]
+                try:
+                    notes.append(future.result())
+                except Exception as exc:
+                    logger.warning(
+                        "音频分段分析失败 %s–%s: %s",
+                        seg.get("start_sec"),
+                        seg.get("end_sec"),
+                        exc,
+                    )
+
+        notes.sort(key=lambda item: float(item.get("start_sec") or 0))
+        return notes
+
+    def _analyze_single_audio_segment(
+        self, segment: Dict[str, Any], block_meta: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        meta = {
+            "segment": {
+                "kind": segment.get("kind"),
+                "start_sec": segment.get("start_sec"),
+                "end_sec": segment.get("end_sec"),
+                "duration_sec": segment.get("duration_sec"),
+            },
+            "block_title": block_meta.get("block_title"),
+            "duration_sec": block_meta.get("duration_sec"),
+        }
+        messages = [
+            {"role": "system", "content": ANALYZE_AUDIO_SEGMENT_SYSTEM},
+            {
+                "role": "user",
+                "content": (
+                    f"Segment meta JSON:\n{json.dumps(meta, ensure_ascii=False)}\n\n"
+                    "分析该时间段在口播节奏与剪辑上的意义。"
+                ),
+            },
+        ]
+        response = self.llm_manager.chat_completion(
+            messages,
+            think=False,
+            num_predict=256,
+            timeout=90,
+            temperature=0.2,
+        )
+        parsed = self.llm_manager.parse_json_response(response.content or "")
+        if not isinstance(parsed, dict):
+            raise ValueError("音频分段分析返回的不是 JSON 对象")
+        return {
+            "start_sec": float(parsed.get("start_sec") or segment.get("start_sec") or 0),
+            "end_sec": float(parsed.get("end_sec") or segment.get("end_sec") or 0),
+            "kind": str(parsed.get("kind") or segment.get("kind") or "").strip(),
+            "rhythm_note": str(parsed.get("rhythm_note") or "").strip(),
+            "editing_hint": str(parsed.get("editing_hint") or "").strip(),
+        }
+
+    @staticmethod
+    def _compact_audio_stats(audio_analysis: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not audio_analysis or not isinstance(audio_analysis, dict):
+            return None
+        return {
+            "silence_region_count": audio_analysis.get("silence_region_count"),
+            "total_silence_sec": audio_analysis.get("total_silence_sec"),
+            "speech_ratio": audio_analysis.get("speech_ratio"),
+            "split_points": (audio_analysis.get("split_points") or [])[:12],
+            "segment_count": len(audio_analysis.get("segments") or []),
+        }
+
+    def _fallback_video_content_analysis(
+        self,
+        frame_observations: List[VideoFrameObservation],
+        audio_segment_notes: List[Dict[str, Any]],
+        audio_analysis: Optional[Dict[str, Any]],
+    ) -> VideoContentAnalysis:
+        summaries = [item.scene_summary for item in frame_observations if item.scene_summary.strip()]
+        subjects: List[str] = []
+        scene_types: List[str] = []
+        for item in frame_observations:
+            for subject in item.subjects:
+                if subject and subject not in subjects:
+                    subjects.append(subject)
+        key_moments = [
+            {"time_sec": item.time_sec, "description": item.scene_summary}
+            for item in frame_observations
+            if item.scene_summary.strip()
+        ][:5]
+        editing_suggestions: List[str] = []
+        for note in audio_segment_notes:
+            hint = str(note.get("editing_hint") or "").strip()
+            if hint:
+                editing_suggestions.append(hint)
+        split_points = (
+            audio_analysis.get("split_points") if isinstance(audio_analysis, dict) else None
+        )
+        if isinstance(split_points, list) and split_points:
+            editing_suggestions.append(
+                f"可参考静音切分点：{', '.join(f'{float(p):.1f}s' for p in split_points[:6])}"
+            )
+        speech_ratio = (
+            audio_analysis.get("speech_ratio") if isinstance(audio_analysis, dict) else None
+        )
+        summary = summaries[0] if summaries else "片段内容分析完成"
+        if speech_ratio is not None:
+            summary = f"{summary}（口播占比约 {int(float(speech_ratio) * 100)}%）"
+        return VideoContentAnalysis(
+            summary=summary,
+            subjects=subjects[:8],
+            scene_types=scene_types,
+            visual_pacing="medium",
+            mood="",
+            key_moments=key_moments,
+            editing_suggestions=editing_suggestions[:6],
+            confidence="low",
+            frame_observations=frame_observations,
+        )
+
     def _parse_video_content_analysis(
-        self, raw_content: str, sample_times: List[float]
+        self,
+        raw_content: str,
+        sample_times: List[float],
+        frame_observations: Optional[List[VideoFrameObservation]] = None,
     ) -> VideoContentAnalysis:
         parsed = self.llm_manager.parse_json_response(raw_content)
         if not isinstance(parsed, dict):
@@ -318,14 +598,14 @@ class EditorAgentService:
                 )
 
         frame_obs_raw = parsed.get("frame_observations")
-        frame_observations: List[VideoFrameObservation] = []
-        if isinstance(frame_obs_raw, list):
+        parsed_frame_obs: List[VideoFrameObservation] = []
+        if isinstance(frame_obs_raw, list) and frame_obs_raw:
             for index, item in enumerate(frame_obs_raw[:8]):
                 if not isinstance(item, dict):
                     continue
                 fallback_time = sample_times[index] if index < len(sample_times) else 0.0
                 subjects = item.get("subjects")
-                frame_observations.append(
+                parsed_frame_obs.append(
                     VideoFrameObservation(
                         time_sec=float(item.get("time_sec") or fallback_time),
                         scene_summary=str(item.get("scene_summary") or "").strip(),
@@ -333,6 +613,8 @@ class EditorAgentService:
                         shot_type=str(item.get("shot_type") or "").strip(),
                     )
                 )
+        if not parsed_frame_obs and frame_observations:
+            parsed_frame_obs = frame_observations
 
         return VideoContentAnalysis(
             summary=str(parsed.get("summary") or "").strip(),
@@ -343,7 +625,7 @@ class EditorAgentService:
             key_moments=key_moments,
             editing_suggestions=_str_list("editing_suggestions"),
             confidence=confidence,
-            frame_observations=frame_observations,
+            frame_observations=parsed_frame_obs,
         )
 
     def _parse_subtitle_frame_verdict(self, raw_content: str) -> SubtitleFrameVerdict:

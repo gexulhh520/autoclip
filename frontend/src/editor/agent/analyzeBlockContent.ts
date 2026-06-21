@@ -101,26 +101,26 @@ export async function analyzeBlockContent(input: {
   }
 
   const maxWidth = resolveCaptureMaxWidth(input.args.max_width)
-  const frames: Array<{ time_sec: number; image_base64: string; width: number; height: number }> =
-    []
-
-  for (const timeSec of sampleTimes) {
-    const frame = await capturePreviewFrame({
-      projectId: input.projectId,
-      session: input.session,
-      timeSec,
-      maxWidth,
+  const capturedFrames = await Promise.all(
+    sampleTimes.map(async (timeSec) => {
+      const frame = await capturePreviewFrame({
+        projectId: input.projectId,
+        session: input.session,
+        timeSec,
+        maxWidth,
+      })
+      if (!frame.image_base64?.trim()) {
+        throw new Error(`预览截帧为空（@${timeSec.toFixed(2)}s），请确认预览区已加载`)
+      }
+      return {
+        time_sec: frame.time_sec,
+        image_base64: frame.image_base64,
+        width: frame.width,
+        height: frame.height,
+      }
     })
-    if (!frame.image_base64?.trim()) {
-      throw new Error(`预览截帧为空（@${timeSec.toFixed(2)}s），请确认预览区已加载`)
-    }
-    frames.push({
-      time_sec: frame.time_sec,
-      image_base64: frame.image_base64,
-      width: frame.width,
-      height: frame.height,
-    })
-  }
+  )
+  const frames = capturedFrames.sort((a, b) => a.time_sec - b.time_sec)
 
   const detail = getBlockDetail(input.session, blockId)
   const existingText =
@@ -168,7 +168,7 @@ export async function analyzeBlockContent(input: {
     visual_analysis: analysis.analysis,
     vision_model: analysis.model,
     note: audioAnalysisError
-      ? `画面由视觉子 Agent 分析；音频分段失败：${audioAnalysisError}`
-      : '画面由视觉子 Agent 分析，JPEG 未写入主对话；音频分段来自静音检测',
+      ? `画面单帧并发视觉分析 + 音频分段并发节奏分析，最后文本汇总；音频分段失败：${audioAnalysisError}`
+      : '画面单帧并发视觉分析 + 音频分段并发节奏分析，最后文本汇总；JPEG 未写入主对话',
   }
 }

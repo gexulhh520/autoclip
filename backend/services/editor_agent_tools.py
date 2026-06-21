@@ -512,7 +512,7 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "analyze_block_content",
-            "description": "只读：分析视频片段内容（多帧抽帧+音频静音分段）。block_id 缺省用 focused/selected",
+            "description": "只读：分析视频片段内容（并发单帧视觉 + 音频分段节奏分析后文本汇总）。block_id 缺省用 focused/selected",
             "parameters": {
                 "type": "object",
                 "properties": {
