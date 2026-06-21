@@ -1,17 +1,15 @@
-import { capturePreviewFrame } from './capturePreviewFrame'
-import { resolveCaptureMaxWidth } from './capturePreviewFrameUtils'
 import {
   resolveAnalyzeBlockId,
   resolveBlockTimelineWindow,
-  resolveFrameSampleCount,
-  resolveSampleTimesSec,
 } from './analyzeBlockContentUtils'
+import {
+  resolveMomentSearchFrameSampleCount,
+  resolveMomentSearchSampleTimesSec,
+} from './momentSearchFrameUtils'
 import { editorAgentApi } from '../../services/editorAgentApi'
 import { useAgentPanelStore } from '../../stores/useAgentPanelStore'
 import type { MatchedMoment } from '../../types/editorAgent'
 import type { EditSession } from '../../types/editSession'
-
-const CAPTURE_BATCH_SIZE = 4
 
 export interface FindBlockMomentsResult {
   block_id: string
@@ -27,35 +25,7 @@ export interface FindBlockMomentsResult {
   note: string
 }
 
-async function capturePreviewFramesBatched(input: {
-  projectId: string
-  session: EditSession
-  sampleTimes: number[]
-  maxWidth: number
-}): Promise<Array<{ time_sec: number; image_base64: string }>> {
-  const frames: Array<{ time_sec: number; image_base64: string }> = []
-  for (let index = 0; index < input.sampleTimes.length; index += CAPTURE_BATCH_SIZE) {
-    const batchTimes = input.sampleTimes.slice(index, index + CAPTURE_BATCH_SIZE)
-    const batchFrames = await Promise.all(
-      batchTimes.map(async (timeSec) => {
-        const frame = await capturePreviewFrame({
-          projectId: input.projectId,
-          session: input.session,
-          timeSec,
-          maxWidth: input.maxWidth,
-        })
-        if (!frame.image_base64?.trim()) {
-          throw new Error(`预览截帧为空（@${timeSec.toFixed(2)}s），请确认预览区已加载`)
-        }
-        return { time_sec: frame.time_sec, image_base64: frame.image_base64 }
-      })
-    )
-    frames.push(...batchFrames)
-  }
-  return frames.sort((a, b) => a.time_sec - b.time_sec)
-}
-
-/** 按用户描述检索片段：转写文本 + 画面抽帧双路径 */
+/** 按用户描述检索片段：转写文本 + 画面抽帧双路径（抽帧由后端 ffmpeg 完成） */
 export async function findBlockMoments(input: {
   projectId: string
   sessionId: string
@@ -94,24 +64,13 @@ export async function findBlockMoments(input: {
   const sampleCount =
     Number.isFinite(explicitSampleCount) && explicitSampleCount > 0
       ? explicitSampleCount
-      : resolveFrameSampleCount(timelineWindow.duration_sec)
-  const sampleTimes = resolveSampleTimesSec(timelineWindow, sampleCount)
+      : resolveMomentSearchFrameSampleCount(timelineWindow.duration_sec)
+  const sampleTimes = resolveMomentSearchSampleTimesSec(timelineWindow, sampleCount)
 
   const maxResults = Number.isFinite(Number(input.args.max_results))
     ? Number(input.args.max_results)
     : 12
   const includeVisual = input.args.include_visual !== false
-
-  let frames: Array<{ time_sec: number; image_base64: string }> = []
-  if (includeVisual) {
-    const maxWidth = resolveCaptureMaxWidth(input.args.max_width)
-    frames = await capturePreviewFramesBatched({
-      projectId: input.projectId,
-      session: input.session,
-      sampleTimes,
-      maxWidth,
-    })
-  }
 
   const response = await editorAgentApi.findBlockMoments(input.projectId, input.sessionId, {
     block_id: blockId,
@@ -120,8 +79,8 @@ export async function findBlockMoments(input: {
     timeline_start_sec: timelineWindow.start_sec,
     timeline_end_sec: timelineWindow.end_sec,
     duration_sec: timelineWindow.duration_sec,
-    sample_times_sec: frames.map((frame) => frame.time_sec),
-    frames,
+    sample_times_sec: includeVisual ? sampleTimes : [],
+    frames: [],
   })
 
   return {

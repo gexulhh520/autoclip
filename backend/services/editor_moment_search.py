@@ -1,15 +1,19 @@
 """按用户条件在视频片段转写文本中检索匹配时刻。"""
 from __future__ import annotations
 
+import base64
 import json
 import logging
+import re
 import subprocess
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from backend.core.path_utils import get_project_directory
+from backend.utils.ffmpeg_utils import get_ffmpeg_path
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +21,12 @@ MOMENT_SEARCH_BATCH_SIZE = 24
 MAX_MERGED_SEGMENTS = 360
 MAX_SEGMENT_TEXT_CHARS = 480
 WHISPER_CHUNK_SEC = 45.0
+MAX_EXTRACT_FRAME_WIDTH = 480
+WHISPER_SKIP_MIN_DURATION_SEC = 180.0
+
+VISUAL_PRIMARY_CRITERIA = re.compile(
+    r"打斗|打架|格斗|搏击|交手|枪战|追逐|动作场面|武打|搏斗|对打|械斗|拳脚"
+)
 
 FIND_MOMENTS_SYSTEM = """你是视频片段检索助手。用户会给出检索条件与带 index 的字幕/转写片段列表。
 只输出一个 JSON 对象（不要 markdown、不要解释）：
@@ -79,6 +89,110 @@ def resolve_block_source_window(block: Dict[str, Any]) -> Tuple[float, float]:
         return trim_in, trim_out
     duration = float(block.get("duration_sec") or 0)
     return trim_in, trim_in + max(duration, 0.1)
+
+
+def is_visual_primary_search(search_criteria: str) -> bool:
+    return bool(VISUAL_PRIMARY_CRITERIA.search((search_criteria or "").strip()))
+
+
+def timeline_sample_to_source_sec(
+    block: Dict[str, Any],
+    timeline_start_sec: float,
+    timeline_duration_sec: float,
+    sample_timeline_sec: float,
+) -> float:
+    trim = block.get("trim") or {}
+    trim_in = float(trim.get("in_sec") or 0)
+    trim_out = float(trim.get("out_sec") or trim_in)
+    span = max(0.1, trim_out - trim_in)
+    offset = float(sample_timeline_sec) - float(timeline_start_sec)
+    ratio = max(0.0, min(1.0, offset / max(float(timeline_duration_sec), 0.1)))
+    return trim_in + ratio * span
+
+
+def _extract_single_frame(
+    video_path: Path,
+    source_sec: float,
+    timeline_sec: float,
+    max_width: int,
+) -> Optional[Dict[str, Any]]:
+    ffmpeg = get_ffmpeg_path()
+    out_path: Optional[Path] = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            out_path = Path(tmp.name)
+        cmd = [
+            ffmpeg,
+            "-y",
+            "-ss",
+            f"{source_sec:.3f}",
+            "-i",
+            str(video_path),
+            "-vframes",
+            "1",
+            "-vf",
+            f"scale='min({max_width},iw)':-2",
+            "-q:v",
+            "4",
+            str(out_path),
+        ]
+        subprocess.run(cmd, check=True, capture_output=True, timeout=45)
+        if not out_path.exists() or out_path.stat().st_size <= 0:
+            return None
+        image_b64 = base64.b64encode(out_path.read_bytes()).decode("ascii")
+        return {"time_sec": float(timeline_sec), "image_base64": image_b64}
+    except Exception as exc:
+        logger.warning("ffmpeg 抽帧失败 @%.2fs: %s", source_sec, exc)
+        return None
+    finally:
+        if out_path and out_path.exists():
+            try:
+                out_path.unlink()
+            except OSError:
+                pass
+
+
+def extract_block_sample_frames(
+    project_dir: Path,
+    block: Dict[str, Any],
+    sample_times_sec: List[float],
+    timeline_start_sec: float,
+    timeline_duration_sec: float,
+    max_width: int = MAX_EXTRACT_FRAME_WIDTH,
+) -> List[Dict[str, Any]]:
+    media = block.get("media") or {}
+    rel_path = str(media.get("path") or "").strip()
+    if not rel_path or not sample_times_sec:
+        return []
+    video_path = project_dir / rel_path
+    if not video_path.exists():
+        return []
+
+    jobs = [
+        (
+            timeline_sample_to_source_sec(
+                block, timeline_start_sec, timeline_duration_sec, float(timeline_sec)
+            ),
+            float(timeline_sec),
+        )
+        for timeline_sec in sample_times_sec
+    ]
+    frames: List[Dict[str, Any]] = []
+    max_workers = min(4, len(jobs))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [
+            executor.submit(_extract_single_frame, video_path, source_sec, timeline_sec, max_width)
+            for source_sec, timeline_sec in jobs
+        ]
+        for future in as_completed(futures):
+            try:
+                frame = future.result()
+                if frame:
+                    frames.append(frame)
+            except Exception as exc:
+                logger.warning("批量抽帧任务失败: %s", exc)
+    frames.sort(key=lambda item: float(item.get("time_sec") or 0))
+    return frames
 
 
 def source_sec_to_block_trim(block: Dict[str, Any], source_sec: float) -> float:
@@ -371,6 +485,8 @@ def collect_block_transcript(
     project_id: str,
     session_id: str,
     block: Dict[str, Any],
+    *,
+    skip_whisper: bool = False,
 ) -> Tuple[List[TranscriptSegment], str]:
     project_dir = get_project_directory(project_id)
     window_start, window_end = resolve_block_source_window(block)
@@ -400,7 +516,7 @@ def collect_block_transcript(
     needs_whisper = not segments or (
         transcript_source == "overlay" and duration > 120
     )
-    if needs_whisper:
+    if needs_whisper and not skip_whisper:
         whisper_segments = _transcribe_block_whisper(
             project_dir,
             session_id,

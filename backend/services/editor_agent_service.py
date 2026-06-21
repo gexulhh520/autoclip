@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import ValidationError
 
 from backend.core.llm_manager import LLMManager, get_llm_manager
+from backend.core.path_utils import get_project_directory
 from backend.schemas.editor_agent import (
     AnalyzeLayoutRequest,
     AnalyzeLayoutResponse,
@@ -39,11 +40,14 @@ from backend.services.editor_agent_tools import (
     validate_tool_calls,
 )
 from backend.services.editor_moment_search import (
+    WHISPER_SKIP_MIN_DURATION_SEC,
     build_matched_moments,
     build_matched_moments_from_timeline_ranges,
     collect_block_transcript,
+    extract_block_sample_frames,
     find_moments_in_frames,
     find_moments_in_transcript,
+    is_visual_primary_search,
     merge_matched_moments,
     merge_visual_frame_hits,
 )
@@ -367,14 +371,32 @@ class EditorAgentService:
         timeline_start = float(request.timeline_start_sec or 0)
         duration = max(duration, 0.1)
 
+        has_visual_plan = bool(request.sample_times_sec) or bool(request.frames)
+        skip_whisper = (
+            is_visual_primary_search(criteria)
+            and duration >= WHISPER_SKIP_MIN_DURATION_SEC
+            and has_visual_plan
+        )
         segments, transcript_source = collect_block_transcript(
-            project_id, session_id, block
+            project_id,
+            session_id,
+            block,
+            skip_whisper=skip_whisper,
         )
         frame_dicts = [
             {"time_sec": float(f.time_sec), "image_base64": f.image_base64.strip()}
             for f in request.frames
             if f.image_base64.strip()
         ]
+        if not frame_dicts and request.sample_times_sec:
+            project_dir = get_project_directory(project_id)
+            frame_dicts = extract_block_sample_frames(
+                project_dir,
+                block,
+                list(request.sample_times_sec),
+                timeline_start,
+                duration,
+            )
 
         all_matches: List[MatchedMoment] = []
 

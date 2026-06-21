@@ -2,8 +2,10 @@
 import json
 
 from backend.services.editor_moment_search import (
+    is_visual_primary_search,
     merge_matched_moments,
     merge_visual_frame_hits,
+    timeline_sample_to_source_sec,
     VisualFrameHit,
     find_moments_in_transcript,
     TranscriptSegment,
@@ -53,6 +55,20 @@ def test_find_moments_in_transcript():
     hits = find_moments_in_transcript(llm, "富有哲学的话", segments, max_results=3)
     assert len(hits) == 1
     assert "哲学" in hits[0][2] or "修行" in hits[0][0].text
+
+
+def test_is_visual_primary_search():
+    assert is_visual_primary_search("找到所有打斗场景") is True
+    assert is_visual_primary_search("富有哲学的话") is False
+
+
+def test_timeline_sample_to_source_sec():
+    block = {
+        "trim": {"in_sec": 10.0, "out_sec": 110.0},
+        "duration_sec": 100.0,
+    }
+    source = timeline_sample_to_source_sec(block, 0.0, 100.0, 50.0)
+    assert abs(source - 60.0) < 0.01
 
 
 def test_merge_visual_frame_hits():

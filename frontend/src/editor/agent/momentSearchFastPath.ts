@@ -15,11 +15,18 @@ const ANALYZE_ONLY_PATTERN =
 const WRITE_CONFLICT_PATTERN =
   /加字幕|加字|裁剪|去气口|滤镜|删除片段|移动视频|apply_caption|split_text|set_visual_filter/i
 
+const CUT_INTENT_PATTERN = /切割|切出来|裁切|剪出来|拆成|分成.*段|单独剪/i
+
+export function hasCutIntent(message: string): boolean {
+  return CUT_INTENT_PATTERN.test(message.trim())
+}
+
 export function isMomentSearchRequest(message: string): boolean {
   const text = message.trim()
   if (!text) return false
   if (WRITE_CONFLICT_PATTERN.test(text)) return false
   if (ANALYZE_ONLY_PATTERN.test(text)) return false
+  if (hasCutIntent(text)) return false
   return MOMENT_SEARCH_PATTERN.test(text)
 }
 
