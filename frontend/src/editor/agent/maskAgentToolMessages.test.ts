@@ -21,6 +21,24 @@ describe('maskAgentToolMessages', () => {
     expect(stats.tool_messages_chars).toBeLessThan(longPayload.length + 200)
   })
 
+  it('summarizes find_block_moments when masked', () => {
+    const payload = JSON.stringify({
+      ok: true,
+      data: {
+        block_title: 'input',
+        search_criteria: '金句',
+        matches: [{ timeline_start_sec: 1, timeline_end_sec: 2 }],
+      },
+    })
+    const messages: AgentChatMessage[] = [
+      { role: 'assistant', content: '' },
+      { role: 'tool', tool_name: 'find_block_moments', content: payload },
+    ]
+    const { messages: masked } = maskStaleToolObservations(messages, 0)
+    expect(masked[1]?.content).toContain('1 matches')
+    expect(masked[1]?.content).toContain('find_block_moments')
+  })
+
   it('does not mask when only one tool round exists', () => {
     const messages: AgentChatMessage[] = [
       { role: 'tool', tool_name: 'list_assets', content: '{"ok":true,"data":{"clip_count":1}}' },

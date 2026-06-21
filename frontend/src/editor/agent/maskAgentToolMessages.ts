@@ -1,7 +1,7 @@
 import type { AgentChatMessage } from '../../types/editorAgent'
 
-/** 保留最近几轮 tool 回传的完整内容；0 = 全部压成摘要（读工具同轮后也会丢弃） */
-export const KEEP_FULL_TOOL_ROUNDS = 0
+/** 保留最近几轮 tool 回传的完整内容；至少 1 轮，否则读工具（如 find_block_moments）结果被压成 ok 导致模型反复重试 */
+export const KEEP_FULL_TOOL_ROUNDS = 1
 
 export interface ToolObservationMaskStats {
   tool_messages_chars: number
@@ -56,6 +56,16 @@ function summarizeMaskedTool(toolName: string, content: string): string {
       case 'analyze_block_content': {
         const visual = data?.visual_analysis as Record<string, unknown> | undefined
         return `${toolName}: ${String(data?.block_title ?? data?.block_id ?? '?')} — ${String(visual?.summary ?? '').slice(0, 72)}`
+      }
+      case 'find_block_moments': {
+        const matches = Array.isArray(data?.matches) ? data.matches : []
+        const criteria = String(data?.search_criteria ?? '').slice(0, 40)
+        return `${toolName}: ${matches.length} matches in ${String(data?.block_title ?? '?')} (${criteria})`
+      }
+      case 'extract_moment_clips':
+      case 'export_moment_clips_to_pool': {
+        const count = data?.created_count ?? data?.clip_ids?.length ?? data?.exported_count ?? '?'
+        return `${toolName}: ${count} clips`
       }
       case 'split_text_overlays_by_char':
         return `${toolName}: ok=${data?.succeeded ?? '?'} fail=${data?.failed ?? '?'} skip=${data?.skipped ?? '?'}`

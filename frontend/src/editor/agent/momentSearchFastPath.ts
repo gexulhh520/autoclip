@@ -25,13 +25,30 @@ const EXTRACT_CACHED_PATTERN =
   /按.*检索|上面的|刚才|这些.*(裁|切|提取)|帮.*(裁|切|提取)|把.*(裁|切|提取)|按检索结果|裁到时间线/i
 
 export function hasExtractCachedIntent(message: string): boolean {
-  return resolveMomentExportTarget(message) != null
+  const text = message.trim()
+  if (!text) return false
+  if (EXTRACT_CACHED_PATTERN.test(text)) return true
+  const exportTarget = resolveMomentExportTarget(text)
+  if (!exportTarget) return false
+  // 仅导出、无新检索条件 → 复用缓存
+  return !MOMENT_SEARCH_PATTERN.test(text)
+}
+
+export function hasMomentSearchAndExportIntent(message: string): boolean {
+  const text = message.trim()
+  if (!text) return false
+  if (WRITE_CONFLICT_PATTERN.test(text)) return false
+  if (ANALYZE_ONLY_PATTERN.test(text)) return false
+  if (EXTRACT_CACHED_PATTERN.test(text)) return false
+  const exportTarget = resolveMomentExportTarget(text)
+  if (!exportTarget) return false
+  return MOMENT_SEARCH_PATTERN.test(text)
 }
 
 export function resolveMomentExportTarget(message: string): 'timeline' | 'pool' | null {
   const text = message.trim()
   if (!text) return null
-  if (/素材池|进素材池|写入素材池/.test(text)) return 'pool'
+  if (/素材池|进素材池|写入素材池|放入素材池/.test(text)) return 'pool'
   if (/时间线|裁到时间线|进时间线|裁切|裁剪|裁出来|切出来|切割/.test(text)) return 'timeline'
   if (EXTRACT_CACHED_PATTERN.test(text)) return 'timeline'
   return null
@@ -147,6 +164,102 @@ export async function tryExtractCachedMomentsFastPath(input: {
 
   const debugTrace = {
     rounds: [{ round: 1, read_tools: [] as string[], write_tools: [writeTool] }],
+    total_rounds: 1,
+    exhausted: false,
+    outcome: 'reply' as const,
+  }
+
+  return {
+    assistant_message,
+    history: [
+      { role: 'user', content: input.userMessage },
+      { role: 'assistant', content: assistant_message },
+    ],
+    execution_ledger: input.executionLedger,
+    plan: null,
+    debug_trace: debugTrace,
+    debug_summary: formatAgentDebugSummary(debugTrace),
+  }
+}
+
+export async function tryMomentSearchAndExportFastPath(input: {
+  projectId: string
+  sessionId: string
+  userMessage: string
+  executionLedger?: string[]
+  getStore: GetEditStore
+}): Promise<MomentSearchFastPathResult | null> {
+  if (!hasMomentSearchAndExportIntent(input.userMessage)) return null
+
+  const store = input.getStore()
+  if (!store.session) {
+    throw new Error('无活动剪辑工程')
+  }
+
+  const exportTarget = resolveMomentExportTarget(input.userMessage.trim())!
+  const searchCriteria = input.userMessage.trim()
+
+  const data = await findBlockMoments({
+    projectId: input.projectId,
+    sessionId: input.sessionId,
+    session: store.session,
+    args: { search_criteria: searchCriteria },
+    selectedBlockId: store.selectedBlockId,
+  })
+  cacheMomentSearch(input.sessionId, data)
+
+  if (data.matches.length === 0) {
+    return {
+      assistant_message: formatMomentSearchReply(data),
+      history: [
+        { role: 'user', content: input.userMessage },
+        { role: 'assistant', content: formatMomentSearchReply(data) },
+      ],
+      execution_ledger: input.executionLedger,
+      plan: null,
+      debug_trace: {
+        rounds: [{ round: 1, read_tools: ['find_block_moments'], write_tools: [] }],
+        total_rounds: 1,
+        exhausted: false,
+        outcome: 'reply',
+      },
+      debug_summary: undefined,
+    }
+  }
+
+  let assistant_message = ''
+  let writeTool = 'extract_moment_clips'
+  if (exportTarget === 'pool') {
+    const result = await applyMomentExtractToPool(input.getStore, {
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      blockId: data.block_id,
+      blockTitle: data.block_title,
+      searchCriteria: data.search_criteria,
+      matches: data.matches,
+    })
+    assistant_message = result.assistant_message
+    writeTool = 'export_moment_clips_to_pool'
+  } else {
+    const result = applyMomentExtractToTimeline(input.getStore, {
+      blockId: data.block_id,
+      blockTitle: data.block_title,
+      searchCriteria: data.search_criteria,
+      matches: data.matches,
+    })
+    assistant_message = result.assistant_message
+  }
+
+  useAgentPanelStore.getState().clearLastMomentSearch(input.sessionId)
+
+  const debugTrace = {
+    rounds: [
+      {
+        round: 1,
+        read_tools: ['find_block_moments'],
+        write_tools: [writeTool],
+      },
+    ],
     total_rounds: 1,
     exhausted: false,
     outcome: 'reply' as const,

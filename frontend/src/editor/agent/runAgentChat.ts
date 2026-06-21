@@ -11,6 +11,7 @@ import { parseSubmitTaskPlan } from './parseTaskPlan'
 import { tryContentAnalysisFastPath } from './contentAnalysisFastPath'
 import {
   tryExtractCachedMomentsFastPath,
+  tryMomentSearchAndExportFastPath,
   tryMomentSearchFastPath,
 } from './momentSearchFastPath'
 import { sanitizeToolResultForChat } from './sanitizeToolResultForChat'
@@ -375,6 +376,15 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
   }
 
   if (!input.imageDataUrl) {
+    const searchAndExport = await tryMomentSearchAndExportFastPath({
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      userMessage: trimmed,
+      executionLedger: input.executionLedger,
+      getStore: () => useEditSessionStore.getState(),
+    })
+    if (searchAndExport) return searchAndExport
+
     const extractCached = await tryExtractCachedMomentsFastPath({
       projectId: input.projectId,
       sessionId: input.sessionId,
