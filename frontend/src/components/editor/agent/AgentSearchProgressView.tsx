@@ -31,7 +31,7 @@ function phaseMeta(progress: FindBlockMomentsProgress): { label: string; detail?
     return { label: '宫格粗筛', detail: '100s/75s · 54帧→9六宫格' }
   }
   if (progress.scanPhase === 'fine') {
-    return { label: '精扫', detail: '16s/窗 · 仅热点区' }
+    return { label: '精扫', detail: '16s/窗 · 8六宫格 · 并行×2' }
   }
   return { label: '检索', detail: undefined }
 }

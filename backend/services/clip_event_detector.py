@@ -31,6 +31,7 @@ FINE_FPS = 3.0
 FINE_FRAMES = 48
 FINE_INCLUDE_AUDIO = False
 MAX_FINE_WINDOWS_CAP = 200
+FINE_PARALLEL_WORKERS = 2
 
 # --- Coarse（宫格稀疏评分 + 3×2 六宫格）---
 COARSE_TILE_SIZE_SEC = 100.0
@@ -302,6 +303,51 @@ def _run_coarse_tile(
         clip_meta={"start_sec": tile_start, "end_sec": tile_end},
         tile_sec=clip_duration,
     )
+
+
+def _run_fine_window(
+    llm_manager: Any,
+    video_path: Path,
+    block: Dict[str, Any],
+    spec: ClipSearchSpec,
+    *,
+    timeline_start_sec: float,
+    duration: float,
+    index: int,
+    win_start: float,
+    win_end: float,
+    use_audio: bool,
+) -> Tuple[int, Optional[ClipScoreRecord], bool]:
+    """处理单个精扫窗；返回 (index, record|None, skipped)。"""
+    clip_duration = max(0.1, win_end - win_start)
+    source_start = timeline_sample_to_source_sec(
+        block, timeline_start_sec, duration, win_start
+    )
+    frames = _extract_clip_collage_b64(
+        video_path,
+        source_start,
+        clip_duration,
+        fps=FINE_FPS,
+        max_frames=FINE_FRAMES,
+        max_width=FRAME_MAX_WIDTH,
+        cell_width=FINE_COLLAGE_CELL_WIDTH,
+    )
+    if not frames:
+        return index, None, True
+
+    audio_b64 = (
+        _extract_clip_audio_wav_b64(video_path, source_start, clip_duration)
+        if use_audio
+        else None
+    )
+    record = classify_clip(
+        llm_manager,
+        spec,
+        frames,
+        audio_wav_b64=audio_b64,
+        clip_meta={"start_sec": win_start, "end_sec": win_end},
+    )
+    return index, record, False
 
 
 def merge_clip_scores(
@@ -774,7 +820,7 @@ def iter_clip_event_search(
             window_size=FINE_WINDOW_SEC,
             stride=fine_stride,
         )
-        meta.note_parts.append(f"短视频精扫：{len(fine_windows)} 窗")
+        meta.note_parts.append(f"短视频精扫：{len(fine_windows)} 窗（并行×{FINE_PARALLEL_WORKERS}）")
     else:
         coarse_tiles = build_coarse_tiles(
             timeline_start_sec,
@@ -908,7 +954,7 @@ def iter_clip_event_search(
             meta.note_parts.append(f"精扫窗过多，已截断至 {MAX_FINE_WINDOWS_CAP} 窗")
         meta.fine_windows = len(fine_windows)
         meta.note_parts.append(
-            f"精扫仅热点区：{len(hotspots)} 段 → {len(fine_windows)} 窗"
+            f"精扫仅热点区：{len(hotspots)} 段 → {len(fine_windows)} 窗（并行×{FINE_PARALLEL_WORKERS}）"
         )
 
         yield {
@@ -935,86 +981,88 @@ def iter_clip_event_search(
         return
 
     use_audio = include_audio and FINE_INCLUDE_AUDIO
-    for index, (win_start, win_end) in enumerate(fine_windows):
-        clip_duration = max(0.1, win_end - win_start)
-        source_start = timeline_sample_to_source_sec(
-            block, timeline_start_sec, duration, win_start
-        )
+    workers = min(FINE_PARALLEL_WORKERS, len(fine_windows))
 
-        yield {
-            "type": "progress",
-            "scan_phase": "fine",
-            "window_index": index + 1,
-            "total_windows": len(fine_windows),
-            "start_sec": round(win_start, 2),
-            "end_sec": round(win_end, 2),
-        }
-
-        frames = _extract_clip_collage_b64(
-            video_path,
-            source_start,
-            clip_duration,
-            fps=FINE_FPS,
-            max_frames=FINE_FRAMES,
-            max_width=FRAME_MAX_WIDTH,
-            cell_width=FINE_COLLAGE_CELL_WIDTH,
-        )
-        total_frames += FINE_FRAMES
-        audio_b64 = (
-            _extract_clip_audio_wav_b64(video_path, source_start, clip_duration)
-            if use_audio
-            else None
-        )
-
-        if not frames:
-            yield {
-                "type": "clip_score",
-                "scan_phase": "fine",
-                "start_sec": round(win_start, 2),
-                "end_sec": round(win_end, 2),
-                "score": 0.0,
-                "is_event": False,
-                "skipped": True,
-            }
-            continue
-
-        record = classify_clip(
+    def run_fine_indexed(index: int, win_start: float, win_end: float) -> Tuple[int, Optional[ClipScoreRecord], bool]:
+        return _run_fine_window(
             llm_manager,
-            spec,
-            frames,
-            audio_wav_b64=audio_b64,
-            clip_meta={"start_sec": win_start, "end_sec": win_end},
-        )
-        fine_records.append(record)
-
-        yield {
-            "type": "clip_score",
-            "scan_phase": "fine",
-            "window_index": index + 1,
-            "total_windows": len(fine_windows),
-            "start_sec": round(record.start_sec, 2),
-            "end_sec": round(record.end_sec, 2),
-            "score": round(record.score, 3),
-            "is_event": record.is_event,
-            "summary": record.summary,
-        }
-
-        matches = _records_to_moments(
+            video_path,
             block,
-            timeline_start_sec,
-            duration,
-            fine_records,
-            score_threshold=fine_threshold,
-            max_results=max_results,
+            spec,
+            timeline_start_sec=timeline_start_sec,
+            duration=duration,
+            index=index,
+            win_start=win_start,
+            win_end=win_end,
+            use_audio=use_audio,
         )
-        yield {
-            "type": "matches",
-            "matches": [moment_to_dict(m) for m in matches],
-            "windows_processed": index + 1,
-            "total_windows": len(fine_windows),
-            "scan_phase": "fine",
-        }
 
+    indexed_windows = list(enumerate(fine_windows))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(run_fine_indexed, index, ws, we): index
+            for index, (ws, we) in indexed_windows
+        }
+        results: List[Optional[ClipScoreRecord]] = [None] * len(fine_windows)
+        completed = 0
+        for future in as_completed(futures):
+            index, record, skipped = future.result()
+            win_start, win_end = fine_windows[index]
+            completed += 1
+
+            if skipped:
+                yield {
+                    "type": "clip_score",
+                    "scan_phase": "fine",
+                    "window_index": completed,
+                    "total_windows": len(fine_windows),
+                    "start_sec": round(win_start, 2),
+                    "end_sec": round(win_end, 2),
+                    "score": 0.0,
+                    "is_event": False,
+                    "skipped": True,
+                }
+            else:
+                results[index] = record
+                total_frames += FINE_FRAMES
+                yield {
+                    "type": "progress",
+                    "scan_phase": "fine",
+                    "window_index": completed,
+                    "total_windows": len(fine_windows),
+                    "start_sec": round(record.start_sec, 2),
+                    "end_sec": round(record.end_sec, 2),
+                }
+                yield {
+                    "type": "clip_score",
+                    "scan_phase": "fine",
+                    "window_index": completed,
+                    "total_windows": len(fine_windows),
+                    "start_sec": round(record.start_sec, 2),
+                    "end_sec": round(record.end_sec, 2),
+                    "score": round(record.score, 3),
+                    "is_event": record.is_event,
+                    "summary": record.summary,
+                }
+
+            fine_records = [item for item in results if item is not None]
+            matches = _records_to_moments(
+                block,
+                timeline_start_sec,
+                duration,
+                fine_records,
+                score_threshold=fine_threshold,
+                max_results=max_results,
+            )
+            yield {
+                "type": "matches",
+                "matches": [moment_to_dict(m) for m in matches],
+                "windows_processed": completed,
+                "total_windows": len(fine_windows),
+                "scan_phase": "fine",
+            }
+
+    fine_records = [item for item in results if item is not None]
     matches = _records_to_moments(
         block,
         timeline_start_sec,

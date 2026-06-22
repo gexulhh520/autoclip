@@ -97,7 +97,7 @@ export function buildFindBlockMomentsProgressMessage(input: {
       : progress.scanPhase === 'coarse'
         ? '宫格粗筛（100s/75s）'
         : progress.scanPhase === 'fine'
-          ? '精扫（16s/窗，仅热点区）'
+          ? '精扫（16s/窗，仅热点区，并行×2）'
           : '分析'
 
   if (progress.searchSpec?.search_description) {
