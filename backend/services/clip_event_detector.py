@@ -44,30 +44,32 @@ SCORE_THRESHOLD_BALANCED = 0.7
 SCORE_THRESHOLD_HIGH = 0.6
 MERGE_GAP_SEC = 8.0
 
-COARSE_CLASSIFIER_SYSTEM = """You are a video segment scout. You receive sparse frames from ~1 minute of video plus a search_spec that defines the target event.
+COARSE_CLASSIFIER_SYSTEM = """你是视频片段粗筛助手。你会收到约 1 分钟的稀疏画面帧，以及 search_spec（中文检索规范）。
 
-Decide whether this minute might contain the target (be inclusive at coarse stage).
+判断这一分钟里**是否可能出现**目标事件（粗筛阶段宜宽松，仅当明显无关或符合 negative_examples 时才判否）。
 
-Return JSON only:
+只输出 JSON：
 {
-  "summary": "one sentence about what happens",
+  "summary": "一句话概括画面发生了什么",
   "possible_match": true/false,
   "confidence": 0-1
 }
 
-Use search_description, positive_examples, negative_examples. possible_match=true when the target might occur; false only when clearly unrelated or matches negative_examples."""
+以 search_description 为主，positive_examples 作参考，negative_examples 作排除。"""
 
-CLIP_CLASSIFIER_SYSTEM = """You are a video clip classifier. You receive sequential frames and optional audio plus search_spec defining the target event.
+CLIP_CLASSIFIER_SYSTEM = """你是视频 clip 分类器。你会收到连续画面帧和可选音频，以及 search_spec（中文检索规范）。
 
-Return JSON only:
+判断该 clip 是否包含目标事件。
+
+只输出 JSON：
 {
   "is_event": true/false,
   "score": 0-1,
   "confidence": 0-1,
-  "summary": "short description"
+  "summary": "简短中文描述"
 }
 
-Use search_description as the primary definition. positive_examples guide what counts; negative_examples must be rejected. Require clear visual or audible evidence; do not infer unstated dialogue."""
+以 search_description 为首要判定依据；positive_examples 表示应命中；negative_examples 必须排除。需有清晰画面或声音证据，勿臆造未出现的台词。"""
 
 
 @dataclass
@@ -396,9 +398,9 @@ def _classify_clip_internal(
         {
             "role": "user",
             "content": (
-                f"Does this clip contain the target event?\n\n"
-                f"Payload JSON:\n{json.dumps(user_payload, ensure_ascii=False)}\n\n"
-                f"Return JSON only."
+                f"请判断该 clip 是否包含 search_spec 描述的目标事件。\n\n"
+                f"Payload JSON：\n{json.dumps(user_payload, ensure_ascii=False)}\n\n"
+                f"只输出 JSON。"
             ),
             "images": images,
         },

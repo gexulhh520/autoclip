@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
@@ -10,33 +9,35 @@ logger = logging.getLogger(__name__)
 
 CLIP_SEARCH_PLANNER_SYSTEM = """你是视频片段检索的任务规划器。用户会用自然语言描述要在视频中找什么，你需要把它转成明确、可判定、可交给视觉模型执行的搜索规范。
 
-只输出一个 JSON 对象（不要 markdown、不要解释）：
+只输出一个 JSON 对象（不要 markdown、不要解释）。**全部字段使用简体中文**：
 
 {
-  "target": "short_label",
-  "search_description": "English description of what to find in video frames/audio",
-  "positive_examples": ["example1", "example2"],
-  "negative_examples": ["counter_example1", "counter_example2"]
+  "target": "简短标签",
+  "search_description": "要找什么：具体、可观察的中文描述",
+  "positive_examples": ["应判为命中的例子1", "例子2"],
+  "negative_examples": ["易混淆但应排除的例子1", "例子2"]
 }
 
 规则：
-- target：简短英文标签，如 fight、crying、product_demo、speech、kiss、cooking
-- search_description：用英文写清楚「要找什么」，供后续每分钟/每16秒 clip 分类器直接判断；要具体、可观察，不要剧情推理
-- positive_examples：3-6 条英文短语，描述应判为命中的画面/声音
-- negative_examples：2-4 条英文短语，描述容易混淆但应排除的情况
+- target：2-8 字中文标签，如 打斗、哭泣、产品展示、讲解、接吻、做饭
+- search_description：用中文写清楚「要找什么」，供后续每分钟/每16秒 clip 分类器直接判断；要具体、可观察，不要剧情推理、不要抽象评价
+- positive_examples：3-6 条中文短语，描述应判为命中的画面/声音
+- negative_examples：2-4 条中文短语，描述容易混淆但应排除的情况
 - 用户说「所有/全部」只影响召回，不改变事件定义
 - 若用户描述模糊，仍给出最合理的可观察定义，不要拒绝
 
 示例：
 用户：帮我找所有打斗片段
-→ search_description: "physical fighting, punching, kicking, wrestling, combat between people"
-→ positive_examples: ["punching", "kicking", "grappling", "sword fighting"]
-→ negative_examples: ["handshake", "hugging", "dancing", "running without conflict"]
+→ target: "打斗"
+→ search_description: "人物发生肢体冲突，如拳打、脚踢、扭打、械斗、持械对战"
+→ positive_examples: ["挥拳打人", "脚踢", "扭打在地", "持械格斗"]
+→ negative_examples: ["握手", "拥抱", "跳舞", "单纯奔跑无对抗"]
 
 用户：帮我找所有哭泣片段
-→ search_description: "person crying, visible tears, emotional breakdown, sobbing"
-→ positive_examples: ["tears on face", "sobbing", "wiping tears"]
-→ negative_examples: ["smiling", "laughing", "neutral expression"]"""
+→ target: "哭泣"
+→ search_description: "人物哭泣、流泪、抽泣或情绪崩溃的可见表现"
+→ positive_examples: ["面部有泪痕", "抽泣", "擦眼泪"]
+→ negative_examples: ["大笑", "微笑", "表情平静"]"""
 
 
 @dataclass
@@ -88,10 +89,10 @@ def _normalize_examples(raw: Any, *, limit: int = 8) -> List[str]:
 def fallback_search_spec(user_query: str) -> ClipSearchSpec:
     """Planner 失败时的最小回退：用用户原话作为描述。"""
     text = (user_query or "").strip()
-    slug = re.sub(r"[^\w]+", "_", text[:32]).strip("_").lower() or "generic"
+    target = text[:12] if text else "通用"
     return ClipSearchSpec(
         user_query=text,
-        target=slug[:24],
+        target=target,
         search_description=text,
         positive_examples=[],
         negative_examples=[],
