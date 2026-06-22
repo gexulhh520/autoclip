@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { EditBlock } from '../types/editSession'
 import {
+  blockUsesMediaSourceOffset,
   blockUsesSourceVideoPreview,
+  isImportedBlock,
   resolveBlockMediaTimeSec,
 } from './editBlockMedia'
 
@@ -39,5 +41,25 @@ describe('resolveBlockMediaTimeSec', () => {
     const block = aiClipBlock(45)
     block.trim.in_sec = 2
     expect(resolveBlockMediaTimeSec(block, 1.5, false)).toBeCloseTo(3.5, 3)
+  })
+
+  it('offsets imported clip after split via source_start_sec', () => {
+    const block: EditBlock = {
+      id: 'import-1',
+      source_clip_id: 'import-abc',
+      title: '长片',
+      media: {
+        type: 'imported_clip',
+        path: 'edit_sessions/s1/media/import-abc.mp4',
+        source_start_sec: 60,
+      },
+      trim: { in_sec: 0, out_sec: 30 },
+      overlay: { outline: '', content: [], recommend_reason: '' },
+      duration_sec: 90,
+    }
+    expect(isImportedBlock(block)).toBe(true)
+    expect(blockUsesMediaSourceOffset(block, false)).toBe(true)
+    expect(resolveBlockMediaTimeSec(block, 2.5, false)).toBeCloseTo(62.5, 3)
+    expect(blockUsesSourceVideoPreview(block, false)).toBe(false)
   })
 })

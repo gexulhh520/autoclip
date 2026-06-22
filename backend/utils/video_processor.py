@@ -845,6 +845,60 @@ class VideoProcessor:
         )
 
     @staticmethod
+    def remux_faststart(video_path: Path) -> Optional[Path]:
+        """Copy-remux with moov at front for faster HTTP seek. Returns new path or None."""
+        if not video_path.is_file() or video_path.stat().st_size <= 0:
+            return None
+
+        suffix = video_path.suffix.lower()
+        if suffix not in {".mp4", ".mov", ".m4v"}:
+            return None
+
+        output_path = video_path.with_name(f"{video_path.stem}.streamable{suffix}")
+        if output_path.exists():
+            try:
+                output_path.unlink()
+            except OSError:
+                return None
+
+        ffmpeg_bin = get_ffmpeg_path()
+        cmd = [
+            ffmpeg_bin,
+            "-y",
+            "-i",
+            str(video_path),
+            "-c",
+            "copy",
+            "-movflags",
+            "+faststart",
+            str(output_path),
+        ]
+        creationflags = subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="ignore",
+                timeout=600,
+                creationflags=creationflags,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            logger.warning("faststart remux 失败: %s (%s)", video_path.name, exc)
+            if output_path.exists():
+                output_path.unlink(missing_ok=True)
+            return None
+
+        if result.returncode != 0 or not output_path.exists() or output_path.stat().st_size <= 0:
+            logger.warning("faststart remux 未成功: %s", video_path.name)
+            output_path.unlink(missing_ok=True)
+            return None
+
+        logger.info("faststart remux 完成: %s -> %s", video_path.name, output_path.name)
+        return output_path.resolve()
+
+    @staticmethod
     def get_video_info(video_path: Path) -> Dict:
         """
         获取视频信息

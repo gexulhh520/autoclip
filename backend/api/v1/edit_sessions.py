@@ -30,6 +30,7 @@ from backend.schemas.edit_session import (
     EditSessionExportResponse,
     EditSessionImportMediaResponse,
     EditSessionImportMediaPathRequest,
+    EditSessionBlockMediaProbeResponse,
     EditSessionImportBgmUrlRequest,
     EditSessionListResponse,
     EditSessionPreviewOverlayRequest,
@@ -898,6 +899,36 @@ async def import_edit_session_media_path(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("路径导入视频失败: %s/%s", project_id, session_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get(
+    "/{project_id}/edit-sessions/{session_id}/blocks/{block_id}/media-probe",
+    response_model=EditSessionBlockMediaProbeResponse,
+)
+async def probe_edit_session_block_media(
+    project_id: str,
+    session_id: str,
+    block_id: str,
+    service: EditSessionService = Depends(get_edit_session_service),
+):
+    """服务端 ffprobe 探测导入片段时长（比浏览器 metadata 更快）。"""
+    try:
+        duration_sec = service.probe_imported_block_duration(
+            project_id,
+            session_id,
+            block_id,
+        )
+        return EditSessionBlockMediaProbeResponse(
+            duration_sec=duration_sec,
+            ready=duration_sec > 0,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("探测片段时长失败: %s/%s/%s", project_id, session_id, block_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

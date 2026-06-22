@@ -345,6 +345,11 @@ class EditSessionImportMediaResponse(BaseModel):
     )
 
 
+class EditSessionBlockMediaProbeResponse(BaseModel):
+    duration_sec: float = 0.0
+    ready: bool = False
+
+
 class EditSessionImportMediaPathRequest(BaseModel):
     source_path: str = Field(min_length=1, description="本地视频绝对路径（桌面端）")
     insert_index: Optional[int] = None

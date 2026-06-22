@@ -10,7 +10,7 @@ export function isImportedBlock(block: EditBlock): boolean {
   )
 }
 
-/** 与后端 _resolve_render_window 一致：仅在使用原片预览时才偏移 source_start_sec */
+/** 原片预览：播放 source_video_path 并按 source_start_sec 偏移 */
 export function blockUsesSourceVideoPreview(
   block: EditBlock,
   useSourceVideo: boolean
@@ -22,6 +22,17 @@ export function blockUsesSourceVideoPreview(
   )
 }
 
+/** 与后端 _resolve_render_window 一致：播放当前 media 文件时需叠加 source_start_sec */
+export function blockUsesMediaSourceOffset(
+  block: EditBlock,
+  useSourceVideo: boolean
+): boolean {
+  const offset = block.media.source_start_sec
+  if (offset == null || offset <= 0) return false
+  if (blockUsesSourceVideoPreview(block, useSourceVideo)) return true
+  return isImportedBlock(block)
+}
+
 /** 合成相对时间 → 当前绑定视频元素应 seek 的 currentTime */
 export function resolveBlockMediaTimeSec(
   block: EditBlock,
@@ -29,7 +40,7 @@ export function resolveBlockMediaTimeSec(
   useSourceVideo: boolean
 ): number {
   const inMediaSec = block.trim.in_sec + relativeSec
-  if (blockUsesSourceVideoPreview(block, useSourceVideo)) {
+  if (blockUsesMediaSourceOffset(block, useSourceVideo)) {
     return block.media.source_start_sec! + inMediaSec
   }
   return inMediaSec

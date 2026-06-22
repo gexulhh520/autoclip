@@ -566,6 +566,10 @@ def test_import_media_endpoint(tmp_path, monkeypatch):
         "backend.utils.video_processor.VideoProcessor.probe_video_duration_sec",
         lambda _path, **_kwargs: 12.5,
     )
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.EditSessionService.schedule_imported_media_postprocess",
+        lambda *_args, **_kwargs: None,
+    )
 
     client = TestClient(app)
     response = client.post(
@@ -576,9 +580,16 @@ def test_import_media_endpoint(tmp_path, monkeypatch):
     payload = response.json()
     assert payload["block_id"]
     assert payload["title"] == "demo"
-    assert payload["duration_sec"] == 12.5
+    assert payload["duration_sec"] == 0.0
     assert len(payload["session"]["sequence"]) == 1
     assert payload["session"]["sequence"][0]["media"]["type"] == "imported_clip"
+
+    probe = client.get(
+        f"/api/v1/projects/{project_id}/edit-sessions/{session_id}/blocks/{payload['block_id']}/media-probe"
+    )
+    assert probe.status_code == 200, probe.text
+    assert probe.json()["duration_sec"] == 12.5
+    assert probe.json()["ready"] is True
 
     media_dir = project_dir / "edit_sessions" / session_id / "media"
     assert any(media_dir.glob("import-*.mp4"))
@@ -647,6 +658,10 @@ def test_import_media_path_endpoint(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "backend.utils.video_processor.VideoProcessor.probe_video_duration_sec",
         lambda _path, **_kwargs: 42.0,
+    )
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.EditSessionService.schedule_imported_media_postprocess",
+        lambda *_args, **_kwargs: None,
     )
 
     client = TestClient(app)
@@ -743,6 +758,10 @@ def test_import_media_path_reference_when_link_fails(tmp_path, monkeypatch):
         "backend.services.edit_session_service.os.symlink",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("no symlink")),
     )
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.EditSessionService.schedule_imported_media_postprocess",
+        lambda *_args, **_kwargs: None,
+    )
 
     client = TestClient(app)
     response = client.post(
@@ -754,3 +773,41 @@ def test_import_media_path_reference_when_link_fails(tmp_path, monkeypatch):
     assert payload["import_method"] == "reference"
     assert payload["duration_sec"] == 0.0
     assert Path(payload["session"]["sequence"][0]["media"]["path"]).resolve() == source_video.resolve()
+
+
+def test_resolve_render_window_imported_clip_split_offset(tmp_path, monkeypatch):
+    from backend.pipeline.edit_renderer import _resolve_render_window
+    from backend.schemas.edit_session import EditBlock, EditBlockMedia, EditBlockTrim, EditBlockOverlay
+
+    project_dir = tmp_path / "proj"
+    media = project_dir / "edit_sessions" / "s1" / "media" / "clip.mp4"
+    media.parent.mkdir(parents=True, exist_ok=True)
+    media.write_bytes(b"video")
+
+    block = EditBlock(
+        id="b2",
+        source_clip_id="import-abc",
+        title="第二段",
+        media=EditBlockMedia(
+            type="imported_clip",
+            path="edit_sessions/s1/media/clip.mp4",
+            source_start_sec=60.0,
+        ),
+        trim=EditBlockTrim(in_sec=0.0, out_sec=30.0),
+        overlay=EditBlockOverlay(outline="", content=[], recommend_reason=""),
+        duration_sec=90.0,
+    )
+
+    monkeypatch.setattr(
+        "backend.pipeline.edit_renderer._probe_duration",
+        lambda _path: 90.0,
+    )
+
+    input_video, trim_in, duration = _resolve_render_window(
+        project_dir,
+        block,
+        use_source_video=False,
+    )
+    assert input_video.resolve() == media.resolve()
+    assert trim_in == pytest.approx(60.0)
+    assert duration == pytest.approx(30.0)

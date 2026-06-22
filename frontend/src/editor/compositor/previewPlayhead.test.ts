@@ -73,4 +73,17 @@ describe('compositionTimeFromVideo', () => {
     expect(readVideoSourceRelativeSec(video, clip, true)).toBeCloseTo(1.5, 3)
     expect(readVideoSourceRelativeSec(video, clip, false)).toBeCloseTo(5.5, 3)
   })
+
+  it('readVideoSourceRelativeSec honors imported clip split offset', () => {
+    const clip = block('import-1', 6)
+    clip.source_clip_id = 'import-abc'
+    clip.media = {
+      type: 'imported_clip',
+      path: 'edit_sessions/s1/media/import-abc.mp4',
+      source_start_sec: 4,
+    }
+    clip.trim = { in_sec: 0, out_sec: 6 }
+    const video = { currentTime: 5.5 } as HTMLVideoElement
+    expect(readVideoSourceRelativeSec(video, clip, false)).toBeCloseTo(1.5, 3)
+  })
 })

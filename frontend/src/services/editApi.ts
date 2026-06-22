@@ -220,6 +220,16 @@ export const editApi = {
     return `${base}/projects/${projectId}/edit-sessions/${sessionId}/blocks/${blockId}/media`
   },
 
+  probeBlockMediaDuration: async (
+    projectId: string,
+    sessionId: string,
+    blockId: string
+  ): Promise<{ duration_sec: number; ready: boolean }> => {
+    return (await api.get(
+      `/projects/${projectId}/edit-sessions/${sessionId}/blocks/${blockId}/media-probe`
+    )) as { duration_sec: number; ready: boolean }
+  },
+
   previewOverlay: async (
     projectId: string,
     sessionId: string,

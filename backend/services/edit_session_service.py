@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import shutil
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -831,6 +832,119 @@ class EditSessionService:
         saved_block = next((item for item in updated.sequence if item.id == block.id), block)
         return updated, saved_block
 
+    def _update_imported_block_fields(
+        self,
+        project_id: str,
+        session_id: str,
+        block_id: str,
+        *,
+        duration_sec: Optional[float] = None,
+        media_path: Optional[str] = None,
+    ) -> None:
+        session = self.get_session(project_id, session_id)
+        updated_blocks: List[EditBlock] = []
+        found = False
+        for item in session.sequence:
+            if item.id != block_id:
+                updated_blocks.append(item)
+                continue
+            found = True
+            data = item.model_dump()
+            if duration_sec is not None and duration_sec > 0:
+                data["duration_sec"] = duration_sec
+                trim = dict(data.get("trim") or {})
+                if float(trim.get("out_sec") or 0) <= 0.1:
+                    trim["out_sec"] = duration_sec
+                if float(trim.get("in_sec") or 0) < 0:
+                    trim["in_sec"] = 0.0
+                data["trim"] = trim
+            if media_path:
+                media = dict(data.get("media") or {})
+                media["path"] = media_path
+                data["media"] = media
+            updated_blocks.append(EditBlock.model_validate(data))
+        if not found:
+            return
+        self.update_session(
+            project_id,
+            session_id,
+            EditSessionUpdateRequest(sequence=updated_blocks),
+        )
+
+    def schedule_imported_media_postprocess(
+        self,
+        project_id: str,
+        session_id: str,
+        block_id: str,
+        media_file: Path,
+    ) -> None:
+        """后台探测时长并生成 faststart 副本，不阻塞导入 API。"""
+
+        def _run() -> None:
+            try:
+                resolved = media_file.resolve()
+                duration_sec = VideoProcessor.probe_video_duration_sec(resolved)
+                if duration_sec > 0:
+                    self._update_imported_block_fields(
+                        project_id,
+                        session_id,
+                        block_id,
+                        duration_sec=duration_sec,
+                    )
+
+                streamable = VideoProcessor.remux_faststart(resolved)
+                if streamable is None:
+                    return
+
+                project_dir = get_project_directory(project_id)
+                rel = _relative_project_path(project_dir, streamable)
+                self._update_imported_block_fields(
+                    project_id,
+                    session_id,
+                    block_id,
+                    media_path=rel,
+                )
+            except Exception:
+                logger.exception(
+                    "导入媒体后处理失败 project=%s session=%s block=%s",
+                    project_id,
+                    session_id,
+                    block_id,
+                )
+
+        threading.Thread(
+            target=_run,
+            name=f"import-postprocess-{block_id[:8]}",
+            daemon=True,
+        ).start()
+
+    def probe_imported_block_duration(
+        self,
+        project_id: str,
+        session_id: str,
+        block_id: str,
+    ) -> float:
+        session = self.get_session(project_id, session_id)
+        block = next((item for item in session.sequence if item.id == block_id), None)
+        if block is None:
+            raise ValueError("片段不存在")
+        if block.duration_sec > 0.1:
+            return float(block.duration_sec)
+
+        project_dir = get_project_directory(project_id)
+        from backend.pipeline.edit_renderer import _resolve_input_video
+
+        video_path = _resolve_input_video(project_dir, block)
+        duration_sec = VideoProcessor.probe_video_duration_sec(video_path)
+        if duration_sec > 0:
+            self._update_imported_block_fields(
+                project_id,
+                session_id,
+                block_id,
+                duration_sec=duration_sec,
+            )
+        return duration_sec
+
     def import_media_from_path(
         self,
         project_id: str,
@@ -882,6 +996,12 @@ class EditSessionService:
             insert_index=insert_index,
             defer_duration_probe=True,
         )
+        self.schedule_imported_media_postprocess(
+            project_id,
+            session_id,
+            block.id,
+            media_file,
+        )
         logger.info(
             "路径导入完成 block_id=%s method=%s duration_pending=%s",
             block.id,
@@ -913,7 +1033,7 @@ class EditSessionService:
         dest.write_bytes(content)
 
         title = Path(file_name).stem.strip() or "导入视频"
-        return self._finalize_imported_video(
+        session, block = self._finalize_imported_video(
             project_id,
             session_id,
             session,
@@ -922,7 +1042,15 @@ class EditSessionService:
             import_id=import_id,
             title=title,
             insert_index=insert_index,
+            defer_duration_probe=True,
         )
+        self.schedule_imported_media_postprocess(
+            project_id,
+            session_id,
+            block.id,
+            dest,
+        )
+        return session, block
 
     def import_media_file_to_path(
         self,
@@ -938,7 +1066,7 @@ class EditSessionService:
         project_dir = get_project_directory(project_id)
         import_id = f"import-{uuid.uuid4().hex[:12]}"
         title = Path(file_name).stem.strip() or "导入视频"
-        return self._finalize_imported_video(
+        session, block = self._finalize_imported_video(
             project_id,
             session_id,
             session,
@@ -947,7 +1075,15 @@ class EditSessionService:
             import_id=import_id,
             title=title,
             insert_index=insert_index,
+            defer_duration_probe=True,
         )
+        self.schedule_imported_media_postprocess(
+            project_id,
+            session_id,
+            block.id,
+            dest,
+        )
+        return session, block
 
     def _import_bgm_from_local_file(
         self,

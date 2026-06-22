@@ -259,6 +259,22 @@ def _resolve_render_window(
             return source, abs_in, duration
 
     input_video = _resolve_input_video(project_dir, block)
+    source_offset = block.media.source_start_sec
+    if (
+        source_offset is not None
+        and float(source_offset) > 0
+        and block.media.type == "imported_clip"
+        and not block.media.source_video_path
+    ):
+        base = float(source_offset)
+        if trim_out <= trim_in:
+            trim_out = trim_in + (
+                _probe_duration(input_video) or block.duration_sec or 1.0
+            ) - base
+        abs_in = base + trim_in
+        duration = max(0.1, base + trim_out - abs_in)
+        return input_video, abs_in, duration
+
     if trim_out <= trim_in:
         trim_out = trim_in + (_probe_duration(input_video) or block.duration_sec or 1.0)
     duration = max(0.1, trim_out - trim_in)
