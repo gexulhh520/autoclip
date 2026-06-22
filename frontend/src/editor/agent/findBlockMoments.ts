@@ -72,11 +72,6 @@ export async function findBlockMoments(input: {
       : resolveMomentSearchFrameSampleCount(timelineWindow.duration_sec)
   const sampleTimes = resolveMomentSearchSampleTimesSec(timelineWindow, sampleCount)
 
-  const maxResults = Number.isFinite(Number(input.args.max_results))
-    ? Number(input.args.max_results)
-    : recallMode === 'high'
-      ? 24
-      : 12
   const includeVisual = input.args.include_visual !== false
   const recallMode =
     input.args.recall_mode === 'high' || input.args.recall_mode === 'balanced'
@@ -88,6 +83,12 @@ export async function findBlockMoments(input: {
           args: input.args,
           searchCriteria,
         })
+
+  const maxResults = Number.isFinite(Number(input.args.max_results))
+    ? Number(input.args.max_results)
+    : recallMode === 'high'
+      ? 24
+      : 12
 
   const visualProfile = String(input.args.visual_profile ?? '').trim()
   const searchStrategy = String(input.args.search_strategy ?? '').trim()
