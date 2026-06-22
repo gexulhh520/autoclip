@@ -96,8 +96,32 @@
   flex-shrink: 0;
   border-right: 1px solid var(--oc-border);
   background: var(--oc-panel);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.oc-timeline__labels-scroll {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+}
+
+.oc-timeline__labels-h-scroll-spacer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--oc-border);
+  background: var(--oc-panel);
+}
+
+.oc-timeline__viewport {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .oc-timeline__labels-spacer {
@@ -145,9 +169,25 @@
 
 .oc-timeline__scroll {
   flex: 1;
-  overflow: auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
   position: relative;
   background: var(--oc-bg);
+}
+
+.oc-timeline__h-scroll {
+  flex-shrink: 0;
+  height: 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-top: 1px solid var(--oc-border);
+  background: var(--oc-panel);
+}
+
+.oc-timeline__h-scroll-inner {
+  height: 1px;
+  pointer-events: none;
 }
 
 .oc-timeline__content {

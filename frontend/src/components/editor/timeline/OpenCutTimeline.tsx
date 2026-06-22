@@ -26,6 +26,10 @@ import {
 import { getTimelinePaddingPx, getTimelineZoomMin, pxToTime, timeToPx } from './zoomUtils'
 import { useTimelineZoom } from './hooks/useTimelineZoom'
 import { useScrollSync } from './hooks/useScrollSync'
+import {
+  setSyncedTimelineScrollLeft,
+  useHorizontalScrollSync,
+} from './hooks/useHorizontalScrollSync'
 import { usePlayheadDrag, useTimelineSeek } from './hooks/useTimelineSeek'
 import { useTimelineBoxSelect } from './hooks/useTimelineBoxSelect'
 import { resolveContextMenuPosition } from './contextMenuPosition'
@@ -182,6 +186,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
 
   const timelineRef = useRef<HTMLDivElement>(null)
   const tracksScrollRef = useRef<HTMLDivElement>(null)
+  const horizontalScrollRef = useRef<HTMLDivElement>(null)
   const trackLabelsScrollRef = useRef<HTMLDivElement>(null)
   const [assetDurations, setAssetDurations] = useState<Record<string, number>>({})
   const assetDurationsRef = useRef(assetDurations)
@@ -278,7 +283,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   useEffect(() => {
     const scrollEl = tracksScrollRef.current
     if (!scrollEl) return
-    scrollEl.scrollLeft = 0
+    setSyncedTimelineScrollLeft(tracksScrollRef, horizontalScrollRef, 0)
   }, [session?.id])
 
   const containerWidth = tracksViewportWidth || 1000
@@ -289,6 +294,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     minZoom,
     playheadSec: sequencePlayheadSec,
     tracksScrollRef,
+    horizontalScrollRef,
     persistenceKey: session?.id ?? null,
   })
 
@@ -362,6 +368,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const playheadLeft = sequencePlayheadSec * TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel
 
   useScrollSync(tracksScrollRef, trackLabelsScrollRef)
+  useHorizontalScrollSync(tracksScrollRef, horizontalScrollRef)
 
   useEffect(() => {
     const assets = session?.audio_assets ?? []
@@ -1449,7 +1456,8 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       />
 
       <div className="oc-timeline__body">
-        <div className="oc-timeline__labels" ref={trackLabelsScrollRef}>
+        <div className="oc-timeline__labels">
+          <div className="oc-timeline__labels-scroll" ref={trackLabelsScrollRef}>
           <div
             className="oc-timeline__labels-spacer"
             style={{ height: TIMELINE_CONSTANTS.HEADER_HEIGHT_PX }}
@@ -1641,13 +1649,35 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
               )
             })}
           </div>
+          </div>
+          <div
+            className="oc-timeline__labels-h-scroll-spacer"
+            style={{ height: TIMELINE_CONSTANTS.HORIZONTAL_SCROLLBAR_HEIGHT_PX }}
+            aria-hidden
+          />
         </div>
 
+        <div className="oc-timeline__viewport">
         <div
           className="oc-timeline__scroll"
           ref={tracksScrollRef}
           onWheel={(event) => {
-            if (event.ctrlKey || event.metaKey) handleWheel(event)
+            if (event.ctrlKey || event.metaKey) {
+              handleWheel(event)
+              return
+            }
+            const deltaX = event.shiftKey ? event.deltaY : event.deltaX
+            if (
+              Math.abs(deltaX) > 0.5 &&
+              (event.shiftKey || Math.abs(deltaX) > Math.abs(event.deltaY))
+            ) {
+              event.preventDefault()
+              const scrollEl = tracksScrollRef.current
+              if (!scrollEl) return
+              const maxScrollLeft = scrollEl.scrollWidth - scrollEl.clientWidth
+              const next = Math.max(0, Math.min(maxScrollLeft, scrollEl.scrollLeft + deltaX))
+              setSyncedTimelineScrollLeft(tracksScrollRef, horizontalScrollRef, next)
+            }
           }}
         >
           <div className="oc-timeline__content" style={{ width: dynamicTimelineWidth }}>
@@ -1924,6 +1954,17 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
               </div>
             </div>
           </div>
+        </div>
+        <div
+          className="oc-timeline__h-scroll"
+          ref={horizontalScrollRef}
+          aria-label="时间线横向滚动"
+        >
+          <div
+            className="oc-timeline__h-scroll-inner"
+            style={{ width: dynamicTimelineWidth }}
+          />
+        </div>
         </div>
       </div>
 

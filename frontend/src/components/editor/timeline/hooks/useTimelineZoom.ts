@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react'
 import { readTimelineZoomLevel, writeTimelineZoomLevel } from '../../../../utils/timelineZoomPrefs'
+import { setSyncedTimelineScrollLeft } from './useHorizontalScrollSync'
 import { TIMELINE_CONSTANTS } from '../constants'
 import { zoomToSlider } from '../zoomUtils'
 
@@ -16,6 +17,7 @@ interface UseTimelineZoomOptions {
   minZoom: number
   playheadSec: number
   tracksScrollRef: RefObject<HTMLDivElement | null>
+  horizontalScrollRef?: RefObject<HTMLDivElement | null>
   initialZoom?: number
   /** 剪辑 session id：用于记住 Ctrl+滚轮 / 滑条缩放 */
   persistenceKey?: string | null
@@ -30,6 +32,7 @@ export function useTimelineZoom({
   minZoom,
   playheadSec,
   tracksScrollRef,
+  horizontalScrollRef,
   initialZoom,
   persistenceKey = null,
 }: UseTimelineZoomOptions) {
@@ -125,10 +128,15 @@ export function useTimelineZoom({
       const viewportOffset = playheadPixelsBefore - currentScrollLeft
       const newScrollLeft = playheadPixelsAfter - viewportOffset
       const maxScrollLeft = scrollElement.scrollWidth - scrollElement.clientWidth
-      scrollElement.scrollLeft = Math.max(0, Math.min(maxScrollLeft, newScrollLeft))
+      const clampedScrollLeft = Math.max(0, Math.min(maxScrollLeft, newScrollLeft))
+      if (horizontalScrollRef) {
+        setSyncedTimelineScrollLeft(tracksScrollRef, horizontalScrollRef, clampedScrollLeft)
+      } else {
+        scrollElement.scrollLeft = clampedScrollLeft
+      }
     }
     previousZoomRef.current = zoomLevel
-  }, [zoomLevel, minZoom, playheadSec, tracksScrollRef])
+  }, [zoomLevel, minZoom, playheadSec, tracksScrollRef, horizontalScrollRef])
 
   useEffect(() => {
     const preventZoom = (event: WheelEvent) => {

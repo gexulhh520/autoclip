@@ -25,6 +25,8 @@ export const TIMELINE_CONSTANTS = {
   SIDEBAR_WIDTH_PX: 112,
   /** 标尺 16px + 书签 16px */
   HEADER_HEIGHT_PX: 32,
+  /** 轨道区域底部固定横向滚动条高度 */
+  HORIZONTAL_SCROLLBAR_HEIGHT_PX: 12,
 } as const
 
 export const TRACK_ICONS: Record<AdaptedTrackType, React.ReactNode> = {
