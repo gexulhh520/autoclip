@@ -1,11 +1,11 @@
 import type { EditBlock } from '../../types/editSession'
-import { ensureDecoderBound } from './previewDecoderBinding'
+import { ensureDecoderBound, resolvePreviewDecoderKey } from './previewDecoderBinding'
 import { ensurePreviewVideoFrameCache } from './previewVideoFrameCache'
 
 const MAX_RETAINED_DECODERS = 8
 
 export interface PreviewDecoderPool {
-  ensure(blockId: string): HTMLVideoElement
+  ensureForBlock(block: EditBlock): HTMLVideoElement
   get(blockId: string): HTMLVideoElement | null
   getFrameCache(blockId: string): HTMLCanvasElement
   touch(blockId: string): void
@@ -21,34 +21,35 @@ export function createPreviewDecoderPool(
   } = {}
 ): PreviewDecoderPool {
   const decoders = new Map<string, HTMLVideoElement>()
+  const blockToStorageKey = new Map<string, string>()
   const frameCaches = new Map<string, HTMLCanvasElement>()
   const lastUsedAt = new Map<string, number>()
   let touchCounter = 0
 
-  const touch = (blockId: string) => {
+  const touchStorage = (storageKey: string) => {
     touchCounter += 1
-    lastUsedAt.set(blockId, touchCounter)
+    lastUsedAt.set(storageKey, touchCounter)
   }
 
-  const removeDecoder = (blockId: string) => {
-    const video = decoders.get(blockId)
+  const removeStorage = (storageKey: string) => {
+    const video = decoders.get(storageKey)
     if (!video) return
     video.pause()
     video.remove()
-    decoders.delete(blockId)
-    frameCaches.delete(blockId)
-    lastUsedAt.delete(blockId)
+    decoders.delete(storageKey)
+    lastUsedAt.delete(storageKey)
   }
 
-  const ensure = (blockId: string): HTMLVideoElement => {
-    const existing = decoders.get(blockId)
+  const ensureStorage = (storageKey: string, blockId: string): HTMLVideoElement => {
+    const existing = decoders.get(storageKey)
     if (existing) {
-      touch(blockId)
+      touchStorage(storageKey)
       return existing
     }
 
     const video = document.createElement('video')
     video.className = 'compositor-preview__decoder'
+    video.dataset.storageKey = storageKey
     video.dataset.blockId = blockId
     video.playsInline = true
     video.preload = 'metadata'
@@ -60,19 +61,28 @@ export function createPreviewDecoderPool(
       options.onLoadedData?.(video, blockId)
     })
     host.appendChild(video)
-    decoders.set(blockId, video)
-    touch(blockId)
+    decoders.set(storageKey, video)
+    touchStorage(storageKey)
     return video
   }
 
   return {
-    ensure,
+    ensureForBlock(block: EditBlock): HTMLVideoElement {
+      const storageKey = resolvePreviewDecoderKey(block)
+      blockToStorageKey.set(block.id, storageKey)
+      return ensureStorage(storageKey, block.id)
+    },
     get: (blockId) => {
-      const video = decoders.get(blockId) ?? null
-      if (video) touch(blockId)
+      const storageKey = blockToStorageKey.get(blockId)
+      if (!storageKey) return null
+      const video = decoders.get(storageKey) ?? null
+      if (video) touchStorage(storageKey)
       return video
     },
-    touch,
+    touch: (blockId) => {
+      const storageKey = blockToStorageKey.get(blockId)
+      if (storageKey) touchStorage(storageKey)
+    },
     getFrameCache: (blockId) => {
       const existing = frameCaches.get(blockId)
       const cache = ensurePreviewVideoFrameCache(existing ?? null)
@@ -81,28 +91,43 @@ export function createPreviewDecoderPool(
     },
     prune: (activeBlockIds) => {
       const active = new Set(activeBlockIds)
+      const activeStorage = new Set<string>()
+
       for (const blockId of active) {
-        touch(blockId)
+        const storageKey = blockToStorageKey.get(blockId)
+        if (storageKey) {
+          activeStorage.add(storageKey)
+          touchStorage(storageKey)
+        }
       }
 
-      const inactive = [...decoders.keys()].filter((blockId) => !active.has(blockId))
+      for (const blockId of [...blockToStorageKey.keys()]) {
+        if (!active.has(blockId)) {
+          blockToStorageKey.delete(blockId)
+          frameCaches.delete(blockId)
+        }
+      }
+
+      const inactiveStorage = [...decoders.keys()].filter((key) => !activeStorage.has(key))
       if (decoders.size <= MAX_RETAINED_DECODERS) return
 
-      inactive.sort(
+      inactiveStorage.sort(
         (left, right) => (lastUsedAt.get(left) ?? 0) - (lastUsedAt.get(right) ?? 0)
       )
 
       let overflow = decoders.size - MAX_RETAINED_DECODERS
-      for (const blockId of inactive) {
+      for (const storageKey of inactiveStorage) {
         if (overflow <= 0) break
-        removeDecoder(blockId)
+        removeStorage(storageKey)
         overflow -= 1
       }
     },
     dispose: () => {
-      for (const blockId of [...decoders.keys()]) {
-        removeDecoder(blockId)
+      for (const storageKey of [...decoders.keys()]) {
+        removeStorage(storageKey)
       }
+      blockToStorageKey.clear()
+      frameCaches.clear()
     },
   }
 }
@@ -112,7 +137,7 @@ export function bindPreviewDecoder(
   block: EditBlock,
   getVideoUrlForBlock: (block: EditBlock) => string
 ): HTMLVideoElement {
-  const video = pool.ensure(block.id)
+  const video = pool.ensureForBlock(block)
   ensureDecoderBound(video, block, getVideoUrlForBlock)
   return video
 }

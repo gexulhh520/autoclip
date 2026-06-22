@@ -8,7 +8,7 @@ import {
 } from '../../../editor/compositor'
 import { findUpcomingCrossIncomingBlock } from '../../../editor/compositor/previewCrossTransitionWarmup'
 import { findPlayheadWarmupTargets } from '../../../editor/compositor/previewPlayheadWarmup'
-import { ensureDecoderBound } from '../../../editor/compositor/previewDecoderBinding'
+import { ensureDecoderBound, ensureDecoderPreloadForTargetTime } from '../../../editor/compositor/previewDecoderBinding'
 import {
   capturePreviewVideoFrame,
   hasPreviewVideoFrameCache,
@@ -123,6 +123,8 @@ export interface CompositorPreviewProps {
 
 const PLAYBACK_END_EPSILON_SEC = 0.02
 
+const PLAYBACK_SEEK_DRIFT_SEC = 0.35
+
 function paintAfterVideoSync(
   videos: HTMLVideoElement[],
   paint: () => void,
@@ -140,27 +142,37 @@ function paintAfterVideoSync(
     if (pending <= 0) paint()
   }
 
-  for (const video of videos) {
-    pending += 1
-    const awaitFrame = () => {
+  const awaitFrame = (video: HTMLVideoElement) => {
+    if (!isCurrentGeneration()) return
+    if (typeof video.requestVideoFrameCallback === 'function') {
+      video.requestVideoFrameCallback(finish)
+    } else {
+      finish()
+    }
+  }
+
+  const awaitReadyFrame = (video: HTMLVideoElement) => {
+    if (!isCurrentGeneration()) return
+    const drawWhenReady = () => {
       if (!isCurrentGeneration()) return
-      if (typeof video.requestVideoFrameCallback === 'function') {
-        video.requestVideoFrameCallback(finish)
-      } else {
-        finish()
+      if (video.readyState >= 2) {
+        awaitFrame(video)
+        return
       }
+      video.addEventListener('loadeddata', () => awaitFrame(video), { once: true })
     }
     if (video.seeking) {
-      video.addEventListener('seeked', finish, { once: true })
-      continue
+      video.addEventListener('seeked', drawWhenReady, { once: true })
+      return
     }
+    drawWhenReady()
+  }
+
+  for (const video of videos) {
+    pending += 1
     requestAnimationFrame(() => {
       if (!isCurrentGeneration()) return
-      if (video.seeking) {
-        video.addEventListener('seeked', finish, { once: true })
-      } else {
-        awaitFrame()
-      }
+      awaitReadyFrame(video)
     })
   }
 }
@@ -358,8 +370,18 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         video.muted = true
         video.volume = 0
         const target = getSourceTimeForBlock(block, relativeSourceSec)
+        ensureDecoderPreloadForTargetTime(video, target)
         if (Math.abs(video.currentTime - target) > 0.08 && !video.seeking) {
+          const onSeeked = () => {
+            capturePreviewVideoFrame(video, pool.getFrameCache(block.id))
+            if (!isPlayingRef.current) {
+              paintAtRef.current(sequencePlayheadRef.current, false)
+            }
+          }
+          video.addEventListener('seeked', onSeeked, { once: true })
           video.currentTime = target
+        } else if (video.readyState >= 2) {
+          capturePreviewVideoFrame(video, pool.getFrameCache(block.id))
         }
         video.pause()
       }
@@ -423,14 +445,16 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       const target = getSourceTimeForBlock(layer.block, layer.relativeSourceSec)
       const skipSeek = skipSeekBlockIds?.has(blockId) ?? false
       const rebinding = ensureDecoderBound(video, layer.block, getVideoUrlForBlock)
+      ensureDecoderPreloadForTargetTime(video, target)
 
       video.muted = audioMuted
       video.volume = audioMuted ? 0 : Math.min(1, Math.max(0, layer.volume))
       video.playbackRate = Math.max(0.25, Math.min(4, layer.playbackRate || 1))
 
+      const drift = Math.abs(video.currentTime - target)
       let didSeek = false
       if (isPlaying) {
-        if (!skipSeek && (forceSeek || rebinding)) {
+        if (!skipSeek && (forceSeek || rebinding || drift > PLAYBACK_SEEK_DRIFT_SEC)) {
           didSeek = seekVideoToTarget(video, target, { play: true, forceSeek: true })
         } else {
           void video.play().catch(() => undefined)
@@ -476,7 +500,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       const warmupId = warmupBlock?.id ?? null
 
       for (const layer of vmLayers) {
-        const video = pool.ensure(layer.block.id)
+        const video = bindPreviewDecoder(pool, layer.block, getVideoUrlForBlock)
         const audioMuted = clipAudioMuted || layer.block.id !== audioBlockId || layer.block.id === warmupId
         if (
           syncVideoElement(video, layer, forceSeek, skipSeekBlockIds, audioMuted)
