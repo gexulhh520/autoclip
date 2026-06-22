@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 
 from backend.core.database import get_db
@@ -1213,6 +1213,45 @@ async def find_edit_session_block_moments(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("片段检索失败: %s/%s", project_id, session_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/agent/find-block-moments/stream",
+)
+async def stream_edit_session_block_moments(
+    project_id: str,
+    session_id: str,
+    body: FindBlockMomentsRequest,
+    session_service: EditSessionService = Depends(get_edit_session_service),
+    agent_service: EditorAgentService = Depends(get_editor_agent_service),
+):
+    """滑窗 clip 分类渐进输出（NDJSON：progress / clip_score / matches / done）。"""
+    try:
+        session = session_service.get_session(project_id, session_id)
+        block = next((item for item in session.sequence if item.id == body.block_id), None)
+        if block is None:
+            raise ValueError(f"片段不存在: {body.block_id}")
+
+        def event_stream():
+            for line in agent_service.iter_find_block_moments_stream(
+                body,
+                block.model_dump(),
+                session_id,
+                project_id,
+            ):
+                yield line
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="application/x-ndjson",
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("片段检索流式失败: %s/%s", project_id, session_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

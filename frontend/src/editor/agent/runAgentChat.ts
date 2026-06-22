@@ -67,6 +67,8 @@ export interface RunAgentChatInput {
   executionLedger?: string[]
   imageDataUrl?: string | null
   layoutReference?: LayoutAnalysis | null
+  /** 检索/分析类 fast path 渐进更新助手气泡 */
+  onStreamingUpdate?: (content: string) => void
 }
 
 export interface ContinueAgentChatAfterApplyInput {
@@ -383,6 +385,7 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
       userMessage: trimmed,
       executionLedger: input.executionLedger,
       getStore: () => useEditSessionStore.getState(),
+      onStreamingUpdate: input.onStreamingUpdate,
     })
     if (llmRouted) return llmRouted
 
@@ -392,6 +395,7 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
       userMessage: trimmed,
       executionLedger: input.executionLedger,
       getStore: () => useEditSessionStore.getState(),
+      onStreamingUpdate: input.onStreamingUpdate,
     })
     if (searchAndExport) return searchAndExport
 
@@ -410,6 +414,7 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
       userMessage: trimmed,
       executionLedger: input.executionLedger,
       getStore: () => useEditSessionStore.getState(),
+      onStreamingUpdate: input.onStreamingUpdate,
     })
     if (momentFastPath) return momentFastPath
 

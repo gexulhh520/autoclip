@@ -5,7 +5,7 @@ import json
 import logging
 import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 from pydantic import ValidationError
 
@@ -424,6 +424,74 @@ class EditorAgentService:
             ],
             note="；".join(staged.note_parts),
         )
+
+    def iter_find_block_moments_stream(
+        self,
+        request: FindBlockMomentsRequest,
+        block: Dict[str, Any],
+        session_id: str,
+        project_id: str,
+    ) -> Iterator[str]:
+        """NDJSON 流：逐窗 clip 分类并渐进输出 matches（visual_primary）。"""
+        criteria = (request.search_criteria or "").strip()
+        if not criteria:
+            raise ValueError("search_criteria 不能为空")
+
+        from backend.services.editor_moment_search import resolve_search_strategy
+        from backend.services.clip_event_detector import iter_clip_event_search
+
+        max_cap = 48 if str(request.recall_mode or "balanced") == "high" else 24
+        default_results = 24 if max_cap == 48 else 12
+        max_results = max(1, min(max_cap, int(request.max_results or default_results)))
+        duration = request.duration_sec
+        if duration <= 0 and request.timeline_end_sec > request.timeline_start_sec:
+            duration = request.timeline_end_sec - request.timeline_start_sec
+        if duration <= 0:
+            trim = block.get("trim") or {}
+            duration = float(trim.get("out_sec") or 0) - float(trim.get("in_sec") or 0)
+        timeline_start = float(request.timeline_start_sec or 0)
+        duration = max(duration, 0.1)
+
+        strategy = request.search_strategy
+        if strategy not in ("visual_primary", "text_primary"):
+            if request.visual_profile and request.visual_profile != "none":
+                strategy = "visual_primary"
+            else:
+                strategy = resolve_search_strategy(criteria)
+
+        if strategy != "visual_primary":
+            response = self.find_block_moments(
+                request, block, session_id, project_id
+            )
+            yield json.dumps({"type": "started", "engine": "text_or_legacy", "total_windows": 1}, ensure_ascii=False) + "\n"
+            yield json.dumps(
+                {
+                    "type": "matches",
+                    "matches": [m.model_dump() for m in response.matches],
+                    "windows_processed": 1,
+                    "total_windows": 1,
+                },
+                ensure_ascii=False,
+            ) + "\n"
+            yield json.dumps({"type": "done", **response.model_dump()}, ensure_ascii=False) + "\n"
+            return
+
+        project_dir = get_project_directory(project_id)
+        for event in iter_clip_event_search(
+            self.llm_manager,
+            project_dir,
+            block,
+            criteria,
+            timeline_start,
+            duration,
+            max_results,
+            recall_mode=str(request.recall_mode or "balanced"),
+            include_audio=True,
+        ):
+            if event.get("type") == "done":
+                event["block_id"] = request.block_id
+                event["search_criteria"] = criteria
+            yield json.dumps(event, ensure_ascii=False) + "\n"
 
     def _analyze_video_frames_parallel(
         self,

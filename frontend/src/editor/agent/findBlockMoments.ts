@@ -11,9 +11,13 @@ import {
   resolveMomentRecallMode,
 } from './momentRecallMode'
 import { editorAgentApi } from '../../services/editorAgentApi'
+import { findBlockMomentsStream } from '../../services/findBlockMomentsStream'
 import { useAgentPanelStore } from '../../stores/useAgentPanelStore'
 import type { MatchedMoment } from '../../types/editorAgent'
-import type { FindBlockMomentsRequest } from '../../types/editorAgent'
+import type {
+  FindBlockMomentsRequest,
+  FindBlockMomentsStreamEvent,
+} from '../../types/editorAgent'
 import type { EditSession } from '../../types/editSession'
 
 export interface FindBlockMomentsResult {
@@ -30,13 +34,89 @@ export interface FindBlockMomentsResult {
   note: string
 }
 
-/** 按用户描述检索片段：转写文本 + 画面抽帧双路径（抽帧由后端 ffmpeg 完成） */
+const VISUAL_SEARCH_PATTERN =
+  /打斗|打架|格斗|枪战|交火|射击|追逐|追赶|飙车|动作场面|武打|搏斗|对打|械斗|拳脚/
+
+export function isVisualMomentSearch(input: {
+  searchCriteria: string
+  searchStrategy?: string
+  visualProfile?: string
+}): boolean {
+  if (input.searchStrategy === 'visual_primary') return true
+  if (input.searchStrategy === 'text_primary') return false
+  if (input.visualProfile && input.visualProfile !== 'none') return true
+  return VISUAL_SEARCH_PATTERN.test(input.searchCriteria)
+}
+
+export interface FindBlockMomentsProgress {
+  phase: 'started' | 'progress' | 'matches' | 'done'
+  windowsProcessed: number
+  totalWindows: number
+  matches: MatchedMoment[]
+  latestClip?: {
+    start_sec: number
+    end_sec: number
+    score: number
+    is_event: boolean
+    summary?: string
+  }
+}
+
+export function buildFindBlockMomentsProgressMessage(input: {
+  blockTitle: string
+  searchCriteria: string
+  progress: FindBlockMomentsProgress
+}): string {
+  const { blockTitle, searchCriteria, progress } = input
+  const title = blockTitle || '当前片段'
+  const lines: string[] = []
+
+  if (progress.totalWindows > 0) {
+    lines.push(
+      `正在分析「${title}」：${progress.windowsProcessed}/${progress.totalWindows} 窗（48 帧 + 音频 / 窗）`
+    )
+  } else {
+    lines.push(`正在检索「${title}」：「${searchCriteria}」…`)
+  }
+
+  if (progress.latestClip && progress.latestClip.is_event) {
+    lines.push(
+      `  最新命中窗 ${progress.latestClip.start_sec.toFixed(1)}–${progress.latestClip.end_sec.toFixed(1)}s（${Math.round(progress.latestClip.score * 100)}%）${progress.latestClip.summary ? `：${progress.latestClip.summary.slice(0, 80)}` : ''}`
+    )
+  }
+
+  if (progress.matches.length > 0) {
+    lines.push('')
+    lines.push(`已合并 ${progress.matches.length} 段：`)
+    for (const match of progress.matches) {
+      const score = Math.round(match.match_score * 100)
+      const preview = match.text_preview || match.match_reason
+      lines.push(
+        `- ${match.timeline_start_sec.toFixed(1)}–${match.timeline_end_sec.toFixed(1)}s（${score}%）`
+      )
+      if (preview) lines.push(`  ${preview.slice(0, 120)}`)
+    }
+  } else if (progress.phase !== 'done') {
+    lines.push('')
+    lines.push('暂未发现符合阈值的事件…')
+  }
+
+  if (progress.phase !== 'done') {
+    lines.push('')
+    lines.push('（分析进行中，结果会实时更新）')
+  }
+
+  return lines.join('\n').trim()
+}
+
+/** 按用户描述检索片段；画面类走滑窗 clip 流式分类，文本类走同步 API */
 export async function findBlockMoments(input: {
   projectId: string
   sessionId: string
   session: EditSession
   args: Record<string, unknown>
   selectedBlockId: string | null
+  onProgress?: (message: string, progress: FindBlockMomentsProgress) => void
 }): Promise<FindBlockMomentsResult> {
   const focusedBlockId = useAgentPanelStore.getState().getFocusedBlockId(input.sessionId)
   const blockId = resolveAnalyzeBlockId({
@@ -93,12 +173,14 @@ export async function findBlockMoments(input: {
   const visualProfile = String(input.args.visual_profile ?? '').trim()
   const searchStrategy = String(input.args.search_strategy ?? '').trim()
 
-  const response = await editorAgentApi.findBlockMoments(input.projectId, input.sessionId, {
+  const requestPayload: FindBlockMomentsRequest = {
     block_id: blockId,
     search_criteria: searchCriteria,
     max_results: maxResults,
     recall_mode: recallMode,
-    ...(visualProfile ? { visual_profile: visualProfile as FindBlockMomentsRequest['visual_profile'] } : {}),
+    ...(visualProfile
+      ? { visual_profile: visualProfile as FindBlockMomentsRequest['visual_profile'] }
+      : {}),
     ...(searchStrategy === 'visual_primary' || searchStrategy === 'text_primary'
       ? { search_strategy: searchStrategy as FindBlockMomentsRequest['search_strategy'] }
       : {}),
@@ -107,7 +189,86 @@ export async function findBlockMoments(input: {
     duration_sec: timelineWindow.duration_sec,
     sample_times_sec: includeVisual ? sampleTimes : [],
     frames: [],
+  }
+
+  const useStream = isVisualMomentSearch({
+    searchCriteria,
+    searchStrategy,
+    visualProfile,
   })
+
+  let response: Awaited<ReturnType<typeof editorAgentApi.findBlockMoments>>
+
+  if (useStream) {
+    const progressState: FindBlockMomentsProgress = {
+      phase: 'started',
+      windowsProcessed: 0,
+      totalWindows: 0,
+      matches: [],
+    }
+
+    const emitProgress = () => {
+      input.onProgress?.(
+        buildFindBlockMomentsProgressMessage({
+          blockTitle: block.title ?? '',
+          searchCriteria,
+          progress: progressState,
+        }),
+        { ...progressState, matches: [...progressState.matches] }
+      )
+    }
+
+    const handleEvent = (event: FindBlockMomentsStreamEvent) => {
+      if (event.type === 'started') {
+        progressState.phase = 'started'
+        progressState.totalWindows = event.total_windows ?? 0
+        emitProgress()
+      } else if (event.type === 'progress') {
+        progressState.phase = 'progress'
+        progressState.windowsProcessed = Math.max(
+          progressState.windowsProcessed,
+          (event.window_index ?? 1) - 1
+        )
+        emitProgress()
+      } else if (event.type === 'clip_score') {
+        progressState.windowsProcessed = Math.max(
+          progressState.windowsProcessed,
+          event.window_index ?? progressState.windowsProcessed + 1
+        )
+        progressState.totalWindows = event.total_windows ?? progressState.totalWindows
+        progressState.latestClip = {
+          start_sec: event.start_sec ?? 0,
+          end_sec: event.end_sec ?? 0,
+          score: event.score ?? 0,
+          is_event: Boolean(event.is_event),
+          summary: event.summary,
+        }
+        emitProgress()
+      } else if (event.type === 'matches') {
+        progressState.phase = 'matches'
+        progressState.matches = event.matches ?? []
+        progressState.windowsProcessed = event.windows_processed ?? progressState.windowsProcessed
+        progressState.totalWindows = event.total_windows ?? progressState.totalWindows
+        emitProgress()
+      }
+    }
+
+    response = await findBlockMomentsStream(
+      input.projectId,
+      input.sessionId,
+      requestPayload,
+      { onEvent: handleEvent }
+    )
+    progressState.phase = 'done'
+    progressState.matches = response.matches
+    emitProgress()
+  } else {
+    response = await editorAgentApi.findBlockMoments(
+      input.projectId,
+      input.sessionId,
+      requestPayload
+    )
+  }
 
   return {
     block_id: blockId,

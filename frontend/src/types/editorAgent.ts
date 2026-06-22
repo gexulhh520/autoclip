@@ -206,6 +206,36 @@ export interface FindBlockMomentsResponse {
   note: string
 }
 
+export type FindBlockMomentsStreamEventType =
+  | 'started'
+  | 'progress'
+  | 'clip_score'
+  | 'matches'
+  | 'done'
+  | 'error'
+
+export interface FindBlockMomentsStreamEvent {
+  type: FindBlockMomentsStreamEventType
+  engine?: string
+  total_windows?: number
+  window_index?: number
+  windows_processed?: number
+  start_sec?: number
+  end_sec?: number
+  score?: number
+  is_event?: boolean
+  summary?: string
+  skipped?: boolean
+  matches?: MatchedMoment[]
+  message?: string
+  block_id?: string
+  search_criteria?: string
+  transcript_source?: string
+  transcript_segment_count?: number
+  visual_frame_count?: number
+  note?: string
+}
+
 export interface ExportMomentClipsRequest {
   block_id: string
   matches: MatchedMoment[]

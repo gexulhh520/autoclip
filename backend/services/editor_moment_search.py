@@ -659,26 +659,28 @@ def search_block_moments_staged(
 
     if strategy == "visual_primary":
         project_dir = get_project_directory(project_id)
-        visual_moments, frame_count, prefilter_meta = visual_search_prefilter_llm(
+        from backend.services.clip_event_detector import search_clip_events
+
+        llm_criteria = normalize_visual_search_criteria(search_criteria)
+        clip_matches, clip_meta = search_clip_events(
             llm_manager,
             project_dir,
             block,
-            criteria,
+            llm_criteria,
             timeline_start_sec,
             duration,
             max_results,
             recall_mode=recall_mode,
-            visual_profile=visual_profile,
+            include_audio=True,
         )
-        visual_frame_count += frame_count
-        all_matches.extend(visual_moments)
-        llm_criteria = prefilter_meta.get("llm_criteria") or criteria
+        visual_frame_count = int(clip_meta.get("visual_frame_count") or 0)
+        all_matches.extend(clip_matches)
         note_parts.append(
-            "信号预筛+LLM验证："
-            f"{frame_count} 帧，候选区 {prefilter_meta.get('candidate_windows', 0)} 个，"
-            f"LLM 命中 {prefilter_meta.get('llm_hits', 0)} 帧"
-            f"（recall={recall_mode}，profile={prefilter_meta.get('profile')}，"
-            f"engine={prefilter_meta.get('engine')}，条件「{llm_criteria}」）"
+            "滑窗 clip 分类："
+            f"{clip_meta.get('windows_processed', 0)}/{clip_meta.get('total_windows', 0)} 窗，"
+            f"{visual_frame_count} 帧+音频，"
+            f"engine={clip_meta.get('engine', 'clip_sliding_v1')}，"
+            f"条件「{llm_criteria}」"
         )
     elif not segments and client_sample_times_sec:
         project_dir = get_project_directory(project_id)

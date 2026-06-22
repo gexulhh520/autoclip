@@ -240,6 +240,8 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
     const sentImage = attachImage
     setAttachImage('')
 
+    let streamingTurnId: string | null = null
+
     try {
       const result = await runAgentChat({
         projectId,
@@ -248,6 +250,21 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
         executionLedger: executionLedgerRef.current,
         imageDataUrl: sentImage || null,
         layoutReference: layout,
+        onStreamingUpdate: (content) => {
+          if (!streamingTurnId) {
+            streamingTurnId = nanoid()
+            setChatTurns((prev) => [
+              ...prev,
+              { id: streamingTurnId!, role: 'assistant', content },
+            ])
+          } else {
+            setChatTurns((prev) =>
+              prev.map((turn) =>
+                turn.id === streamingTurnId ? { ...turn, content } : turn
+              )
+            )
+          }
+        },
       })
 
       if (result.execution_ledger) {
@@ -278,6 +295,14 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
             content: result.assistant_message || '已生成操作计划，请确认后执行。',
           },
         ])
+      } else if (streamingTurnId) {
+        setChatTurns((prev) =>
+          prev.map((turn) =>
+            turn.id === streamingTurnId
+              ? { ...turn, content: result.assistant_message }
+              : turn
+          )
+        )
       } else {
         setChatTurns((prev) => [
           ...prev,
@@ -589,7 +614,13 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
                 </div>
               ))
             )}
-            {loading ? <p className="editor-agent-panel__chat-status">思考中…</p> : null}
+            {loading ? (
+              <p className="editor-agent-panel__chat-status">
+                {chatTurns.some((turn) => turn.role === 'assistant' && /分析进行中/.test(turn.content))
+                  ? '滑窗分析中…'
+                  : '思考中…'}
+              </p>
+            ) : null}
             <div ref={chatEndRef} />
           </div>
 
@@ -654,7 +685,7 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
               }}
             />
 
-            <label className="editor-agent-panel__recall-toggle" title="打斗/枪战/追逐等画面检索：更多预筛与 LLM 验证帧，耗时更长">
+            <label className="editor-agent-panel__recall-toggle" title="打斗/枪战/追逐等：更低阈值、更密滑窗，耗时更长">
               <input
                 type="checkbox"
                 checked={highRecallSearchEnabled}

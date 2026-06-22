@@ -109,7 +109,7 @@ export function formatMomentSearchReply(result: FindBlockMomentsResult): string 
     if (/画面两阶段检索/.test(result.note)) {
       lines.push('')
       lines.push(
-        '⚠ 后端仍在使用旧版均匀抽帧检索，请重启后端服务后再试（新流程 note 应含「信号预筛+LLM验证」与 engine=signal_prefilter_v1）。'
+        '⚠ 后端仍在使用旧版均匀抽帧检索，请重启后端服务后再试（新流程 note 应含「滑窗 clip 分类」与 engine=clip_sliding_v1）。'
       )
     }
   }
@@ -195,6 +195,7 @@ export async function tryMomentSearchAndExportFastPath(input: {
   userMessage: string
   executionLedger?: string[]
   getStore: GetEditStore
+  onStreamingUpdate?: (content: string) => void
 }): Promise<MomentSearchFastPathResult | null> {
   if (!hasMomentSearchAndExportIntent(input.userMessage)) return null
 
@@ -212,6 +213,9 @@ export async function tryMomentSearchAndExportFastPath(input: {
     session: store.session,
     args: { search_criteria: searchCriteria },
     selectedBlockId: store.selectedBlockId,
+    onProgress: input.onStreamingUpdate
+      ? (message) => input.onStreamingUpdate!(message)
+      : undefined,
   })
   cacheMomentSearch(input.sessionId, data)
 
@@ -291,6 +295,7 @@ export async function tryMomentSearchFastPath(input: {
   userMessage: string
   executionLedger?: string[]
   getStore: GetEditStore
+  onStreamingUpdate?: (content: string) => void
 }): Promise<MomentSearchFastPathResult | null> {
   if (!isMomentSearchRequest(input.userMessage)) return null
 
@@ -305,6 +310,9 @@ export async function tryMomentSearchFastPath(input: {
     session: store.session,
     args: { search_criteria: input.userMessage.trim() },
     selectedBlockId: store.selectedBlockId,
+    onProgress: input.onStreamingUpdate
+      ? (message) => input.onStreamingUpdate!(message)
+      : undefined,
   })
   cacheMomentSearch(input.sessionId, data)
 

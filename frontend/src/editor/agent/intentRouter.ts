@@ -50,6 +50,7 @@ async function runFindMomentsFromIntent(input: {
   intent: ClassifyAgentIntentResponse
   executionLedger?: string[]
   getStore: GetEditStore
+  onStreamingUpdate?: (content: string) => void
 }): Promise<MomentSearchFastPathResult> {
   const store = input.getStore()
   if (!store.session) throw new Error('无活动剪辑工程')
@@ -80,6 +81,9 @@ async function runFindMomentsFromIntent(input: {
       search_strategy: input.intent.search_strategy,
     },
     selectedBlockId: store.selectedBlockId,
+    onProgress: input.onStreamingUpdate
+      ? (message) => input.onStreamingUpdate!(message)
+      : undefined,
   })
   cacheMomentSearch(input.sessionId, data)
 
@@ -163,6 +167,7 @@ export async function tryLlmIntentRoute(input: {
   userMessage: string
   executionLedger?: string[]
   getStore: GetEditStore
+  onStreamingUpdate?: (content: string) => void
 }): Promise<MomentSearchFastPathResult | null> {
   const text = input.userMessage.trim()
   if (!text) return null
