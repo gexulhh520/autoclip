@@ -40,6 +40,11 @@ COARSE_THRESHOLD_BALANCED = 0.45
 COARSE_THRESHOLD_HIGH = 0.38
 HOTSPOT_PAD_SEC = 15.0
 HOTSPOT_MERGE_GAP_SEC = 30.0
+MAX_HOTSPOT_SPAN_SEC = 240.0
+HOTSPOT_PEAK_MAX_COUNT = 12
+HOTSPOT_COVERAGE_FALLBACK_RATIO = 0.25
+COARSE_HIT_RATE_FALLBACK_RATIO = 0.35
+MAX_FINE_WINDOWS_CAP = 200
 SKIP_COARSE_DURATION_SEC = 180.0
 
 FRAME_MAX_WIDTH = 480
@@ -58,6 +63,7 @@ COARSE_CLASSIFIER_SYSTEM = """你是视频片段粗筛助手。你会收到约 1
   "confidence": 0-1
 }
 
+confidence 表示你对 possible_match 判断的确信度；possible_match 为 false 时 summary 应说明为何无关，勿因画面热闹就标 true。
 以 search_description 为主，positive_examples 作参考，negative_examples 作排除。"""
 
 CLIP_CLASSIFIER_SYSTEM = """你是视频 clip 分类器。你会收到连续画面帧和可选音频，以及 search_spec（中文检索规范）。
@@ -114,6 +120,73 @@ def build_sliding_windows(
     return windows
 
 
+def select_peak_hotspots(
+    records: List[ClipScoreRecord],
+    timeline_start_sec: float,
+    timeline_end_sec: float,
+    *,
+    score_threshold: float,
+    max_peaks: int = HOTSPOT_PEAK_MAX_COUNT,
+    pad_sec: float = HOTSPOT_PAD_SEC,
+    min_peak_gap_sec: float = COARSE_STRIDE_SEC,
+) -> List[Tuple[float, float]]:
+    """粗筛误报过多时，按分数取峰值窗口作为精扫热点，避免合并成整片。"""
+    positives = sorted(
+        [
+            row
+            for row in records
+            if row.is_event and float(row.score) >= score_threshold
+        ],
+        key=lambda item: item.score,
+        reverse=True,
+    )
+    if not positives:
+        return []
+
+    picked: List[ClipScoreRecord] = []
+    for row in positives:
+        center = (row.start_sec + row.end_sec) / 2.0
+        if any(
+            abs(center - (prev.start_sec + prev.end_sec) / 2.0) < min_peak_gap_sec
+            for prev in picked
+        ):
+            continue
+        picked.append(row)
+        if len(picked) >= max_peaks:
+            break
+
+    regions: List[Tuple[float, float]] = []
+    for row in picked:
+        regions.append(
+            (
+                max(timeline_start_sec, row.start_sec - pad_sec),
+                min(timeline_end_sec, row.end_sec + pad_sec),
+            )
+        )
+    return merge_roi_regions(regions, gap_sec=0.0)
+
+
+def split_long_hotspots(
+    regions: List[Tuple[float, float]],
+    *,
+    max_span_sec: float = MAX_HOTSPOT_SPAN_SEC,
+) -> List[Tuple[float, float]]:
+    split: List[Tuple[float, float]] = []
+    for start, end in regions:
+        span = end - start
+        if span <= max_span_sec:
+            split.append((start, end))
+            continue
+        offset = start
+        while offset < end:
+            chunk_end = min(end, offset + max_span_sec)
+            split.append((offset, chunk_end))
+            if chunk_end >= end:
+                break
+            offset += max_span_sec * 0.75
+    return merge_roi_regions(split, gap_sec=0.0)
+
+
 def coarse_hits_to_hotspots(
     records: List[ClipScoreRecord],
     timeline_start_sec: float,
@@ -122,6 +195,7 @@ def coarse_hits_to_hotspots(
     score_threshold: float,
     merge_gap_sec: float = HOTSPOT_MERGE_GAP_SEC,
     pad_sec: float = HOTSPOT_PAD_SEC,
+    coarse_window_count: Optional[int] = None,
 ) -> List[Tuple[float, float]]:
     positives = [
         row for row in records if row.is_event and float(row.score) >= score_threshold
@@ -129,13 +203,25 @@ def coarse_hits_to_hotspots(
     if not positives:
         return []
 
+    timeline_span = max(0.1, timeline_end_sec - timeline_start_sec)
+    if coarse_window_count and len(positives) > coarse_window_count * COARSE_HIT_RATE_FALLBACK_RATIO:
+        return select_peak_hotspots(
+            records,
+            timeline_start_sec,
+            timeline_end_sec,
+            score_threshold=score_threshold,
+            pad_sec=pad_sec,
+        )
+
     ordered = sorted(positives, key=lambda item: item.start_sec)
     merged: List[Tuple[float, float]] = []
     cur_start = ordered[0].start_sec
     cur_end = ordered[0].end_sec
 
     for row in ordered[1:]:
-        if row.start_sec - cur_end <= merge_gap_sec:
+        gap = row.start_sec - cur_end
+        overlaps = row.start_sec <= cur_end
+        if overlaps or gap <= merge_gap_sec:
             cur_end = max(cur_end, row.end_sec)
         else:
             merged.append((cur_start, cur_end))
@@ -151,7 +237,20 @@ def coarse_hits_to_hotspots(
                 min(timeline_end_sec, end + pad_sec),
             )
         )
-    return merge_roi_regions(padded, gap_sec=0.0)
+    padded = merge_roi_regions(padded, gap_sec=0.0)
+
+    if len(padded) == 1:
+        only_span = padded[0][1] - padded[0][0]
+        if only_span > timeline_span * HOTSPOT_COVERAGE_FALLBACK_RATIO:
+            return select_peak_hotspots(
+                records,
+                timeline_start_sec,
+                timeline_end_sec,
+                score_threshold=score_threshold,
+                pad_sec=pad_sec,
+            )
+
+    return split_long_hotspots(padded)
 
 
 def merge_roi_regions(
@@ -493,10 +592,12 @@ def _classify_clip_internal(
         return ClipScoreRecord(start_sec, end_sec, 0.0, False, "")
 
     if coarse:
-        score = float(parsed.get("confidence") or parsed.get("score") or 0)
-        is_event = bool(parsed.get("possible_match", parsed.get("is_event")))
-        if not is_event and score >= 0.65:
-            is_event = True
+        raw_possible = parsed.get("possible_match")
+        if raw_possible is None:
+            raw_possible = parsed.get("is_event")
+        is_event = bool(raw_possible)
+        confidence = float(parsed.get("confidence") or parsed.get("score") or 0)
+        score = confidence if is_event else min(confidence, 0.35)
     else:
         score = float(parsed.get("score") or 0)
         is_event = bool(parsed.get("is_event"))
@@ -721,6 +822,7 @@ def iter_clip_event_search(
             timeline_start_sec,
             timeline_end,
             score_threshold=coarse_threshold,
+            coarse_window_count=len(coarse_windows),
         )
 
         yield {
@@ -756,7 +858,14 @@ def iter_clip_event_search(
             window_size=FINE_WINDOW_SEC,
             stride=fine_stride,
         )
+        if len(fine_windows) > MAX_FINE_WINDOWS_CAP:
+            fine_windows = fine_windows[:MAX_FINE_WINDOWS_CAP]
+            meta.note_parts.append(f"精扫窗过多，已截断至 {MAX_FINE_WINDOWS_CAP} 窗")
         meta.fine_windows = len(fine_windows)
+        if len(coarse_hits) > len(coarse_windows) * COARSE_HIT_RATE_FALLBACK_RATIO:
+            meta.note_parts.append(
+                f"粗筛命中 {len(coarse_hits)}/{len(coarse_windows)} 窗，已按峰值缩小精扫范围"
+            )
         meta.note_parts.append(
             f"精扫仅热点区：{len(hotspots)} 段 → {len(fine_windows)} 窗"
         )

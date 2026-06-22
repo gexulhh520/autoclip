@@ -246,6 +246,7 @@ export async function findBlockMoments(input: {
     searchStrategy,
     visualProfile,
   })
+  const coarseScoreThreshold = recallMode === 'high' ? 0.38 : 0.45
 
   let response: Awaited<ReturnType<typeof editorAgentApi.findBlockMoments>>
 
@@ -331,7 +332,11 @@ export async function findBlockMoments(input: {
           event.window_index ?? progressState.windowsProcessed + 1
         )
         progressState.totalWindows = event.total_windows ?? progressState.totalWindows
-        if (scanPhase === 'coarse' && event.is_event) {
+        if (
+          scanPhase === 'coarse' &&
+          event.is_event &&
+          (event.score ?? 0) >= coarseScoreThreshold
+        ) {
           const hit: CoarseHitPayload = {
             start_sec: event.start_sec ?? 0,
             end_sec: event.end_sec ?? 0,

@@ -4,6 +4,7 @@ from backend.services.clip_event_detector import (
     build_sliding_windows,
     coarse_hits_to_hotspots,
     merge_clip_scores,
+    select_peak_hotspots,
 )
 
 
@@ -45,6 +46,32 @@ def test_coarse_hits_to_hotspots_with_pad():
     assert len(hotspots) == 1
     assert hotspots[0][0] <= 600.0
     assert hotspots[0][1] >= 690.0
+
+
+def test_coarse_dense_hits_falls_back_to_peak_hotspots():
+    records = [
+        ClipScoreRecord(float(i * 45), float(i * 45 + 60), 0.9 - i * 0.001, True, f"hit {i}")
+        for i in range(80)
+    ]
+    hotspots = coarse_hits_to_hotspots(
+        records,
+        0.0,
+        3600.0,
+        score_threshold=0.45,
+        coarse_window_count=80,
+    )
+    assert len(hotspots) <= 12
+    assert hotspots[0][1] - hotspots[0][0] < 3600.0 * 0.25
+
+
+def test_select_peak_hotspots_spreads_high_scores():
+    records = [
+        ClipScoreRecord(100.0, 160.0, 0.95, True, "fight a"),
+        ClipScoreRecord(1200.0, 1260.0, 0.88, True, "fight b"),
+        ClipScoreRecord(2400.0, 2460.0, 0.82, True, "fight c"),
+    ]
+    hotspots = select_peak_hotspots(records, 0.0, 3600.0, score_threshold=0.45)
+    assert len(hotspots) == 3
 
 
 def test_merge_clip_scores_overlapping_windows():
