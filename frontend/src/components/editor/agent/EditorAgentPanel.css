@@ -2,7 +2,7 @@
   position: fixed;
   right: 20px;
   bottom: 20px;
-  width: min(400px, calc(100vw - 40px));
+  width: min(520px, calc(100vw - 40px));
   height: min(680px, calc(100vh - 48px));
   max-height: min(720px, calc(100vh - 48px));
   display: flex;
