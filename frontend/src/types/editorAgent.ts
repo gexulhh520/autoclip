@@ -172,11 +172,28 @@ export interface FindBlockMomentsRequest {
   max_results?: number
   /** balanced：默认召回；high：更低预筛阈值、更多验证帧 */
   recall_mode?: 'balanced' | 'high'
+  visual_profile?: 'gunplay' | 'melee' | 'chase' | 'action' | 'none'
+  search_strategy?: 'visual_primary' | 'text_primary'
   timeline_start_sec: number
   timeline_end_sec: number
   duration_sec: number
   sample_times_sec?: number[]
   frames?: FindBlockMomentsFrame[]
+}
+
+export interface ClassifyAgentIntentRequest {
+  user_message: string
+}
+
+export interface ClassifyAgentIntentResponse {
+  mode: 'find_moments' | 'analyze_content' | 'export_cached_moments' | 'agent_chat'
+  confidence: number
+  search_criteria: string
+  visual_profile: 'gunplay' | 'melee' | 'chase' | 'action' | 'none'
+  search_strategy: 'visual_primary' | 'text_primary'
+  recall_mode: 'balanced' | 'high'
+  export_target: 'pool' | 'timeline' | 'none'
+  reason: string
 }
 
 export interface FindBlockMomentsResponse {

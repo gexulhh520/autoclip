@@ -10,6 +10,8 @@ import type {
   FindBlockMomentsResponse,
   AgentChatRequest,
   AgentChatResponse,
+  ClassifyAgentIntentRequest,
+  ClassifyAgentIntentResponse,
 } from '../types/editorAgent'
 
 /** Agent 检索/分析/对话可能含 Whisper、多帧视觉 LLM，需长于默认 5 分钟 */
@@ -60,6 +62,18 @@ export const editorAgentApi = {
       payload,
       { timeout: AGENT_LONG_TIMEOUT_MS }
     )) as FindBlockMomentsResponse
+  },
+
+  classifyIntent: async (
+    projectId: string,
+    sessionId: string,
+    payload: ClassifyAgentIntentRequest
+  ): Promise<ClassifyAgentIntentResponse> => {
+    return (await api.post(
+      `/projects/${projectId}/edit-sessions/${sessionId}/agent/classify-intent`,
+      payload,
+      { timeout: 60_000 }
+    )) as ClassifyAgentIntentResponse
   },
 
   chat: async (

@@ -185,6 +185,14 @@ class FindBlockMomentsRequest(BaseModel):
     search_criteria: str = Field(..., min_length=1)
     max_results: int = Field(default=12, ge=1, le=48)
     recall_mode: str = Field(default="balanced", pattern="^(balanced|high)$")
+    visual_profile: Optional[str] = Field(
+        default=None,
+        description="LLM/路由指定的画面 profile：gunplay|melee|chase|action",
+    )
+    search_strategy: Optional[str] = Field(
+        default=None,
+        description="LLM/路由指定：visual_primary|text_primary",
+    )
     timeline_start_sec: float = 0.0
     timeline_end_sec: float = 0.0
     duration_sec: float = 0.0
@@ -212,6 +220,21 @@ class ExportMomentClipsResponse(BaseModel):
     created_count: int = 0
     clip_ids: List[str] = Field(default_factory=list)
     note: str = ""
+
+
+class ClassifyAgentIntentRequest(BaseModel):
+    user_message: str = Field(..., min_length=1)
+
+
+class ClassifyAgentIntentResponse(BaseModel):
+    mode: str = "agent_chat"
+    confidence: float = 0.0
+    search_criteria: str = ""
+    visual_profile: str = "none"
+    search_strategy: str = "text_primary"
+    recall_mode: str = "balanced"
+    export_target: str = "none"
+    reason: str = ""
 
 
 class AgentChatMessage(BaseModel):

@@ -13,6 +13,7 @@ import {
 import { editorAgentApi } from '../../services/editorAgentApi'
 import { useAgentPanelStore } from '../../stores/useAgentPanelStore'
 import type { MatchedMoment } from '../../types/editorAgent'
+import type { FindBlockMomentsRequest } from '../../types/editorAgent'
 import type { EditSession } from '../../types/editSession'
 
 export interface FindBlockMomentsResult {
@@ -77,19 +78,29 @@ export async function findBlockMoments(input: {
       ? 24
       : 12
   const includeVisual = input.args.include_visual !== false
-  const recallMode = resolveMomentRecallMode({
-    sessionId: input.sessionId,
-    session: input.session,
-    blockId,
-    args: input.args,
-    searchCriteria,
-  })
+  const recallMode =
+    input.args.recall_mode === 'high' || input.args.recall_mode === 'balanced'
+      ? input.args.recall_mode
+      : resolveMomentRecallMode({
+          sessionId: input.sessionId,
+          session: input.session,
+          blockId,
+          args: input.args,
+          searchCriteria,
+        })
+
+  const visualProfile = String(input.args.visual_profile ?? '').trim()
+  const searchStrategy = String(input.args.search_strategy ?? '').trim()
 
   const response = await editorAgentApi.findBlockMoments(input.projectId, input.sessionId, {
     block_id: blockId,
     search_criteria: searchCriteria,
     max_results: maxResults,
     recall_mode: recallMode,
+    ...(visualProfile ? { visual_profile: visualProfile as FindBlockMomentsRequest['visual_profile'] } : {}),
+    ...(searchStrategy === 'visual_primary' || searchStrategy === 'text_primary'
+      ? { search_strategy: searchStrategy as FindBlockMomentsRequest['search_strategy'] }
+      : {}),
     timeline_start_sec: timelineWindow.start_sec,
     timeline_end_sec: timelineWindow.end_sec,
     duration_sec: timelineWindow.duration_sec,

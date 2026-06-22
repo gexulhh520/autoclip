@@ -491,6 +491,7 @@ def build_moment_candidate_windows(
     search_criteria: str,
     *,
     recall_mode: RecallMode = "balanced",
+    visual_profile: Optional[str] = None,
 ) -> List[Tuple[float, float, float, str]]:
     """返回 timeline 坐标候选区间 (start, end, score, reason)，不含 LLM 结论。"""
     video_path = resolve_block_video_path(project_dir, block)
@@ -499,7 +500,9 @@ def build_moment_candidate_windows(
 
     trim_in, trim_out = resolve_block_trim_window(block)
     duration = max(0.1, min(duration_sec, trim_out - trim_in))
-    profile = resolve_criteria_profile(search_criteria)
+    profile = (visual_profile or "").strip() or resolve_criteria_profile(search_criteria)
+    if profile not in PROFILE_WEIGHTS:
+        profile = resolve_criteria_profile(search_criteria)
 
     scene_regions: List[SignalRegion] = []
     audio_regions: List[SignalRegion] = []

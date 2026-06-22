@@ -22,6 +22,8 @@ from backend.schemas.editor_agent import (
     AgentChatResponse,
     AgentChatDebugInfo,
     AgentToolCall,
+    ClassifyAgentIntentRequest,
+    ClassifyAgentIntentResponse,
     FindBlockMomentsRequest,
     FindBlockMomentsResponse,
     MatchedMoment,
@@ -341,6 +343,12 @@ class EditorAgentService:
             raw_content=response.content,
         )
 
+    def classify_intent(self, request: ClassifyAgentIntentRequest) -> ClassifyAgentIntentResponse:
+        from backend.services.editor_agent_intent import classify_agent_intent
+
+        result = classify_agent_intent(self.llm_manager, request.user_message)
+        return ClassifyAgentIntentResponse(**result.model_dump())
+
     def find_block_moments(
         self,
         request: FindBlockMomentsRequest,
@@ -381,6 +389,16 @@ class EditorAgentService:
             client_sample_times_sec=list(request.sample_times_sec or []),
             client_frames=frame_dicts or None,
             recall_mode=str(request.recall_mode or "balanced"),
+            visual_profile=str(request.visual_profile).strip() if request.visual_profile else None,
+            search_strategy_override=(
+                request.search_strategy
+                if request.search_strategy in ("visual_primary", "text_primary")
+                else (
+                    "visual_primary"
+                    if request.visual_profile and request.visual_profile != "none"
+                    else None
+                )
+            ),
         )
 
         return FindBlockMomentsResponse(

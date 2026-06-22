@@ -9,6 +9,7 @@ import { formatAgentDebugSummary } from './formatAgentDebug'
 import { maskStaleToolObservations } from './maskAgentToolMessages'
 import { parseSubmitTaskPlan } from './parseTaskPlan'
 import { tryContentAnalysisFastPath } from './contentAnalysisFastPath'
+import { tryLlmIntentRoute } from './intentRouter'
 import {
   tryExtractCachedMomentsFastPath,
   tryMomentSearchAndExportFastPath,
@@ -376,6 +377,15 @@ export async function runAgentChat(input: RunAgentChatInput): Promise<RunAgentCh
   }
 
   if (!input.imageDataUrl) {
+    const llmRouted = await tryLlmIntentRoute({
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      userMessage: trimmed,
+      executionLedger: input.executionLedger,
+      getStore: () => useEditSessionStore.getState(),
+    })
+    if (llmRouted) return llmRouted
+
     const searchAndExport = await tryMomentSearchAndExportFastPath({
       projectId: input.projectId,
       sessionId: input.sessionId,

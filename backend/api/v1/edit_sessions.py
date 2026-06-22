@@ -49,6 +49,8 @@ from backend.schemas.editor_agent import (
     AnalyzeVideoContentResponse,
     FindBlockMomentsRequest,
     FindBlockMomentsResponse,
+    ClassifyAgentIntentRequest,
+    ClassifyAgentIntentResponse,
     ExportMomentClipsRequest,
     ExportMomentClipsResponse,
     AgentChatRequest,
@@ -1155,6 +1157,30 @@ async def analyze_edit_session_video_content(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("视频内容分析失败: %s/%s", project_id, session_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/agent/classify-intent",
+    response_model=ClassifyAgentIntentResponse,
+)
+async def classify_edit_session_agent_intent(
+    project_id: str,
+    session_id: str,
+    body: ClassifyAgentIntentRequest,
+    session_service: EditSessionService = Depends(get_edit_session_service),
+    agent_service: EditorAgentService = Depends(get_editor_agent_service),
+):
+    """LLM 判断用户意图应走哪种 Agent 模式（片段检索/内容分析/导出缓存/通用对话）。"""
+    try:
+        session_service.get_session(project_id, session_id)
+        return agent_service.classify_intent(body)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("意图路由失败: %s/%s", project_id, session_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

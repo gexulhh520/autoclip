@@ -277,6 +277,7 @@ def visual_search_prefilter_llm(
     max_results: int,
     *,
     recall_mode: str = "balanced",
+    visual_profile: Optional[str] = None,
 ) -> Tuple[List[MatchedMoment], int, Dict[str, Any]]:
     """画面类检索：信号预筛召回候选区 → 抽帧 → 视觉 LLM 验证 → 命中区间精化。"""
     from backend.services.moment_signal_prefilter import (
@@ -285,6 +286,7 @@ def visual_search_prefilter_llm(
     )
 
     llm_criteria = normalize_visual_search_criteria(search_criteria)
+    profile = (visual_profile or "").strip() or resolve_criteria_profile(search_criteria)
     candidate_ranges = build_moment_candidate_windows(
         project_dir,
         block,
@@ -292,6 +294,7 @@ def visual_search_prefilter_llm(
         duration_sec,
         search_criteria,
         recall_mode="high" if recall_mode == "high" else "balanced",
+        visual_profile=visual_profile,
     )
 
     verify_times = build_verify_sample_times_for_candidates(
@@ -314,7 +317,7 @@ def visual_search_prefilter_llm(
         "verify_frames_planned": len(verify_times),
         "verify_frames_extracted": total_frames,
         "llm_criteria": llm_criteria,
-        "profile": resolve_criteria_profile(search_criteria),
+        "profile": profile,
     }
     if not frame_dicts:
         return [], 0, meta
@@ -551,10 +554,15 @@ def search_block_moments_staged(
     client_sample_times_sec: Optional[List[float]] = None,
     client_frames: Optional[List[Dict[str, Any]]] = None,
     recall_mode: str = "balanced",
+    visual_profile: Optional[str] = None,
+    search_strategy_override: Optional[str] = None,
 ) -> StagedMomentSearchResult:
-    """分段检索：文本优先走转写；画面类走粗筛+候选区加密抽帧；诗/字幕类文本后再画面确认。"""
+    """分段检索：文本优先走转写；画面类走信号预筛+LLM验证；诗/字幕类文本后再画面确认。"""
     criteria = (search_criteria or "").strip()
-    strategy = resolve_search_strategy(criteria)
+    if search_strategy_override in ("visual_primary", "text_primary"):
+        strategy = search_strategy_override
+    else:
+        strategy = resolve_search_strategy(criteria)
     duration = max(0.1, duration_sec)
     note_parts: List[str] = [f"策略：{strategy}"]
 
@@ -660,6 +668,7 @@ def search_block_moments_staged(
             duration,
             max_results,
             recall_mode=recall_mode,
+            visual_profile=visual_profile,
         )
         visual_frame_count += frame_count
         all_matches.extend(visual_moments)
