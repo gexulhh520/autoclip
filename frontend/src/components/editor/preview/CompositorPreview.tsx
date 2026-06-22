@@ -7,6 +7,7 @@ import {
   type CompositionPlan,
 } from '../../../editor/compositor'
 import { findUpcomingCrossIncomingBlock } from '../../../editor/compositor/previewCrossTransitionWarmup'
+import { findPlayheadWarmupTargets } from '../../../editor/compositor/previewPlayheadWarmup'
 import { ensureDecoderBound } from '../../../editor/compositor/previewDecoderBinding'
 import {
   capturePreviewVideoFrame,
@@ -203,6 +204,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   const decoderPoolRef = useRef<PreviewDecoderPool | null>(null)
   const warmupBlockIdRef = useRef<string | null>(null)
   const warmupSeekReadyRef = useRef<Set<string>>(new Set())
+  const prewarmBlockIdsRef = useRef<Set<string>>(new Set())
   const playbackClockRef = useRef(createCompositionPlaybackClock())
   const wasPlayingRef = useRef(false)
   const sequencePlayheadRef = useRef(sequencePlayheadSec)
@@ -341,6 +343,35 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     [getVideoUrlForBlock, getSourceTimeForBlock]
   )
 
+  const prewarmDecodersAtPlayhead = useCallback(
+    (compositionSec: number) => {
+      if (isPlayingRef.current) return
+
+      const pool = getDecoderPool()
+      if (!pool) return
+
+      const targets = findPlayheadWarmupTargets(session, compositionSec)
+      prewarmBlockIdsRef.current = new Set(targets.map((target) => target.block.id))
+
+      for (const { block, relativeSourceSec } of targets) {
+        const video = bindPreviewDecoder(pool, block, getVideoUrlForBlock)
+        video.muted = true
+        video.volume = 0
+        const target = getSourceTimeForBlock(block, relativeSourceSec)
+        if (Math.abs(video.currentTime - target) > 0.08 && !video.seeking) {
+          video.currentTime = target
+        }
+        video.pause()
+      }
+
+      pool.prune([
+        ...prewarmBlockIdsRef.current,
+        ...(warmupBlockIdRef.current ? [warmupBlockIdRef.current] : []),
+      ])
+    },
+    [getDecoderPool, getSourceTimeForBlock, getVideoUrlForBlock, session]
+  )
+
   const collectVideosForLayers = useCallback(
     (layers: PreviewVideoLayerProps[]): Map<string, HTMLVideoElement> => {
       const videos = new Map<string, HTMLVideoElement>()
@@ -431,7 +462,13 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
       const activeIds = vmLayers.map((layer) => layer.block.id)
       const audioBlockId = vmLayers[0]?.block.id ?? null
-      const neededIds = warmupBlock ? [...activeIds, warmupBlock.id] : activeIds
+      const neededIds = [
+        ...new Set([
+          ...activeIds,
+          ...(warmupBlock ? [warmupBlock.id] : []),
+          ...prewarmBlockIdsRef.current,
+        ]),
+      ]
       pool.prune(neededIds)
 
       let anySeek = false
@@ -640,6 +677,16 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   }, [isPlaying, paintAt])
 
   const scrubPaintRafRef = useRef(0)
+  const prewarmRafRef = useRef(0)
+
+  useEffect(() => {
+    if (isPlaying) return undefined
+    cancelAnimationFrame(prewarmRafRef.current)
+    prewarmRafRef.current = requestAnimationFrame(() => {
+      prewarmDecodersAtPlayhead(sequencePlayheadSec)
+    })
+    return () => cancelAnimationFrame(prewarmRafRef.current)
+  }, [isPlaying, sequencePlayheadSec, session, prewarmDecodersAtPlayhead])
 
   useEffect(() => {
     if (isPlaying) return undefined

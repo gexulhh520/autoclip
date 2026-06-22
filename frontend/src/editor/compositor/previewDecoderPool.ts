@@ -2,10 +2,13 @@ import type { EditBlock } from '../../types/editSession'
 import { ensureDecoderBound } from './previewDecoderBinding'
 import { ensurePreviewVideoFrameCache } from './previewVideoFrameCache'
 
+const MAX_RETAINED_DECODERS = 8
+
 export interface PreviewDecoderPool {
   ensure(blockId: string): HTMLVideoElement
   get(blockId: string): HTMLVideoElement | null
   getFrameCache(blockId: string): HTMLCanvasElement
+  touch(blockId: string): void
   prune(activeBlockIds: Iterable<string>): void
   dispose(): void
 }
@@ -19,16 +22,36 @@ export function createPreviewDecoderPool(
 ): PreviewDecoderPool {
   const decoders = new Map<string, HTMLVideoElement>()
   const frameCaches = new Map<string, HTMLCanvasElement>()
+  const lastUsedAt = new Map<string, number>()
+  let touchCounter = 0
+
+  const touch = (blockId: string) => {
+    touchCounter += 1
+    lastUsedAt.set(blockId, touchCounter)
+  }
+
+  const removeDecoder = (blockId: string) => {
+    const video = decoders.get(blockId)
+    if (!video) return
+    video.pause()
+    video.remove()
+    decoders.delete(blockId)
+    frameCaches.delete(blockId)
+    lastUsedAt.delete(blockId)
+  }
 
   const ensure = (blockId: string): HTMLVideoElement => {
     const existing = decoders.get(blockId)
-    if (existing) return existing
+    if (existing) {
+      touch(blockId)
+      return existing
+    }
 
     const video = document.createElement('video')
     video.className = 'compositor-preview__decoder'
     video.dataset.blockId = blockId
     video.playsInline = true
-    video.preload = 'metadata'
+    video.preload = 'auto'
     video.crossOrigin = 'anonymous'
     video.addEventListener('loadedmetadata', () => {
       options.onMetadata?.(video, blockId)
@@ -38,12 +61,18 @@ export function createPreviewDecoderPool(
     })
     host.appendChild(video)
     decoders.set(blockId, video)
+    touch(blockId)
     return video
   }
 
   return {
     ensure,
-    get: (blockId) => decoders.get(blockId) ?? null,
+    get: (blockId) => {
+      const video = decoders.get(blockId) ?? null
+      if (video) touch(blockId)
+      return video
+    },
+    touch,
     getFrameCache: (blockId) => {
       const existing = frameCaches.get(blockId)
       const cache = ensurePreviewVideoFrameCache(existing ?? null)
@@ -52,21 +81,28 @@ export function createPreviewDecoderPool(
     },
     prune: (activeBlockIds) => {
       const active = new Set(activeBlockIds)
-      for (const [blockId, video] of decoders) {
-        if (active.has(blockId)) continue
-        video.pause()
-        video.remove()
-        decoders.delete(blockId)
-        frameCaches.delete(blockId)
+      for (const blockId of active) {
+        touch(blockId)
+      }
+
+      const inactive = [...decoders.keys()].filter((blockId) => !active.has(blockId))
+      if (decoders.size <= MAX_RETAINED_DECODERS) return
+
+      inactive.sort(
+        (left, right) => (lastUsedAt.get(left) ?? 0) - (lastUsedAt.get(right) ?? 0)
+      )
+
+      let overflow = decoders.size - MAX_RETAINED_DECODERS
+      for (const blockId of inactive) {
+        if (overflow <= 0) break
+        removeDecoder(blockId)
+        overflow -= 1
       }
     },
     dispose: () => {
-      for (const video of decoders.values()) {
-        video.pause()
-        video.remove()
+      for (const blockId of [...decoders.keys()]) {
+        removeDecoder(blockId)
       }
-      decoders.clear()
-      frameCaches.clear()
     },
   }
 }
