@@ -95,7 +95,7 @@ export function buildFindBlockMomentsProgressMessage(input: {
     progress.scanPhase === 'planner'
       ? '理解检索目标'
       : progress.scanPhase === 'coarse'
-        ? '宫格粗筛（100s/格）'
+        ? '宫格粗筛（100s/75s）'
         : progress.scanPhase === 'fine'
           ? '精扫（16s/窗，仅热点区）'
           : '分析'
@@ -115,7 +115,7 @@ export function buildFindBlockMomentsProgressMessage(input: {
     if (progress.scanPhase === 'fine') {
       lines.push('  精扫：48 帧 + 音频 / 窗')
     } else if (progress.scanPhase === 'coarse') {
-      lines.push('  宫格：9 帧 / 格（稀疏评分，Top-20%）')
+      lines.push('  54帧→9×六宫格（3×2），稀疏评分 Top-25%')
     }
   } else {
     lines.push(`正在检索「${title}」：「${searchCriteria}」…`)

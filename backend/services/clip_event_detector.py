@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import base64
-import json
 import logging
 import subprocess
 import tempfile
@@ -11,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
+from backend.services.clip_collage_frames import build_collage_b64_list
 from backend.services.clip_search_planner import ClipSearchSpec, plan_clip_search
 from backend.services.editor_moment_search import (
     MatchedMoment,
@@ -32,67 +32,33 @@ FINE_FRAMES = 48
 FINE_INCLUDE_AUDIO = True
 MAX_FINE_WINDOWS_CAP = 200
 
-# --- Coarse（宫格稀疏评分）---
+# --- Coarse（宫格稀疏评分 + 3×2 六宫格）---
 COARSE_TILE_SIZE_SEC = 100.0
-COARSE_TILE_STRIDE_SEC = 100.0
-COARSE_TILE_SIZE_HIGH_RECALL_SEC = 90.0
-COARSE_TILE_STRIDE_HIGH_RECALL_SEC = 90.0
-COARSE_TILE_FRAMES = 9
+COARSE_TILE_STRIDE_SEC = 75.0
+COARSE_TILE_STRIDE_HIGH_RECALL_SEC = 60.0
+COARSE_TILE_FRAMES = 54
+COARSE_COLLAGE_CELL_WIDTH = 120
 COARSE_TILE_MAX_WIDTH = 360
 COARSE_PARALLEL_WORKERS = 2
 COARSE_SALIENCY_THRESHOLD_BALANCED = 0.35
 COARSE_SALIENCY_THRESHOLD_HIGH = 0.28
-COARSE_TOP_K_RATIO = 0.2
+COARSE_TOP_K_RATIO = 0.25
 COARSE_MAX_TILES = 40
 COARSE_MIN_TILES = 3
 TILE_HOTSPOT_MERGE_GAP_SEC = 10.0
 HOTSPOT_PAD_SEC = 15.0
 SKIP_COARSE_DURATION_SEC = 180.0
 
+FINE_COLLAGE_CELL_WIDTH = 160
+
 FRAME_MAX_WIDTH = 480
 SCORE_THRESHOLD_BALANCED = 0.7
 SCORE_THRESHOLD_HIGH = 0.6
 MERGE_GAP_SEC = 8.0
 
-COARSE_SALIENCY_SYSTEM = """你是视频宫格稀疏评分助手。
+COARSE_SALIENCY_SYSTEM = """你是视频宫格稀疏评分助手。用户会提供按时间顺序分组的六宫格画面。"""
 
-用户目标：{user_query}
-
-你将看到一段约 {tile_sec:.0f} 秒的视频稀疏画面帧。
-
-请不要判断是否已经满足用户目标。
-
-你的任务是判断：这段视频是否「值得进一步分析」，是否可能包含与用户目标相关的线索。
-
-请重点关注：
-- 人物是否发生互动或变化
-- 情绪是否发生变化
-- 动作是否明显变化
-- 场景是否发生变化
-- 是否存在剧情推进点
-
-只输出 JSON：
-{{
-  "score": 0-1
-}}
-
-score 越高表示越值得精扫；静态无关画面应接近 0。"""
-
-CLIP_CLASSIFIER_SYSTEM = """你是视频 clip 精筛确认器。
-
-请严格判断用户提供的 16 秒片段是否「明确包含用户目标」。
-
-要求：
-- 必须有直接视觉或音频证据
-- 不允许推测或泛化
-- 不确定必须判 false
-
-只输出 JSON：
-{
-  "is_event": true/false,
-  "score": 0-1,
-  "summary": "一句话描述发生内容"
-}"""
+CLIP_CLASSIFIER_SYSTEM = """你是视频 clip 精筛确认器。用户会提供按时间顺序分组的六宫格画面及对应音频。"""
 
 
 @dataclass
@@ -102,11 +68,13 @@ class ClipScoreRecord:
     score: float
     is_event: bool
     summary: str = ""
+    signals: List[str] = field(default_factory=list)
+    evidence: str = ""
 
 
 @dataclass
 class ClipEventSearchMeta:
-    engine: str = "clip_tile_coarse_fine_v2"
+    engine: str = "clip_collage_coarse_fine_v2"
     coarse_windows: int = 0
     fine_windows: int = 0
     note_parts: List[str] = field(default_factory=list)
@@ -158,21 +126,28 @@ def select_coarse_candidates(
     max_tiles: int = COARSE_MAX_TILES,
     min_tiles: int = COARSE_MIN_TILES,
 ) -> List[ClipScoreRecord]:
-    """Top-K + 阈值：先过阈值，再取分数最高的前 K 格（粗筛只做筛选）。"""
+    """阈值或 Top-K（取并集）：粗筛只做筛选，不做语义确认。"""
     if not records:
         return []
 
-    qualified = [row for row in records if float(row.score) >= score_threshold]
+    by_score = sorted(records, key=lambda item: item.score, reverse=True)
     k = min(max_tiles, max(min_tiles, int(len(records) * top_k_ratio + 0.999)))
+    selected: Dict[Tuple[float, float], ClipScoreRecord] = {}
 
-    if qualified:
-        selected = sorted(qualified, key=lambda item: item.score, reverse=True)[:k]
-    else:
-        selected = sorted(records, key=lambda item: item.score, reverse=True)[
-            : min(min_tiles, max_tiles)
-        ]
+    for row in by_score[:k]:
+        selected[(row.start_sec, row.end_sec)] = row
+    for row in records:
+        if float(row.score) >= score_threshold:
+            selected[(row.start_sec, row.end_sec)] = row
 
-    return sorted(selected, key=lambda item: item.start_sec)
+    if not selected:
+        for row in by_score[: min(min_tiles, max_tiles)]:
+            selected[(row.start_sec, row.end_sec)] = row
+
+    ordered = sorted(selected.values(), key=lambda item: item.score, reverse=True)
+    if len(ordered) > max_tiles:
+        ordered = ordered[:max_tiles]
+    return sorted(ordered, key=lambda item: item.start_sec)
 
 
 def coarse_candidates_to_hotspots(
@@ -275,13 +250,18 @@ def filter_windows_within_hotspots(
 
 
 def score_record_to_dict(record: ClipScoreRecord) -> Dict[str, Any]:
-    return {
+    payload = {
         "start_sec": round(record.start_sec, 2),
         "end_sec": round(record.end_sec, 2),
         "score": round(record.score, 3),
         "is_event": record.is_event,
         "summary": record.summary,
     }
+    if record.signals:
+        payload["signals"] = list(record.signals)
+    if record.evidence:
+        payload["evidence"] = record.evidence
+    return payload
 
 
 def region_to_dict(start: float, end: float) -> Dict[str, float]:
@@ -304,13 +284,14 @@ def _run_coarse_tile(
     source_start = timeline_sample_to_source_sec(
         block, timeline_start_sec, duration, tile_start
     )
-    frames = _extract_clip_frames(
+    frames = _extract_clip_collage_b64(
         video_path,
         source_start,
         clip_duration,
         fps=tile_fps,
         max_frames=COARSE_TILE_FRAMES,
         max_width=COARSE_TILE_MAX_WIDTH,
+        cell_width=COARSE_COLLAGE_CELL_WIDTH,
     )
     if not frames:
         return ClipScoreRecord(tile_start, tile_end, 0.0, False, "")
@@ -380,7 +361,7 @@ def merge_clip_scores(
     return merged
 
 
-def _extract_clip_frames(
+def _extract_clip_pil_frames(
     video_path: Path,
     source_start_sec: float,
     clip_duration_sec: float,
@@ -388,7 +369,9 @@ def _extract_clip_frames(
     fps: float = FINE_FPS,
     max_width: int = FRAME_MAX_WIDTH,
     max_frames: int = FINE_FRAMES,
-) -> List[str]:
+) -> List[Any]:
+    from PIL import Image
+
     ffmpeg = get_ffmpeg_path()
     out_dir = Path(tempfile.mkdtemp(prefix="autoclip_clip_frames_"))
     pattern = out_dir / "frame_%04d.jpg"
@@ -420,11 +403,12 @@ def _extract_clip_frames(
             capture_output=True,
             timeout=max(120, int(clip_duration_sec * 4) + 30),
         )
-        frames: List[str] = []
+        frames: List[Image.Image] = []
         for path in sorted(out_dir.glob("frame_*.jpg")):
             if not path.exists() or path.stat().st_size <= 0:
                 continue
-            frames.append(base64.b64encode(path.read_bytes()).decode("ascii"))
+            with Image.open(path) as img:
+                frames.append(img.copy())
             if len(frames) >= max_frames:
                 break
         return frames
@@ -441,6 +425,52 @@ def _extract_clip_frames(
             out_dir.rmdir()
         except OSError:
             pass
+
+
+def _extract_clip_collage_b64(
+    video_path: Path,
+    source_start_sec: float,
+    clip_duration_sec: float,
+    *,
+    fps: float,
+    max_frames: int,
+    max_width: int,
+    cell_width: int,
+) -> List[str]:
+    pil_frames = _extract_clip_pil_frames(
+        video_path,
+        source_start_sec,
+        clip_duration_sec,
+        fps=fps,
+        max_width=max_width,
+        max_frames=max_frames,
+    )
+    if not pil_frames:
+        return []
+    return build_collage_b64_list(pil_frames, cell_width=cell_width)
+
+
+def _extract_clip_frames(
+    video_path: Path,
+    source_start_sec: float,
+    clip_duration_sec: float,
+    *,
+    fps: float = FINE_FPS,
+    max_width: int = FRAME_MAX_WIDTH,
+    max_frames: int = FINE_FRAMES,
+) -> List[str]:
+    """兼容旧路径：返回独立帧 base64（精扫已改用六宫格）。"""
+    from backend.services.clip_collage_frames import pil_image_to_jpeg_b64
+
+    pil_frames = _extract_clip_pil_frames(
+        video_path,
+        source_start_sec,
+        clip_duration_sec,
+        fps=fps,
+        max_width=max_width,
+        max_frames=max_frames,
+    )
+    return [pil_image_to_jpeg_b64(frame) for frame in pil_frames]
 
 
 def _extract_clip_audio_wav_b64(
@@ -497,9 +527,8 @@ def _extract_clip_audio_wav_b64(
 def _classify_clip_internal(
     llm_manager: Any,
     search_spec: ClipSearchSpec,
-    frame_b64_list: List[str],
+    collage_b64_list: List[str],
     *,
-    system_prompt: str,
     audio_wav_b64: Optional[str] = None,
     clip_meta: Optional[Dict[str, Any]] = None,
     user_message: str,
@@ -507,16 +536,16 @@ def _classify_clip_internal(
     meta = clip_meta or {}
     start_sec = float(meta.get("start_sec") or 0)
     end_sec = float(meta.get("end_sec") or start_sec)
-    if not frame_b64_list:
+    if not collage_b64_list:
         return ClipScoreRecord(start_sec, end_sec, 0.0, False, "")
 
     images: List[str] = []
     if audio_wav_b64:
         images.append(audio_wav_b64)
-    images.extend(frame_b64_list)
+    images.extend(collage_b64_list)
 
     messages = [
-        {"role": "system", "content": system_prompt},
+        {"role": "system", "content": CLIP_CLASSIFIER_SYSTEM},
         {
             "role": "user",
             "content": user_message,
@@ -548,13 +577,21 @@ def _classify_clip_internal(
         is_event = False
 
     summary = str(parsed.get("summary") or "").strip()
-    return ClipScoreRecord(start_sec, end_sec, score, is_event, summary)
+    evidence = str(parsed.get("evidence") or "").strip()
+    return ClipScoreRecord(
+        start_sec,
+        end_sec,
+        score,
+        is_event,
+        summary,
+        evidence=evidence,
+    )
 
 
 def score_tile_saliency(
     llm_manager: Any,
     search_spec: ClipSearchSpec,
-    frame_b64_list: List[str],
+    collage_b64_list: List[str],
     *,
     clip_meta: Optional[Dict[str, Any]] = None,
     tile_sec: float = COARSE_TILE_SIZE_SEC,
@@ -562,31 +599,36 @@ def score_tile_saliency(
     meta = clip_meta or {}
     start_sec = float(meta.get("start_sec") or 0)
     end_sec = float(meta.get("end_sec") or start_sec)
-    if not frame_b64_list:
+    if not collage_b64_list:
         return ClipScoreRecord(start_sec, end_sec, 0.0, False, "")
 
     user_query = (search_spec.search_description or search_spec.user_query or "").strip()
-    system_prompt = COARSE_SALIENCY_SYSTEM.format(
-        user_query=user_query,
-        tile_sec=tile_sec,
+    user_message = (
+        f"用户目标：\n{user_query}\n\n"
+        f"下面提供的是同一段约 {tile_sec:.0f} 秒视频在不同时间点采样得到的连续画面。\n"
+        f"这些画面已经按照时间顺序分组为 {len(collage_b64_list)} 张六宫格（每组 3×2，约每 11 秒一组）。\n\n"
+        f"请判断：这段视频是否可能包含与用户目标相关的内容。\n\n"
+        f"要求：\n"
+        f"- 宁可误报，不要漏报\n"
+        f"- 只要存在合理可能性即可提高评分\n"
+        f"- 不需要严格确认是否已经满足目标\n"
+        f"- 重点关注动作变化、人物互动、情绪变化、场景变化\n\n"
+        f"只输出 JSON：\n"
+        f'{{"score": 0.0-1.0, "signals": ["相关线索1"], "summary": "一句话描述主要内容"}}'
     )
     messages = [
-        {"role": "system", "content": system_prompt},
+        {"role": "system", "content": COARSE_SALIENCY_SYSTEM},
         {
             "role": "user",
-            "content": (
-                f"用户目标：{user_query}\n\n"
-                f"你将看到约 {tile_sec:.0f} 秒片段的 {len(frame_b64_list)} 张稀疏画面帧。"
-                f"只输出 JSON。"
-            ),
-            "images": frame_b64_list,
+            "content": user_message,
+            "images": collage_b64_list,
         },
     ]
     try:
         response = llm_manager.chat_completion(
             messages,
             think=False,
-            num_predict=64,
+            num_predict=256,
             num_ctx=16384,
             timeout=120,
             temperature=0.15,
@@ -601,32 +643,43 @@ def score_tile_saliency(
 
     score = float(parsed.get("score") or parsed.get("confidence") or 0)
     score = max(0.0, min(1.0, score))
-    return ClipScoreRecord(start_sec, end_sec, score, False, "")
+    summary = str(parsed.get("summary") or "").strip()
+    raw_signals = parsed.get("signals")
+    signals: List[str] = []
+    if isinstance(raw_signals, list):
+        signals = [str(item).strip() for item in raw_signals if str(item).strip()][:6]
+    return ClipScoreRecord(start_sec, end_sec, score, False, summary, signals=signals)
 
 
 def classify_clip(
     llm_manager: Any,
     search_spec: ClipSearchSpec,
-    frame_b64_list: List[str],
+    collage_b64_list: List[str],
     *,
     audio_wav_b64: Optional[str] = None,
     clip_meta: Optional[Dict[str, Any]] = None,
 ) -> ClipScoreRecord:
     user_query = (search_spec.search_description or search_spec.user_query or "").strip()
-    payload = search_spec.classifier_payload()
     meta = clip_meta or {}
     user_message = (
-        f"用户目标：{user_query}\n\n"
-        f"你将看到一段 16 秒视频及音频（若有）。\n\n"
-        f"检索规范 JSON：\n{json.dumps(payload, ensure_ascii=False)}\n\n"
+        f"用户目标：\n{user_query}\n\n"
+        f"下面提供：\n"
+        f"1. 按时间顺序组织的 {len(collage_b64_list)} 张六宫格画面（每组 3×2，覆盖约 16 秒）\n"
+        f"2. 对应 16 秒音频（若有）\n\n"
         f"clip 时间：{meta.get('start_sec')}–{meta.get('end_sec')}s\n\n"
-        f"请严格判断是否明确包含用户目标。只输出 JSON。"
+        f"请严格判断：该片段是否明确满足用户目标。\n\n"
+        f"要求：\n"
+        f"- 必须有直接视觉或音频证据\n"
+        f"- 不允许猜测\n"
+        f"- 不允许泛化\n"
+        f"- 不确定时返回 false\n\n"
+        f"只输出 JSON：\n"
+        f'{{"is_event": true/false, "score": 0.0-1.0, "evidence": "判断依据", "summary": "一句话描述"}}'
     )
     return _classify_clip_internal(
         llm_manager,
         search_spec,
-        frame_b64_list,
-        system_prompt=CLIP_CLASSIFIER_SYSTEM,
+        collage_b64_list,
         audio_wav_b64=audio_wav_b64,
         clip_meta=clip_meta,
         user_message=user_message,
@@ -677,7 +730,7 @@ def iter_clip_event_search(
     high_recall = str(recall_mode or "balanced") == "high"
     fine_stride = FINE_STRIDE_HIGH_RECALL_SEC if high_recall else FINE_STRIDE_SEC
     fine_threshold = SCORE_THRESHOLD_HIGH if high_recall else SCORE_THRESHOLD_BALANCED
-    coarse_tile_size = COARSE_TILE_SIZE_HIGH_RECALL_SEC if high_recall else COARSE_TILE_SIZE_SEC
+    coarse_tile_size = COARSE_TILE_SIZE_SEC
     coarse_tile_stride = COARSE_TILE_STRIDE_HIGH_RECALL_SEC if high_recall else COARSE_TILE_STRIDE_SEC
     coarse_threshold = (
         COARSE_SALIENCY_THRESHOLD_HIGH if high_recall else COARSE_SALIENCY_THRESHOLD_BALANCED
@@ -733,8 +786,8 @@ def iter_clip_event_search(
         )
         meta.coarse_windows = len(coarse_tiles)
         meta.note_parts.append(
-            f"宫格粗筛 {len(coarse_tiles)} 格（{coarse_tile_size:.0f}s/{coarse_tile_stride:.0f}s×"
-            f"{COARSE_TILE_FRAMES}帧，Top-{int(COARSE_TOP_K_RATIO * 100)}%≤{COARSE_MAX_TILES}，并行×{COARSE_PARALLEL_WORKERS}）"
+            f"宫格粗筛 {len(coarse_tiles)} 格（{coarse_tile_size:.0f}s/{coarse_tile_stride:.0f}s，"
+            f"{COARSE_TILE_FRAMES}帧→9×3×2六宫格，Top-{int(COARSE_TOP_K_RATIO * 100)}%，并行×{COARSE_PARALLEL_WORKERS}）"
         )
 
     meta.fine_windows = len(fine_windows)
@@ -899,14 +952,16 @@ def iter_clip_event_search(
             "end_sec": round(win_end, 2),
         }
 
-        frames = _extract_clip_frames(
+        frames = _extract_clip_collage_b64(
             video_path,
             source_start,
             clip_duration,
             fps=FINE_FPS,
             max_frames=FINE_FRAMES,
+            max_width=FRAME_MAX_WIDTH,
+            cell_width=FINE_COLLAGE_CELL_WIDTH,
         )
-        total_frames += len(frames)
+        total_frames += FINE_FRAMES
         audio_b64 = (
             _extract_clip_audio_wav_b64(video_path, source_start, clip_duration)
             if use_audio

@@ -680,7 +680,7 @@ def search_block_moments_staged(
             "Planner+Coarse-to-Fine："
             f"粗扫 {clip_meta.get('coarse_windows', 0)} 窗 / 精扫 {clip_meta.get('fine_windows', clip_meta.get('total_windows', 0))} 窗，"
             f"{visual_frame_count} 帧，"
-            f"engine={clip_meta.get('engine', 'clip_tile_coarse_fine_v2')}，"
+            f"engine={clip_meta.get('engine', 'clip_collage_coarse_fine_v2')}，"
             f"目标「{spec_label[:80]}」"
         )
     elif not segments and client_sample_times_sec:

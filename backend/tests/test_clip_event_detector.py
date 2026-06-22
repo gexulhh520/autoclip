@@ -1,5 +1,8 @@
 """宫格 Coarse-to-Fine clip 事件检测单元测试。"""
 from backend.services.clip_event_detector import (
+    COARSE_TILE_FRAMES,
+    COARSE_TILE_SIZE_SEC,
+    COARSE_TILE_STRIDE_SEC,
     ClipScoreRecord,
     build_coarse_tiles,
     build_sliding_windows,
@@ -9,11 +12,20 @@ from backend.services.clip_event_detector import (
 )
 
 
-def test_build_coarse_tiles_1hour():
-    tiles = build_coarse_tiles(0.0, 3600.0, tile_size=100.0, stride=100.0)
-    assert 34 <= len(tiles) <= 38
+def test_build_coarse_tiles_1hour_stride_75():
+    tiles = build_coarse_tiles(
+        0.0,
+        3600.0,
+        tile_size=COARSE_TILE_SIZE_SEC,
+        stride=COARSE_TILE_STRIDE_SEC,
+    )
+    assert 45 <= len(tiles) <= 50
     assert tiles[0] == (0.0, 100.0)
-    assert tiles[1] == (100.0, 200.0)
+    assert tiles[1] == (75.0, 175.0)
+
+
+def test_coarse_tile_frame_count():
+    assert COARSE_TILE_FRAMES == 54
 
 
 def test_build_sliding_windows_fine_60s():
@@ -32,21 +44,22 @@ def test_filter_windows_within_hotspots():
     assert (200.0, 216.0) not in filtered
 
 
-def test_select_coarse_candidates_top_k():
+def test_select_coarse_candidates_threshold_or_top_k():
     records = [
         ClipScoreRecord(float(i * 100), float(i * 100 + 100), 0.9 - i * 0.05, False, "")
         for i in range(10)
     ]
     records[3].score = 0.2
+    records[8].score = 0.82
     selected = select_coarse_candidates(
         records,
         score_threshold=0.35,
-        top_k_ratio=0.2,
+        top_k_ratio=0.25,
         max_tiles=40,
         min_tiles=3,
     )
-    assert 3 <= len(selected) <= 5
-    assert selected[0].start_sec <= selected[-1].start_sec
+    assert len(selected) >= 3
+    assert any(row.start_sec == 800.0 for row in selected)
 
 
 def test_coarse_candidates_to_hotspots_merge_gap():

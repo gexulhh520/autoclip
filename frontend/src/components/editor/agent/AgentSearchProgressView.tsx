@@ -28,7 +28,7 @@ function phaseMeta(progress: FindBlockMomentsProgress): { label: string; detail?
     return { label: '精扫', detail: '短视频跳过粗筛' }
   }
   if (progress.scanPhase === 'coarse') {
-    return { label: '宫格粗筛', detail: '100s/格 · 9 帧 · 稀疏评分' }
+    return { label: '宫格粗筛', detail: '100s/75s · 54帧→9六宫格' }
   }
   if (progress.scanPhase === 'fine') {
     return { label: '精扫', detail: '16s/窗 · 仅热点区' }
