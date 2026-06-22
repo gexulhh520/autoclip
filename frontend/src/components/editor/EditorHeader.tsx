@@ -14,6 +14,7 @@ const EditorHeader: React.FC<EditorHeaderProps> = ({ projectId }) => {
   const dirty = useEditSessionStore((state) => state.dirty)
   const saveSession = useEditSessionStore((state) => state.saveSession)
   const flushSaveSession = useEditSessionStore((state) => state.flushSaveSession)
+  const stopPlayback = useEditSessionStore((state) => state.stopPlayback)
   const updateSessionName = useEditSessionStore((state) => state.updateSessionName)
   const [exportOpen, setExportOpen] = useState(false)
   const [editingName, setEditingName] = useState(false)
@@ -39,6 +40,7 @@ const EditorHeader: React.FC<EditorHeaderProps> = ({ projectId }) => {
             type="button"
             className="editor-header__back"
             onClick={() => {
+              stopPlayback()
               void flushSaveSession(projectId).finally(() => navigate('/'))
             }}
           >

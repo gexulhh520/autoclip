@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import editApi from '../../services/editApi'
 import { findAudioAsset, getAudioClipTrackId } from '../audioTracks'
-import type { AudioClipElement } from '../../types/editSession'
-import type { EditSession } from '../../types/editSession'
+import { stopEditorPlayback } from '../stopEditorPlayback'
+import type { AudioClipElement, EditSession } from '../../types/editSession'
 
 interface UseTimelineAudioPlaybackOptions {
   projectId: string
@@ -209,6 +209,7 @@ export function useTimelineAudioPlayback({
 
   useEffect(() => {
     return () => {
+      stopEditorPlayback()
       for (const audio of elementsRef.current.values()) {
         audio.pause()
       }

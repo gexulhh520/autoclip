@@ -86,6 +86,13 @@ const PreviewVideoLayer: React.FC<PreviewVideoLayerProps> = ({
     }
   }, [targetTimeSec, videoUrl])
 
+  useEffect(() => {
+    return () => {
+      videoRef.current?.pause()
+      blurRef.current?.pause()
+    }
+  }, [])
+
   if (!videoUrl) return null
 
   return (

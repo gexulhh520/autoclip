@@ -28,6 +28,7 @@ import {
   type SceneBuilderInput,
 } from '../../../editor/scene'
 import type { PreviewVideoLayerProps } from '../../../editor/scene/adapters/previewAdapter'
+import { stopEditorPlayback } from '../../../editor/stopEditorPlayback'
 
 const PAUSED_SEEK_THRESHOLD_SEC = 0.03
 
@@ -688,6 +689,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       playbackClockRef.current.stop()
       decoderPoolRef.current?.dispose()
       decoderPoolRef.current = null
+      stopEditorPlayback()
     }
   }, [])
 

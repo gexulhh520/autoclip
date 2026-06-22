@@ -36,6 +36,7 @@ import {
 import type { TextAnimationConfig } from '../editor/textAnimation/types'
 import { createOpenCutTextOverlay } from '../editor/opencut-text/build'
 import { executeWriteToolCallsBatch } from '../editor/agent/executeToolCall'
+import { stopEditorPlayback } from '../editor/stopEditorPlayback'
 import { isReadOnlyAgentTool } from '../editor/agent/toolRegistry'
 import {
   buildStaggeredCharOverlaysForSession,
@@ -543,6 +544,7 @@ interface EditSessionState {
     options?: { recordHistory?: boolean }
   ) => void
   setPlaying: (playing: boolean) => void
+  stopPlayback: () => void
   setSequencePlayheadSec: (sec: number) => void
   advanceSequencePlayhead: (sec: number) => void
   setTimelineZoom: (zoom: number) => void
@@ -2592,6 +2594,10 @@ export const useEditSessionStore = create<EditSessionState>()(
       },
 
       setPlaying: (playing) => set({ isPlaying: playing }),
+      stopPlayback: () => {
+        stopEditorPlayback()
+        set({ isPlaying: false, assetPreviewClip: null })
+      },
       setSequencePlayheadSec: (sec) => {
         const clamped = clampPlayhead(sec)
         set((state) => {
@@ -3301,7 +3307,8 @@ export const useEditSessionStore = create<EditSessionState>()(
       },
       beginTimelineGesture: () => pushHistory(),
 
-      reset: () =>
+      reset: () => {
+        stopEditorPlayback()
         set({
           session: null,
           editProject: null,
@@ -3340,7 +3347,8 @@ export const useEditSessionStore = create<EditSessionState>()(
           editorClipboard: null,
           historyPast: [],
           historyFuture: [],
-        }),
+        })
+      },
     }
   })
 )
