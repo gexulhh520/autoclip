@@ -1,18 +1,25 @@
-"""Coarse-to-Fine clip 事件检测单元测试。"""
+"""宫格 Coarse-to-Fine clip 事件检测单元测试。"""
 from backend.services.clip_event_detector import (
     ClipScoreRecord,
+    build_coarse_tiles,
     build_sliding_windows,
-    coarse_hits_to_hotspots,
+    coarse_candidates_to_hotspots,
     merge_clip_scores,
-    select_peak_hotspots,
+    select_coarse_candidates,
 )
 
 
-def test_build_sliding_windows_60s_coarse():
-    windows = build_sliding_windows(0.0, 3600.0, window_size=60.0, stride=45.0)
-    assert 75 <= len(windows) <= 85
-    assert windows[0] == (0.0, 60.0)
-    assert windows[1] == (45.0, 105.0)
+def test_build_coarse_tiles_1hour():
+    tiles = build_coarse_tiles(0.0, 3600.0, tile_size=100.0, stride=100.0)
+    assert 34 <= len(tiles) <= 38
+    assert tiles[0] == (0.0, 100.0)
+    assert tiles[1] == (100.0, 200.0)
+
+
+def test_build_sliding_windows_fine_60s():
+    windows = build_sliding_windows(0.0, 60.0, window_size=16.0, stride=4.0)
+    assert len(windows) >= 12
+    assert windows[0] == (0.0, 16.0)
 
 
 def test_filter_windows_within_hotspots():
@@ -25,53 +32,34 @@ def test_filter_windows_within_hotspots():
     assert (200.0, 216.0) not in filtered
 
 
-def test_build_sliding_windows_fine_60s():
-    windows = build_sliding_windows(0.0, 60.0, window_size=16.0, stride=4.0)
-    assert len(windows) >= 12
-    assert windows[0] == (0.0, 16.0)
-
-
-def test_coarse_hits_to_hotspots_with_pad():
+def test_select_coarse_candidates_top_k():
     records = [
-        ClipScoreRecord(600.0, 660.0, 0.7, True, "fight"),
-        ClipScoreRecord(630.0, 690.0, 0.65, True, "fight b"),
+        ClipScoreRecord(float(i * 100), float(i * 100 + 100), 0.9 - i * 0.05, False, "")
+        for i in range(10)
     ]
-    hotspots = coarse_hits_to_hotspots(
+    records[3].score = 0.2
+    selected = select_coarse_candidates(
         records,
-        0.0,
-        3600.0,
-        score_threshold=0.45,
-        pad_sec=20.0,
+        score_threshold=0.35,
+        top_k_ratio=0.2,
+        max_tiles=40,
+        min_tiles=3,
     )
-    assert len(hotspots) == 1
-    assert hotspots[0][0] <= 600.0
-    assert hotspots[0][1] >= 690.0
+    assert 3 <= len(selected) <= 5
+    assert selected[0].start_sec <= selected[-1].start_sec
 
 
-def test_coarse_dense_hits_falls_back_to_peak_hotspots():
-    records = [
-        ClipScoreRecord(float(i * 45), float(i * 45 + 60), 0.9 - i * 0.001, True, f"hit {i}")
-        for i in range(80)
+def test_coarse_candidates_to_hotspots_merge_gap():
+    candidates = [
+        ClipScoreRecord(0.0, 100.0, 0.8, False, ""),
+        ClipScoreRecord(100.0, 200.0, 0.7, False, ""),
+        ClipScoreRecord(500.0, 600.0, 0.75, False, ""),
     ]
-    hotspots = coarse_hits_to_hotspots(
-        records,
-        0.0,
-        3600.0,
-        score_threshold=0.45,
-        coarse_window_count=80,
-    )
-    assert len(hotspots) <= 12
-    assert hotspots[0][1] - hotspots[0][0] < 3600.0 * 0.25
-
-
-def test_select_peak_hotspots_spreads_high_scores():
-    records = [
-        ClipScoreRecord(100.0, 160.0, 0.95, True, "fight a"),
-        ClipScoreRecord(1200.0, 1260.0, 0.88, True, "fight b"),
-        ClipScoreRecord(2400.0, 2460.0, 0.82, True, "fight c"),
-    ]
-    hotspots = select_peak_hotspots(records, 0.0, 3600.0, score_threshold=0.45)
-    assert len(hotspots) == 3
+    hotspots = coarse_candidates_to_hotspots(candidates, 0.0, 3600.0, pad_sec=15.0)
+    assert len(hotspots) == 2
+    assert hotspots[0][0] == 0.0
+    assert hotspots[0][1] == 215.0
+    assert hotspots[1][0] == 485.0
 
 
 def test_merge_clip_scores_overlapping_windows():

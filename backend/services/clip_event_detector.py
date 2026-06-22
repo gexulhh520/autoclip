@@ -1,4 +1,4 @@
-"""统一 Pipeline：LLM Planner → 粗扫 → 精扫 → 时间段合并。"""
+"""统一 Pipeline：LLM Planner → 宫格粗筛 → 精扫 → 时间段合并。"""
 from __future__ import annotations
 
 import base64
@@ -23,28 +23,30 @@ from backend.utils.ffmpeg_utils import get_ffmpeg_path
 
 logger = logging.getLogger(__name__)
 
+# --- Fine（精扫，保持不变）---
 FINE_WINDOW_SEC = 16.0
 FINE_STRIDE_SEC = 4.0
 FINE_STRIDE_HIGH_RECALL_SEC = 2.0
 FINE_FPS = 3.0
 FINE_FRAMES = 48
 FINE_INCLUDE_AUDIO = True
-
-COARSE_WINDOW_SEC = 60.0
-COARSE_STRIDE_SEC = 45.0
-COARSE_STRIDE_HIGH_RECALL_SEC = 30.0
-COARSE_FRAMES = 6
-COARSE_FRAME_MAX_WIDTH = 360
-COARSE_PARALLEL_WORKERS = 2
-COARSE_THRESHOLD_BALANCED = 0.45
-COARSE_THRESHOLD_HIGH = 0.38
-HOTSPOT_PAD_SEC = 15.0
-HOTSPOT_MERGE_GAP_SEC = 30.0
-MAX_HOTSPOT_SPAN_SEC = 240.0
-HOTSPOT_PEAK_MAX_COUNT = 12
-HOTSPOT_COVERAGE_FALLBACK_RATIO = 0.25
-COARSE_HIT_RATE_FALLBACK_RATIO = 0.35
 MAX_FINE_WINDOWS_CAP = 200
+
+# --- Coarse（宫格稀疏评分）---
+COARSE_TILE_SIZE_SEC = 100.0
+COARSE_TILE_STRIDE_SEC = 100.0
+COARSE_TILE_SIZE_HIGH_RECALL_SEC = 90.0
+COARSE_TILE_STRIDE_HIGH_RECALL_SEC = 90.0
+COARSE_TILE_FRAMES = 9
+COARSE_TILE_MAX_WIDTH = 360
+COARSE_PARALLEL_WORKERS = 2
+COARSE_SALIENCY_THRESHOLD_BALANCED = 0.35
+COARSE_SALIENCY_THRESHOLD_HIGH = 0.28
+COARSE_TOP_K_RATIO = 0.2
+COARSE_MAX_TILES = 40
+COARSE_MIN_TILES = 3
+TILE_HOTSPOT_MERGE_GAP_SEC = 10.0
+HOTSPOT_PAD_SEC = 15.0
 SKIP_COARSE_DURATION_SEC = 180.0
 
 FRAME_MAX_WIDTH = 480
@@ -52,33 +54,45 @@ SCORE_THRESHOLD_BALANCED = 0.7
 SCORE_THRESHOLD_HIGH = 0.6
 MERGE_GAP_SEC = 8.0
 
-COARSE_CLASSIFIER_SYSTEM = """你是视频片段粗筛助手。你会收到约 1 分钟的稀疏画面帧，以及 search_spec（中文检索规范）。
+COARSE_SALIENCY_SYSTEM = """你是视频宫格稀疏评分助手。
 
-判断这一分钟里**是否可能出现**目标事件（粗筛阶段宜宽松，仅当明显无关或符合 negative_examples 时才判否）。
+用户目标：{user_query}
+
+你将看到一段约 {tile_sec:.0f} 秒的视频稀疏画面帧。
+
+请不要判断是否已经满足用户目标。
+
+你的任务是判断：这段视频是否「值得进一步分析」，是否可能包含与用户目标相关的线索。
+
+请重点关注：
+- 人物是否发生互动或变化
+- 情绪是否发生变化
+- 动作是否明显变化
+- 场景是否发生变化
+- 是否存在剧情推进点
 
 只输出 JSON：
-{
-  "summary": "一句话概括画面发生了什么",
-  "possible_match": true/false,
-  "confidence": 0-1
-}
+{{
+  "score": 0-1
+}}
 
-confidence 表示你对 possible_match 判断的确信度；possible_match 为 false 时 summary 应说明为何无关，勿因画面热闹就标 true。
-以 search_description 为主，positive_examples 作参考，negative_examples 作排除。"""
+score 越高表示越值得精扫；静态无关画面应接近 0。"""
 
-CLIP_CLASSIFIER_SYSTEM = """你是视频 clip 分类器。你会收到连续画面帧和可选音频，以及 search_spec（中文检索规范）。
+CLIP_CLASSIFIER_SYSTEM = """你是视频 clip 精筛确认器。
 
-判断该 clip 是否包含目标事件。
+请严格判断用户提供的 16 秒片段是否「明确包含用户目标」。
+
+要求：
+- 必须有直接视觉或音频证据
+- 不允许推测或泛化
+- 不确定必须判 false
 
 只输出 JSON：
 {
   "is_event": true/false,
   "score": 0-1,
-  "confidence": 0-1,
-  "summary": "简短中文描述"
-}
-
-以 search_description 为首要判定依据；positive_examples 表示应命中；negative_examples 必须排除。需有清晰画面或声音证据，勿臆造未出现的台词。"""
+  "summary": "一句话描述发生内容"
+}"""
 
 
 @dataclass
@@ -92,7 +106,7 @@ class ClipScoreRecord:
 
 @dataclass
 class ClipEventSearchMeta:
-    engine: str = "clip_planner_coarse_fine_v1"
+    engine: str = "clip_tile_coarse_fine_v2"
     coarse_windows: int = 0
     fine_windows: int = 0
     note_parts: List[str] = field(default_factory=list)
@@ -120,108 +134,67 @@ def build_sliding_windows(
     return windows
 
 
-def select_peak_hotspots(
-    records: List[ClipScoreRecord],
+def build_coarse_tiles(
     timeline_start_sec: float,
-    timeline_end_sec: float,
+    duration_sec: float,
     *,
-    score_threshold: float,
-    max_peaks: int = HOTSPOT_PEAK_MAX_COUNT,
-    pad_sec: float = HOTSPOT_PAD_SEC,
-    min_peak_gap_sec: float = COARSE_STRIDE_SEC,
+    tile_size: float = COARSE_TILE_SIZE_SEC,
+    stride: float = COARSE_TILE_STRIDE_SEC,
 ) -> List[Tuple[float, float]]:
-    """粗筛误报过多时，按分数取峰值窗口作为精扫热点，避免合并成整片。"""
-    positives = sorted(
-        [
-            row
-            for row in records
-            if row.is_event and float(row.score) >= score_threshold
-        ],
-        key=lambda item: item.score,
-        reverse=True,
+    """宫格切分：非重叠/低重叠大块，显著少于旧 60s 滑窗。"""
+    return build_sliding_windows(
+        timeline_start_sec,
+        duration_sec,
+        window_size=tile_size,
+        stride=stride,
     )
-    if not positives:
+
+
+def select_coarse_candidates(
+    records: List[ClipScoreRecord],
+    *,
+    score_threshold: float,
+    top_k_ratio: float = COARSE_TOP_K_RATIO,
+    max_tiles: int = COARSE_MAX_TILES,
+    min_tiles: int = COARSE_MIN_TILES,
+) -> List[ClipScoreRecord]:
+    """Top-K + 阈值：先过阈值，再取分数最高的前 K 格（粗筛只做筛选）。"""
+    if not records:
         return []
 
-    picked: List[ClipScoreRecord] = []
-    for row in positives:
-        center = (row.start_sec + row.end_sec) / 2.0
-        if any(
-            abs(center - (prev.start_sec + prev.end_sec) / 2.0) < min_peak_gap_sec
-            for prev in picked
-        ):
-            continue
-        picked.append(row)
-        if len(picked) >= max_peaks:
-            break
+    qualified = [row for row in records if float(row.score) >= score_threshold]
+    k = min(max_tiles, max(min_tiles, int(len(records) * top_k_ratio + 0.999)))
 
-    regions: List[Tuple[float, float]] = []
-    for row in picked:
-        regions.append(
-            (
-                max(timeline_start_sec, row.start_sec - pad_sec),
-                min(timeline_end_sec, row.end_sec + pad_sec),
-            )
-        )
-    return merge_roi_regions(regions, gap_sec=0.0)
+    if qualified:
+        selected = sorted(qualified, key=lambda item: item.score, reverse=True)[:k]
+    else:
+        selected = sorted(records, key=lambda item: item.score, reverse=True)[
+            : min(min_tiles, max_tiles)
+        ]
+
+    return sorted(selected, key=lambda item: item.start_sec)
 
 
-def split_long_hotspots(
-    regions: List[Tuple[float, float]],
-    *,
-    max_span_sec: float = MAX_HOTSPOT_SPAN_SEC,
-) -> List[Tuple[float, float]]:
-    split: List[Tuple[float, float]] = []
-    for start, end in regions:
-        span = end - start
-        if span <= max_span_sec:
-            split.append((start, end))
-            continue
-        offset = start
-        while offset < end:
-            chunk_end = min(end, offset + max_span_sec)
-            split.append((offset, chunk_end))
-            if chunk_end >= end:
-                break
-            offset += max_span_sec * 0.75
-    return merge_roi_regions(split, gap_sec=0.0)
-
-
-def coarse_hits_to_hotspots(
-    records: List[ClipScoreRecord],
+def coarse_candidates_to_hotspots(
+    candidates: List[ClipScoreRecord],
     timeline_start_sec: float,
     timeline_end_sec: float,
     *,
-    score_threshold: float,
-    merge_gap_sec: float = HOTSPOT_MERGE_GAP_SEC,
+    merge_gap_sec: float = TILE_HOTSPOT_MERGE_GAP_SEC,
     pad_sec: float = HOTSPOT_PAD_SEC,
-    coarse_window_count: Optional[int] = None,
 ) -> List[Tuple[float, float]]:
-    positives = [
-        row for row in records if row.is_event and float(row.score) >= score_threshold
-    ]
-    if not positives:
+    """相邻宫格（gap ≤ 10s）合并为 hotspot，前后 padding 供精扫。"""
+    if not candidates:
         return []
 
-    timeline_span = max(0.1, timeline_end_sec - timeline_start_sec)
-    if coarse_window_count and len(positives) > coarse_window_count * COARSE_HIT_RATE_FALLBACK_RATIO:
-        return select_peak_hotspots(
-            records,
-            timeline_start_sec,
-            timeline_end_sec,
-            score_threshold=score_threshold,
-            pad_sec=pad_sec,
-        )
-
-    ordered = sorted(positives, key=lambda item: item.start_sec)
+    ordered = sorted(candidates, key=lambda item: item.start_sec)
     merged: List[Tuple[float, float]] = []
     cur_start = ordered[0].start_sec
     cur_end = ordered[0].end_sec
 
     for row in ordered[1:]:
         gap = row.start_sec - cur_end
-        overlaps = row.start_sec <= cur_end
-        if overlaps or gap <= merge_gap_sec:
+        if gap <= merge_gap_sec:
             cur_end = max(cur_end, row.end_sec)
         else:
             merged.append((cur_start, cur_end))
@@ -237,20 +210,7 @@ def coarse_hits_to_hotspots(
                 min(timeline_end_sec, end + pad_sec),
             )
         )
-    padded = merge_roi_regions(padded, gap_sec=0.0)
-
-    if len(padded) == 1:
-        only_span = padded[0][1] - padded[0][0]
-        if only_span > timeline_span * HOTSPOT_COVERAGE_FALLBACK_RATIO:
-            return select_peak_hotspots(
-                records,
-                timeline_start_sec,
-                timeline_end_sec,
-                score_threshold=score_threshold,
-                pad_sec=pad_sec,
-            )
-
-    return split_long_hotspots(padded)
+    return merge_roi_regions(padded, gap_sec=0.0)
 
 
 def merge_roi_regions(
@@ -328,7 +288,7 @@ def region_to_dict(start: float, end: float) -> Dict[str, float]:
     return {"start_sec": round(start, 2), "end_sec": round(end, 2)}
 
 
-def _run_coarse_window(
+def _run_coarse_tile(
     llm_manager: Any,
     video_path: Path,
     block: Dict[str, Any],
@@ -336,29 +296,30 @@ def _run_coarse_window(
     *,
     timeline_start_sec: float,
     duration: float,
-    win_start: float,
-    win_end: float,
-    coarse_fps: float,
+    tile_start: float,
+    tile_end: float,
+    tile_fps: float,
 ) -> ClipScoreRecord:
-    clip_duration = max(0.1, win_end - win_start)
+    clip_duration = max(0.1, tile_end - tile_start)
     source_start = timeline_sample_to_source_sec(
-        block, timeline_start_sec, duration, win_start
+        block, timeline_start_sec, duration, tile_start
     )
     frames = _extract_clip_frames(
         video_path,
         source_start,
         clip_duration,
-        fps=coarse_fps,
-        max_frames=COARSE_FRAMES,
-        max_width=COARSE_FRAME_MAX_WIDTH,
+        fps=tile_fps,
+        max_frames=COARSE_TILE_FRAMES,
+        max_width=COARSE_TILE_MAX_WIDTH,
     )
     if not frames:
-        return ClipScoreRecord(win_start, win_end, 0.0, False, "")
-    return classify_clip_coarse(
+        return ClipScoreRecord(tile_start, tile_end, 0.0, False, "")
+    return score_tile_saliency(
         llm_manager,
         spec,
         frames,
-        clip_meta={"start_sec": win_start, "end_sec": win_end},
+        clip_meta={"start_sec": tile_start, "end_sec": tile_end},
+        tile_sec=clip_duration,
     )
 
 
@@ -541,7 +502,7 @@ def _classify_clip_internal(
     system_prompt: str,
     audio_wav_b64: Optional[str] = None,
     clip_meta: Optional[Dict[str, Any]] = None,
-    coarse: bool = False,
+    user_message: str,
 ) -> ClipScoreRecord:
     meta = clip_meta or {}
     start_sec = float(meta.get("start_sec") or 0)
@@ -554,23 +515,11 @@ def _classify_clip_internal(
         images.append(audio_wav_b64)
     images.extend(frame_b64_list)
 
-    user_payload = {
-        "search_spec": search_spec.classifier_payload(),
-        "clip_start_sec": round(start_sec, 2),
-        "clip_end_sec": round(end_sec, 2),
-        "frame_count": len(frame_b64_list),
-        "has_audio": bool(audio_wav_b64),
-        "scan_mode": "coarse" if coarse else "fine",
-    }
     messages = [
         {"role": "system", "content": system_prompt},
         {
             "role": "user",
-            "content": (
-                f"请判断该 clip 是否包含 search_spec 描述的目标事件。\n\n"
-                f"Payload JSON：\n{json.dumps(user_payload, ensure_ascii=False)}\n\n"
-                f"只输出 JSON。"
-            ),
+            "content": user_message,
             "images": images,
         },
     ]
@@ -578,53 +527,81 @@ def _classify_clip_internal(
         response = llm_manager.chat_completion(
             messages,
             think=False,
-            num_predict=256 if coarse else 512,
-            num_ctx=16384 if coarse else 65536,
-            timeout=120 if coarse else 300,
+            num_predict=512,
+            num_ctx=65536,
+            timeout=300,
             temperature=0.15,
         )
         parsed = llm_manager.parse_json_response(response.content or "")
     except Exception as exc:
-        logger.warning("clip 分类失败 %.1f-%.1fs: %s", start_sec, end_sec, exc)
+        logger.warning("clip 精筛失败 %.1f-%.1fs: %s", start_sec, end_sec, exc)
         return ClipScoreRecord(start_sec, end_sec, 0.0, False, "")
 
     if not isinstance(parsed, dict):
         return ClipScoreRecord(start_sec, end_sec, 0.0, False, "")
 
-    if coarse:
-        raw_possible = parsed.get("possible_match")
-        if raw_possible is None:
-            raw_possible = parsed.get("is_event")
-        is_event = bool(raw_possible)
-        confidence = float(parsed.get("confidence") or parsed.get("score") or 0)
-        score = confidence if is_event else min(confidence, 0.35)
-    else:
-        score = float(parsed.get("score") or 0)
-        is_event = bool(parsed.get("is_event"))
-        if not is_event and score >= 0.75:
-            is_event = True
-        if is_event and score < 0.35:
-            is_event = False
+    score = float(parsed.get("score") or 0)
+    is_event = bool(parsed.get("is_event"))
+    if not is_event and score >= 0.75:
+        is_event = True
+    if is_event and score < 0.35:
+        is_event = False
 
     summary = str(parsed.get("summary") or "").strip()
     return ClipScoreRecord(start_sec, end_sec, score, is_event, summary)
 
 
-def classify_clip_coarse(
+def score_tile_saliency(
     llm_manager: Any,
     search_spec: ClipSearchSpec,
     frame_b64_list: List[str],
     *,
     clip_meta: Optional[Dict[str, Any]] = None,
+    tile_sec: float = COARSE_TILE_SIZE_SEC,
 ) -> ClipScoreRecord:
-    return _classify_clip_internal(
-        llm_manager,
-        search_spec,
-        frame_b64_list,
-        system_prompt=COARSE_CLASSIFIER_SYSTEM,
-        clip_meta=clip_meta,
-        coarse=True,
+    meta = clip_meta or {}
+    start_sec = float(meta.get("start_sec") or 0)
+    end_sec = float(meta.get("end_sec") or start_sec)
+    if not frame_b64_list:
+        return ClipScoreRecord(start_sec, end_sec, 0.0, False, "")
+
+    user_query = (search_spec.search_description or search_spec.user_query or "").strip()
+    system_prompt = COARSE_SALIENCY_SYSTEM.format(
+        user_query=user_query,
+        tile_sec=tile_sec,
     )
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": (
+                f"用户目标：{user_query}\n\n"
+                f"你将看到约 {tile_sec:.0f} 秒片段的 {len(frame_b64_list)} 张稀疏画面帧。"
+                f"只输出 JSON。"
+            ),
+            "images": frame_b64_list,
+        },
+    ]
+    try:
+        response = llm_manager.chat_completion(
+            messages,
+            think=False,
+            num_predict=64,
+            num_ctx=16384,
+            timeout=120,
+            temperature=0.15,
+        )
+        parsed = llm_manager.parse_json_response(response.content or "")
+    except Exception as exc:
+        logger.warning("宫格评分失败 %.1f-%.1fs: %s", start_sec, end_sec, exc)
+        return ClipScoreRecord(start_sec, end_sec, 0.0, False, "")
+
+    if not isinstance(parsed, dict):
+        return ClipScoreRecord(start_sec, end_sec, 0.0, False, "")
+
+    score = float(parsed.get("score") or parsed.get("confidence") or 0)
+    score = max(0.0, min(1.0, score))
+    return ClipScoreRecord(start_sec, end_sec, score, False, "")
 
 
 def classify_clip(
@@ -635,6 +612,16 @@ def classify_clip(
     audio_wav_b64: Optional[str] = None,
     clip_meta: Optional[Dict[str, Any]] = None,
 ) -> ClipScoreRecord:
+    user_query = (search_spec.search_description or search_spec.user_query or "").strip()
+    payload = search_spec.classifier_payload()
+    meta = clip_meta or {}
+    user_message = (
+        f"用户目标：{user_query}\n\n"
+        f"你将看到一段 16 秒视频及音频（若有）。\n\n"
+        f"检索规范 JSON：\n{json.dumps(payload, ensure_ascii=False)}\n\n"
+        f"clip 时间：{meta.get('start_sec')}–{meta.get('end_sec')}s\n\n"
+        f"请严格判断是否明确包含用户目标。只输出 JSON。"
+    )
     return _classify_clip_internal(
         llm_manager,
         search_spec,
@@ -642,7 +629,7 @@ def classify_clip(
         system_prompt=CLIP_CLASSIFIER_SYSTEM,
         audio_wav_b64=audio_wav_b64,
         clip_meta=clip_meta,
-        coarse=False,
+        user_message=user_message,
     )
 
 
@@ -666,8 +653,8 @@ def _records_to_moments(
     return merge_matched_moments(moments, max_results)
 
 
-def _coarse_fps_for_window(window_sec: float, frame_count: int) -> float:
-    return max(0.1, frame_count / max(1.0, window_sec))
+def _coarse_fps_for_tile(tile_sec: float, frame_count: int) -> float:
+    return max(0.1, frame_count / max(1.0, tile_sec))
 
 
 def iter_clip_event_search(
@@ -690,8 +677,11 @@ def iter_clip_event_search(
     high_recall = str(recall_mode or "balanced") == "high"
     fine_stride = FINE_STRIDE_HIGH_RECALL_SEC if high_recall else FINE_STRIDE_SEC
     fine_threshold = SCORE_THRESHOLD_HIGH if high_recall else SCORE_THRESHOLD_BALANCED
-    coarse_stride = COARSE_STRIDE_HIGH_RECALL_SEC if high_recall else COARSE_STRIDE_SEC
-    coarse_threshold = COARSE_THRESHOLD_HIGH if high_recall else COARSE_THRESHOLD_BALANCED
+    coarse_tile_size = COARSE_TILE_SIZE_HIGH_RECALL_SEC if high_recall else COARSE_TILE_SIZE_SEC
+    coarse_tile_stride = COARSE_TILE_STRIDE_HIGH_RECALL_SEC if high_recall else COARSE_TILE_STRIDE_SEC
+    coarse_threshold = (
+        COARSE_SALIENCY_THRESHOLD_HIGH if high_recall else COARSE_SALIENCY_THRESHOLD_BALANCED
+    )
     coarse_enabled = duration > SKIP_COARSE_DURATION_SEC
 
     video_path = resolve_block_video_path(project_dir, block)
@@ -723,7 +713,7 @@ def iter_clip_event_search(
     total_frames = 0
     fine_records: List[ClipScoreRecord] = []
     fine_windows: List[Tuple[float, float]] = []
-    coarse_windows: List[Tuple[float, float]] = []
+    coarse_tiles: List[Tuple[float, float]] = []
     coarse_records: List[ClipScoreRecord] = []
 
     if not coarse_enabled:
@@ -735,19 +725,20 @@ def iter_clip_event_search(
         )
         meta.note_parts.append(f"短视频精扫：{len(fine_windows)} 窗")
     else:
-        coarse_windows = build_sliding_windows(
+        coarse_tiles = build_coarse_tiles(
             timeline_start_sec,
             duration,
-            window_size=COARSE_WINDOW_SEC,
-            stride=coarse_stride,
+            tile_size=coarse_tile_size,
+            stride=coarse_tile_stride,
         )
-        meta.coarse_windows = len(coarse_windows)
+        meta.coarse_windows = len(coarse_tiles)
         meta.note_parts.append(
-            f"粗扫 {len(coarse_windows)} 窗（60s/{coarse_stride}s×{COARSE_FRAMES}帧，并行×{COARSE_PARALLEL_WORKERS}）"
+            f"宫格粗筛 {len(coarse_tiles)} 格（{coarse_tile_size:.0f}s/{coarse_tile_stride:.0f}s×"
+            f"{COARSE_TILE_FRAMES}帧，Top-{int(COARSE_TOP_K_RATIO * 100)}%≤{COARSE_MAX_TILES}，并行×{COARSE_PARALLEL_WORKERS}）"
         )
 
     meta.fine_windows = len(fine_windows)
-    total_work = len(fine_windows) if fine_windows else len(coarse_windows)
+    total_work = len(fine_windows) if fine_windows else len(coarse_tiles)
 
     yield {
         "type": "started",
@@ -756,49 +747,49 @@ def iter_clip_event_search(
         "coarse_enabled": coarse_enabled,
         "coarse_skipped": not coarse_enabled,
         "total_windows": total_work,
-        "coarse_windows": len(coarse_windows),
+        "coarse_windows": len(coarse_tiles),
         "fine_window_count": len(fine_windows),
         "score_threshold": fine_threshold,
         "search_criteria": user_query,
     }
 
-    if coarse_enabled and coarse_windows:
-        coarse_fps = _coarse_fps_for_window(COARSE_WINDOW_SEC, COARSE_FRAMES)
-        workers = min(COARSE_PARALLEL_WORKERS, len(coarse_windows))
+    if coarse_enabled and coarse_tiles:
+        tile_fps = _coarse_fps_for_tile(coarse_tile_size, COARSE_TILE_FRAMES)
+        workers = min(COARSE_PARALLEL_WORKERS, len(coarse_tiles))
 
-        def run_indexed(index: int, win_start: float, win_end: float) -> Tuple[int, ClipScoreRecord]:
-            record = _run_coarse_window(
+        def run_indexed(index: int, tile_start: float, tile_end: float) -> Tuple[int, ClipScoreRecord]:
+            record = _run_coarse_tile(
                 llm_manager,
                 video_path,
                 block,
                 spec,
                 timeline_start_sec=timeline_start_sec,
                 duration=duration,
-                win_start=win_start,
-                win_end=win_end,
-                coarse_fps=coarse_fps,
+                tile_start=tile_start,
+                tile_end=tile_end,
+                tile_fps=tile_fps,
             )
             return index, record
 
-        indexed_windows = list(enumerate(coarse_windows))
+        indexed_tiles = list(enumerate(coarse_tiles))
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {
-                executor.submit(run_indexed, index, ws, we): index
-                for index, (ws, we) in indexed_windows
+                executor.submit(run_indexed, index, ts, te): index
+                for index, (ts, te) in indexed_tiles
             }
-            results: List[Optional[ClipScoreRecord]] = [None] * len(coarse_windows)
+            results: List[Optional[ClipScoreRecord]] = [None] * len(coarse_tiles)
             completed = 0
             for future in as_completed(futures):
                 index, record = future.result()
                 results[index] = record
                 completed += 1
-                total_frames += COARSE_FRAMES
+                total_frames += COARSE_TILE_FRAMES
 
                 yield {
                     "type": "progress",
                     "scan_phase": "coarse",
                     "window_index": completed,
-                    "total_windows": len(coarse_windows),
+                    "total_windows": len(coarse_tiles),
                     "start_sec": round(record.start_sec, 2),
                     "end_sec": round(record.end_sec, 2),
                 }
@@ -806,36 +797,39 @@ def iter_clip_event_search(
                     "type": "clip_score",
                     "scan_phase": "coarse",
                     "window_index": completed,
-                    "total_windows": len(coarse_windows),
+                    "total_windows": len(coarse_tiles),
                     **score_record_to_dict(record),
                 }
 
         coarse_records = [record for record in results if record is not None]
 
-        coarse_hits = [
-            record
-            for record in coarse_records
-            if record.is_event and float(record.score) >= coarse_threshold
-        ]
-        hotspots = coarse_hits_to_hotspots(
+        coarse_candidates = select_coarse_candidates(
             coarse_records,
+            score_threshold=coarse_threshold,
+            top_k_ratio=COARSE_TOP_K_RATIO,
+            max_tiles=COARSE_MAX_TILES,
+        )
+        coarse_hits = coarse_candidates
+
+        hotspots = coarse_candidates_to_hotspots(
+            coarse_hits,
             timeline_start_sec,
             timeline_end,
-            score_threshold=coarse_threshold,
-            coarse_window_count=len(coarse_windows),
         )
 
         yield {
             "type": "coarse_complete",
-            "total_windows": len(coarse_windows),
-            "hits": [score_record_to_dict(r) for r in coarse_hits],
+            "total_windows": len(coarse_tiles),
+            "hits": [
+                {**score_record_to_dict(r), "is_event": True} for r in coarse_hits
+            ],
             "all_scored": [score_record_to_dict(r) for r in coarse_records],
             "hotspots": [region_to_dict(s, e) for s, e in hotspots],
             "hit_count": len(coarse_hits),
         }
 
         if not hotspots:
-            meta.note_parts.append("粗扫无热点")
+            meta.note_parts.append("宫格粗筛无热点")
             yield {"type": "matches", "matches": [], "scan_phase": "fine"}
             yield {
                 "type": "done",
@@ -862,10 +856,6 @@ def iter_clip_event_search(
             fine_windows = fine_windows[:MAX_FINE_WINDOWS_CAP]
             meta.note_parts.append(f"精扫窗过多，已截断至 {MAX_FINE_WINDOWS_CAP} 窗")
         meta.fine_windows = len(fine_windows)
-        if len(coarse_hits) > len(coarse_windows) * COARSE_HIT_RATE_FALLBACK_RATIO:
-            meta.note_parts.append(
-                f"粗筛命中 {len(coarse_hits)}/{len(coarse_windows)} 窗，已按峰值缩小精扫范围"
-            )
         meta.note_parts.append(
             f"精扫仅热点区：{len(hotspots)} 段 → {len(fine_windows)} 窗"
         )

@@ -95,7 +95,7 @@ export function buildFindBlockMomentsProgressMessage(input: {
     progress.scanPhase === 'planner'
       ? '理解检索目标'
       : progress.scanPhase === 'coarse'
-        ? '粗筛（60s/窗）'
+        ? '宫格粗筛（100s/格）'
         : progress.scanPhase === 'fine'
           ? '精扫（16s/窗，仅热点区）'
           : '分析'
@@ -115,7 +115,7 @@ export function buildFindBlockMomentsProgressMessage(input: {
     if (progress.scanPhase === 'fine') {
       lines.push('  精扫：48 帧 + 音频 / 窗')
     } else if (progress.scanPhase === 'coarse') {
-      lines.push('  粗筛：6 帧 / 窗（无音频，并行）')
+      lines.push('  宫格：9 帧 / 格（稀疏评分，Top-20%）')
     }
   } else {
     lines.push(`正在检索「${title}」：「${searchCriteria}」…`)
@@ -246,7 +246,7 @@ export async function findBlockMoments(input: {
     searchStrategy,
     visualProfile,
   })
-  const coarseScoreThreshold = recallMode === 'high' ? 0.38 : 0.45
+  const coarseScoreThreshold = recallMode === 'high' ? 0.28 : 0.35
 
   let response: Awaited<ReturnType<typeof editorAgentApi.findBlockMoments>>
 
@@ -332,11 +332,7 @@ export async function findBlockMoments(input: {
           event.window_index ?? progressState.windowsProcessed + 1
         )
         progressState.totalWindows = event.total_windows ?? progressState.totalWindows
-        if (
-          scanPhase === 'coarse' &&
-          event.is_event &&
-          (event.score ?? 0) >= coarseScoreThreshold
-        ) {
+        if (scanPhase === 'coarse' && (event.score ?? 0) >= coarseScoreThreshold) {
           const hit: CoarseHitPayload = {
             start_sec: event.start_sec ?? 0,
             end_sec: event.end_sec ?? 0,
