@@ -487,11 +487,6 @@ class EditorAgentService:
             max_results,
             recall_mode=str(request.recall_mode or "balanced"),
             include_audio=True,
-            visual_profile=(
-                str(request.visual_profile).strip()
-                if request.visual_profile and request.visual_profile != "none"
-                else None
-            ),
         ):
             if event.get("type") == "done":
                 event["block_id"] = request.block_id

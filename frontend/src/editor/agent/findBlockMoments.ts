@@ -15,6 +15,7 @@ import { findBlockMomentsStream } from '../../services/findBlockMomentsStream'
 import { useAgentPanelStore } from '../../stores/useAgentPanelStore'
 import type { MatchedMoment } from '../../types/editorAgent'
 import type {
+  ClipSearchSpecPayload,
   FindBlockMomentsRequest,
   FindBlockMomentsStreamEvent,
 } from '../../types/editorAgent'
@@ -50,11 +51,12 @@ export function isVisualMomentSearch(input: {
 
 export interface FindBlockMomentsProgress {
   phase: 'started' | 'progress' | 'matches' | 'done'
-  scanPhase?: 'motion' | 'coarse' | 'fine'
+  scanPhase?: 'planner' | 'coarse' | 'fine'
   windowsProcessed: number
   totalWindows: number
   coarseWindows?: number
   fineWindows?: number
+  searchSpec?: ClipSearchSpecPayload
   matches: MatchedMoment[]
   latestClip?: {
     start_sec: number
@@ -75,13 +77,17 @@ export function buildFindBlockMomentsProgressMessage(input: {
   const lines: string[] = []
 
   const phaseLabel =
-    progress.scanPhase === 'motion'
-      ? '运动预筛'
+    progress.scanPhase === 'planner'
+      ? '理解检索目标'
       : progress.scanPhase === 'coarse'
         ? '粗扫（60s/窗）'
         : progress.scanPhase === 'fine'
           ? '精扫（16s/窗）'
           : '分析'
+
+  if (progress.searchSpec?.search_description) {
+    lines.push(`检索目标：${progress.searchSpec.search_description.slice(0, 140)}`)
+  }
 
   if (progress.totalWindows > 0) {
     lines.push(
@@ -240,7 +246,15 @@ export async function findBlockMoments(input: {
         | FindBlockMomentsProgress['scanPhase']
         | undefined
 
-      if (event.type === 'started') {
+      if (event.type === 'search_spec' || (event.type === 'started' && event.search_spec)) {
+        progressState.scanPhase = 'planner'
+        progressState.searchSpec = event.spec ?? event.search_spec
+        emitProgress()
+      } else if (event.type === 'progress' && event.scan_phase === 'planner') {
+        progressState.phase = 'progress'
+        progressState.scanPhase = 'planner'
+        emitProgress()
+      } else if (event.type === 'started') {
         progressState.phase = 'started'
         progressState.coarseWindows = (event as { coarse_windows?: number }).coarse_windows
         progressState.fineWindows = (event as { fine_windows?: number }).fine_windows

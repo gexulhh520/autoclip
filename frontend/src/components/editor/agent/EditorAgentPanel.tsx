@@ -616,8 +616,8 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
             )}
             {loading ? (
               <p className="editor-agent-panel__chat-status">
-                {chatTurns.some((turn) => turn.role === 'assistant' && /分析进行中/.test(turn.content))
-                  ? '滑窗分析中…'
+                {chatTurns.some((turn) => turn.role === 'assistant' && /理解检索目标|粗扫|精扫/.test(turn.content))
+                  ? '检索分析中…'
                   : '思考中…'}
               </p>
             ) : null}

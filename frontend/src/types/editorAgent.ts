@@ -212,14 +212,24 @@ export type FindBlockMomentsStreamEventType =
   | 'clip_score'
   | 'matches'
   | 'hotspots'
-  | 'motion_regions'
+  | 'search_spec'
   | 'done'
   | 'error'
 
+export interface ClipSearchSpecPayload {
+  user_query: string
+  target: string
+  search_description: string
+  positive_examples: string[]
+  negative_examples: string[]
+}
+
 export interface FindBlockMomentsStreamEvent {
   type: FindBlockMomentsStreamEventType
-  scan_phase?: 'motion' | 'coarse' | 'fine'
+  scan_phase?: 'planner' | 'coarse' | 'fine'
   engine?: string
+  spec?: ClipSearchSpecPayload
+  search_spec?: ClipSearchSpecPayload
   total_windows?: number
   window_index?: number
   windows_processed?: number

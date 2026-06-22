@@ -109,7 +109,7 @@ export function formatMomentSearchReply(result: FindBlockMomentsResult): string 
     if (/画面两阶段检索/.test(result.note)) {
       lines.push('')
       lines.push(
-        '⚠ 后端仍在使用旧版全片细扫，请重启后端（新流程 note 应含「Coarse-to-Fine」与 engine=clip_coarse_to_fine_v1）。'
+        '⚠ 后端仍在使用旧版引擎，请重启后端（新流程 note 应含「Planner+Coarse-to-Fine」与 engine=clip_planner_coarse_fine_v1）。'
       )
     }
   }

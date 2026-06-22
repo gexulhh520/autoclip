@@ -661,27 +661,27 @@ def search_block_moments_staged(
         project_dir = get_project_directory(project_id)
         from backend.services.clip_event_detector import search_clip_events
 
-        llm_criteria = normalize_visual_search_criteria(search_criteria)
         clip_matches, clip_meta = search_clip_events(
             llm_manager,
             project_dir,
             block,
-            llm_criteria,
+            search_criteria,
             timeline_start_sec,
             duration,
             max_results,
             recall_mode=recall_mode,
             include_audio=True,
-            visual_profile=visual_profile,
         )
         visual_frame_count = int(clip_meta.get("visual_frame_count") or 0)
         all_matches.extend(clip_matches)
+        spec = clip_meta.get("search_spec") or {}
+        spec_label = spec.get("search_description") or search_criteria
         note_parts.append(
-            "Coarse-to-Fine："
+            "Planner+Coarse-to-Fine："
             f"粗扫 {clip_meta.get('coarse_windows', 0)} 窗 / 精扫 {clip_meta.get('fine_windows', clip_meta.get('total_windows', 0))} 窗，"
             f"{visual_frame_count} 帧，"
-            f"engine={clip_meta.get('engine', 'clip_coarse_to_fine_v1')}，"
-            f"条件「{llm_criteria}」"
+            f"engine={clip_meta.get('engine', 'clip_planner_coarse_fine_v1')}，"
+            f"目标「{spec_label[:80]}」"
         )
     elif not segments and client_sample_times_sec:
         project_dir = get_project_directory(project_id)

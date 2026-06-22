@@ -1,34 +1,27 @@
-"""滑窗 + 多模态 clip 分类 + 时间合并：Coarse-to-Fine 按需分析。"""
+"""统一 Pipeline：LLM Planner → 粗扫 → 精扫 → 时间段合并。"""
 from __future__ import annotations
 
 import base64
 import json
 import logging
-import re
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Literal, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
+from backend.services.clip_search_planner import ClipSearchSpec, plan_clip_search
 from backend.services.editor_moment_search import (
     MatchedMoment,
     build_matched_moments_from_timeline_ranges,
     merge_matched_moments,
-    normalize_visual_search_criteria,
     timeline_sample_to_source_sec,
 )
-from backend.services.moment_signal_prefilter import (
-    detect_motion_regions,
-    resolve_block_trim_window,
-    resolve_block_video_path,
-    resolve_criteria_profile,
-)
+from backend.services.moment_signal_prefilter import resolve_block_video_path
 from backend.utils.ffmpeg_utils import get_ffmpeg_path
 
 logger = logging.getLogger(__name__)
 
-# --- 精扫（仅热点区）---
 FINE_WINDOW_SEC = 16.0
 FINE_STRIDE_SEC = 4.0
 FINE_STRIDE_HIGH_RECALL_SEC = 2.0
@@ -36,7 +29,6 @@ FINE_FPS = 3.0
 FINE_FRAMES = 48
 FINE_INCLUDE_AUDIO = True
 
-# --- 粗扫（全片或运动 ROI）---
 COARSE_WINDOW_SEC = 60.0
 COARSE_STRIDE_SEC = 30.0
 COARSE_STRIDE_HIGH_RECALL_SEC = 15.0
@@ -45,8 +37,6 @@ COARSE_THRESHOLD_BALANCED = 0.45
 COARSE_THRESHOLD_HIGH = 0.38
 HOTSPOT_PAD_SEC = 20.0
 HOTSPOT_MERGE_GAP_SEC = 30.0
-
-# 短视频直接精扫，不走粗扫
 SKIP_COARSE_DURATION_SEC = 180.0
 
 FRAME_MAX_WIDTH = 480
@@ -54,33 +44,22 @@ SCORE_THRESHOLD_BALANCED = 0.7
 SCORE_THRESHOLD_HIGH = 0.6
 MERGE_GAP_SEC = 8.0
 
-MOTION_CRITERIA = re.compile(
-    r"打斗|打架|格斗|搏击|交手|枪战|交火|射击|火力|追逐|追赶|飙车|动作场面|武打|搏斗|对打|械斗|拳脚"
-)
-EMOTION_CRITERIA = re.compile(r"哭|哭泣|流泪|悲伤|难过|伤感|落泪")
-PRODUCT_CRITERIA = re.compile(r"产品|展示|特写|开箱|商品|镜头|外观")
-SPEECH_CRITERIA = re.compile(r"讲解|演讲|口播|说话|介绍|授课|讲课|解说")
+COARSE_CLASSIFIER_SYSTEM = """You are a video segment scout. You receive sparse frames from ~1 minute of video plus a search_spec that defines the target event.
 
-COARSE_CLASSIFIER_SYSTEM = """You are a video segment scout. Scan this clip (~1 minute, sparse frames) for possible target events.
+Decide whether this minute might contain the target (be inclusive at coarse stage).
 
-Return JSON only (no markdown):
+Return JSON only:
 {
   "summary": "one sentence about what happens",
   "possible_match": true/false,
   "confidence": 0-1
 }
 
-Rules:
-- possible_match=true if the target event MIGHT occur here (be inclusive; false only when clearly unrelated)
-- confidence reflects how likely, not certainty"""
+Use search_description, positive_examples, negative_examples. possible_match=true when the target might occur; false only when clearly unrelated or matches negative_examples."""
 
-CLIP_CLASSIFIER_SYSTEM = """You are a video clip classifier.
+CLIP_CLASSIFIER_SYSTEM = """You are a video clip classifier. You receive sequential frames and optional audio plus search_spec defining the target event.
 
-Task: determine whether the clip contains the target event.
-You may receive sequential video frames and optional clip audio.
-
-Return JSON only (no markdown):
-
+Return JSON only:
 {
   "is_event": true/false,
   "score": 0-1,
@@ -88,22 +67,7 @@ Return JSON only (no markdown):
   "summary": "short description"
 }
 
-Rules:
-- score reflects how strongly the clip matches the target event
-- is_event=true only when clear visual or audio evidence exists
-- do not infer dialogue content without visible subtitles or audible speech matching the event
-- action events need visible motion/conflict/explosion/etc., not static similar scenes"""
-
-ScanStrategy = Literal["motion_first", "semantic_scan"]
-
-
-@dataclass
-class ClipScanPlan:
-    event_type: str
-    strategy: ScanStrategy
-    use_motion_prefilter: bool
-    coarse_enabled: bool
-    reason: str = ""
+Use search_description as the primary definition. positive_examples guide what counts; negative_examples must be rejected. Require clear visual or audible evidence; do not infer unstated dialogue."""
 
 
 @dataclass
@@ -117,64 +81,10 @@ class ClipScoreRecord:
 
 @dataclass
 class ClipEventSearchMeta:
-    engine: str = "clip_coarse_to_fine_v1"
-    total_windows: int = 0
-    windows_processed: int = 0
+    engine: str = "clip_planner_coarse_fine_v1"
     coarse_windows: int = 0
     fine_windows: int = 0
     note_parts: List[str] = field(default_factory=list)
-
-
-def resolve_scan_plan(
-    search_criteria: str,
-    *,
-    visual_profile: Optional[str] = None,
-    duration_sec: float = 0.0,
-) -> ClipScanPlan:
-    """根据用户意图选择扫描策略（轻量规则，后续可换 LLM Planner）。"""
-    text = (search_criteria or "").strip()
-    profile = (visual_profile or "").strip()
-    duration = max(0.0, float(duration_sec))
-
-    if profile in ("gunplay", "melee", "chase", "action") or MOTION_CRITERIA.search(text):
-        return ClipScanPlan(
-            event_type="fight" if "打斗" in text or profile == "melee" else "action",
-            strategy="motion_first",
-            use_motion_prefilter=True,
-            coarse_enabled=duration > SKIP_COARSE_DURATION_SEC,
-            reason="动作/打斗类：运动预筛 + 粗扫 + 热点精扫",
-        )
-    if EMOTION_CRITERIA.search(text):
-        return ClipScanPlan(
-            event_type="emotion",
-            strategy="semantic_scan",
-            use_motion_prefilter=False,
-            coarse_enabled=duration > SKIP_COARSE_DURATION_SEC,
-            reason="情绪类：语义粗扫 + 热点精扫",
-        )
-    if PRODUCT_CRITERIA.search(text):
-        return ClipScanPlan(
-            event_type="product",
-            strategy="semantic_scan",
-            use_motion_prefilter=False,
-            coarse_enabled=duration > SKIP_COARSE_DURATION_SEC,
-            reason="产品展示类：语义粗扫 + 热点精扫",
-        )
-    if SPEECH_CRITERIA.search(text):
-        return ClipScanPlan(
-            event_type="speech",
-            strategy="semantic_scan",
-            use_motion_prefilter=False,
-            coarse_enabled=duration > SKIP_COARSE_DURATION_SEC,
-            reason="讲解/口播类：语义粗扫 + 热点精扫",
-        )
-    return ClipScanPlan(
-        event_type="generic",
-        strategy="semantic_scan",
-        use_motion_prefilter=False,
-        coarse_enabled=duration > SKIP_COARSE_DURATION_SEC,
-        reason="通用画面事件：粗扫 + 热点精扫" if duration > SKIP_COARSE_DURATION_SEC else "短视频：直接精扫",
-    )
 
 
 def build_sliding_windows(
@@ -199,24 +109,6 @@ def build_sliding_windows(
     return windows
 
 
-def filter_windows_by_roi(
-    windows: List[Tuple[float, float]],
-    rois: List[Tuple[float, float]],
-    *,
-    min_overlap_sec: float = 3.0,
-) -> List[Tuple[float, float]]:
-    if not rois or not windows:
-        return windows
-    filtered: List[Tuple[float, float]] = []
-    for win_start, win_end in windows:
-        for roi_start, roi_end in rois:
-            overlap = min(win_end, roi_end) - max(win_start, roi_start)
-            if overlap >= min_overlap_sec:
-                filtered.append((win_start, win_end))
-                break
-    return filtered
-
-
 def coarse_hits_to_hotspots(
     records: List[ClipScoreRecord],
     timeline_start_sec: float,
@@ -226,7 +118,6 @@ def coarse_hits_to_hotspots(
     merge_gap_sec: float = HOTSPOT_MERGE_GAP_SEC,
     pad_sec: float = HOTSPOT_PAD_SEC,
 ) -> List[Tuple[float, float]]:
-    """粗扫命中 → 合并热点区（timeline 坐标）。"""
     positives = [
         row for row in records if row.is_event and float(row.score) >= score_threshold
     ]
@@ -247,14 +138,12 @@ def coarse_hits_to_hotspots(
             cur_end = row.end_sec
     merged.append((cur_start, cur_end))
 
-    tl_end = timeline_end_sec
-    tl_start = timeline_start_sec
     padded: List[Tuple[float, float]] = []
     for start, end in merged:
         padded.append(
             (
-                max(tl_start, start - pad_sec),
-                min(tl_end, end + pad_sec),
+                max(timeline_start_sec, start - pad_sec),
+                min(timeline_end_sec, end + pad_sec),
             )
         )
     return merge_roi_regions(padded, gap_sec=0.0)
@@ -290,7 +179,6 @@ def build_fine_windows_in_hotspots(
         windows.extend(
             build_sliding_windows(h_start, span, window_size=window_size, stride=stride)
         )
-    # 去重：按起点排序，合并高度重叠的窗
     if not windows:
         return []
     windows.sort(key=lambda item: item[0])
@@ -301,27 +189,6 @@ def build_fine_windows_in_hotspots(
             continue
         deduped.append((start, end))
     return deduped
-
-
-def resolve_motion_roi(
-    video_path: Path,
-    block: Dict[str, Any],
-    timeline_start_sec: float,
-    duration_sec: float,
-    *,
-    recall_mode: str,
-) -> List[Tuple[float, float]]:
-    trim_in, trim_out = resolve_block_trim_window(block)
-    trim_duration = max(0.1, min(trim_out - trim_in, duration_sec))
-    mode = "high" if recall_mode == "high" else "balanced"
-    regions = detect_motion_regions(
-        video_path,
-        trim_in,
-        trim_duration,
-        timeline_start_sec=timeline_start_sec,
-        recall_mode=mode,
-    )
-    return [(region.start_sec, region.end_sec) for region in regions]
 
 
 def merge_clip_scores(
@@ -497,7 +364,7 @@ def _extract_clip_audio_wav_b64(
 
 def _classify_clip_internal(
     llm_manager: Any,
-    search_criteria: str,
+    search_spec: ClipSearchSpec,
     frame_b64_list: List[str],
     *,
     system_prompt: str,
@@ -508,8 +375,7 @@ def _classify_clip_internal(
     meta = clip_meta or {}
     start_sec = float(meta.get("start_sec") or 0)
     end_sec = float(meta.get("end_sec") or start_sec)
-    criteria = (search_criteria or "").strip()
-    if not criteria or not frame_b64_list:
+    if not frame_b64_list:
         return ClipScoreRecord(start_sec, end_sec, 0.0, False, "")
 
     images: List[str] = []
@@ -518,7 +384,7 @@ def _classify_clip_internal(
     images.extend(frame_b64_list)
 
     user_payload = {
-        "target_event": criteria,
+        "search_spec": search_spec.classifier_payload(),
         "clip_start_sec": round(start_sec, 2),
         "clip_end_sec": round(end_sec, 2),
         "frame_count": len(frame_b64_list),
@@ -530,8 +396,8 @@ def _classify_clip_internal(
         {
             "role": "user",
             "content": (
-                f"Classify this clip.\n\n"
-                f"Meta JSON:\n{json.dumps(user_payload, ensure_ascii=False)}\n\n"
+                f"Does this clip contain the target event?\n\n"
+                f"Payload JSON:\n{json.dumps(user_payload, ensure_ascii=False)}\n\n"
                 f"Return JSON only."
             ),
             "images": images,
@@ -573,14 +439,14 @@ def _classify_clip_internal(
 
 def classify_clip_coarse(
     llm_manager: Any,
-    search_criteria: str,
+    search_spec: ClipSearchSpec,
     frame_b64_list: List[str],
     *,
     clip_meta: Optional[Dict[str, Any]] = None,
 ) -> ClipScoreRecord:
     return _classify_clip_internal(
         llm_manager,
-        search_criteria,
+        search_spec,
         frame_b64_list,
         system_prompt=COARSE_CLASSIFIER_SYSTEM,
         clip_meta=clip_meta,
@@ -590,7 +456,7 @@ def classify_clip_coarse(
 
 def classify_clip(
     llm_manager: Any,
-    search_criteria: str,
+    search_spec: ClipSearchSpec,
     frame_b64_list: List[str],
     *,
     audio_wav_b64: Optional[str] = None,
@@ -598,7 +464,7 @@ def classify_clip(
 ) -> ClipScoreRecord:
     return _classify_clip_internal(
         llm_manager,
-        search_criteria,
+        search_spec,
         frame_b64_list,
         system_prompt=CLIP_CLASSIFIER_SYSTEM,
         audio_wav_b64=audio_wav_b64,
@@ -642,10 +508,10 @@ def iter_clip_event_search(
     *,
     recall_mode: str = "balanced",
     include_audio: bool = True,
-    visual_profile: Optional[str] = None,
+    search_spec: Optional[ClipSearchSpec] = None,
 ) -> Iterator[Dict[str, Any]]:
-    """Coarse-to-Fine：运动预筛(可选) → 粗扫 → 热点精扫；渐进 NDJSON。"""
-    criteria = normalize_visual_search_criteria(search_criteria)
+    """Planner → 粗扫 → 精扫；渐进 NDJSON。"""
+    user_query = (search_criteria or "").strip()
     duration = max(0.1, float(duration_sec))
     timeline_end = timeline_start_sec + duration
     high_recall = str(recall_mode or "balanced") == "high"
@@ -653,12 +519,7 @@ def iter_clip_event_search(
     fine_threshold = SCORE_THRESHOLD_HIGH if high_recall else SCORE_THRESHOLD_BALANCED
     coarse_stride = COARSE_STRIDE_HIGH_RECALL_SEC if high_recall else COARSE_STRIDE_SEC
     coarse_threshold = COARSE_THRESHOLD_HIGH if high_recall else COARSE_THRESHOLD_BALANCED
-
-    plan = resolve_scan_plan(
-        search_criteria,
-        visual_profile=visual_profile or resolve_criteria_profile(search_criteria),
-        duration_sec=duration,
-    )
+    coarse_enabled = duration > SKIP_COARSE_DURATION_SEC
 
     video_path = resolve_block_video_path(project_dir, block)
     if video_path is None:
@@ -666,7 +527,7 @@ def iter_clip_event_search(
         yield {
             "type": "done",
             "block_id": str(block.get("id") or ""),
-            "search_criteria": search_criteria,
+            "search_criteria": user_query,
             "transcript_source": "none",
             "transcript_segment_count": 0,
             "visual_frame_count": 0,
@@ -675,56 +536,31 @@ def iter_clip_event_search(
         }
         return
 
+    yield {
+        "type": "progress",
+        "scan_phase": "planner",
+        "message": "理解检索目标…",
+    }
+
+    spec = search_spec or plan_clip_search(llm_manager, user_query)
+    yield {"type": "search_spec", "spec": spec.to_dict()}
+
     meta = ClipEventSearchMeta()
+    meta.note_parts.append(f"Planner：{spec.target} — {spec.display_label()}")
     total_frames = 0
     fine_records: List[ClipScoreRecord] = []
-    motion_rois: List[Tuple[float, float]] = []
-
-    # --- 运动预筛（打斗/动作）---
-    if plan.use_motion_prefilter:
-        yield {
-            "type": "progress",
-            "scan_phase": "motion",
-            "message": "运动检测预筛…",
-        }
-        motion_rois = resolve_motion_roi(
-            video_path,
-            block,
-            timeline_start_sec,
-            duration,
-            recall_mode=recall_mode,
-        )
-        yield {
-            "type": "motion_regions",
-            "region_count": len(motion_rois),
-            "regions": [
-                {"start_sec": round(s, 2), "end_sec": round(e, 2)}
-                for s, e in motion_rois[:32]
-            ],
-        }
-        meta.note_parts.append(f"运动预筛：{len(motion_rois)} 个 ROI")
-
-    # --- 规划精扫窗 ---
     fine_windows: List[Tuple[float, float]] = []
     coarse_windows: List[Tuple[float, float]] = []
     coarse_records: List[ClipScoreRecord] = []
 
-    if not plan.coarse_enabled:
+    if not coarse_enabled:
         fine_windows = build_sliding_windows(
             timeline_start_sec,
             duration,
             window_size=FINE_WINDOW_SEC,
             stride=fine_stride,
         )
-        if motion_rois:
-            filtered_fine = filter_windows_by_roi(fine_windows, motion_rois)
-            if filtered_fine:
-                fine_windows = filtered_fine
-            elif plan.use_motion_prefilter:
-                meta.note_parts.append("运动 ROI 无交集，精扫回退全片")
-        meta.note_parts.append(
-            f"短视频精扫：{len(fine_windows)} 窗 × {FINE_FRAMES} 帧"
-        )
+        meta.note_parts.append(f"短视频精扫：{len(fine_windows)} 窗")
     else:
         coarse_windows = build_sliding_windows(
             timeline_start_sec,
@@ -732,44 +568,27 @@ def iter_clip_event_search(
             window_size=COARSE_WINDOW_SEC,
             stride=coarse_stride,
         )
-        full_coarse_count = len(coarse_windows)
-        if motion_rois:
-            filtered_coarse = filter_windows_by_roi(coarse_windows, motion_rois)
-            if filtered_coarse:
-                coarse_windows = filtered_coarse
-            else:
-                meta.note_parts.append("运动 ROI 无交集，粗扫回退全片")
         meta.coarse_windows = len(coarse_windows)
         meta.note_parts.append(
-            f"粗扫 {len(coarse_windows)}/{full_coarse_count} 窗（60s/{coarse_stride}s×{COARSE_FRAMES}帧）"
+            f"粗扫 {len(coarse_windows)} 窗（60s/{coarse_stride}s×{COARSE_FRAMES}帧）"
         )
 
-    meta.fine_windows = len(fine_windows) if fine_windows else 0
-    total_work = (
-        len(fine_windows)
-        if fine_windows
-        else len(coarse_windows) + 1  # coarse + placeholder for fine estimate
-    )
+    meta.fine_windows = len(fine_windows)
+    total_work = len(fine_windows) if fine_windows else len(coarse_windows)
 
     yield {
         "type": "started",
         "engine": meta.engine,
-        "scan_plan": {
-            "event_type": plan.event_type,
-            "strategy": plan.strategy,
-            "use_motion_prefilter": plan.use_motion_prefilter,
-            "coarse_enabled": plan.coarse_enabled,
-            "reason": plan.reason,
-        },
+        "search_spec": spec.to_dict(),
+        "coarse_enabled": coarse_enabled,
         "total_windows": total_work,
         "coarse_windows": len(coarse_windows),
         "fine_windows": len(fine_windows),
         "score_threshold": fine_threshold,
-        "search_criteria": criteria,
+        "search_criteria": user_query,
     }
 
-    # --- 粗扫阶段 ---
-    if plan.coarse_enabled and coarse_windows:
+    if coarse_enabled and coarse_windows:
         coarse_fps = _coarse_fps_for_window(COARSE_WINDOW_SEC, COARSE_FRAMES)
         for index, (win_start, win_end) in enumerate(coarse_windows):
             clip_duration = max(0.1, win_end - win_start)
@@ -799,7 +618,7 @@ def iter_clip_event_search(
 
             record = classify_clip_coarse(
                 llm_manager,
-                criteria,
+                spec,
                 frames,
                 clip_meta={"start_sec": win_start, "end_sec": win_end},
             )
@@ -832,23 +651,19 @@ def iter_clip_event_search(
         }
 
         if not hotspots:
-            meta.note_parts.append("粗扫无热点，跳过精扫")
-            yield {
-                "type": "matches",
-                "matches": [],
-                "windows_processed": len(coarse_windows),
-                "total_windows": len(coarse_windows),
-            }
+            meta.note_parts.append("粗扫无热点")
+            yield {"type": "matches", "matches": [], "scan_phase": "fine"}
             yield {
                 "type": "done",
                 "block_id": str(block.get("id") or ""),
-                "search_criteria": search_criteria,
+                "search_criteria": user_query,
                 "transcript_source": "none",
                 "transcript_segment_count": 0,
                 "visual_frame_count": total_frames,
                 "matches": [],
                 "note": "；".join(meta.note_parts) + "；未找到符合检索条件的事件",
                 "engine": meta.engine,
+                "search_spec": spec.to_dict(),
             }
             return
 
@@ -858,20 +673,20 @@ def iter_clip_event_search(
             stride=fine_stride,
         )
         meta.fine_windows = len(fine_windows)
-        meta.note_parts.append(f"精扫热点：{len(hotspots)} 区 → {len(fine_windows)} 窗")
+        meta.note_parts.append(f"精扫：{len(hotspots)} 热点 → {len(fine_windows)} 窗")
 
-    # --- 精扫阶段 ---
     if not fine_windows:
         yield {
             "type": "done",
             "block_id": str(block.get("id") or ""),
-            "search_criteria": search_criteria,
+            "search_criteria": user_query,
             "transcript_source": "none",
             "transcript_segment_count": 0,
             "visual_frame_count": total_frames,
             "matches": [],
             "note": "；".join(meta.note_parts) + "；无可分析窗口",
             "engine": meta.engine,
+            "search_spec": spec.to_dict(),
         }
         return
 
@@ -919,7 +734,7 @@ def iter_clip_event_search(
 
         record = classify_clip(
             llm_manager,
-            criteria,
+            spec,
             frames,
             audio_wav_b64=audio_b64,
             clip_meta={"start_sec": win_start, "end_sec": win_end},
@@ -966,12 +781,12 @@ def iter_clip_event_search(
     if matches:
         note += "；matches 含 timeline/trim 时间，可 export_moment_clips_to_pool"
     else:
-        note += "；未找到符合检索条件的事件，可放宽描述或开启高召回"
+        note += "；未找到符合检索条件的事件"
 
     yield {
         "type": "done",
         "block_id": str(block.get("id") or ""),
-        "search_criteria": search_criteria,
+        "search_criteria": user_query,
         "transcript_source": "none",
         "transcript_segment_count": 0,
         "visual_frame_count": total_frames,
@@ -982,6 +797,7 @@ def iter_clip_event_search(
         "total_windows": len(fine_windows),
         "coarse_windows": meta.coarse_windows,
         "fine_windows": len(fine_windows),
+        "search_spec": spec.to_dict(),
     }
 
 
@@ -1011,7 +827,7 @@ def search_clip_events(
     *,
     recall_mode: str = "balanced",
     include_audio: bool = True,
-    visual_profile: Optional[str] = None,
+    search_spec: Optional[ClipSearchSpec] = None,
 ) -> Tuple[List[MatchedMoment], Dict[str, Any]]:
     final_matches: List[MatchedMoment] = []
     meta: Dict[str, Any] = {}
@@ -1025,7 +841,7 @@ def search_clip_events(
         max_results,
         recall_mode=recall_mode,
         include_audio=include_audio,
-        visual_profile=visual_profile,
+        search_spec=search_spec,
     ):
         if event.get("type") == "matches":
             raw = event.get("matches") or []
