@@ -672,14 +672,15 @@ def search_block_moments_staged(
             max_results,
             recall_mode=recall_mode,
             include_audio=True,
+            visual_profile=visual_profile,
         )
         visual_frame_count = int(clip_meta.get("visual_frame_count") or 0)
         all_matches.extend(clip_matches)
         note_parts.append(
-            "滑窗 clip 分类："
-            f"{clip_meta.get('windows_processed', 0)}/{clip_meta.get('total_windows', 0)} 窗，"
-            f"{visual_frame_count} 帧+音频，"
-            f"engine={clip_meta.get('engine', 'clip_sliding_v1')}，"
+            "Coarse-to-Fine："
+            f"粗扫 {clip_meta.get('coarse_windows', 0)} 窗 / 精扫 {clip_meta.get('fine_windows', clip_meta.get('total_windows', 0))} 窗，"
+            f"{visual_frame_count} 帧，"
+            f"engine={clip_meta.get('engine', 'clip_coarse_to_fine_v1')}，"
             f"条件「{llm_criteria}」"
         )
     elif not segments and client_sample_times_sec:

@@ -50,8 +50,11 @@ export function isVisualMomentSearch(input: {
 
 export interface FindBlockMomentsProgress {
   phase: 'started' | 'progress' | 'matches' | 'done'
+  scanPhase?: 'motion' | 'coarse' | 'fine'
   windowsProcessed: number
   totalWindows: number
+  coarseWindows?: number
+  fineWindows?: number
   matches: MatchedMoment[]
   latestClip?: {
     start_sec: number
@@ -71,10 +74,24 @@ export function buildFindBlockMomentsProgressMessage(input: {
   const title = blockTitle || '当前片段'
   const lines: string[] = []
 
+  const phaseLabel =
+    progress.scanPhase === 'motion'
+      ? '运动预筛'
+      : progress.scanPhase === 'coarse'
+        ? '粗扫（60s/窗）'
+        : progress.scanPhase === 'fine'
+          ? '精扫（16s/窗）'
+          : '分析'
+
   if (progress.totalWindows > 0) {
     lines.push(
-      `正在分析「${title}」：${progress.windowsProcessed}/${progress.totalWindows} 窗（48 帧 + 音频 / 窗）`
+      `正在${phaseLabel}「${title}」：${progress.windowsProcessed}/${progress.totalWindows} 窗`
     )
+    if (progress.scanPhase === 'fine') {
+      lines.push('  精扫：48 帧 + 音频 / 窗')
+    } else if (progress.scanPhase === 'coarse') {
+      lines.push('  粗扫：12 帧 / 窗（无音频）')
+    }
   } else {
     lines.push(`正在检索「${title}」：「${searchCriteria}」…`)
   }
@@ -219,18 +236,44 @@ export async function findBlockMoments(input: {
     }
 
     const handleEvent = (event: FindBlockMomentsStreamEvent) => {
+      const scanPhase = (event as { scan_phase?: string }).scan_phase as
+        | FindBlockMomentsProgress['scanPhase']
+        | undefined
+
       if (event.type === 'started') {
         progressState.phase = 'started'
-        progressState.totalWindows = event.total_windows ?? 0
+        progressState.coarseWindows = (event as { coarse_windows?: number }).coarse_windows
+        progressState.fineWindows = (event as { fine_windows?: number }).fine_windows
+        const coarseCount = progressState.coarseWindows ?? 0
+        const fineCount = progressState.fineWindows ?? 0
+        progressState.totalWindows = coarseCount > 0 ? coarseCount : fineCount || event.total_windows || 0
+        progressState.scanPhase = coarseCount > 0 ? 'coarse' : 'fine'
         emitProgress()
       } else if (event.type === 'progress') {
         progressState.phase = 'progress'
-        progressState.windowsProcessed = Math.max(
-          progressState.windowsProcessed,
-          (event.window_index ?? 1) - 1
-        )
+        progressState.scanPhase = scanPhase
+        if (scanPhase === 'coarse') {
+          progressState.windowsProcessed = Math.max(
+            progressState.windowsProcessed,
+            (event.window_index ?? 1) - 1
+          )
+          progressState.totalWindows = event.total_windows ?? progressState.totalWindows
+        } else if (scanPhase === 'fine') {
+          progressState.windowsProcessed = Math.max(
+            progressState.windowsProcessed,
+            (event.window_index ?? 1) - 1
+          )
+          progressState.totalWindows = event.total_windows ?? progressState.totalWindows
+        } else if (scanPhase === 'motion') {
+          // motion 阶段仅更新 scanPhase
+        }
+        emitProgress()
+      } else if (event.type === 'hotspots') {
+        progressState.scanPhase = 'fine'
+        progressState.windowsProcessed = 0
         emitProgress()
       } else if (event.type === 'clip_score') {
+        progressState.scanPhase = scanPhase ?? progressState.scanPhase
         progressState.windowsProcessed = Math.max(
           progressState.windowsProcessed,
           event.window_index ?? progressState.windowsProcessed + 1
@@ -246,6 +289,7 @@ export async function findBlockMoments(input: {
         emitProgress()
       } else if (event.type === 'matches') {
         progressState.phase = 'matches'
+        progressState.scanPhase = scanPhase ?? 'fine'
         progressState.matches = event.matches ?? []
         progressState.windowsProcessed = event.windows_processed ?? progressState.windowsProcessed
         progressState.totalWindows = event.total_windows ?? progressState.totalWindows

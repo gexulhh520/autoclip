@@ -211,11 +211,14 @@ export type FindBlockMomentsStreamEventType =
   | 'progress'
   | 'clip_score'
   | 'matches'
+  | 'hotspots'
+  | 'motion_regions'
   | 'done'
   | 'error'
 
 export interface FindBlockMomentsStreamEvent {
   type: FindBlockMomentsStreamEventType
+  scan_phase?: 'motion' | 'coarse' | 'fine'
   engine?: string
   total_windows?: number
   window_index?: number
