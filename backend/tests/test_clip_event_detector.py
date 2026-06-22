@@ -8,10 +8,20 @@ from backend.services.clip_event_detector import (
 
 
 def test_build_sliding_windows_60s_coarse():
-    windows = build_sliding_windows(0.0, 3600.0, window_size=60.0, stride=30.0)
-    assert 110 <= len(windows) <= 125
+    windows = build_sliding_windows(0.0, 3600.0, window_size=60.0, stride=45.0)
+    assert 75 <= len(windows) <= 85
     assert windows[0] == (0.0, 60.0)
-    assert windows[1] == (30.0, 90.0)
+    assert windows[1] == (45.0, 105.0)
+
+
+def test_filter_windows_within_hotspots():
+    from backend.services.clip_event_detector import filter_windows_within_hotspots
+
+    hotspots = [(100.0, 160.0)]
+    windows = [(90.0, 106.0), (200.0, 216.0), (120.0, 136.0)]
+    filtered = filter_windows_within_hotspots(windows, hotspots)
+    assert (120.0, 136.0) in filtered
+    assert (200.0, 216.0) not in filtered
 
 
 def test_build_sliding_windows_fine_60s():

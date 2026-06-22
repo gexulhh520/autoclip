@@ -16,8 +16,10 @@ import { useAgentPanelStore } from '../../stores/useAgentPanelStore'
 import type { MatchedMoment } from '../../types/editorAgent'
 import type {
   ClipSearchSpecPayload,
+  CoarseHitPayload,
   FindBlockMomentsRequest,
   FindBlockMomentsStreamEvent,
+  TimelineRegionPayload,
 } from '../../types/editorAgent'
 import type { EditSession } from '../../types/editSession'
 
@@ -56,7 +58,11 @@ export interface FindBlockMomentsProgress {
   totalWindows: number
   coarseWindows?: number
   fineWindows?: number
+  coarseSkipped?: boolean
   searchSpec?: ClipSearchSpecPayload
+  coarseHits: CoarseHitPayload[]
+  hotspotRegions: TimelineRegionPayload[]
+  fineScanRegions: TimelineRegionPayload[]
   matches: MatchedMoment[]
   latestClip?: {
     start_sec: number
@@ -64,6 +70,34 @@ export interface FindBlockMomentsProgress {
     score: number
     is_event: boolean
     summary?: string
+  }
+}
+
+function formatRegion(start: number, end: number): string {
+  return `${start.toFixed(1)}–${end.toFixed(1)}s`
+}
+
+function appendCoarseHitsSection(lines: string[], hits: CoarseHitPayload[]): void {
+  if (hits.length === 0) return
+  lines.push('')
+  lines.push(`粗筛命中 ${hits.length} 窗：`)
+  for (const hit of hits.slice(0, 12)) {
+    const score = Math.round(hit.score * 100)
+    lines.push(
+      `- ${formatRegion(hit.start_sec, hit.end_sec)}（${score}%）${hit.summary ? ` ${hit.summary.slice(0, 60)}` : ''}`
+    )
+  }
+  if (hits.length > 12) {
+    lines.push(`  …另有 ${hits.length - 12} 窗`)
+  }
+}
+
+function appendHotspotSection(lines: string[], regions: TimelineRegionPayload[]): void {
+  if (regions.length === 0) return
+  lines.push('')
+  lines.push(`精扫范围（粗筛热点 ${regions.length} 段）：`)
+  for (const region of regions.slice(0, 8)) {
+    lines.push(`- ${formatRegion(region.start_sec, region.end_sec)}`)
   }
 }
 
@@ -80,13 +114,17 @@ export function buildFindBlockMomentsProgressMessage(input: {
     progress.scanPhase === 'planner'
       ? '理解检索目标'
       : progress.scanPhase === 'coarse'
-        ? '粗扫（60s/窗）'
+        ? '粗筛（60s/窗）'
         : progress.scanPhase === 'fine'
-          ? '精扫（16s/窗）'
+          ? '精扫（16s/窗，仅热点区）'
           : '分析'
 
   if (progress.searchSpec?.search_description) {
     lines.push(`检索目标：${progress.searchSpec.search_description.slice(0, 140)}`)
+  }
+
+  if (progress.coarseSkipped) {
+    lines.push('片段较短，跳过粗筛，全片精扫')
   }
 
   if (progress.totalWindows > 0) {
@@ -96,32 +134,40 @@ export function buildFindBlockMomentsProgressMessage(input: {
     if (progress.scanPhase === 'fine') {
       lines.push('  精扫：48 帧 + 音频 / 窗')
     } else if (progress.scanPhase === 'coarse') {
-      lines.push('  粗扫：12 帧 / 窗（无音频）')
+      lines.push('  粗筛：6 帧 / 窗（无音频，并行）')
     }
   } else {
     lines.push(`正在检索「${title}」：「${searchCriteria}」…`)
   }
 
-  if (progress.latestClip && progress.latestClip.is_event) {
+  if (progress.latestClip && progress.latestClip.is_event && progress.scanPhase === 'coarse') {
     lines.push(
-      `  最新命中窗 ${progress.latestClip.start_sec.toFixed(1)}–${progress.latestClip.end_sec.toFixed(1)}s（${Math.round(progress.latestClip.score * 100)}%）${progress.latestClip.summary ? `：${progress.latestClip.summary.slice(0, 80)}` : ''}`
+      `  最新粗筛窗 ${formatRegion(progress.latestClip.start_sec, progress.latestClip.end_sec)}（${Math.round(progress.latestClip.score * 100)}%）${progress.latestClip.summary ? `：${progress.latestClip.summary.slice(0, 60)}` : ''}`
     )
+  }
+
+  appendCoarseHitsSection(lines, progress.coarseHits)
+  appendHotspotSection(lines, progress.hotspotRegions)
+
+  if (progress.scanPhase === 'fine' && progress.fineScanRegions.length > 0) {
+    lines.push(`  将精扫 ${progress.fineScanRegions.length} 个 16s 窗（均在热点内）`)
   }
 
   if (progress.matches.length > 0) {
     lines.push('')
-    lines.push(`已合并 ${progress.matches.length} 段：`)
+    lines.push(`最终合并 ${progress.matches.length} 段：`)
     for (const match of progress.matches) {
       const score = Math.round(match.match_score * 100)
       const preview = match.text_preview || match.match_reason
-      lines.push(
-        `- ${match.timeline_start_sec.toFixed(1)}–${match.timeline_end_sec.toFixed(1)}s（${score}%）`
-      )
+      lines.push(`- ${formatRegion(match.timeline_start_sec, match.timeline_end_sec)}（${score}%）`)
       if (preview) lines.push(`  ${preview.slice(0, 120)}`)
     }
-  } else if (progress.phase !== 'done') {
+  } else if (progress.phase !== 'done' && progress.scanPhase === 'fine') {
     lines.push('')
-    lines.push('暂未发现符合阈值的事件…')
+    lines.push('精扫进行中，暂未合并出最终片段…')
+  } else if (progress.phase !== 'done' && progress.coarseHits.length === 0 && progress.scanPhase === 'coarse') {
+    lines.push('')
+    lines.push('粗筛进行中，暂无命中窗…')
   }
 
   if (progress.phase !== 'done') {
@@ -227,6 +273,9 @@ export async function findBlockMoments(input: {
       phase: 'started',
       windowsProcessed: 0,
       totalWindows: 0,
+      coarseHits: [],
+      hotspotRegions: [],
+      fineScanRegions: [],
       matches: [],
     }
 
@@ -237,14 +286,18 @@ export async function findBlockMoments(input: {
           searchCriteria,
           progress: progressState,
         }),
-        { ...progressState, matches: [...progressState.matches] }
+        {
+          ...progressState,
+          matches: [...progressState.matches],
+          coarseHits: [...progressState.coarseHits],
+          hotspotRegions: [...progressState.hotspotRegions],
+          fineScanRegions: [...progressState.fineScanRegions],
+        }
       )
     }
 
     const handleEvent = (event: FindBlockMomentsStreamEvent) => {
-      const scanPhase = (event as { scan_phase?: string }).scan_phase as
-        | FindBlockMomentsProgress['scanPhase']
-        | undefined
+      const scanPhase = event.scan_phase
 
       if (event.type === 'search_spec' || (event.type === 'started' && event.search_spec)) {
         progressState.scanPhase = 'planner'
@@ -256,35 +309,39 @@ export async function findBlockMoments(input: {
         emitProgress()
       } else if (event.type === 'started') {
         progressState.phase = 'started'
-        progressState.coarseWindows = (event as { coarse_windows?: number }).coarse_windows
-        progressState.fineWindows = (event as { fine_windows?: number }).fine_windows
-        const coarseCount = progressState.coarseWindows ?? 0
-        const fineCount = progressState.fineWindows ?? 0
+        progressState.coarseWindows = event.coarse_windows
+        progressState.coarseSkipped = Boolean(event.coarse_skipped)
+        const coarseCount = event.coarse_windows ?? 0
+        const fineCount = event.fine_window_count ?? 0
         progressState.totalWindows = coarseCount > 0 ? coarseCount : fineCount || event.total_windows || 0
         progressState.scanPhase = coarseCount > 0 ? 'coarse' : 'fine'
         emitProgress()
       } else if (event.type === 'progress') {
         progressState.phase = 'progress'
         progressState.scanPhase = scanPhase
-        if (scanPhase === 'coarse') {
+        if (scanPhase === 'coarse' || scanPhase === 'fine') {
           progressState.windowsProcessed = Math.max(
             progressState.windowsProcessed,
             (event.window_index ?? 1) - 1
           )
           progressState.totalWindows = event.total_windows ?? progressState.totalWindows
-        } else if (scanPhase === 'fine') {
-          progressState.windowsProcessed = Math.max(
-            progressState.windowsProcessed,
-            (event.window_index ?? 1) - 1
-          )
-          progressState.totalWindows = event.total_windows ?? progressState.totalWindows
-        } else if (scanPhase === 'motion') {
-          // motion 阶段仅更新 scanPhase
         }
         emitProgress()
-      } else if (event.type === 'hotspots') {
+      } else if (event.type === 'coarse_complete') {
+        progressState.coarseHits = event.hits ?? []
+        progressState.hotspotRegions = event.hotspots ?? []
+        progressState.scanPhase = 'coarse'
+        progressState.windowsProcessed = event.total_windows ?? progressState.windowsProcessed
+        emitProgress()
+      } else if (event.type === 'fine_phase_started') {
         progressState.scanPhase = 'fine'
+        progressState.hotspotRegions = event.hotspots ?? progressState.hotspotRegions
+        progressState.fineScanRegions = event.fine_windows ?? []
         progressState.windowsProcessed = 0
+        progressState.totalWindows = event.total_windows ?? progressState.fineScanRegions.length
+        emitProgress()
+      } else if (event.type === 'hotspots') {
+        progressState.hotspotRegions = event.regions ?? progressState.hotspotRegions
         emitProgress()
       } else if (event.type === 'clip_score') {
         progressState.scanPhase = scanPhase ?? progressState.scanPhase
@@ -293,6 +350,25 @@ export async function findBlockMoments(input: {
           event.window_index ?? progressState.windowsProcessed + 1
         )
         progressState.totalWindows = event.total_windows ?? progressState.totalWindows
+        if (scanPhase === 'coarse' && event.is_event) {
+          const hit: CoarseHitPayload = {
+            start_sec: event.start_sec ?? 0,
+            end_sec: event.end_sec ?? 0,
+            score: event.score ?? 0,
+            is_event: true,
+            summary: event.summary,
+          }
+          const exists = progressState.coarseHits.some(
+            (item) =>
+              Math.abs(item.start_sec - hit.start_sec) < 0.5 &&
+              Math.abs(item.end_sec - hit.end_sec) < 0.5
+          )
+          if (!exists) {
+            progressState.coarseHits = [...progressState.coarseHits, hit].sort(
+              (a, b) => a.start_sec - b.start_sec
+            )
+          }
+        }
         progressState.latestClip = {
           start_sec: event.start_sec ?? 0,
           end_sec: event.end_sec ?? 0,

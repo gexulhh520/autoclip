@@ -213,8 +213,23 @@ export type FindBlockMomentsStreamEventType =
   | 'matches'
   | 'hotspots'
   | 'search_spec'
+  | 'coarse_complete'
+  | 'fine_phase_started'
   | 'done'
   | 'error'
+
+export interface CoarseHitPayload {
+  start_sec: number
+  end_sec: number
+  score: number
+  is_event: boolean
+  summary?: string
+}
+
+export interface TimelineRegionPayload {
+  start_sec: number
+  end_sec: number
+}
 
 export interface ClipSearchSpecPayload {
   user_query: string
@@ -247,6 +262,16 @@ export interface FindBlockMomentsStreamEvent {
   transcript_segment_count?: number
   visual_frame_count?: number
   note?: string
+  coarse_skipped?: boolean
+  coarse_windows?: number
+  fine_window_count?: number
+  coarse_hits?: CoarseHitPayload[]
+  hotspots?: TimelineRegionPayload[]
+  regions?: TimelineRegionPayload[]
+  fine_windows?: TimelineRegionPayload[]
+  hit_count?: number
+  coarse_hit_count?: number
+  all_scored?: CoarseHitPayload[]
 }
 
 export interface ExportMomentClipsRequest {

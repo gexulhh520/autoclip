@@ -6,6 +6,7 @@ import json
 import logging
 import subprocess
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple
@@ -30,12 +31,14 @@ FINE_FRAMES = 48
 FINE_INCLUDE_AUDIO = True
 
 COARSE_WINDOW_SEC = 60.0
-COARSE_STRIDE_SEC = 30.0
-COARSE_STRIDE_HIGH_RECALL_SEC = 15.0
-COARSE_FRAMES = 12
+COARSE_STRIDE_SEC = 45.0
+COARSE_STRIDE_HIGH_RECALL_SEC = 30.0
+COARSE_FRAMES = 6
+COARSE_FRAME_MAX_WIDTH = 360
+COARSE_PARALLEL_WORKERS = 2
 COARSE_THRESHOLD_BALANCED = 0.45
 COARSE_THRESHOLD_HIGH = 0.38
-HOTSPOT_PAD_SEC = 20.0
+HOTSPOT_PAD_SEC = 15.0
 HOTSPOT_MERGE_GAP_SEC = 30.0
 SKIP_COARSE_DURATION_SEC = 180.0
 
@@ -190,7 +193,74 @@ def build_fine_windows_in_hotspots(
         if abs(start - prev_start) < 0.5 and abs(end - prev_end) < 0.5:
             continue
         deduped.append((start, end))
-    return deduped
+    return filter_windows_within_hotspots(deduped, hotspots)
+
+
+def filter_windows_within_hotspots(
+    windows: List[Tuple[float, float]],
+    hotspots: List[Tuple[float, float]],
+    *,
+    min_overlap_sec: float = 4.0,
+) -> List[Tuple[float, float]]:
+    """确保精扫窗与粗筛热点有足够重叠，避免看起来像在扫全片。"""
+    if not hotspots or not windows:
+        return windows
+    filtered: List[Tuple[float, float]] = []
+    for win_start, win_end in windows:
+        for hs, he in hotspots:
+            overlap = min(win_end, he) - max(win_start, hs)
+            if overlap >= min_overlap_sec:
+                filtered.append((win_start, win_end))
+                break
+    return filtered
+
+
+def score_record_to_dict(record: ClipScoreRecord) -> Dict[str, Any]:
+    return {
+        "start_sec": round(record.start_sec, 2),
+        "end_sec": round(record.end_sec, 2),
+        "score": round(record.score, 3),
+        "is_event": record.is_event,
+        "summary": record.summary,
+    }
+
+
+def region_to_dict(start: float, end: float) -> Dict[str, float]:
+    return {"start_sec": round(start, 2), "end_sec": round(end, 2)}
+
+
+def _run_coarse_window(
+    llm_manager: Any,
+    video_path: Path,
+    block: Dict[str, Any],
+    spec: ClipSearchSpec,
+    *,
+    timeline_start_sec: float,
+    duration: float,
+    win_start: float,
+    win_end: float,
+    coarse_fps: float,
+) -> ClipScoreRecord:
+    clip_duration = max(0.1, win_end - win_start)
+    source_start = timeline_sample_to_source_sec(
+        block, timeline_start_sec, duration, win_start
+    )
+    frames = _extract_clip_frames(
+        video_path,
+        source_start,
+        clip_duration,
+        fps=coarse_fps,
+        max_frames=COARSE_FRAMES,
+        max_width=COARSE_FRAME_MAX_WIDTH,
+    )
+    if not frames:
+        return ClipScoreRecord(win_start, win_end, 0.0, False, "")
+    return classify_clip_coarse(
+        llm_manager,
+        spec,
+        frames,
+        clip_meta={"start_sec": win_start, "end_sec": win_end},
+    )
 
 
 def merge_clip_scores(
@@ -409,9 +479,9 @@ def _classify_clip_internal(
         response = llm_manager.chat_completion(
             messages,
             think=False,
-            num_predict=384 if coarse else 512,
-            num_ctx=32768 if coarse else 65536,
-            timeout=180 if coarse else 300,
+            num_predict=256 if coarse else 512,
+            num_ctx=16384 if coarse else 65536,
+            timeout=120 if coarse else 300,
             temperature=0.15,
         )
         parsed = llm_manager.parse_json_response(response.content or "")
@@ -572,7 +642,7 @@ def iter_clip_event_search(
         )
         meta.coarse_windows = len(coarse_windows)
         meta.note_parts.append(
-            f"粗扫 {len(coarse_windows)} 窗（60s/{coarse_stride}s×{COARSE_FRAMES}帧）"
+            f"粗扫 {len(coarse_windows)} 窗（60s/{coarse_stride}s×{COARSE_FRAMES}帧，并行×{COARSE_PARALLEL_WORKERS}）"
         )
 
     meta.fine_windows = len(fine_windows)
@@ -583,73 +653,83 @@ def iter_clip_event_search(
         "engine": meta.engine,
         "search_spec": spec.to_dict(),
         "coarse_enabled": coarse_enabled,
+        "coarse_skipped": not coarse_enabled,
         "total_windows": total_work,
         "coarse_windows": len(coarse_windows),
-        "fine_windows": len(fine_windows),
+        "fine_window_count": len(fine_windows),
         "score_threshold": fine_threshold,
         "search_criteria": user_query,
     }
 
     if coarse_enabled and coarse_windows:
         coarse_fps = _coarse_fps_for_window(COARSE_WINDOW_SEC, COARSE_FRAMES)
-        for index, (win_start, win_end) in enumerate(coarse_windows):
-            clip_duration = max(0.1, win_end - win_start)
-            source_start = timeline_sample_to_source_sec(
-                block, timeline_start_sec, duration, win_start
-            )
+        workers = min(COARSE_PARALLEL_WORKERS, len(coarse_windows))
 
-            yield {
-                "type": "progress",
-                "scan_phase": "coarse",
-                "window_index": index + 1,
-                "total_windows": len(coarse_windows),
-                "start_sec": round(win_start, 2),
-                "end_sec": round(win_end, 2),
-            }
-
-            frames = _extract_clip_frames(
-                video_path,
-                source_start,
-                clip_duration,
-                fps=coarse_fps,
-                max_frames=COARSE_FRAMES,
-            )
-            total_frames += len(frames)
-            if not frames:
-                continue
-
-            record = classify_clip_coarse(
+        def run_indexed(index: int, win_start: float, win_end: float) -> Tuple[int, ClipScoreRecord]:
+            record = _run_coarse_window(
                 llm_manager,
+                video_path,
+                block,
                 spec,
-                frames,
-                clip_meta={"start_sec": win_start, "end_sec": win_end},
+                timeline_start_sec=timeline_start_sec,
+                duration=duration,
+                win_start=win_start,
+                win_end=win_end,
+                coarse_fps=coarse_fps,
             )
-            coarse_records.append(record)
+            return index, record
 
-            yield {
-                "type": "clip_score",
-                "scan_phase": "coarse",
-                "window_index": index + 1,
-                "total_windows": len(coarse_windows),
-                "start_sec": round(record.start_sec, 2),
-                "end_sec": round(record.end_sec, 2),
-                "score": round(record.score, 3),
-                "is_event": record.is_event,
-                "summary": record.summary,
+        indexed_windows = list(enumerate(coarse_windows))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(run_indexed, index, ws, we): index
+                for index, (ws, we) in indexed_windows
             }
+            results: List[Optional[ClipScoreRecord]] = [None] * len(coarse_windows)
+            completed = 0
+            for future in as_completed(futures):
+                index, record = future.result()
+                results[index] = record
+                completed += 1
+                total_frames += COARSE_FRAMES
 
+                yield {
+                    "type": "progress",
+                    "scan_phase": "coarse",
+                    "window_index": completed,
+                    "total_windows": len(coarse_windows),
+                    "start_sec": round(record.start_sec, 2),
+                    "end_sec": round(record.end_sec, 2),
+                }
+                yield {
+                    "type": "clip_score",
+                    "scan_phase": "coarse",
+                    "window_index": completed,
+                    "total_windows": len(coarse_windows),
+                    **score_record_to_dict(record),
+                }
+
+        coarse_records = [record for record in results if record is not None]
+
+        coarse_hits = [
+            record
+            for record in coarse_records
+            if record.is_event and float(record.score) >= coarse_threshold
+        ]
         hotspots = coarse_hits_to_hotspots(
             coarse_records,
             timeline_start_sec,
             timeline_end,
             score_threshold=coarse_threshold,
         )
+
         yield {
-            "type": "hotspots",
-            "count": len(hotspots),
-            "regions": [
-                {"start_sec": round(s, 2), "end_sec": round(e, 2)} for s, e in hotspots
-            ],
+            "type": "coarse_complete",
+            "total_windows": len(coarse_windows),
+            "hits": [score_record_to_dict(r) for r in coarse_hits],
+            "all_scored": [score_record_to_dict(r) for r in coarse_records],
+            "hotspots": [region_to_dict(s, e) for s, e in hotspots],
+            "hit_count": len(coarse_hits),
         }
 
         if not hotspots:
@@ -666,6 +746,8 @@ def iter_clip_event_search(
                 "note": "；".join(meta.note_parts) + "；未找到符合检索条件的事件",
                 "engine": meta.engine,
                 "search_spec": spec.to_dict(),
+                "coarse_hits": [],
+                "hotspots": [],
             }
             return
 
@@ -675,7 +757,17 @@ def iter_clip_event_search(
             stride=fine_stride,
         )
         meta.fine_windows = len(fine_windows)
-        meta.note_parts.append(f"精扫：{len(hotspots)} 热点 → {len(fine_windows)} 窗")
+        meta.note_parts.append(
+            f"精扫仅热点区：{len(hotspots)} 段 → {len(fine_windows)} 窗"
+        )
+
+        yield {
+            "type": "fine_phase_started",
+            "hotspots": [region_to_dict(s, e) for s, e in hotspots],
+            "fine_windows": [region_to_dict(s, e) for s, e in fine_windows],
+            "total_windows": len(fine_windows),
+            "coarse_hit_count": len(coarse_hits),
+        }
 
     if not fine_windows:
         yield {
