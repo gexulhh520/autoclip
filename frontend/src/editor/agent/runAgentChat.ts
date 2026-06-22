@@ -24,6 +24,7 @@ import type {
   AgentChatMessage,
   AgentDebugTrace,
   AgentRoundTrace,
+  AgentStreamingUpdate,
   AgentTaskContext,
   AgentTaskPlan,
   AgentToolCall,
@@ -68,7 +69,7 @@ export interface RunAgentChatInput {
   imageDataUrl?: string | null
   layoutReference?: LayoutAnalysis | null
   /** 检索/分析类 fast path 渐进更新助手气泡 */
-  onStreamingUpdate?: (content: string) => void
+  onStreamingUpdate?: (update: AgentStreamingUpdate) => void
 }
 
 export interface ContinueAgentChatAfterApplyInput {

@@ -19,9 +19,12 @@ import type {
   CoarseHitPayload,
   FindBlockMomentsRequest,
   FindBlockMomentsStreamEvent,
+  FindBlockMomentsProgress,
   TimelineRegionPayload,
 } from '../../types/editorAgent'
 import type { EditSession } from '../../types/editSession'
+
+export type { FindBlockMomentsProgress } from '../../types/editorAgent'
 
 export interface FindBlockMomentsResult {
   block_id: string
@@ -49,28 +52,6 @@ export function isVisualMomentSearch(input: {
   if (input.searchStrategy === 'text_primary') return false
   if (input.visualProfile && input.visualProfile !== 'none') return true
   return VISUAL_SEARCH_PATTERN.test(input.searchCriteria)
-}
-
-export interface FindBlockMomentsProgress {
-  phase: 'started' | 'progress' | 'matches' | 'done'
-  scanPhase?: 'planner' | 'coarse' | 'fine'
-  windowsProcessed: number
-  totalWindows: number
-  coarseWindows?: number
-  fineWindows?: number
-  coarseSkipped?: boolean
-  searchSpec?: ClipSearchSpecPayload
-  coarseHits: CoarseHitPayload[]
-  hotspotRegions: TimelineRegionPayload[]
-  fineScanRegions: TimelineRegionPayload[]
-  matches: MatchedMoment[]
-  latestClip?: {
-    start_sec: number
-    end_sec: number
-    score: number
-    is_event: boolean
-    summary?: string
-  }
 }
 
 function formatRegion(start: number, end: number): string {

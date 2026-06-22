@@ -239,6 +239,33 @@ export interface ClipSearchSpecPayload {
   negative_examples: string[]
 }
 
+export interface FindBlockMomentsProgress {
+  phase: 'started' | 'progress' | 'matches' | 'done'
+  scanPhase?: 'planner' | 'coarse' | 'fine'
+  windowsProcessed: number
+  totalWindows: number
+  coarseWindows?: number
+  fineWindows?: number
+  coarseSkipped?: boolean
+  searchSpec?: ClipSearchSpecPayload
+  coarseHits: CoarseHitPayload[]
+  hotspotRegions: TimelineRegionPayload[]
+  fineScanRegions: TimelineRegionPayload[]
+  matches: MatchedMoment[]
+  latestClip?: {
+    start_sec: number
+    end_sec: number
+    score: number
+    is_event: boolean
+    summary?: string
+  }
+}
+
+export interface AgentStreamingUpdate {
+  content: string
+  searchProgress?: FindBlockMomentsProgress
+}
+
 export interface FindBlockMomentsStreamEvent {
   type: FindBlockMomentsStreamEventType
   scan_phase?: 'planner' | 'coarse' | 'fine'
@@ -307,6 +334,8 @@ export interface AgentChatTurn {
   role: 'user' | 'assistant'
   content: string
   imagePreview?: string
+  /** 检索流式进度（不写入 localStorage） */
+  searchProgress?: FindBlockMomentsProgress
 }
 
 export const agentChatStorageKey = (sessionId: string) => `autoclip:agent-chat:${sessionId}`

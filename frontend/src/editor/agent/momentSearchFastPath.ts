@@ -6,7 +6,7 @@ import {
   applyMomentExtractToTimeline,
   formatMomentExportChoiceHint,
 } from './applyMomentExport'
-import type { AgentChatMessage } from '../../types/editorAgent'
+import type { AgentChatMessage, AgentStreamingUpdate } from '../../types/editorAgent'
 import { useAgentPanelStore } from '../../stores/useAgentPanelStore'
 import type { useEditSessionStore } from '../../stores/useEditSessionStore'
 
@@ -195,7 +195,7 @@ export async function tryMomentSearchAndExportFastPath(input: {
   userMessage: string
   executionLedger?: string[]
   getStore: GetEditStore
-  onStreamingUpdate?: (content: string) => void
+  onStreamingUpdate?: (update: AgentStreamingUpdate) => void
 }): Promise<MomentSearchFastPathResult | null> {
   if (!hasMomentSearchAndExportIntent(input.userMessage)) return null
 
@@ -214,7 +214,8 @@ export async function tryMomentSearchAndExportFastPath(input: {
     args: { search_criteria: searchCriteria },
     selectedBlockId: store.selectedBlockId,
     onProgress: input.onStreamingUpdate
-      ? (message) => input.onStreamingUpdate!(message)
+      ? (message, progress) =>
+          input.onStreamingUpdate!({ content: message, searchProgress: progress })
       : undefined,
   })
   cacheMomentSearch(input.sessionId, data)
@@ -295,7 +296,7 @@ export async function tryMomentSearchFastPath(input: {
   userMessage: string
   executionLedger?: string[]
   getStore: GetEditStore
-  onStreamingUpdate?: (content: string) => void
+  onStreamingUpdate?: (update: AgentStreamingUpdate) => void
 }): Promise<MomentSearchFastPathResult | null> {
   if (!isMomentSearchRequest(input.userMessage)) return null
 
@@ -311,7 +312,8 @@ export async function tryMomentSearchFastPath(input: {
     args: { search_criteria: input.userMessage.trim() },
     selectedBlockId: store.selectedBlockId,
     onProgress: input.onStreamingUpdate
-      ? (message) => input.onStreamingUpdate!(message)
+      ? (message, progress) =>
+          input.onStreamingUpdate!({ content: message, searchProgress: progress })
       : undefined,
   })
   cacheMomentSearch(input.sessionId, data)

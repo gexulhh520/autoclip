@@ -9,7 +9,11 @@ import {
 import { formatAgentDebugSummary } from './formatAgentDebug'
 import { resolveMomentRecallMode } from './momentRecallMode'
 import { editorAgentApi } from '../../services/editorAgentApi'
-import type { AgentChatMessage, ClassifyAgentIntentResponse } from '../../types/editorAgent'
+import type {
+  AgentChatMessage,
+  AgentStreamingUpdate,
+  ClassifyAgentIntentResponse,
+} from '../../types/editorAgent'
 import { useAgentPanelStore } from '../../stores/useAgentPanelStore'
 import type { useEditSessionStore } from '../../stores/useEditSessionStore'
 import type { MomentSearchFastPathResult } from './momentSearchFastPath'
@@ -50,7 +54,7 @@ async function runFindMomentsFromIntent(input: {
   intent: ClassifyAgentIntentResponse
   executionLedger?: string[]
   getStore: GetEditStore
-  onStreamingUpdate?: (content: string) => void
+  onStreamingUpdate?: (update: AgentStreamingUpdate) => void
 }): Promise<MomentSearchFastPathResult> {
   const store = input.getStore()
   if (!store.session) throw new Error('无活动剪辑工程')
@@ -82,7 +86,8 @@ async function runFindMomentsFromIntent(input: {
     },
     selectedBlockId: store.selectedBlockId,
     onProgress: input.onStreamingUpdate
-      ? (message) => input.onStreamingUpdate!(message)
+      ? (message, progress) =>
+          input.onStreamingUpdate!({ content: message, searchProgress: progress })
       : undefined,
   })
   cacheMomentSearch(input.sessionId, data)
@@ -167,7 +172,7 @@ export async function tryLlmIntentRoute(input: {
   userMessage: string
   executionLedger?: string[]
   getStore: GetEditStore
-  onStreamingUpdate?: (content: string) => void
+  onStreamingUpdate?: (update: AgentStreamingUpdate) => void
 }): Promise<MomentSearchFastPathResult | null> {
   const text = input.userMessage.trim()
   if (!text) return null

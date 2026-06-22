@@ -11,6 +11,7 @@ import {
 } from '../../../editor/agent/applyMomentExport'
 import { formatToolCallSummary, isDangerousAgentTool } from '../../../editor/agent/toolRegistry'
 import { editorAgentApi } from '../../../services/editorAgentApi'
+import AgentChatBubbleContent from './AgentChatBubbleContent'
 import type {
   AgentChatTurn,
   AgentDebugTrace,
@@ -29,6 +30,18 @@ import './EditorAgentPanel.css'
 import { useFloatingPanelDrag } from './useFloatingPanelDrag'
 
 const AGENT_PANEL_POS_KEY = 'autoclip:agent-panel-position'
+
+const GENERAL_QUICK_PROMPTS = [
+  '在播放头位置加一行说明文字',
+  '把主轨视频往左移一点',
+  '给当前片段加字幕',
+]
+
+const FOCUSED_QUICK_PROMPTS = [
+  '这段有多长？',
+  '找打斗/动作场面',
+  '找有金句的片段',
+]
 
 interface EditorAgentPanelProps {
   projectId: string
@@ -172,7 +185,8 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
 
   useEffect(() => {
     try {
-      localStorage.setItem(chatStorageKey, JSON.stringify(chatTurns.slice(-40)))
+      const persisted = chatTurns.slice(-40).map(({ searchProgress: _progress, ...turn }) => turn)
+      localStorage.setItem(chatStorageKey, JSON.stringify(persisted))
     } catch {
       // ignore
     }
@@ -217,6 +231,18 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
     }
   }
 
+  const handleClearChat = () => {
+    setChatTurns([])
+    setPendingPlan(null)
+    setAgentTaskPlan(null)
+    setAgentDebugTrace(null)
+    setError('')
+  }
+
+  const applyQuickPrompt = (prompt: string) => {
+    setChatInput(prompt)
+  }
+
   const handleSendChat = async () => {
     const text = chatInput.trim()
     if (!text && !attachImage) {
@@ -250,17 +276,28 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
         executionLedger: executionLedgerRef.current,
         imageDataUrl: sentImage || null,
         layoutReference: layout,
-        onStreamingUpdate: (content) => {
+        onStreamingUpdate: (update) => {
           if (!streamingTurnId) {
             streamingTurnId = nanoid()
             setChatTurns((prev) => [
               ...prev,
-              { id: streamingTurnId!, role: 'assistant', content },
+              {
+                id: streamingTurnId!,
+                role: 'assistant',
+                content: update.content,
+                searchProgress: update.searchProgress,
+              },
             ])
           } else {
             setChatTurns((prev) =>
               prev.map((turn) =>
-                turn.id === streamingTurnId ? { ...turn, content } : turn
+                turn.id === streamingTurnId
+                  ? {
+                      ...turn,
+                      content: update.content,
+                      searchProgress: update.searchProgress,
+                    }
+                  : turn
               )
             )
           }
@@ -299,7 +336,7 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
         setChatTurns((prev) =>
           prev.map((turn) =>
             turn.id === streamingTurnId
-              ? { ...turn, content: result.assistant_message }
+              ? { ...turn, content: result.assistant_message, searchProgress: undefined }
               : turn
           )
         )
@@ -571,10 +608,6 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
 
       {mode === 'assistant' ? (
         <div className="editor-agent-panel__assistant">
-          <p className="editor-agent-panel__hint">
-            用自然语言描述需求：加字、改样式、移视频、裁片段等。改时间线前会展示操作清单。
-          </p>
-
           {focusedBlock ? (
             <div className="editor-agent-panel__focus">
               <div className="editor-agent-panel__focus-body">
@@ -598,28 +631,29 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
 
           <div className="editor-agent-panel__chat">
             {chatTurns.length === 0 ? (
-              <p className="editor-agent-panel__chat-empty">
-                例如：「在播放头位置加一行说明文字」「把主轨视频往左移一点」
-              </p>
+              <div className="editor-agent-panel__chat-empty">
+                <p className="editor-agent-panel__chat-empty-title">描述你想做的剪辑操作</p>
+                <p className="editor-agent-panel__chat-empty-sub">
+                  改时间线前会展示操作清单；片段检索会显示粗筛与精扫进度。
+                </p>
+              </div>
             ) : (
               chatTurns.map((turn) => (
                 <div
                   key={turn.id}
-                  className={`editor-agent-panel__chat-bubble editor-agent-panel__chat-bubble--${turn.role}`}
+                  className={`editor-agent-panel__chat-bubble editor-agent-panel__chat-bubble--${turn.role}${
+                    turn.searchProgress ? ' editor-agent-panel__chat-bubble--progress' : ''
+                  }`}
                 >
                   {turn.imagePreview ? (
                     <img src={turn.imagePreview} alt="" className="editor-agent-panel__chat-image" />
                   ) : null}
-                  <p>{turn.content}</p>
+                  <AgentChatBubbleContent turn={turn} />
                 </div>
               ))
             )}
-            {loading ? (
-              <p className="editor-agent-panel__chat-status">
-                {chatTurns.some((turn) => turn.role === 'assistant' && /理解检索目标|粗扫|精扫/.test(turn.content))
-                  ? '检索分析中…'
-                  : '思考中…'}
-              </p>
+            {loading && !chatTurns.some((turn) => turn.searchProgress) ? (
+              <p className="editor-agent-panel__chat-status">思考中…</p>
             ) : null}
             <div ref={chatEndRef} />
           </div>
@@ -629,14 +663,14 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
               <p className="editor-agent-panel__moment-export-title">
                 {formatMomentExportChoiceHint(lastMomentSearch.matches.length)}
               </p>
-              <div className="editor-agent-panel__actions">
+              <div className="editor-agent-panel__actions editor-agent-panel__actions--compact">
                 <button
                   type="button"
                   className="editor-agent-panel__btn editor-agent-panel__btn--primary"
                   disabled={exportingMoments || loading}
                   onClick={() => void handleExportMomentsToPool()}
                 >
-                  {exportingMoments ? '导出中…' : `写入本草稿 AI 素材（${lastMomentSearch.matches.length}）`}
+                  {exportingMoments ? '导出中…' : `写入素材（${lastMomentSearch.matches.length}）`}
                 </button>
                 <button
                   type="button"
@@ -648,7 +682,7 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
                 </button>
                 <button
                   type="button"
-                  className="editor-agent-panel__btn"
+                  className="editor-agent-panel__btn editor-agent-panel__btn--ghost"
                   disabled={exportingMoments}
                   onClick={() => clearLastMomentSearch(sessionId)}
                 >
@@ -659,6 +693,20 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
           ) : null}
 
           <div className="editor-agent-panel__composer">
+            <div className="editor-agent-panel__quick-prompts">
+              {(focusedBlock ? FOCUSED_QUICK_PROMPTS : GENERAL_QUICK_PROMPTS).map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  className="editor-agent-panel__quick-prompt"
+                  disabled={loading}
+                  onClick={() => applyQuickPrompt(prompt)}
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
+
             {attachImage ? (
               <div className="editor-agent-panel__attach-preview">
                 <img src={attachImage} alt="附件" />
@@ -674,49 +722,53 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
               onChange={(event) => setChatInput(event.target.value)}
               placeholder={
                 focusedBlock
-                  ? `针对「${focusedBlock.title || '当前片段'}」提问，例如：这段有多长？找打斗/枪战片段？`
+                  ? `针对「${focusedBlock.title || '当前片段'}」提问…`
                   : '描述你想对剪辑区做的操作…'
               }
+              rows={3}
               onKeyDown={(event) => {
-                if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault()
                   void handleSendChat()
                 }
               }}
             />
 
-            <label className="editor-agent-panel__recall-toggle" title="打斗/枪战/追逐等：更低阈值、更密滑窗，耗时更长">
-              <input
-                type="checkbox"
-                checked={highRecallSearchEnabled}
-                disabled={loading}
-                onChange={(event) => setHighRecallSearchEnabled(event.target.checked)}
-              />
-              <span>高召回检索</span>
-              <span className="editor-agent-panel__recall-hint">
-                长片找打斗/枪战等画面时建议开启
-              </span>
-            </label>
-
-            <div className="editor-agent-panel__actions">
+            <div className="editor-agent-panel__composer-bar">
+              <div className="editor-agent-panel__composer-tools">
+                <button
+                  type="button"
+                  className="editor-agent-panel__tool-btn"
+                  disabled={loading}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  附图
+                </button>
+                <label
+                  className="editor-agent-panel__recall-toggle"
+                  title="打斗/枪战/追逐等：更低阈值、更密滑窗，耗时更长"
+                >
+                  <input
+                    type="checkbox"
+                    checked={highRecallSearchEnabled}
+                    disabled={loading}
+                    onChange={(event) => setHighRecallSearchEnabled(event.target.checked)}
+                  />
+                  <span>高召回</span>
+                </label>
+              </div>
               <button
                 type="button"
-                className="editor-agent-panel__btn"
-                disabled={loading}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                附图
-              </button>
-              <button
-                type="button"
-                className="editor-agent-panel__btn editor-agent-panel__btn--primary"
+                className="editor-agent-panel__send-btn"
                 disabled={loading || executing}
                 onClick={() => void handleSendChat()}
               >
                 {loading ? '处理中…' : '发送'}
               </button>
             </div>
-            <p className="editor-agent-panel__hint editor-agent-panel__hint--sub">Ctrl+Enter 发送</p>
+            <p className="editor-agent-panel__hint editor-agent-panel__hint--sub">
+              Enter 发送 · Shift+Enter 换行
+            </p>
 
             {agentDebugTrace ? (
               <div className="editor-agent-panel__debug">
@@ -928,15 +980,26 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
         }
       />
 
-      <div
-        className="editor-agent-panel__header editor-agent-panel__header--draggable"
-        onPointerDown={onHeaderPointerDown}
-      >
-        <h2 className="editor-agent-panel__title">AI 助手</h2>
-        <button type="button" className="editor-agent-panel__toggle" onClick={() => setCollapsed(true)}>
-          收起
-        </button>
-      </div>
+        <div
+          className="editor-agent-panel__header editor-agent-panel__header--draggable"
+          onPointerDown={onHeaderPointerDown}
+        >
+          <h2 className="editor-agent-panel__title">AI 助手</h2>
+          <div className="editor-agent-panel__header-actions">
+            {mode === 'assistant' && chatTurns.length > 0 ? (
+              <button
+                type="button"
+                className="editor-agent-panel__header-btn"
+                onClick={handleClearChat}
+              >
+                清空
+              </button>
+            ) : null}
+            <button type="button" className="editor-agent-panel__toggle" onClick={() => setCollapsed(true)}>
+              收起
+            </button>
+          </div>
+        </div>
 
       <div className="editor-agent-panel__body">{panelBody}</div>
     </aside>
