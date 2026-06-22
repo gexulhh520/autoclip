@@ -670,7 +670,7 @@ def search_block_moments_staged(
             duration,
             max_results,
             recall_mode=recall_mode,
-            include_audio=True,
+            include_audio=False,
         )
         visual_frame_count = int(clip_meta.get("visual_frame_count") or 0)
         all_matches.extend(clip_matches)

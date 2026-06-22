@@ -29,7 +29,7 @@ FINE_STRIDE_SEC = 4.0
 FINE_STRIDE_HIGH_RECALL_SEC = 2.0
 FINE_FPS = 3.0
 FINE_FRAMES = 48
-FINE_INCLUDE_AUDIO = True
+FINE_INCLUDE_AUDIO = False
 MAX_FINE_WINDOWS_CAP = 200
 
 # --- Coarse（宫格稀疏评分 + 3×2 六宫格）---
@@ -58,7 +58,7 @@ MERGE_GAP_SEC = 8.0
 
 COARSE_SALIENCY_SYSTEM = """你是视频宫格稀疏评分助手。用户会提供按时间顺序分组的六宫格画面。"""
 
-CLIP_CLASSIFIER_SYSTEM = """你是视频 clip 精筛确认器。用户会提供按时间顺序分组的六宫格画面及对应音频。"""
+CLIP_CLASSIFIER_SYSTEM = """你是视频 clip 精筛确认器。用户会提供按时间顺序分组的六宫格画面（仅视觉，无音频）。"""
 
 
 @dataclass
@@ -663,13 +663,11 @@ def classify_clip(
     meta = clip_meta or {}
     user_message = (
         f"用户目标：\n{user_query}\n\n"
-        f"下面提供：\n"
-        f"1. 按时间顺序组织的 {len(collage_b64_list)} 张六宫格画面（每组 3×2，覆盖约 16 秒）\n"
-        f"2. 对应 16 秒音频（若有）\n\n"
+        f"下面提供按时间顺序组织的 {len(collage_b64_list)} 张六宫格画面（每组 3×2，覆盖约 16 秒）。\n"
         f"clip 时间：{meta.get('start_sec')}–{meta.get('end_sec')}s\n\n"
         f"请严格判断：该片段是否明确满足用户目标。\n\n"
         f"要求：\n"
-        f"- 必须有直接视觉或音频证据\n"
+        f"- 必须有直接视觉证据\n"
         f"- 不允许猜测\n"
         f"- 不允许泛化\n"
         f"- 不确定时返回 false\n\n"
@@ -720,7 +718,7 @@ def iter_clip_event_search(
     max_results: int,
     *,
     recall_mode: str = "balanced",
-    include_audio: bool = True,
+    include_audio: bool = False,
     search_spec: Optional[ClipSearchSpec] = None,
 ) -> Iterator[Dict[str, Any]]:
     """Planner → 粗扫 → 精扫；渐进 NDJSON。"""
@@ -1074,7 +1072,7 @@ def search_clip_events(
     max_results: int,
     *,
     recall_mode: str = "balanced",
-    include_audio: bool = True,
+    include_audio: bool = False,
     search_spec: Optional[ClipSearchSpec] = None,
 ) -> Tuple[List[MatchedMoment], Dict[str, Any]]:
     final_matches: List[MatchedMoment] = []

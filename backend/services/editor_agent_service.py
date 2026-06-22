@@ -486,7 +486,7 @@ class EditorAgentService:
             duration,
             max_results,
             recall_mode=str(request.recall_mode or "balanced"),
-            include_audio=True,
+            include_audio=False,
         ):
             if event.get("type") == "done":
                 event["block_id"] = request.block_id
