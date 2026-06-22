@@ -352,7 +352,9 @@ class EditorAgentService:
         if not criteria:
             raise ValueError("search_criteria 不能为空")
 
-        max_results = max(1, min(24, int(request.max_results or 12)))
+        max_cap = 48 if str(request.recall_mode or "balanced") == "high" else 24
+        default_results = 24 if max_cap == 48 else 12
+        max_results = max(1, min(max_cap, int(request.max_results or default_results)))
         duration = request.duration_sec
         if duration <= 0 and request.timeline_end_sec > request.timeline_start_sec:
             duration = request.timeline_end_sec - request.timeline_start_sec

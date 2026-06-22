@@ -73,7 +73,9 @@ export async function findBlockMoments(input: {
 
   const maxResults = Number.isFinite(Number(input.args.max_results))
     ? Number(input.args.max_results)
-    : 12
+    : recallMode === 'high'
+      ? 24
+      : 12
   const includeVisual = input.args.include_visual !== false
   const recallMode = resolveMomentRecallMode({
     sessionId: input.sessionId,

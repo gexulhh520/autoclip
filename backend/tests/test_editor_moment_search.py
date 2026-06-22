@@ -7,12 +7,15 @@ from backend.services.editor_moment_search import (
     VisualFrameHit,
     build_timeline_sample_times_for_moments,
     build_uniform_timeline_sample_times,
+    build_verify_sample_times_for_candidates,
     find_moments_in_transcript,
     is_visual_primary_search,
     merge_matched_moments,
     merge_visual_frame_hits,
     needs_visual_text_confirm,
+    normalize_visual_search_criteria,
     resolve_search_strategy,
+    resolve_verify_frame_cap,
     timeline_sample_to_source_sec,
 )
 
@@ -62,7 +65,25 @@ def test_find_moments_in_transcript():
     assert "哲学" in hits[0][2] or "修行" in hits[0][0].text
 
 
-def test_is_visual_primary_search():
+def test_normalize_visual_search_criteria():
+    assert normalize_visual_search_criteria("分析所有打斗片段") == "打斗场面"
+    assert normalize_visual_search_criteria("找到枪战部分") == "枪战交火场面"
+    assert normalize_visual_search_criteria("富有哲学的话") == "富有哲学的话"
+
+
+def test_resolve_verify_frame_cap_scales_for_long_video():
+    assert resolve_verify_frame_cap("high", 5000) >= 120
+    assert resolve_verify_frame_cap("balanced", 5000) >= 80
+
+
+def test_build_verify_sample_times_without_candidates_uses_dense_fallback():
+    times = build_verify_sample_times_for_candidates(
+        [],
+        timeline_start_sec=0.0,
+        duration_sec=5000.0,
+        recall_mode="high",
+    )
+    assert len(times) >= 80
     assert is_visual_primary_search("找到所有打斗场景") is True
     assert is_visual_primary_search("找到枪战镜头") is True
     assert is_visual_primary_search("富有哲学的话") is False

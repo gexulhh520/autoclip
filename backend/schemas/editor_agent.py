@@ -183,7 +183,7 @@ class FindBlockMomentsFrame(BaseModel):
 class FindBlockMomentsRequest(BaseModel):
     block_id: str
     search_criteria: str = Field(..., min_length=1)
-    max_results: int = Field(default=12, ge=1, le=24)
+    max_results: int = Field(default=12, ge=1, le=48)
     recall_mode: str = Field(default="balanced", pattern="^(balanced|high)$")
     timeline_start_sec: float = 0.0
     timeline_end_sec: float = 0.0

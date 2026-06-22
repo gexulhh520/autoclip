@@ -133,12 +133,51 @@ def resolve_search_strategy(search_criteria: str) -> str:
     return "text_primary"
 
 
+def normalize_visual_search_criteria(search_criteria: str) -> str:
+    """画面 LLM 验证用：去掉「分析/找到/所有」等指令词，保留动作语义。"""
+    text = (search_criteria or "").strip()
+    if not text:
+        return text
+    from backend.services.moment_signal_prefilter import (
+        CHASE_CRITERIA,
+        GUNPLAY_CRITERIA,
+        MELEE_CRITERIA,
+    )
+
+    if GUNPLAY_CRITERIA.search(text):
+        return "枪战交火场面"
+    if MELEE_CRITERIA.search(text):
+        return "打斗场面"
+    if CHASE_CRITERIA.search(text):
+        return "追逐场面"
+    if not is_visual_primary_search(text):
+        return text
+
+    cleaned = re.sub(
+        r"^(?:请|帮我|帮忙|我要|想要|分析|解析|找到|找出|筛选|检索|挑选|列出|提取|切出|所有|全部|视频中|视频里|片段里|里面|中有|的|有哪些|一下|\s)+",
+        "",
+        text,
+    )
+    cleaned = re.sub(r"(?:片段|镜头|部分|段落|场景|内容)+$", "", cleaned).strip()
+    return cleaned or text
+
+
+def resolve_verify_frame_cap(recall_mode: str, duration_sec: float) -> int:
+    duration = max(0.1, float(duration_sec))
+    if recall_mode == "high":
+        return min(240, max(VERIFY_FRAME_CAP_HIGH, int(math.ceil(duration / 40))))
+    return min(120, max(VERIFY_FRAME_CAP_BALANCED, int(math.ceil(duration / 75))))
+
+
 def build_uniform_timeline_sample_times(
     timeline_start_sec: float,
     duration_sec: float,
     count: int,
+    *,
+    max_count: Optional[int] = None,
 ) -> List[float]:
-    count = max(1, min(FINE_VISUAL_FRAME_CAP, int(count)))
+    cap = FINE_VISUAL_FRAME_CAP if max_count is None else max(1, int(max_count))
+    count = max(1, min(cap, int(count)))
     duration = max(0.1, duration_sec)
     if count == 1:
         return [timeline_start_sec + duration * 0.5]
@@ -177,10 +216,8 @@ def build_verify_sample_times_for_candidates(
     frames_per_range = (
         VERIFY_FRAMES_PER_CANDIDATE_HIGH if high else VERIFY_FRAMES_PER_CANDIDATE_BALANCED
     )
-    max_frames = VERIFY_FRAME_CAP_HIGH if high else VERIFY_FRAME_CAP_BALANCED
-    fallback_interval = (
-        FALLBACK_UNIFORM_INTERVAL_HIGH if high else FALLBACK_UNIFORM_INTERVAL_BALANCED
-    )
+    max_frames = resolve_verify_frame_cap(recall_mode, duration_sec)
+    duration = max(0.1, duration_sec)
 
     times: List[float] = []
     ordered = sorted(candidate_ranges, key=lambda row: row[2], reverse=True)
@@ -190,13 +227,24 @@ def build_verify_sample_times_for_candidates(
             ratio = (index + 1) / (frames_per_range + 1)
             times.append(tl_start + span * ratio)
 
-    duration = max(0.1, duration_sec)
-    fallback_count = max(3, min(16, int(math.ceil(duration / fallback_interval))))
+    if ordered:
+        fallback_interval = (
+            FALLBACK_UNIFORM_INTERVAL_HIGH if high else FALLBACK_UNIFORM_INTERVAL_BALANCED
+        )
+        fallback_cap = 32 if high else 16
+        fallback_count = max(3, min(fallback_cap, int(math.ceil(duration / fallback_interval))))
+    else:
+        # 预筛无候选：加密均匀 fallback，避免长片全漏
+        fallback_interval = 30.0 if high else 45.0
+        fallback_cap = 100 if high else 60
+        fallback_count = max(12, min(fallback_cap, int(math.ceil(duration / fallback_interval))))
+
     times.extend(
         build_uniform_timeline_sample_times(
             timeline_start_sec,
             duration_sec,
             fallback_count,
+            max_count=max_frames,
         )
     )
     return sorted({round(value, 3) for value in times})[:max_frames]
@@ -229,10 +277,14 @@ def visual_search_prefilter_llm(
     max_results: int,
     *,
     recall_mode: str = "balanced",
-) -> Tuple[List[MatchedMoment], int]:
+) -> Tuple[List[MatchedMoment], int, Dict[str, Any]]:
     """画面类检索：信号预筛召回候选区 → 抽帧 → 视觉 LLM 验证 → 命中区间精化。"""
-    from backend.services.moment_signal_prefilter import build_moment_candidate_windows
+    from backend.services.moment_signal_prefilter import (
+        build_moment_candidate_windows,
+        resolve_criteria_profile,
+    )
 
+    llm_criteria = normalize_visual_search_criteria(search_criteria)
     candidate_ranges = build_moment_candidate_windows(
         project_dir,
         block,
@@ -256,17 +308,26 @@ def visual_search_prefilter_llm(
         duration_sec,
     )
     total_frames = len(frame_dicts)
+    meta: Dict[str, Any] = {
+        "engine": "signal_prefilter_v1",
+        "candidate_windows": len(candidate_ranges),
+        "verify_frames_planned": len(verify_times),
+        "verify_frames_extracted": total_frames,
+        "llm_criteria": llm_criteria,
+        "profile": resolve_criteria_profile(search_criteria),
+    }
     if not frame_dicts:
-        return [], 0
+        return [], 0, meta
 
     hits = find_moments_in_frames(
         llm_manager,
-        search_criteria,
+        llm_criteria,
         frame_dicts,
         max_results=max_results,
     )
+    meta["llm_hits"] = len(hits)
     if not hits:
-        return [], total_frames
+        return [], total_frames, meta
 
     verify_interval = max(2.0, duration_sec / max(len(verify_times), 1))
     llm_ranges = merge_visual_frame_hits(
@@ -286,7 +347,7 @@ def visual_search_prefilter_llm(
             duration_sec,
             llm_ranges,
             "visual",
-        ), total_frames
+        ), total_frames, meta
 
     fine_dicts = extract_block_sample_frames(
         project_dir,
@@ -296,6 +357,7 @@ def visual_search_prefilter_llm(
         duration_sec,
     )
     total_frames += len(fine_dicts)
+    meta["refine_frames"] = len(fine_dicts)
     if not fine_dicts:
         return build_matched_moments_from_timeline_ranges(
             block,
@@ -303,11 +365,11 @@ def visual_search_prefilter_llm(
             duration_sec,
             llm_ranges,
             "visual",
-        ), total_frames
+        ), total_frames, meta
 
     fine_hits = find_moments_in_frames(
         llm_manager,
-        search_criteria,
+        llm_criteria,
         fine_dicts,
         max_results=max_results,
     )
@@ -318,7 +380,7 @@ def visual_search_prefilter_llm(
             duration_sec,
             llm_ranges,
             "visual",
-        ), total_frames
+        ), total_frames, meta
 
     fine_interval = max(1.5, duration_sec / max(len(fine_times), 1) * 0.4)
     fine_ranges = merge_visual_frame_hits(
@@ -326,13 +388,15 @@ def visual_search_prefilter_llm(
         fine_interval,
         max_results,
     )
-    return build_matched_moments_from_timeline_ranges(
+    moments = build_matched_moments_from_timeline_ranges(
         block,
         timeline_start_sec,
         duration_sec,
         fine_ranges,
         "visual",
-    ), total_frames
+    )
+    meta["final_matches"] = len(moments)
+    return moments, total_frames, meta
 
 
 def visual_search_two_pass(
@@ -587,7 +651,7 @@ def search_block_moments_staged(
 
     if strategy == "visual_primary":
         project_dir = get_project_directory(project_id)
-        visual_moments, frame_count = visual_search_prefilter_llm(
+        visual_moments, frame_count, prefilter_meta = visual_search_prefilter_llm(
             llm_manager,
             project_dir,
             block,
@@ -599,15 +663,13 @@ def search_block_moments_staged(
         )
         visual_frame_count += frame_count
         all_matches.extend(visual_moments)
-        profile_note = ""
-        try:
-            from backend.services.moment_signal_prefilter import resolve_criteria_profile
-
-            profile_note = f"，profile={resolve_criteria_profile(criteria)}"
-        except Exception:
-            pass
+        llm_criteria = prefilter_meta.get("llm_criteria") or criteria
         note_parts.append(
-            f"信号预筛+LLM验证：{frame_count} 帧（recall={recall_mode}{profile_note}）"
+            "信号预筛+LLM验证："
+            f"{frame_count} 帧，候选区 {prefilter_meta.get('candidate_windows', 0)} 个，"
+            f"LLM 命中 {prefilter_meta.get('llm_hits', 0)} 帧"
+            f"（recall={recall_mode}，profile={prefilter_meta.get('profile')}，"
+            f"engine={prefilter_meta.get('engine')}，条件「{llm_criteria}」）"
         )
     elif not segments and client_sample_times_sec:
         project_dir = get_project_directory(project_id)
