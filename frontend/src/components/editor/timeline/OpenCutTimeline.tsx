@@ -422,9 +422,13 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
 
   useEffect(() => {
     if (!contextMenu) return
-    const close = () => setContextMenu(null)
-    window.addEventListener('click', close)
-    return () => window.removeEventListener('click', close)
+    const close = (event: MouseEvent) => {
+      if (event.button !== 0) return
+      if (contextMenuRef.current?.contains(event.target as Node)) return
+      setContextMenu(null)
+    }
+    window.addEventListener('mousedown', close)
+    return () => window.removeEventListener('mousedown', close)
   }, [contextMenu])
 
   useLayoutEffect(() => {
@@ -525,6 +529,39 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     }
   }
 
+  const openElementContextMenu = (
+    trackId: string,
+    element: AdaptedElement,
+    event: React.MouseEvent
+  ) => {
+    event.preventDefault()
+    event.stopPropagation()
+    selectElement(trackId, element, event)
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      trackId,
+      elementId: element.id,
+    })
+  }
+
+  const handleTrackContextMenu = (track: AdaptedTrack, event: React.MouseEvent) => {
+    const target = event.target as HTMLElement
+    if (
+      target.closest(
+        '.oc-timeline__element, .oc-timeline__bookmark, .oc-timeline__add-text, .oc-timeline__resize'
+      )
+    ) {
+      return
+    }
+    const clickSec = clientXToTimelineSec(event.clientX)
+    const hit = track.elements.find(
+      (element) => clickSec >= element.startTime && clickSec < element.startTime + element.duration
+    )
+    if (!hit) return
+    openElementContextMenu(track.id, hit, event)
+  }
+
   const startVideoTrackReorder = useCallback(
     (videoTrackId: string, event: React.PointerEvent) => {
       if (event.button !== 0) return
@@ -570,6 +607,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     element: AdaptedElement,
     event: React.PointerEvent
   ) => {
+    if (event.button !== 0) return
     if ((event.target as HTMLElement).closest('.oc-timeline__resize')) return
     event.stopPropagation()
     const startX = event.clientX
@@ -1751,11 +1789,14 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                       top: getCumulativeHeightBefore(tracks, index),
                       height: TRACK_HEIGHTS[track.type],
                     }}
-                    onClick={() => {
+                    onMouseDown={handlePointerDown}
+                    onClick={(event) => {
                       if (track.textTrackId) setActiveTextTrackId(track.textTrackId)
                       if (track.audioTrackId) setActiveAudioTrackId(track.audioTrackId)
                       if (track.videoTrackId) setActiveVideoTrackId(track.videoTrackId)
+                      handleTimelineClick(event)
                     }}
+                    onContextMenu={(event) => handleTrackContextMenu(track, event)}
                     onDragOver={(event) => {
                       if (!isUserAudioAdaptedTrack(track)) return
                       if (event.dataTransfer.types.includes('application/x-autoclip-audio-asset')) {
@@ -1786,12 +1827,6 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                       setDragTargetTrackId(null)
                     }}
                   >
-                    <button
-                      type="button"
-                      className="oc-timeline__track-hit"
-                      onMouseDown={handlePointerDown}
-                      onClick={handleTimelineClick}
-                    />
                     {isUserTextAdaptedTrack(track) && !track.hidden ? (
                       <button
                         type="button"
@@ -1918,16 +1953,9 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                             }
                             onSelect={(event) => selectElement(track.id, element, event)}
                             onPointerDown={(event) => startElementDrag(track.id, element, event)}
-                            onContextMenu={(event) => {
-                              event.preventDefault()
-                              selectElement(track.id, element, event)
-                              setContextMenu({
-                                x: event.clientX,
-                                y: event.clientY,
-                                trackId: track.id,
-                                elementId: element.id,
-                              })
-                            }}
+                            onContextMenu={(event) =>
+                              openElementContextMenu(track.id, element, event)
+                            }
                             onResizeStart={(side, event) => startElementResize(element, side, event)}
                             waveformPeaks={
                               element.source.kind === 'block'

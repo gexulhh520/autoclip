@@ -318,19 +318,12 @@
   border-radius: 8px;
   background: color-mix(in srgb, var(--oc-panel-2) 85%, black);
   overflow: hidden;
+  cursor: pointer;
 }
 
 .oc-timeline__track-lane.is-empty {
   border: 2px dashed color-mix(in srgb, var(--oc-border) 80%, white);
   background: transparent;
-}
-
-.oc-timeline__track-hit {
-  position: absolute;
-  inset: 0;
-  border: none;
-  background: transparent;
-  cursor: pointer;
 }
 
 .oc-timeline__playhead {
