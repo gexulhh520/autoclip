@@ -182,7 +182,7 @@ export async function tryLlmIntentRoute(input: {
 
   switch (intent.mode) {
     case 'find_moments':
-      return runFindMomentsFromIntent(input)
+      return runFindMomentsFromIntent({ ...input, intent })
     case 'analyze_content':
       return tryContentAnalysisFastPath({
         projectId: input.projectId,
