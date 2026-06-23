@@ -636,22 +636,6 @@ export const useEditSessionStore = create<EditSessionState>()(
       return Math.max(0, Math.min(sec, compositionTotalDuration(session)))
     }
 
-    const syncSelectionToPlayhead = (sec: number) => {
-      const { session, timelineZoom } = get()
-      if (!session) return
-      const pxPerSec = (timelineZoom / 100) * BASE_PX_PER_SEC
-      const segments = buildCompositionTimelineSegments(
-        resolveMainTrackBlocks(session),
-        pxPerSec,
-        transitionDurationSec(session),
-        session.sequence_block_gaps
-      )
-      const resolved = resolveCompositionPlayhead(sec, segments)
-      if (resolved) {
-        set({ selectedBlockId: resolved.segment.block.id })
-      }
-    }
-
     const pollExportJob = async (
       projectId: string,
       sessionId: string,
@@ -2617,7 +2601,6 @@ export const useEditSessionStore = create<EditSessionState>()(
       advanceSequencePlayhead: (sec) => {
         const clamped = clampPlayhead(sec)
         set({ sequencePlayheadSec: clamped })
-        syncSelectionToPlayhead(clamped)
       },
       setTimelineZoom: (zoom) => set({ timelineZoom: Math.min(200, Math.max(50, zoom)) }),
 
