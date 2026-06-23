@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import editApi from '../../services/editApi'
 import { clampHtmlMediaVolume } from '../audioVolume'
+import { applyMediaPlaybackRate } from '../mediaPlaybackRate'
 import { findAudioAsset, getAudioClipTrackId } from '../audioTracks'
 import { stopEditorPlayback } from '../stopEditorPlayback'
 import type { AudioClipElement, EditSession } from '../../types/editSession'
@@ -121,7 +122,7 @@ export function useTimelineAudioPlayback({
   }
 
   const syncClipPlaybackRate = (audio: HTMLAudioElement, clip: AudioClipElement) => {
-    audio.playbackRate = Math.max(0.25, Math.min(4, clip.playback_rate ?? 1))
+    applyMediaPlaybackRate(audio, clip.playback_rate ?? 1)
   }
 
   const startClip = (
@@ -243,8 +244,7 @@ export function syncTimelineAudioToPlayhead(
     if (audioTrackMuted[trackId]) continue
     const audio = container.querySelector<HTMLAudioElement>(`[data-clip-id="${clip.id}"]`)
     if (!audio) continue
-    const rate = Math.max(0.25, Math.min(4, clip.playback_rate ?? 1))
-    audio.playbackRate = rate
+    applyMediaPlaybackRate(audio, clip.playback_rate ?? 1)
     audio.currentTime = Math.max(
       0,
       (clip.trim_start_sec ?? 0) + Math.max(0, playheadSec - clip.start_sec) * rate

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react'
+import { applyMediaPlaybackRate } from '../../editor/mediaPlaybackRate'
 
 interface PreviewVideoLayerProps {
   videoUrl: string
@@ -41,9 +42,8 @@ const PreviewVideoLayer: React.FC<PreviewVideoLayerProps> = ({
     const video = videoRef.current
     const blur = blurRef.current
     if (!video) return
-    const rate = Math.max(0.25, Math.min(4, playbackRate))
-    video.playbackRate = rate
-    if (blur) blur.playbackRate = rate
+    applyMediaPlaybackRate(video, playbackRate)
+    if (blur) applyMediaPlaybackRate(blur, playbackRate)
   }, [playbackRate, videoUrl])
 
   useEffect(() => {

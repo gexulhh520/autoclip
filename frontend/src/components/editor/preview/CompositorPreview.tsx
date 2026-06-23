@@ -30,18 +30,22 @@ import {
 } from '../../../editor/scene'
 import type { PreviewVideoLayerProps } from '../../../editor/scene/adapters/previewAdapter'
 import { stopEditorPlayback } from '../../../editor/stopEditorPlayback'
+import { applyMediaPlaybackRate } from '../../../editor/mediaPlaybackRate'
 
 const PAUSED_SEEK_THRESHOLD_SEC = 0.03
 
 function seekVideoToTarget(
   video: HTMLVideoElement,
   target: number,
-  options: { play: boolean; forceSeek: boolean }
+  options: { play: boolean; forceSeek: boolean; playbackRate?: number }
 ): boolean {
   const drift = Math.abs(video.currentTime - target)
   const mustSeek = options.forceSeek || drift > PAUSED_SEEK_THRESHOLD_SEC
 
   const startPlayback = () => {
+    if (options.playbackRate != null) {
+      applyMediaPlaybackRate(video, options.playbackRate)
+    }
     if (options.play) {
       void video.play().catch(() => undefined)
     } else {
@@ -466,7 +470,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
       video.muted = audioMuted
       video.volume = audioMuted ? 0 : Math.min(1, Math.max(0, layer.volume))
-      video.playbackRate = Math.max(0.25, Math.min(4, layer.playbackRate || 1))
+      applyMediaPlaybackRate(video, layer.playbackRate || 1)
 
       const drift = Math.abs(video.currentTime - target)
       const driftThreshold =
@@ -475,7 +479,11 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       let didSeek = false
       if (isPlaying) {
         if (!skipSeek && mustSeek) {
-          didSeek = seekVideoToTarget(video, target, { play: true, forceSeek: true })
+          didSeek = seekVideoToTarget(video, target, {
+            play: true,
+            forceSeek: true,
+            playbackRate: layer.playbackRate || 1,
+          })
         } else {
           void video.play().catch(() => undefined)
         }
