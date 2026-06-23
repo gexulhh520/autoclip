@@ -22,6 +22,7 @@ import { areMainTrackBlocksAdjacent } from '../../editor/timeline/sequenceBlockG
 import TextPresetPicker from './TextPresetPicker'
 import TextAnimationPanel from './TextAnimationPanel'
 import TextToSpeechPanel, { DEFAULT_EDGE_TTS_VOICE } from './TextToSpeechPanel'
+import SpeedControlPanel from './SpeedControlPanel'
 import { resolveEdgeTtsVoiceId } from '../../editor/tts/edgeTtsVoices'
 import { readTextPresetId } from '../../editor/effects'
 import {
@@ -32,6 +33,12 @@ import {
 } from '../../editor/migration/templateCaptionOverlays'
 import { readStringParam } from '../../editor/opencut-text/params'
 import { findAudioAsset } from '../../editor/audioTracks'
+import {
+  resolveAudioClipSourceDurationSec,
+  resolveAudioClipTimelineDurationSec,
+  resolveBlockSourceDurationSec,
+  resolveBlockTimelineDurationSec,
+} from '../../editor/speedControl'
 import {
   patchBlockOverlayAnimation,
   readTextAnimationFromBlockOverlay,
@@ -73,13 +80,14 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   const updateBlockOverlay = useEditSessionStore((state) => state.updateBlockOverlay)
   const updateBlockTrim = useEditSessionStore((state) => state.updateBlockTrim)
   const updateBlockAudio = useEditSessionStore((state) => state.updateBlockAudio)
-  const updateBlockPlaybackRate = useEditSessionStore((state) => state.updateBlockPlaybackRate)
+  const updateBlockSpeed = useEditSessionStore((state) => state.updateBlockSpeed)
   const updateBlockVideoTransform = useEditSessionStore((state) => state.updateBlockVideoTransform)
   const updateBlocksVideoTransform = useEditSessionStore((state) => state.updateBlocksVideoTransform)
   const syncBlocksVideoScaleUniform = useEditSessionStore((state) => state.syncBlocksVideoScaleUniform)
   const updateBlockTransition = useEditSessionStore((state) => state.updateBlockTransition)
   const updateAudioSettings = useEditSessionStore((state) => state.updateAudioSettings)
   const updateAudioClip = useEditSessionStore((state) => state.updateAudioClip)
+  const updateAudioClipSpeed = useEditSessionStore((state) => state.updateAudioClipSpeed)
   const removeAudioClip = useEditSessionStore((state) => state.removeAudioClip)
   const regenerateBlockContent = useEditSessionStore((state) => state.regenerateBlockContent)
   const snapEnabled = useEditSessionStore((state) => state.snapEnabled)
@@ -621,29 +629,43 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
             }}
           />
         </div>
-        <div className="editor-inspector-section">
-          <div className="editor-inspector-label">
-            播放倍速 ({(selectedBlock.playback_rate ?? 1).toFixed(2)}×)
-          </div>
-          <input
-            className="editor-range"
-            type="range"
-            min={0.25}
-            max={4}
-            step={0.05}
-            value={selectedBlock.playback_rate ?? 1}
-            onChange={(event) =>
-              updateBlockPlaybackRate(selectedBlock.id, Number(event.target.value))
-            }
-          />
-          <div className="editor-inspector-muted" style={{ marginTop: 8 }}>
-            2× 表示时间线时长减半，预览与导出一致
-          </div>
-        </div>
           </>
         ) : null}
       </>
     )
+  }
+
+  const renderSpeedControl = () => {
+    if (selectedAudioClip && session) {
+      const sourceDurationSec = resolveAudioClipSourceDurationSec(selectedAudioClip)
+      return (
+        <SpeedControlPanel
+          sourceDurationSec={sourceDurationSec}
+          timelineDurationSec={resolveAudioClipTimelineDurationSec(selectedAudioClip)}
+          playbackRate={selectedAudioClip.playback_rate ?? 1}
+          onRateChange={(rate) => updateAudioClipSpeed(selectedAudioClip.id, { playbackRate: rate })}
+          onDurationChange={(timelineDurationSec) =>
+            updateAudioClipSpeed(selectedAudioClip.id, { timelineDurationSec })
+          }
+        />
+      )
+    }
+
+    if (selectedBlock && !isBatchVideoSelection) {
+      return (
+        <SpeedControlPanel
+          sourceDurationSec={resolveBlockSourceDurationSec(selectedBlock)}
+          timelineDurationSec={resolveBlockTimelineDurationSec(selectedBlock)}
+          playbackRate={selectedBlock.playback_rate ?? 1}
+          onRateChange={(rate) => updateBlockSpeed(selectedBlock.id, { playbackRate: rate })}
+          onDurationChange={(timelineDurationSec) =>
+            updateBlockSpeed(selectedBlock.id, { timelineDurationSec })
+          }
+        />
+      )
+    }
+
+    return null
   }
 
   const renderAudioTab = () => {
@@ -1157,6 +1179,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
           ) : selectedBlock ? (
             <EditorInspectorSelectionBanner label="视频片段" subLabel={selectedBlock.title} />
           ) : null}
+          {renderSpeedControl()}
           <div className="oc-panel__scroll editor-inspector-content">
             {tabContent[activeInspectorTab]}
           </div>

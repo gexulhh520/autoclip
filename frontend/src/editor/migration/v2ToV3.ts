@@ -293,6 +293,7 @@ export const migrateSessionToV3 = (session: EditSession): EditProjectV3 => {
         fade_in_sec: clip.fade_in_sec ?? session.audio_settings.fade_in_sec,
         fade_out_sec: clip.fade_out_sec ?? session.audio_settings.fade_out_sec,
         duck_enabled: session.audio_settings.bgm_duck_enabled,
+        playback_rate: clip.playback_rate ?? 1,
       },
       hidden: clip.hidden,
     })
@@ -469,6 +470,7 @@ export const flattenV3ToSession = (project: EditProjectV3): EditSession => {
       fade_in_sec: Number(item.properties.fade_in_sec ?? project.audio_settings.fade_in_sec),
       fade_out_sec: Number(item.properties.fade_out_sec ?? project.audio_settings.fade_out_sec),
       hidden: Boolean(item.hidden),
+      playback_rate: Number(item.properties.playback_rate ?? 1),
     })
   }
 

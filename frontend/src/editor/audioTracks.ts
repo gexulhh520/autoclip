@@ -7,6 +7,7 @@ import type {
   EditSession,
 } from '../types/editSession'
 import { getCompositionTotalDuration } from '../utils/editTimeline'
+import { clampPlaybackRate } from './speedControl'
 
 export const DEFAULT_AUDIO_TRACK_ID = 'default-audio'
 
@@ -114,6 +115,16 @@ export function ensureAudioModel(session: EditSession): boolean {
       element.track_id = DEFAULT_AUDIO_TRACK_ID
       migrated = true
     }
+    if (!element.playback_rate || element.playback_rate <= 0) {
+      element.playback_rate = 1
+      migrated = true
+    } else {
+      const clamped = clampPlaybackRate(element.playback_rate)
+      if (clamped !== element.playback_rate) {
+        element.playback_rate = clamped
+        migrated = true
+      }
+    }
   }
 
   const legacyPath = session.audio_settings?.bgm_path
@@ -142,12 +153,13 @@ export function ensureAudioModel(session: EditSession): boolean {
       track_id: DEFAULT_AUDIO_TRACK_ID,
       start_sec: 0,
       duration_sec: Math.max(0.1, Math.min(totalDuration, trimEnd - trimStart)),
-      trim_start_sec: trimStart,
-      trim_end_sec: trimEnd,
-      volume: session.audio_settings.bgm_volume ?? 0.28,
-      fade_in_sec: session.audio_settings.fade_in_sec ?? 0.3,
-      fade_out_sec: session.audio_settings.fade_out_sec ?? 0.3,
-    })
+        trim_start_sec: trimStart,
+        trim_end_sec: trimEnd,
+        volume: session.audio_settings.bgm_volume ?? 0.28,
+        fade_in_sec: session.audio_settings.fade_in_sec ?? 0.3,
+        fade_out_sec: session.audio_settings.fade_out_sec ?? 0.3,
+        playback_rate: 1,
+      })
     session.audio_settings.bgm_path = null
     session.audio_settings.bgm_start_sec = undefined
     session.audio_settings.bgm_end_sec = undefined

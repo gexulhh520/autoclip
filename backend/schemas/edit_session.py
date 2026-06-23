@@ -228,8 +228,14 @@ class AudioClipElement(BaseModel):
     fade_in_sec: Optional[float] = None
     fade_out_sec: Optional[float] = None
     hidden: bool = False
+    playback_rate: float = 1.0
     block_id: Optional[str] = None
     block_offset_sec: Optional[float] = None
+
+    @model_validator(mode="after")
+    def normalize_playback_rate(self) -> "AudioClipElement":
+        self.playback_rate = max(0.25, min(4.0, float(self.playback_rate or 1.0)))
+        return self
 
 
 EditAspectPreset = Literal[

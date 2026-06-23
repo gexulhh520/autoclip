@@ -62,6 +62,11 @@ import {
   resolveAudioAssetCategory,
 } from '../editor/audioTracks'
 import {
+  buildAudioClipSpeedPatch,
+  buildBlockSpeedPatch,
+  clampPlaybackRate,
+} from '../editor/speedControl'
+import {
   DEFAULT_VIDEO_TRACK_ID,
   createVideoTrack,
   defaultVideoTrackName,
@@ -401,6 +406,10 @@ interface EditSessionState {
   ) => void
   syncBlocksVideoScaleUniform: (blockIds: string[]) => void
   updateBlockPlaybackRate: (blockId: string, rate: number) => void
+  updateBlockSpeed: (
+    blockId: string,
+    input: { playbackRate?: number; timelineDurationSec?: number }
+  ) => void
   updateBlockTransition: (
     blockId: string,
     transition: EditBlock['transition_out'],
@@ -442,6 +451,11 @@ interface EditSessionState {
   updateAudioClip: (
     clipId: string,
     patch: Partial<AudioClipElement>,
+    options?: { recordHistory?: boolean }
+  ) => void
+  updateAudioClipSpeed: (
+    clipId: string,
+    input: { playbackRate?: number; timelineDurationSec?: number },
     options?: { recordHistory?: boolean }
   ) => void
   moveAudioClipToTrack: (clipId: string, trackId: string, options?: { recordHistory?: boolean }) => void
@@ -2867,12 +2881,22 @@ export const useEditSessionStore = create<EditSessionState>()(
       },
 
       updateBlockPlaybackRate: (blockId, rate) => {
+        get().updateBlockSpeed(blockId, { playbackRate: rate })
+      },
+
+      updateBlockSpeed: (blockId, input) => {
         pushHistory()
         set((state) => {
           if (!state.session) return
           const block = state.session.sequence.find((item) => item.id === blockId)
           if (!block) return
-          block.playback_rate = Math.min(4, Math.max(0.25, rate))
+          const patch = buildBlockSpeedPatch(block, input)
+          if (!patch) return
+          block.playback_rate = patch.playback_rate
+          if (state.timelineBlockLinkEnabled) {
+            ensureTemplateCaptionOverlays(state.session)
+            reconcileTimelineBlockLinks(state.session)
+          }
           state.dirty = true
         })
       },
@@ -3062,6 +3086,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             start_sec: placement.startSec,
             duration_sec: Math.max(0.1, durationSec),
             trim_start_sec: 0,
+            playback_rate: 1,
             volume:
               options?.volume ??
               (category === 'sfx' ? 0.85 : state.session.audio_settings.bgm_volume),
@@ -3109,6 +3134,22 @@ export const useEditSessionStore = create<EditSessionState>()(
           const clip = state.session.audio_elements.find((item) => item.id === clipId)
           if (!clip) return
           Object.assign(clip, patch)
+          state.dirty = true
+        })
+      },
+
+      updateAudioClipSpeed: (clipId, input, options) => {
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
+        set((state) => {
+          if (!state.session?.audio_elements) return
+          const clip = state.session.audio_elements.find((item) => item.id === clipId)
+          if (!clip) return
+          const patch = buildAudioClipSpeedPatch(clip, input)
+          if (!patch) return
+          Object.assign(clip, patch)
+          applyAudioClipTimingClamp(state.session, clipId)
           state.dirty = true
         })
       },

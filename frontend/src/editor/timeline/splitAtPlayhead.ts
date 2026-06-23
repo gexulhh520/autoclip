@@ -175,19 +175,21 @@ export function splitAudioClipElement(
     return null
   }
   const offset = playheadSec - clip.start_sec
+  const rate = Math.max(0.25, Math.min(4, clip.playback_rate ?? 1))
   const trimStart = clip.trim_start_sec ?? 0
+  const sourceOffset = offset * rate
   const cloned = JSON.parse(JSON.stringify(clip)) as AudioClipElement
   return {
     first: {
       ...clip,
       duration_sec: offset,
-      trim_end_sec: trimStart + offset,
+      trim_end_sec: trimStart + sourceOffset,
     },
     second: {
       ...cloned,
       start_sec: playheadSec,
       duration_sec: clip.duration_sec - offset,
-      trim_start_sec: trimStart + offset,
+      trim_start_sec: trimStart + sourceOffset,
     },
   }
 }

@@ -70,8 +70,11 @@ export function useTimelineAudioPlayback({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const elementsRef = useRef<Map<string, HTMLAudioElement>>(new Map())
 
-  const sourceTimeForClip = (clip: AudioClipElement, compositionSec: number) =>
-    compositionSec - clip.start_sec + (clip.trim_start_sec ?? 0)
+  const sourceTimeForClip = (clip: AudioClipElement, compositionSec: number) => {
+    const rate = Math.max(0.25, Math.min(4, clip.playback_rate ?? 1))
+    const timelineOffset = Math.max(0, compositionSec - clip.start_sec)
+    return (clip.trim_start_sec ?? 0) + timelineOffset * rate
+  }
 
   const ensureContainer = () => {
     if (!containerRef.current) {
@@ -114,8 +117,11 @@ export function useTimelineAudioPlayback({
 
   const stopClip = (audio: HTMLAudioElement, clipId: string) => {
     audio.pause()
-    audio.playbackRate = 1
     clipModeRef.current.set(clipId, 'idle')
+  }
+
+  const syncClipPlaybackRate = (audio: HTMLAudioElement, clip: AudioClipElement) => {
+    audio.playbackRate = Math.max(0.25, Math.min(4, clip.playback_rate ?? 1))
   }
 
   const startClip = (
@@ -124,8 +130,8 @@ export function useTimelineAudioPlayback({
     compositionSec: number,
     clipId: string
   ) => {
+    syncClipPlaybackRate(audio, clip)
     const sourceTime = Math.max(0, sourceTimeForClip(clip, compositionSec))
-    audio.playbackRate = 1
     audio.currentTime = sourceTime
     clipModeRef.current.set(clipId, 'playing')
     void audio.play().catch(() => {
@@ -142,6 +148,7 @@ export function useTimelineAudioPlayback({
       const clipEnd = clip.start_sec + clip.duration_sec
       const inRange = playhead >= clip.start_sec && playhead < clipEnd
       audio.volume = item.muted ? 0 : clampHtmlMediaVolume(item.volume)
+      syncClipPlaybackRate(audio, clip)
       stopClip(audio, clip.id)
       if (inRange) {
         const sourceTime = sourceTimeForClip(clip, playhead)
@@ -163,6 +170,7 @@ export function useTimelineAudioPlayback({
       const mode = clipModeRef.current.get(clip.id) ?? 'idle'
 
       audio.volume = item.muted ? 0 : clampHtmlMediaVolume(item.volume)
+      syncClipPlaybackRate(audio, clip)
 
       if (!inRange || item.muted) {
         if (mode === 'playing') {
@@ -235,8 +243,11 @@ export function syncTimelineAudioToPlayhead(
     if (audioTrackMuted[trackId]) continue
     const audio = container.querySelector<HTMLAudioElement>(`[data-clip-id="${clip.id}"]`)
     if (!audio) continue
-    const sourceTime = playheadSec - clip.start_sec + (clip.trim_start_sec ?? 0)
-    audio.currentTime = Math.max(0, sourceTime)
-    audio.playbackRate = 1
+    const rate = Math.max(0.25, Math.min(4, clip.playback_rate ?? 1))
+    audio.playbackRate = rate
+    audio.currentTime = Math.max(
+      0,
+      (clip.trim_start_sec ?? 0) + Math.max(0, playheadSec - clip.start_sec) * rate
+    )
   }
 }

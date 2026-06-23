@@ -1004,12 +1004,12 @@ def _render_timeline_audio_clips(
 
         trim_start = max(0.0, float(clip.trim_start_sec or 0.0))
         clip_duration = max(0.05, float(clip.duration_sec))
+        playback_rate = max(0.25, min(4.0, float(getattr(clip, "playback_rate", None) or 1.0)))
         trim_end = clip.trim_end_sec
         if trim_end is None:
-            trim_end = trim_start + clip_duration
+            trim_end = trim_start + clip_duration * playback_rate
         else:
-            trim_end = min(float(trim_end), trim_start + clip_duration)
-
+            trim_end = float(trim_end)
         vol = defaults.bgm_volume if clip.volume is None else clip.volume
         fade_in = defaults.fade_in_sec if clip.fade_in_sec is None else clip.fade_in_sec
         fade_out = defaults.fade_out_sec if clip.fade_out_sec is None else clip.fade_out_sec
@@ -1023,6 +1023,9 @@ def _render_timeline_audio_clips(
             fade_out_sec=fade_out,
             duration_sec=clip_duration,
         )
+        speed_af = _build_speed_audio_filter(playback_rate)
+        if speed_af:
+            af = f"{speed_af},{af}" if af else speed_af
         af_suffix = f",{af}" if af else ""
         filter_parts.append(
             f"[{input_index}:a]atrim=start={trim_start:.3f}:end={trim_end:.3f},"
