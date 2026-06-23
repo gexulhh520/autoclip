@@ -5,7 +5,7 @@ import asyncio
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -22,6 +22,8 @@ from backend.services.material_download_service import (
 from backend.services.material_library_service import (
     delete_library_asset,
     get_library_asset,
+    import_local_file_to_library,
+    import_local_upload_to_library,
     list_library_assets,
     resolve_library_thumbnail_path,
     resolve_library_video_path,
@@ -59,6 +61,11 @@ class MaterialDownloadCreateRequest(BaseModel):
 class MaterialDownloadFromUrlRequest(BaseModel):
     url: str = Field(..., min_length=1)
     browser: Optional[str] = None
+
+
+class MaterialImportPathRequest(BaseModel):
+    source_path: str = Field(..., min_length=1)
+    title: Optional[str] = None
 
 
 @router.get("/assets")
@@ -119,6 +126,38 @@ async def remove_material_library_asset(asset_id: str):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("删除素材库条目失败: %s", asset_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/assets/import-path")
+async def import_material_library_from_path(body: MaterialImportPathRequest):
+    try:
+        asset = import_local_file_to_library(body.source_path, body.title)
+        return {"ok": True, "asset": asset}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("本地路径导入素材库失败")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/assets/import-upload")
+async def import_material_library_upload(
+    file: UploadFile = File(...),
+    title: Optional[str] = Form(default=None),
+):
+    try:
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="缺少文件名")
+        content = await file.read()
+        asset = import_local_upload_to_library(file.filename, content, title)
+        return {"ok": True, "asset": asset}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("上传导入素材库失败")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

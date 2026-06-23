@@ -6,8 +6,9 @@ import {
   resolveAudioAssets,
 } from '../audioTracks'
 import type { AudioAssetCategory, EditSession } from '../../types/editSession'
+import libraryApi from '../../services/libraryApi'
 
-export type ListAssetsCategory = 'clip' | 'bgm' | 'sfx' | 'all'
+export type ListAssetsCategory = 'clip' | 'bgm' | 'sfx' | 'library' | 'all'
 
 export interface ListAssetsClipItem {
   id: string
@@ -21,18 +22,27 @@ export interface ListAssetsAudioItem {
   category: AudioAssetCategory
 }
 
+export interface ListAssetsLibraryItem {
+  id: string
+  title: string
+  duration_sec: number
+  platform?: string | null
+  origin?: string | null
+}
+
 export interface ListAssetsResult {
   clips: ListAssetsClipItem[]
   audio: ListAssetsAudioItem[]
+  library?: ListAssetsLibraryItem[]
 }
 
 function normalizeCategory(value: unknown): ListAssetsCategory {
-  if (value === 'clip' || value === 'bgm' || value === 'sfx') return value
+  if (value === 'clip' || value === 'bgm' || value === 'sfx' || value === 'library') return value
   return 'all'
 }
 
 function mapSessionAudio(session: EditSession, category: ListAssetsCategory): ListAssetsAudioItem[] {
-  if (category === 'clip') return []
+  if (category === 'clip' || category === 'library') return []
   const sources =
     category === 'all'
       ? resolveAudioAssets(session)
@@ -49,7 +59,7 @@ async function mapSessionPoolClips(
   sessionId: string,
   category: ListAssetsCategory
 ): Promise<ListAssetsClipItem[]> {
-  if (category === 'bgm' || category === 'sfx' || !sessionId) return []
+  if (category === 'bgm' || category === 'sfx' || category === 'library' || !sessionId) return []
   try {
     const response = await editApi.listSessionPoolClips(projectId, sessionId)
     const items = Array.isArray(response.items) ? response.items : []
@@ -67,7 +77,7 @@ async function mapProjectClips(
   projectId: string,
   category: ListAssetsCategory
 ): Promise<ListAssetsClipItem[]> {
-  if (category === 'bgm' || category === 'sfx') return []
+  if (category === 'bgm' || category === 'sfx' || category === 'library') return []
   const raw = await projectApi.getClips(projectId)
   return (Array.isArray(raw) ? raw : []).map((clip) => {
     const duration =
@@ -82,17 +92,34 @@ async function mapProjectClips(
   })
 }
 
-/** Phase C 只读工具：列出本草稿 clip 池、项目切片与会话内 BGM/SFX 素材 */
+async function mapLibraryAssets(category: ListAssetsCategory): Promise<ListAssetsLibraryItem[]> {
+  if (category !== 'library' && category !== 'all') return []
+  try {
+    const response = await libraryApi.listAssets({ page: 1, page_size: 30 })
+    return response.items.map((item) => ({
+      id: item.id,
+      title: item.title || item.id,
+      duration_sec: item.duration_sec ?? 0,
+      platform: item.platform,
+      origin: item.origin,
+    }))
+  } catch {
+    return []
+  }
+}
+
+/** 只读工具：列出本草稿 clip 池、项目切片、会话内 BGM/SFX、全局素材库 */
 export async function listAssets(
   projectId: string,
   session: EditSession,
   categoryInput?: unknown
 ): Promise<ListAssetsResult> {
   const category = normalizeCategory(categoryInput)
-  const [sessionClips, projectClips, audio] = await Promise.all([
+  const [sessionClips, projectClips, audio, library] = await Promise.all([
     mapSessionPoolClips(projectId, session.id, category),
     mapProjectClips(projectId, category),
     Promise.resolve(mapSessionAudio(session, category)),
+    mapLibraryAssets(category),
   ])
   const seen = new Set<string>()
   const clips: ListAssetsClipItem[] = []
@@ -101,5 +128,5 @@ export async function listAssets(
     seen.add(item.id)
     clips.push(item)
   }
-  return { clips, audio }
+  return { clips, audio, library }
 }

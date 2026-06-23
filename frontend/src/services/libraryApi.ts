@@ -159,6 +159,24 @@ export const libraryApi = {
   deleteAsset: async (assetId: string): Promise<void> => {
     await api.delete(`/library/assets/${encodeURIComponent(assetId)}`)
   },
+
+  importLocalPath: async (sourcePath: string, title?: string): Promise<LibraryAsset> => {
+    const response = (await api.post('/library/assets/import-path', {
+      source_path: sourcePath,
+      title,
+    })) as { ok: boolean; asset: LibraryAsset }
+    return response.asset
+  },
+
+  importLocalUpload: async (file: File, title?: string): Promise<LibraryAsset> => {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (title) formData.append('title', title)
+    const response = (await api.post('/library/assets/import-upload', formData, {
+      timeout: 1_800_000,
+    })) as { ok: boolean; asset: LibraryAsset }
+    return response.asset
+  },
 }
 
 export default libraryApi

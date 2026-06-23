@@ -515,15 +515,48 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "list_assets",
-            "description": "只读：列出当前工程可用素材（视频 clip 池、BGM、SFX）",
+            "description": "只读：列出本草稿 AI 素材、项目切片、会话内 BGM/SFX、全局素材库",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "category": {
                         "type": "string",
-                        "enum": ["clip", "bgm", "sfx", "all"],
-                        "description": "默认 all",
+                        "enum": ["clip", "bgm", "sfx", "library", "all"],
+                        "description": "library=仅全局素材库；默认 all",
                     }
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_materials",
+            "description": "只读：YouTube/Bilibili 搜索网络视频素材（不入库）",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "platform": {
+                        "type": "string",
+                        "enum": ["youtube", "bilibili"],
+                    },
+                    "query": {"type": "string"},
+                    "limit": {"type": "number"},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "import_from_library",
+            "description": "将素材库视频加入时间线；可传 asset_id 或 url（先下载）",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "asset_id": {"type": "string"},
+                    "url": {"type": "string"},
                 },
             },
         },
@@ -676,6 +709,7 @@ META_AGENT_TOOLS = {
 
 READ_ONLY_AGENT_TOOLS = {
     "list_assets",
+    "search_materials",
     "verify_subtitle_in_frame",
     "find_block_moments",
     "analyze_block_content",

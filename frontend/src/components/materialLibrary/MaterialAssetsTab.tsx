@@ -1,10 +1,13 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Input, Modal, Pagination, message } from 'antd'
-import { DeleteOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
+import { DeleteOutlined, PlusOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import editApi from '../../services/editApi'
 import libraryApi, { type LibraryAsset } from '../../services/libraryApi'
+import { isTauriApp } from '../../utils/desktopMode'
 import { formatVideoImportSuccessMessage } from '../../utils/videoImportMessage'
+
+const VIDEO_IMPORT_EXTENSIONS = ['mp4', 'mov', 'mkv', 'webm', 'm4v', 'avi']
 
 const formatDuration = (seconds?: number | null): string => {
   if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return '--:--'
@@ -20,8 +23,10 @@ interface MaterialAssetsTabProps {
 
 const MaterialAssetsTab: React.FC<MaterialAssetsTabProps> = ({ projectId, sessionId }) => {
   const navigate = useNavigate()
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [assets, setAssets] = useState<LibraryAsset[]>([])
   const [loading, setLoading] = useState(true)
+  const [importingLocal, setImportingLocal] = useState(false)
   const [importingId, setImportingId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [searchInput, setSearchInput] = useState('')
@@ -74,8 +79,6 @@ const MaterialAssetsTab: React.FC<MaterialAssetsTabProps> = ({ projectId, sessio
     })
   }
 
-  const canImportToEditor = Boolean(projectId && sessionId)
-
   const handleImportToEditor = async (asset: LibraryAsset) => {
     if (!projectId || !sessionId) return
     setImportingId(asset.id)
@@ -88,6 +91,48 @@ const MaterialAssetsTab: React.FC<MaterialAssetsTabProps> = ({ projectId, sessio
     } finally {
       setImportingId(null)
     }
+  }
+
+  const canImportToEditor = Boolean(projectId && sessionId)
+
+  const handleImportLocalFile = async (file: File) => {
+    setImportingLocal(true)
+    try {
+      await libraryApi.importLocalUpload(file)
+      message.success('已导入到素材库')
+      void loadAssets()
+    } catch (error: unknown) {
+      message.error(error instanceof Error ? error.message : '导入失败')
+    } finally {
+      setImportingLocal(false)
+    }
+  }
+
+  const handlePickLocalImport = async () => {
+    if (isTauriApp()) {
+      try {
+        const { open } = await import('@tauri-apps/plugin-dialog')
+        const selected = await open({
+          multiple: false,
+          filters: [{ name: 'Video', extensions: VIDEO_IMPORT_EXTENSIONS }],
+        })
+        if (!selected || Array.isArray(selected)) return
+        setImportingLocal(true)
+        try {
+          await libraryApi.importLocalPath(selected)
+          message.success('已导入到素材库')
+          void loadAssets()
+        } catch (error: unknown) {
+          message.error(error instanceof Error ? error.message : '导入失败')
+        } finally {
+          setImportingLocal(false)
+        }
+      } catch (error: unknown) {
+        message.error(error instanceof Error ? error.message : '无法打开文件选择器')
+      }
+      return
+    }
+    fileInputRef.current?.click()
   }
 
   return (
@@ -105,6 +150,18 @@ const MaterialAssetsTab: React.FC<MaterialAssetsTabProps> = ({ projectId, sessio
         </div>
       ) : null}
       <div className="material-library-toolbar">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="video/*,.mp4,.mov,.mkv,.webm,.m4v,.avi"
+          hidden
+          onChange={(event) => {
+            const file = event.target.files?.[0]
+            event.target.value = ''
+            if (!file) return
+            void handleImportLocalFile(file)
+          }}
+        />
         <Input
           allowClear
           prefix={<SearchOutlined />}
@@ -126,6 +183,14 @@ const MaterialAssetsTab: React.FC<MaterialAssetsTabProps> = ({ projectId, sessio
           }}
         >
           搜索
+        </button>
+        <button
+          type="button"
+          className="material-library-btn"
+          disabled={importingLocal}
+          onClick={() => void handlePickLocalImport()}
+        >
+          <UploadOutlined /> {importingLocal ? '导入中…' : '导入本地视频'}
         </button>
       </div>
 

@@ -532,14 +532,53 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'list_assets',
-      description: '只读：列出本草稿 AI 素材、项目切片与会话内 BGM/SFX',
+      description: '只读：列出本草稿 AI 素材、项目切片、会话内 BGM/SFX、全局素材库',
       parameters: {
         type: 'object',
         properties: {
           category: {
             type: 'string',
-            enum: ['clip', 'bgm', 'sfx', 'all'],
-            description: '默认 all',
+            enum: ['clip', 'bgm', 'sfx', 'library', 'all'],
+            description: 'library=仅全局素材库；默认 all',
+          },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_materials',
+      description:
+        '只读：在 YouTube 或 Bilibili 搜索网络视频素材（不入库）。返回 title/url/platform/external_id/in_library 等，供挑选后再 import_from_library',
+      parameters: {
+        type: 'object',
+        properties: {
+          platform: {
+            type: 'string',
+            enum: ['youtube', 'bilibili'],
+            description: '默认 youtube',
+          },
+          query: { type: 'string', description: '搜索关键词' },
+          limit: { type: 'number', description: '结果数量 1-20，默认 10' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'import_from_library',
+      description:
+        '将全局素材库中的视频加入主轨时间线。asset_id 来自 list_assets(library) 或 search_materials 后下载入库的 id；也可传 url 自动下载再导入（较慢）',
+      parameters: {
+        type: 'object',
+        properties: {
+          asset_id: { type: 'string', description: '素材库 asset id，如 lib-xxx' },
+          url: {
+            type: 'string',
+            description: '可选：YouTube/Bilibili 链接，会先下载到素材库再导入',
           },
         },
       },
@@ -720,6 +759,7 @@ export const BATCH_AUTO_WRITE_TOOLS_FRONTEND = new Set([
 
 export const READ_ONLY_AGENT_TOOLS = new Set([
   'list_assets',
+  'search_materials',
   'verify_subtitle_in_frame',
   'find_block_moments',
   'analyze_block_content',
@@ -729,7 +769,11 @@ export const READ_ONLY_AGENT_TOOLS = new Set([
   'get_overlay_detail',
 ])
 
-export const ASYNC_WRITE_AGENT_TOOLS = new Set(['add_clips_to_timeline', 'detect_silence_trim'])
+export const ASYNC_WRITE_AGENT_TOOLS = new Set([
+  'add_clips_to_timeline',
+  'detect_silence_trim',
+  'import_from_library',
+])
 
 export const DANGEROUS_AGENT_TOOLS = new Set(['remove_block'])
 
@@ -823,6 +867,12 @@ export function formatToolCallSummary(name: string, args: Record<string, unknown
       return `播放头 → ${args.time_sec}s`
     case 'list_assets':
       return `列出素材 (${String(args.category ?? 'all')})`
+    case 'search_materials':
+      return `搜索素材 ${String(args.platform ?? 'youtube')}:「${String(args.query ?? '').slice(0, 24)}」`
+    case 'import_from_library':
+      return args.url
+        ? `下载并导入素材 ${String(args.url).slice(0, 40)}`
+        : `导入素材库 ${args.asset_id ?? ''}`
     case 'verify_subtitle_in_frame':
       return `验证字幕帧 ${args.overlay_id ?? '（自动）'}`
     case 'find_block_moments':

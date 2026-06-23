@@ -12,6 +12,7 @@ import { analyzeBlockContent } from './analyzeBlockContent'
 import { findBlockMoments } from './findBlockMoments'
 import { verifySubtitleInFrame } from './verifySubtitleInFrame'
 import { listAssets } from './listAssets'
+import { resolveLibraryAssetIdFromUrl, searchMaterials } from './materialLibraryTools'
 import {
   parseClipIds,
   resolveDefaultMainTrackAppendIndex,
@@ -204,6 +205,10 @@ export async function executeReadToolCall(
         const data = await listAssets(projectId, session, call.arguments.category)
         return { ok: true, tool_name: call.name, data }
       }
+      case 'search_materials': {
+        const data = await searchMaterials(call.arguments)
+        return { ok: true, tool_name: call.name, data }
+      }
       case 'get_timeline_summary': {
         const snapshot = buildEditorSnapshot({
           session,
@@ -276,6 +281,31 @@ export async function executeWriteToolCall(
             clip_ids: clipIds,
             insert_index: mainInsertIndex,
             sequence_insert_index: insertIndex,
+          },
+        }
+      }
+      case 'import_from_library': {
+        const projectId = options?.projectId?.trim()
+        if (!projectId) {
+          return { ok: false, tool_name: call.name, error: '缺少 projectId，无法导入素材库视频' }
+        }
+        let assetId = str(call.arguments.asset_id).trim()
+        const url = str(call.arguments.url).trim()
+        if (!assetId && url) {
+          assetId = await resolveLibraryAssetIdFromUrl(url)
+        }
+        if (!assetId) {
+          return { ok: false, tool_name: call.name, error: '需要提供 asset_id 或 url' }
+        }
+        const result = await store.importLibraryAsset(projectId, assetId)
+        return {
+          ok: true,
+          tool_name: call.name,
+          data: {
+            asset_id: assetId,
+            block_id: result.block_id,
+            title: result.title,
+            import_method: result.import_method,
           },
         }
       }

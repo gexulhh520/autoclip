@@ -21,6 +21,8 @@ from backend.services.session_clip_pool_service import (
 
 logger = logging.getLogger(__name__)
 
+_LOCAL_VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}
+
 _initialized = False
 
 
@@ -252,6 +254,91 @@ def import_library_asset_to_session(
             title=str(asset_meta["title"]) if asset_meta and asset_meta.get("title") else None,
         )
         return session, block, import_method
+    finally:
+        db.close()
+
+
+def import_local_file_to_library(
+    source_path: str,
+    title: Optional[str] = None,
+) -> Dict[str, Any]:
+    ensure_material_library_initialized()
+    raw = (source_path or "").strip()
+    if not raw:
+        raise ValueError("source_path 不能为空")
+
+    source = Path(raw).expanduser()
+    try:
+        source = source.resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise ValueError(f"视频文件不存在: {raw}") from exc
+    if not source.is_file():
+        raise ValueError("路径不是有效视频文件")
+    if source.stat().st_size <= 0:
+        raise ValueError("视频文件为空")
+
+    suffix = source.suffix.lower()
+    if suffix not in _LOCAL_VIDEO_SUFFIXES:
+        raise ValueError(f"不支持的视频格式: {suffix or '(无扩展名)'}")
+
+    asset_id = f"lib-{uuid.uuid4().hex[:12]}"
+    dest_rel = f"material_library/videos/{asset_id}{suffix}"
+    dest_path = get_data_directory() / dest_rel
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, dest_path)
+
+    entry_title = str(title or source.stem or asset_id).strip()[:255]
+    db = SessionLocal()
+    try:
+        repo = MaterialLibraryRepository(db)
+        asset = repo.create(
+            id=asset_id,
+            title=entry_title,
+            origin=MaterialAssetOrigin.LOCAL_IMPORT,
+            platform="local",
+            external_id=None,
+            source_url=None,
+            video_path=dest_rel,
+            file_size_bytes=dest_path.stat().st_size if dest_path.exists() else None,
+            file_status=MaterialFileStatus.READY,
+        )
+        return asset_to_dict(asset)
+    finally:
+        db.close()
+
+
+def import_local_upload_to_library(
+    file_name: str,
+    content: bytes,
+    title: Optional[str] = None,
+) -> Dict[str, Any]:
+    if not content:
+        raise ValueError("视频文件为空")
+    suffix = Path(file_name).suffix.lower()
+    if suffix not in _LOCAL_VIDEO_SUFFIXES:
+        raise ValueError(f"不支持的视频格式: {suffix or '(无扩展名)'}")
+
+    ensure_material_library_initialized()
+    asset_id = f"lib-{uuid.uuid4().hex[:12]}"
+    dest_rel = f"material_library/videos/{asset_id}{suffix}"
+    dest_path = get_data_directory() / dest_rel
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    dest_path.write_bytes(content)
+
+    entry_title = str(title or Path(file_name).stem or asset_id).strip()[:255]
+    db = SessionLocal()
+    try:
+        repo = MaterialLibraryRepository(db)
+        asset = repo.create(
+            id=asset_id,
+            title=entry_title,
+            origin=MaterialAssetOrigin.LOCAL_IMPORT,
+            platform="local",
+            video_path=dest_rel,
+            file_size_bytes=dest_path.stat().st_size if dest_path.exists() else None,
+            file_status=MaterialFileStatus.READY,
+        )
+        return asset_to_dict(asset)
     finally:
         db.close()
 
