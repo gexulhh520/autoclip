@@ -55,6 +55,27 @@ const session = (sequence: EditBlock[]): EditSession => ({
 })
 
 describe('shiftTimelineElementsAfterVideoInsert', () => {
+  it('does not shift text or audio when first main-track video is imported', () => {
+    const editSession = session([])
+    editSession.sequence = []
+    editSession.audio_elements = [
+      {
+        id: 'audio-1',
+        asset_id: 'asset-1',
+        start_sec: 2,
+        duration_sec: 6,
+      },
+    ]
+    editSession.overlay_elements![0]!.start_sec = 5
+
+    const inserted = block('v1', 10)
+    editSession.sequence.splice(0, 0, inserted)
+
+    expect(shiftTimelineElementsAfterVideoInsert(editSession, 0, 1)).toBe(false)
+    expect(editSession.overlay_elements?.[0]?.start_sec).toBeCloseTo(5, 3)
+    expect(editSession.audio_elements?.[0]?.start_sec).toBeCloseTo(2, 3)
+  })
+
   it('shifts free text at or after insert composition time', () => {
     const editSession = session([block('a', 4), block('b', 3)])
     const inserted = block('x', 2)
