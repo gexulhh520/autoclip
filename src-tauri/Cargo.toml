@@ -24,7 +24,7 @@ autoclip-compositor = { path = "../rust/compositor" }
 autoclip-document = { path = "../rust/document" }
 autoclip-export = { path = "../rust/export" }
 tokio = { version = "1.0", features = ["full"] }
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.11", features = ["json", "blocking"] }
 rfd = "0.15"
 
 [features]

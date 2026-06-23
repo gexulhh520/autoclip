@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader};
-use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -361,19 +360,52 @@ impl BackendManager {
 
                             let status_health = status.clone();
                             let process_health = process.clone();
+                            let app_handle_health = app_handle.clone();
                             thread::spawn(move || {
-                                Self::health_check_loop(status_health, process_health);
+                                Self::health_check_loop(
+                                    status_health,
+                                    process_health,
+                                    app_handle_health,
+                                );
                             });
 
                             emitted_started = true;
                         }
                     }
+                } else if line.starts_with("BACKEND_SERVER_EXITED") {
+                    {
+                        let mut status_guard = status.lock().unwrap();
+                        *status_guard = BackendStatus::default();
+                    }
+                    let _ = app_handle.emit("backend-unhealthy", ());
+                    eprintln!("后端 HTTP 服务已退出，但进程可能仍在运行");
                 }
             }
         }
     }
 
-    fn health_check_loop(status: Arc<Mutex<BackendStatus>>, process: Arc<Mutex<Option<Child>>>) {
+    fn http_health_check(port: u16) -> bool {
+        let url = format!("http://127.0.0.1:{}/health", port);
+        match reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(3))
+            .build()
+        {
+            Ok(client) => client
+                .get(&url)
+                .send()
+                .map(|response| response.status().is_success())
+                .unwrap_or(false),
+            Err(_) => false,
+        }
+    }
+
+    fn health_check_loop(
+        status: Arc<Mutex<BackendStatus>>,
+        process: Arc<Mutex<Option<Child>>>,
+        app_handle: AppHandle,
+    ) {
+        let mut http_failures = 0_u32;
+
         loop {
             thread::sleep(Duration::from_secs(5));
 
@@ -423,9 +455,36 @@ impl BackendManager {
             };
 
             if port > 0 {
-                let addr = SocketAddr::from(([127, 0, 0, 1], port));
-                if TcpStream::connect_timeout(&addr, Duration::from_secs(2)).is_err() {
-                    eprintln!("后端健康检查失败: 端口 {} 不可连接", port);
+                if Self::http_health_check(port) {
+                    http_failures = 0;
+                } else {
+                    http_failures += 1;
+                    eprintln!(
+                        "后端 HTTP 健康检查失败 ({}/3): http://127.0.0.1:{}/health",
+                        http_failures, port
+                    );
+
+                    if http_failures >= 3 {
+                        http_failures = 0;
+                        let _ = app_handle.emit("backend-unhealthy", ());
+
+                        let process_still_alive = {
+                            let mut process_guard = process.lock().unwrap();
+                            if let Some(ref mut child) = process_guard.as_mut() {
+                                matches!(child.try_wait(), Ok(None))
+                            } else {
+                                false
+                            }
+                        };
+
+                        if process_still_alive {
+                            eprintln!("后端进程仍在运行但 API 无响应，尝试自动重启...");
+                            let backend_manager = app_handle.state::<BackendManager>();
+                            if let Err(error) = backend_manager.restart(app_handle.clone()) {
+                                eprintln!("后端自动重启失败: {}", error);
+                            }
+                        }
+                    }
                 }
             }
         }

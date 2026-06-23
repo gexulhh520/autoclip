@@ -2,6 +2,7 @@
 桌面模式主启动文件
 使用统一的 app_factory 创建应用，支持端口自动分配
 """
+import asyncio
 import os
 import sys
 import logging
@@ -41,6 +42,29 @@ os.environ.setdefault("AUTOCLIP_APP_DIR", str(default_app_dir))
 os.environ.setdefault("AUTOCLIP_DATA_DIR", str(data_dir))
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{data_dir / 'autoclip.db'}")
 os.environ.setdefault("LOG_FILE", str(data_dir / "logs" / "backend.log"))
+
+
+def _configure_windows_asyncio() -> None:
+    """Windows 上 Proactor 事件循环处理 RST 连接时可能拖垮 uvicorn，改用 Selector。"""
+    if sys.platform != "win32":
+        return
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
+def _install_connection_reset_safe_handler(loop: asyncio.AbstractEventLoop) -> None:
+    """忽略客户端 abrupt disconnect 触发的已知 asyncio 回调异常。"""
+    default_handler = loop.get_exception_handler()
+
+    def handler(inner_loop: asyncio.AbstractEventLoop, context: dict) -> None:
+        exc = context.get("exception")
+        if isinstance(exc, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)):
+            return
+        if default_handler is not None:
+            default_handler(inner_loop, context)
+        else:
+            inner_loop.default_exception_handler(context)
+
+    loop.set_exception_handler(handler)
 
 
 class DesktopServiceManager:
@@ -84,6 +108,11 @@ class DesktopServiceManager:
         # 使用统一的 app_factory
         app = create_app(mode="desktop")
         
+        @app.on_event("startup")
+        async def configure_asyncio_runtime() -> None:
+            _configure_windows_asyncio()
+            _install_connection_reset_safe_handler(asyncio.get_running_loop())
+
         # 添加桌面专用路由
         @app.get("/desktop/info")
         async def desktop_info():
@@ -139,6 +168,7 @@ class DesktopServiceManager:
     
     def _start_fastapi_server(self):
         """启动FastAPI服务器"""
+        _configure_windows_asyncio()
         try:
             server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -168,15 +198,18 @@ class DesktopServiceManager:
             
             # 运行服务器
             server.run(sockets=[server_socket])
-            
+
         except Exception as e:
             self.logger.error(f"❌ FastAPI 服务器启动失败: {e}")
             print(f"BACKEND_ERROR={e}", flush=True)
-            self.is_running = False
             if getattr(self, "celery_worker_process", None):
                 self.celery_worker_process.terminate()
                 self.celery_worker_process = None
             raise
+        finally:
+            self.is_running = False
+            print("BACKEND_SERVER_EXITED=1", flush=True)
+            self.logger.error("FastAPI 服务线程已退出，API 将不可用")
     
     def start(self):
         """启动所有服务"""
@@ -195,10 +228,11 @@ class DesktopServiceManager:
             
             self.is_running = True
 
-            # 启动FastAPI服务器
+            # 非 daemon：若 HTTP 线程意外退出，主线程能检测到并结束进程
             self.server_thread = threading.Thread(
                 target=self._start_fastapi_server,
-                daemon=True
+                name="autoclip-fastapi",
+                daemon=False,
             )
             self.server_thread.start()
             
@@ -317,6 +351,8 @@ def main():
         print("❌ 此应用仅在桌面模式下运行")
         sys.exit(1)
     
+    _configure_windows_asyncio()
+
     # 获取服务管理器
     manager = get_service_manager()
     config = manager.config
@@ -339,10 +375,19 @@ def main():
         # 启动服务
         manager.start()
         
-        # 保持主线程运行
+        # 保持主线程运行，并监控 FastAPI 线程是否意外退出
         while manager.is_running:
+            if manager.server_thread and not manager.server_thread.is_alive():
+                manager.logger.error("检测到 FastAPI 服务线程意外退出")
+                print("BACKEND_SERVER_EXITED=1", flush=True)
+                manager.is_running = False
+                break
             time.sleep(1)
-            
+
+        if not manager.is_running:
+            manager.stop()
+            sys.exit(1)
+
     except KeyboardInterrupt:
         print("\n🛑 收到中断信号，正在关闭服务...")
         manager.stop()

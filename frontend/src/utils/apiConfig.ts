@@ -154,11 +154,15 @@ class ApiConfigManager {
    * 健康检查
    */
   async healthCheck(): Promise<boolean> {
+    if (!this.config.isReady || this.config.port <= 0) {
+      return false;
+    }
+
     try {
-      const response = await fetch(this.buildUrl('/health'), {
+      const response = await fetch(`http://127.0.0.1:${this.config.port}/health`, {
         method: 'GET',
-        timeout: 5000
-      } as any);
+        signal: AbortSignal.timeout(5000),
+      });
       return response.ok;
     } catch (error) {
       console.warn('API 健康检查失败:', error);
