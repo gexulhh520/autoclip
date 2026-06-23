@@ -8,13 +8,13 @@ import {
   resolveTextTracks,
   sortOverlaysByTrackOrder,
 } from '../textTracks'
+import { resolveEditSessionTimelineDurationSec } from '../timeline/sessionTimelineDuration'
 import {
   blockTimelineStartSec,
   getBlockTrackId,
   mapOverlayBlockToRelativeSource,
   resolveMainTrackBlocks,
   resolveOverlayVideoBlocks,
-  resolveVideoTrackMaxEndSec,
   resolveVideoTracks,
 } from '../videoTracks'
 import { blockDuration, blockPlaybackRate } from '../../utils/editTimeline'
@@ -179,8 +179,7 @@ export function resolveSceneAt(
     transitionDurationSec,
     session.sequence_block_gaps
   )
-  const overlayMaxSec = resolveVideoTrackMaxEndSec(session)
-  const totalDurationSec = Math.max(timeline.totalDurationSec, overlayMaxSec)
+  const totalDurationSec = resolveEditSessionTimelineDurationSec(session)
   const canvas = buildCanvas(session, sourceSize)
   const clampedTime = Math.max(0, Math.min(totalDurationSec, timeSec))
 

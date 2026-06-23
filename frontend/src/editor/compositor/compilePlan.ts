@@ -7,7 +7,6 @@ import {
   blockTimelineStartSec,
   resolveMainTrackBlocks,
   resolveOverlayVideoBlocks,
-  resolveVideoTrackMaxEndSec,
   resolveVideoTracks,
 } from '../videoTracks'
 import {
@@ -19,6 +18,7 @@ import { readStringParam } from '../opencut-text/params'
 import type { OpenCutTextOverlay } from '../opencut-text/params'
 import { compileExportPlan } from '../scene/sceneBuilder'
 import { buildCompositionTimeline } from '../scene/timelineLayout'
+import { resolveEditSessionTimelineDurationSec } from '../timeline/sessionTimelineDuration'
 import { resolveOutputCanvas } from './geometry'
 import { getPersistedTemplateCaptionBlockIds, blockHasTemplateCaption } from '../migration/templateCaptionOverlays'
 import {
@@ -199,7 +199,7 @@ export function compileCompositionPlan(
       fps: exportPlan.canvas.fps,
     },
     timeline,
-    totalDurationSec: Math.max(timeline.totalDurationSec, resolveVideoTrackMaxEndSec(session)),
+    totalDurationSec: resolveEditSessionTimelineDurationSec(session),
     transitionDurationSec,
     layers,
     templateCaptions,

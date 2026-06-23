@@ -8,15 +8,16 @@ import { getBlockVideoUrlForPreview, resolveBlockMediaTimeSec } from '../../util
 import { useEditSessionStore } from '../../stores/useEditSessionStore'
 import {
   formatTimecode,
-  getCompositionTotalDuration,
   buildCompositionTimelineSegments,
   resolveCompositionPlayhead,
   blockTimelineVisualStartSec,
 } from '../../utils/editTimeline'
 import {
+  hasEditSessionPreviewContent,
+  resolveEditSessionTimelineDurationSec,
+} from '../../editor/timeline/sessionTimelineDuration'
+import {
   resolveMainTrackBlocks,
-  resolveOverlayVideoBlocks,
-  resolveVideoTrackMaxEndSec,
 } from '../../editor/videoTracks'
 import { resolveCanvasAspectRatio } from '../../utils/editAspectRatios'
 import { formatExportSettingsSummary } from '../../utils/editExportSummary'
@@ -115,24 +116,18 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     () => (session ? resolveMainTrackBlocks(session) : []),
     [session]
   )
-  const hasTimelineVideo = useMemo(
-    () =>
-      mainBlocksForPreview.length > 0 ||
-      (session ? resolveOverlayVideoBlocks(session).length > 0 : false),
-    [mainBlocksForPreview, session]
-  )
   const transitionDurationSec = session?.audio_settings?.transition_duration_sec ?? 0.35
   const useSourcePreview = session?.audio_settings?.use_source_video ?? false
 
   const totalDuration = useMemo(() => {
     if (!session) return 0
-    const mainDuration = getCompositionTotalDuration(
-      resolveMainTrackBlocks(session),
-      transitionDurationSec,
-      session.sequence_block_gaps
-    )
-    return Math.max(mainDuration, resolveVideoTrackMaxEndSec(session))
-  }, [session, transitionDurationSec])
+    return resolveEditSessionTimelineDurationSec(session)
+  }, [session])
+
+  const hasTimelineContent = useMemo(
+    () => (session ? hasEditSessionPreviewContent(session) : false),
+    [session]
+  )
 
   const sceneBuilderInput = useMemo(
     () =>
@@ -201,8 +196,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
 
   const hasTimelineAudio = (session?.audio_elements?.length ?? 0) > 0
   const primaryVideoLayer = previewVm?.videoLayers[0] ?? null
-  const showCompositorPreview =
-    Boolean(session && sceneBuilderInput && (primaryVideoLayer || hasTimelineVideo))
+  const showCompositorPreview = Boolean(session && sceneBuilderInput && hasTimelineContent)
 
   useTimelineAudioPlayback({
     projectId,
@@ -305,9 +299,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     await frame.requestFullscreen()
   }
 
-  const canPreview = shouldUseAssetPreview
-    ? Boolean(assetVideoUrl)
-    : Boolean(primaryVideoLayer || hasTimelineVideo)
+  const canPreview = shouldUseAssetPreview ? Boolean(assetVideoUrl) : hasTimelineContent
   const displayCurrentSec = shouldUseAssetPreview ? assetPreviewTimeSec : sequencePlayheadSec
   const displayTotalSec = shouldUseAssetPreview ? assetPreviewDurationSec : totalDuration
 
