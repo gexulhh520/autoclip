@@ -355,6 +355,11 @@ class EditSessionImportMediaPathRequest(BaseModel):
     insert_index: Optional[int] = None
 
 
+class EditSessionImportLibraryAssetRequest(BaseModel):
+    asset_id: str = Field(min_length=1, description="全局素材库 asset id")
+    insert_index: Optional[int] = None
+
+
 class EditSessionImportBgmUrlRequest(BaseModel):
     url: str = Field(min_length=1)
     platform: Optional[str] = None

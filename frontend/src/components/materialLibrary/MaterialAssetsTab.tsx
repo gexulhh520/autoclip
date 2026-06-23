@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { Input, Modal, Pagination, message } from 'antd'
-import { DeleteOutlined, SearchOutlined } from '@ant-design/icons'
+import { DeleteOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
+import editApi from '../../services/editApi'
 import libraryApi, { type LibraryAsset } from '../../services/libraryApi'
+import { formatVideoImportSuccessMessage } from '../../utils/videoImportMessage'
 
 const formatDuration = (seconds?: number | null): string => {
   if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return '--:--'
@@ -10,9 +13,16 @@ const formatDuration = (seconds?: number | null): string => {
   return `${mins}:${String(secs).padStart(2, '0')}`
 }
 
-const MaterialAssetsTab: React.FC = () => {
+interface MaterialAssetsTabProps {
+  projectId?: string | null
+  sessionId?: string | null
+}
+
+const MaterialAssetsTab: React.FC<MaterialAssetsTabProps> = ({ projectId, sessionId }) => {
+  const navigate = useNavigate()
   const [assets, setAssets] = useState<LibraryAsset[]>([])
   const [loading, setLoading] = useState(true)
+  const [importingId, setImportingId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const [page, setPage] = useState(1)
@@ -64,8 +74,36 @@ const MaterialAssetsTab: React.FC = () => {
     })
   }
 
+  const canImportToEditor = Boolean(projectId && sessionId)
+
+  const handleImportToEditor = async (asset: LibraryAsset) => {
+    if (!projectId || !sessionId) return
+    setImportingId(asset.id)
+    try {
+      const result = await editApi.importLibraryAsset(projectId, sessionId, asset.id)
+      message.success(formatVideoImportSuccessMessage(result.title || asset.title, result.import_method))
+      navigate(`/project/${projectId}/edit/${sessionId}`)
+    } catch (error: unknown) {
+      message.error(error instanceof Error ? error.message : '加入剪辑失败')
+    } finally {
+      setImportingId(null)
+    }
+  }
+
   return (
     <div className="material-library-tab">
+      {canImportToEditor ? (
+        <div className="material-library-return-banner">
+          正在向当前剪辑草稿添加素材。
+          <button
+            type="button"
+            className="material-library-link-btn"
+            onClick={() => navigate(`/project/${projectId}/edit/${sessionId}`)}
+          >
+            返回编辑器
+          </button>
+        </div>
+      ) : null}
       <div className="material-library-toolbar">
         <Input
           allowClear
@@ -129,6 +167,16 @@ const MaterialAssetsTab: React.FC = () => {
                       : ''}
                   </div>
                 </div>
+                {canImportToEditor ? (
+                  <button
+                    type="button"
+                    className="material-library-card__import"
+                    disabled={importingId === asset.id}
+                    onClick={() => void handleImportToEditor(asset)}
+                  >
+                    <PlusOutlined /> {importingId === asset.id ? '加入中…' : '加入剪辑'}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="material-library-card__delete"

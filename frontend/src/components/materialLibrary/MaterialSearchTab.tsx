@@ -22,8 +22,29 @@ const MaterialSearchTab: React.FC<MaterialSearchTabProps> = ({ onDownloadStarted
   const [results, setResults] = useState<MaterialSearchResult[]>([])
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
   const [searchedQuery, setSearchedQuery] = useState('')
+  const [urlInput, setUrlInput] = useState('')
+  const [urlDownloading, setUrlDownloading] = useState(false)
 
   const resultKey = (item: MaterialSearchResult) => `${item.platform}:${item.url}`
+
+  const handleDownloadUrl = async () => {
+    const trimmed = urlInput.trim()
+    if (!trimmed) {
+      message.warning('请粘贴视频链接')
+      return
+    }
+    setUrlDownloading(true)
+    try {
+      const tasks = await libraryApi.downloadFromUrl(trimmed)
+      message.success(`已加入下载队列（${tasks.length} 条）`)
+      setUrlInput('')
+      onDownloadStarted()
+    } catch (error: unknown) {
+      message.error(error instanceof Error ? error.message : '下载任务创建失败')
+    } finally {
+      setUrlDownloading(false)
+    }
+  }
 
   const handleSearch = async () => {
     const trimmed = query.trim()
@@ -101,6 +122,28 @@ const MaterialSearchTab: React.FC<MaterialSearchTabProps> = ({ onDownloadStarted
 
   return (
     <div className="material-library-tab">
+      <div className="material-library-url-box">
+        <div className="material-library-url-box__title">粘贴链接下载</div>
+        <div className="material-library-toolbar material-library-toolbar--search">
+          <Input
+            placeholder="粘贴 YouTube 或 Bilibili 视频链接"
+            value={urlInput}
+            onChange={(event) => setUrlInput(event.target.value)}
+            onPressEnter={() => void handleDownloadUrl()}
+            className="material-library-toolbar__search"
+          />
+          <button
+            type="button"
+            className="material-library-btn material-library-btn--primary"
+            disabled={urlDownloading}
+            onClick={() => void handleDownloadUrl()}
+          >
+            {urlDownloading ? '提交中…' : '下载到素材库'}
+          </button>
+        </div>
+      </div>
+
+      <div className="material-library-section-label">关键词搜索</div>
       <div className="material-library-toolbar material-library-toolbar--search">
         <Select
           value={platform}

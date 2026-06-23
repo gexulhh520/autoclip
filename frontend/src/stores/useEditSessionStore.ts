@@ -355,6 +355,7 @@ interface EditSessionState {
   ) => Promise<number>
   importMedia: (projectId: string, file: File) => Promise<import('../types/editSession').EditSessionImportMediaResponse>
   importMediaFromPath: (projectId: string, sourcePath: string) => Promise<import('../types/editSession').EditSessionImportMediaResponse>
+  importLibraryAsset: (projectId: string, assetId: string) => Promise<import('../types/editSession').EditSessionImportMediaResponse>
   applyImportedBlockNaturalDuration: (blockId: string, durationSec: number) => void
   copySelection: () => void
   pasteSelection: (options?: { startSec?: number; insertAfterBlockId?: string }) => void
@@ -1384,6 +1385,29 @@ export const useEditSessionStore = create<EditSessionState>()(
           set({
             saving: false,
             error: error instanceof Error ? error.message : '导入视频失败',
+          })
+          throw error
+        }
+      },
+
+      importLibraryAsset: async (projectId, assetId) => {
+        const { session, sequencePlayheadSec } = get()
+        if (!session) throw new Error('无剪辑工程')
+        const insertIndex = resolvePlayheadInsertIndex(session, sequencePlayheadSec)
+        set({ saving: true, error: null })
+        try {
+          const result = await editApi.importLibraryAsset(projectId, session.id, assetId, {
+            insertIndex,
+          })
+          set({
+            saving: false,
+            ...buildStateAfterImportMedia(result, insertIndex),
+          })
+          return result
+        } catch (error: unknown) {
+          set({
+            saving: false,
+            error: error instanceof Error ? error.message : '导入素材失败',
           })
           throw error
         }

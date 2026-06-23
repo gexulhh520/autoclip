@@ -226,6 +226,36 @@ def promote_session_clip_to_library(
         db.close()
 
 
+def import_library_asset_to_session(
+    project_id: str,
+    session_id: str,
+    asset_id: str,
+    *,
+    insert_index: Optional[int] = None,
+):
+    from backend.services.edit_session_service import EditSessionService
+
+    path = resolve_library_video_path(asset_id)
+    if path is None:
+        raise ValueError(f"素材不存在或文件缺失: {asset_id}")
+
+    asset_meta = get_library_asset(asset_id)
+
+    db = SessionLocal()
+    try:
+        service = EditSessionService(db)
+        session, block, import_method = service.import_media_from_path(
+            project_id,
+            session_id,
+            str(path.resolve()),
+            insert_index=insert_index,
+            title=str(asset_meta["title"]) if asset_meta and asset_meta.get("title") else None,
+        )
+        return session, block, import_method
+    finally:
+        db.close()
+
+
 def delete_library_asset(asset_id: str) -> None:
     ensure_material_library_initialized()
     db = SessionLocal()

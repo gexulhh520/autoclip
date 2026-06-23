@@ -952,6 +952,7 @@ class EditSessionService:
         source_path: str,
         *,
         insert_index: Optional[int] = None,
+        title: Optional[str] = None,
     ) -> tuple[EditSession, EditBlock, str]:
         raw = (source_path or "").strip()
         if not raw:
@@ -992,7 +993,7 @@ class EditSessionService:
             project_dir,
             media_file,
             import_id=import_id,
-            title=source.stem,
+            title=(title or source.stem)[:255],
             insert_index=insert_index,
             defer_duration_probe=True,
         )

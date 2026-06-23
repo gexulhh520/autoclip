@@ -83,6 +83,43 @@ def _download_thumbnail(thumb_url: Optional[str], dest: Path) -> Optional[str]:
         return None
 
 
+def create_download_from_url(
+    url: str,
+    *,
+    browser: Optional[str] = None,
+) -> List[dict]:
+    raw_url = (url or "").strip()
+    if not raw_url:
+        raise ValueError("链接不能为空")
+
+    platform = _detect_platform_from_url(raw_url)
+    if platform is None:
+        raise ValueError("暂不支持该链接，目前仅支持 YouTube 与 Bilibili")
+
+    info = ytdlp_core.extract_info(raw_url, browser=browser)
+    item = ytdlp_core.normalize_search_entry(platform, info)
+    if item is None:
+        item = {
+            "platform": platform,
+            "external_id": info.get("id"),
+            "title": info.get("title") or raw_url,
+            "url": info.get("webpage_url") or raw_url,
+            "thumbnail": info.get("thumbnail"),
+            "duration_sec": info.get("duration"),
+            "uploader": info.get("uploader"),
+        }
+    return create_download_tasks([item], browser=browser)
+
+
+def _detect_platform_from_url(url: str) -> Optional[str]:
+    lower = url.lower()
+    if "youtube.com" in lower or "youtu.be" in lower:
+        return "youtube"
+    if "bilibili.com" in lower:
+        return "bilibili"
+    return None
+
+
 def create_download_tasks(
     items: List[dict],
     *,

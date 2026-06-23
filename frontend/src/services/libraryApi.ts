@@ -102,6 +102,13 @@ export const libraryApi = {
     return Array.isArray(response.items) ? response.items : []
   },
 
+  downloadFromUrl: async (url: string, browser?: string | null): Promise<MaterialDownloadTask[]> => {
+    const response = (await api.post('/library/downloads/from-url', { url, browser })) as {
+      items: MaterialDownloadTask[]
+    }
+    return Array.isArray(response.items) ? response.items : []
+  },
+
   createDownloads: async (body: {
     items: Array<{
       platform: string

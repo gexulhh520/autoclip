@@ -30,6 +30,7 @@ from backend.schemas.edit_session import (
     EditSessionExportResponse,
     EditSessionImportMediaResponse,
     EditSessionImportMediaPathRequest,
+    EditSessionImportLibraryAssetRequest,
     EditSessionBlockMediaProbeResponse,
     EditSessionImportBgmUrlRequest,
     EditSessionListResponse,
@@ -899,6 +900,40 @@ async def import_edit_session_media_path(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("路径导入视频失败: %s/%s", project_id, session_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/import-library-asset",
+    response_model=EditSessionImportMediaResponse,
+)
+async def import_edit_session_library_asset(
+    project_id: str,
+    session_id: str,
+    body: EditSessionImportLibraryAssetRequest,
+):
+    from backend.services.material_library_service import import_library_asset_to_session
+
+    try:
+        session, block, import_method = import_library_asset_to_session(
+            project_id,
+            session_id,
+            body.asset_id,
+            insert_index=body.insert_index,
+        )
+        return EditSessionImportMediaResponse(
+            session=session,
+            block_id=block.id,
+            title=block.title,
+            duration_sec=block.duration_sec,
+            import_method=import_method,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("从素材库导入失败: %s/%s asset=%s", project_id, session_id, body.asset_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

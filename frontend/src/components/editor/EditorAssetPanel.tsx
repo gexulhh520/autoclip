@@ -24,6 +24,7 @@ import { isTauriApp } from '../../utils/desktopMode'
 import { useAgentPanelStore } from '../../stores/useAgentPanelStore'
 import editApi from '../../services/editApi'
 import { formatVideoImportSuccessMessage } from '../../utils/videoImportMessage'
+import GlobalLibraryAssetsSection from './GlobalLibraryAssetsSection'
 
 const VIDEO_IMPORT_EXTENSIONS = ['mp4', 'mov', 'mkv', 'webm', 'm4v', 'avi']
 
@@ -463,6 +464,8 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
           )}
         </div>
       )}
+
+      <GlobalLibraryAssetsSection projectId={projectId} />
     </OpenCutPanelView>
   )
 

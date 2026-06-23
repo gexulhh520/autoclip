@@ -21,6 +21,8 @@ const parseTab = (value: string | null): MaterialLibraryTab => {
 const MaterialLibraryPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams()
   const activeTab = parseTab(searchParams.get('tab'))
+  const editorProjectId = searchParams.get('projectId')
+  const editorSessionId = searchParams.get('sessionId')
   const [downloadRefreshNonce, setDownloadRefreshNonce] = useState(0)
   const [activeDownloadCount, setActiveDownloadCount] = useState(0)
 
@@ -64,8 +66,8 @@ const MaterialLibraryPage: React.FC = () => {
     if (activeTab === 'downloads') {
       return <MaterialDownloadsTab refreshNonce={downloadRefreshNonce} />
     }
-    return <MaterialAssetsTab />
-  }, [activeTab, downloadRefreshNonce, handleDownloadStarted])
+    return <MaterialAssetsTab projectId={editorProjectId} sessionId={editorSessionId} />
+  }, [activeTab, downloadRefreshNonce, handleDownloadStarted, editorProjectId, editorSessionId])
 
   return (
     <div className="desktop-page">

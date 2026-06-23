@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from backend.services.material_download_service import (
     cancel_download_task,
     count_active_downloads,
+    create_download_from_url,
     create_download_tasks,
     delete_download_task,
     get_download_task,
@@ -52,6 +53,11 @@ class MaterialDownloadItem(BaseModel):
 class MaterialDownloadCreateRequest(BaseModel):
     items: List[MaterialDownloadItem]
     search_query: Optional[str] = None
+    browser: Optional[str] = None
+
+
+class MaterialDownloadFromUrlRequest(BaseModel):
+    url: str = Field(..., min_length=1)
     browser: Optional[str] = None
 
 
@@ -153,6 +159,24 @@ async def create_material_download_tasks(body: MaterialDownloadCreateRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("创建素材下载任务失败")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/downloads/from-url")
+async def create_material_download_from_url(body: MaterialDownloadFromUrlRequest):
+    try:
+        loop = asyncio.get_event_loop()
+        tasks = await loop.run_in_executor(
+            None,
+            lambda: create_download_from_url(body.url, browser=body.browser),
+        )
+        if not tasks:
+            raise HTTPException(status_code=400, detail="没有可创建的下载任务（可能已在库中或队列中）")
+        return {"items": tasks}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("从链接创建素材下载任务失败")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
