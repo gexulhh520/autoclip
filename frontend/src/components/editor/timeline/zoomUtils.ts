@@ -41,3 +41,15 @@ export function timeToPx(timeSec: number, zoomLevel: number): number {
 export function pxToTime(px: number, zoomLevel: number): number {
   return px / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
 }
+
+/** 缩放后将 scrollLeft 设为播放头居中（clamp 到合法范围） */
+export function getScrollLeftToCenterPlayhead(
+  playheadSec: number,
+  zoomLevel: number,
+  viewportWidth: number,
+  maxScrollLeft: number
+): number {
+  const playheadPx = timeToPx(playheadSec, zoomLevel)
+  const centered = playheadPx - viewportWidth / 2
+  return Math.max(0, Math.min(maxScrollLeft, centered))
+}

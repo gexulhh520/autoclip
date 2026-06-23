@@ -9,7 +9,7 @@ import {
 } from 'react'
 import { readTimelineZoomLevel, writeTimelineZoomLevel } from '../../../../utils/timelineZoomPrefs'
 import { TIMELINE_CONSTANTS } from '../constants'
-import { zoomToSlider } from '../zoomUtils'
+import { getScrollLeftToCenterPlayhead } from '../zoomUtils'
 
 interface UseTimelineZoomOptions {
   containerRef: RefObject<HTMLDivElement | null>
@@ -46,21 +46,11 @@ export function useTimelineZoom({
     clampZoomLevel(readPersistedZoom(persistenceKey) ?? initialZoom ?? 1, minZoom)
   )
   const previousZoomRef = useRef(zoomLevel)
-  const preZoomScrollLeftRef = useRef(0)
   const skipPersistRef = useRef(true)
-
-  const setZoomLevel = useCallback(
-    (updater: number | ((prev: number) => number)) => {
-      const scrollElement = tracksScrollRef.current
-      if (scrollElement) preZoomScrollLeftRef.current = scrollElement.scrollLeft
-      setZoomLevelRaw(updater)
-    },
-    [tracksScrollRef]
-  )
 
   const wrappedSetZoomLevel = useCallback(
     (zoomLevelOrUpdater: number | ((prev: number) => number)) => {
-      setZoomLevel((prev) => {
+      setZoomLevelRaw((prev) => {
         const nextZoom =
           typeof zoomLevelOrUpdater === 'function'
             ? zoomLevelOrUpdater(prev)
@@ -68,7 +58,7 @@ export function useTimelineZoom({
         return clampZoomLevel(nextZoom, minZoom)
       })
     },
-    [minZoom, setZoomLevel]
+    [minZoom]
   )
 
   const handleWheel = useCallback(
@@ -115,20 +105,15 @@ export function useTimelineZoom({
       return
     }
 
-    const currentScrollLeft = preZoomScrollLeftRef.current
-    const sliderPercent = zoomToSlider(zoomLevel, minZoom)
-    if (sliderPercent >= TIMELINE_CONSTANTS.ZOOM_ANCHOR_PLAYHEAD_THRESHOLD) {
-      const playheadPixelsBefore =
-        playheadSec * TIMELINE_CONSTANTS.PIXELS_PER_SECOND * previousZoom
-      const playheadPixelsAfter =
-        playheadSec * TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel
-      const viewportOffset = playheadPixelsBefore - currentScrollLeft
-      const newScrollLeft = playheadPixelsAfter - viewportOffset
-      const maxScrollLeft = scrollElement.scrollWidth - scrollElement.clientWidth
-      scrollElement.scrollLeft = Math.max(0, Math.min(maxScrollLeft, newScrollLeft))
-    }
+    const maxScrollLeft = scrollElement.scrollWidth - scrollElement.clientWidth
+    scrollElement.scrollLeft = getScrollLeftToCenterPlayhead(
+      playheadSec,
+      zoomLevel,
+      scrollElement.clientWidth,
+      maxScrollLeft
+    )
     previousZoomRef.current = zoomLevel
-  }, [zoomLevel, minZoom, playheadSec, tracksScrollRef])
+  }, [zoomLevel, playheadSec, tracksScrollRef])
 
   useEffect(() => {
     const preventZoom = (event: WheelEvent) => {
