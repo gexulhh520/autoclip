@@ -127,6 +127,8 @@ export interface CompositorPreviewProps {
 const PLAYBACK_END_EPSILON_SEC = 0.02
 
 const PLAYBACK_SEEK_DRIFT_SEC = 0.35
+/** 转场播放时略收紧 drift，但勿每帧 seek（会导致解码器无法出帧 → 灰屏） */
+const CROSS_PLAYBACK_SEEK_DRIFT_SEC = 0.12
 
 function paintAfterVideoSync(
   videos: HTMLVideoElement[],
@@ -349,8 +351,12 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         !warmupSeekReadyRef.current.has(warmupBlock.id) ||
         Math.abs(video.currentTime - target) > 0.08
       if (needsSeek && !video.seeking) {
+        const onSeeked = () => {
+          warmupSeekReadyRef.current.add(warmupBlock.id)
+          video.pause()
+        }
+        video.addEventListener('seeked', onSeeked, { once: true })
         video.currentTime = target
-        warmupSeekReadyRef.current.add(warmupBlock.id)
       }
       video.pause()
 
@@ -438,11 +444,13 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         skipSeek?: boolean
         audioMuted?: boolean
         inDissolve?: boolean
+        forceTransitionSeek?: boolean
       }
     ) => {
       const skipSeek = options?.skipSeek ?? false
       const audioMuted = options?.audioMuted ?? true
       const inDissolve = options?.inDissolve ?? false
+      const forceTransitionSeek = options?.forceTransitionSeek ?? false
 
       if (!video || !layer) {
         if (video && !layer) {
@@ -461,8 +469,9 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       video.playbackRate = Math.max(0.25, Math.min(4, layer.playbackRate || 1))
 
       const drift = Math.abs(video.currentTime - target)
-      const mustSeek =
-        forceSeek || rebinding || inDissolve || drift > PLAYBACK_SEEK_DRIFT_SEC
+      const driftThreshold =
+        inDissolve && isPlaying ? CROSS_PLAYBACK_SEEK_DRIFT_SEC : PLAYBACK_SEEK_DRIFT_SEC
+      const mustSeek = forceSeek || rebinding || forceTransitionSeek || drift > driftThreshold
       let didSeek = false
       if (isPlaying) {
         if (!skipSeek && mustSeek) {
@@ -490,7 +499,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       vmLayers: PreviewVideoLayerProps[],
       forceSeek: boolean,
       inDissolve: boolean,
-      warmupBlock?: EditBlock | null
+      warmupBlock?: EditBlock | null,
+      forceTransitionSeek = false
     ) => {
       const pool = getDecoderPool()
       if (!pool) return false
@@ -518,6 +528,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
           syncVideoElement(video, layer, forceSeek, {
             audioMuted,
             inDissolve,
+            forceTransitionSeek,
           })
         ) {
           anySeek = true
@@ -603,8 +614,17 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
       const { vm } = resolveSceneVm(compositionSec)
       const warmupBlock = resolveWarmupBlock(compositionSec, vm.videoLayers)
+      const exitingCross = wasInCrossRef.current && !vm.inDissolve
+      const enteringCross = !wasInCrossRef.current && vm.inDissolve
       wasInCrossRef.current = vm.inDissolve
-      const anySeek = syncVideosFromVm(vm.videoLayers, forceSeek, vm.inDissolve, warmupBlock)
+      const forceTransitionSeek = exitingCross || enteringCross
+      const anySeek = syncVideosFromVm(
+        vm.videoLayers,
+        forceSeek || forceTransitionSeek,
+        vm.inDissolve,
+        warmupBlock,
+        forceTransitionSeek
+      )
       const warmupLayers: PreviewVideoLayerProps[] = warmupBlock
         ? [
             {
@@ -633,8 +653,14 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         if (!descriptor) return
 
         const videos = collectVideosForLayers(vm.videoLayers)
+        const needsFrameCacheFallback =
+          isPlaying &&
+          vm.videoLayers.some((layer) => {
+            const video = videos.get(layer.block.id)
+            return video != null && video.readyState < 2
+          })
         const videoFrameCaches = isPlaying
-          ? vm.inDissolve
+          ? vm.inDissolve || exitingCross || needsFrameCacheFallback
             ? buildCrossFrameCaches(vm.videoLayers)
             : undefined
           : buildPausedFrameCaches(vm.videoLayers)
@@ -654,7 +680,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
       renderCanvas()
 
-      if (anySeek) {
+      if (anySeek || (forceTransitionSeek && isPlaying)) {
         paintAfterVideoSync(
           [...collectVideosForLayers(vm.videoLayers).values()],
           () => {
