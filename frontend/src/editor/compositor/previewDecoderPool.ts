@@ -1,11 +1,11 @@
-import type { EditBlock } from '../../types/editSession'
+import type { EditBlock, EditSession } from '../../types/editSession'
 import { ensureDecoderBound, resolvePreviewDecoderKey } from './previewDecoderBinding'
 import { ensurePreviewVideoFrameCache } from './previewVideoFrameCache'
 
 const MAX_RETAINED_DECODERS = 8
 
 export interface PreviewDecoderPool {
-  ensureForBlock(block: EditBlock): HTMLVideoElement
+  ensureForBlock(block: EditBlock, session?: EditSession | null): HTMLVideoElement
   get(blockId: string): HTMLVideoElement | null
   getFrameCache(blockId: string): HTMLCanvasElement
   touch(blockId: string): void
@@ -67,8 +67,8 @@ export function createPreviewDecoderPool(
   }
 
   return {
-    ensureForBlock(block: EditBlock): HTMLVideoElement {
-      const storageKey = resolvePreviewDecoderKey(block)
+    ensureForBlock(block: EditBlock, session?: EditSession | null): HTMLVideoElement {
+      const storageKey = resolvePreviewDecoderKey(block, session)
       blockToStorageKey.set(block.id, storageKey)
       return ensureStorage(storageKey, block.id)
     },
@@ -135,9 +135,10 @@ export function createPreviewDecoderPool(
 export function bindPreviewDecoder(
   pool: PreviewDecoderPool,
   block: EditBlock,
-  getVideoUrlForBlock: (block: EditBlock) => string
+  getVideoUrlForBlock: (block: EditBlock) => string,
+  session?: EditSession | null
 ): HTMLVideoElement {
-  const video = pool.ensureForBlock(block)
-  ensureDecoderBound(video, block, getVideoUrlForBlock)
+  const video = pool.ensureForBlock(block, session)
+  ensureDecoderBound(video, block, getVideoUrlForBlock, session)
   return video
 }

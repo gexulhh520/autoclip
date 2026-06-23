@@ -329,7 +329,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     (warmupBlock: EditBlock | null, pool: PreviewDecoderPool | null) => {
       if (!warmupBlock || !pool) return [] as PreviewVideoLayerProps[]
 
-      const video = bindPreviewDecoder(pool, warmupBlock, getVideoUrlForBlock)
+      const video = bindPreviewDecoder(pool, warmupBlock, getVideoUrlForBlock, session)
       const warmupLayer: PreviewVideoLayerProps = {
         block: warmupBlock,
         relativeSourceSec: 0,
@@ -341,6 +341,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       video.muted = true
       video.volume = 0
       const target = getSourceTimeForBlock(warmupBlock, 0)
+      ensureDecoderPreloadForTargetTime(video, target)
       const needsSeek =
         !warmupSeekReadyRef.current.has(warmupBlock.id) ||
         Math.abs(video.currentTime - target) > 0.08
@@ -352,7 +353,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
       return [warmupLayer]
     },
-    [getVideoUrlForBlock, getSourceTimeForBlock]
+    [getVideoUrlForBlock, getSourceTimeForBlock, session]
   )
 
   const prewarmDecodersAtPlayhead = useCallback(
@@ -366,7 +367,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       prewarmBlockIdsRef.current = new Set(targets.map((target) => target.block.id))
 
       for (const { block, relativeSourceSec } of targets) {
-        const video = bindPreviewDecoder(pool, block, getVideoUrlForBlock)
+        const video = bindPreviewDecoder(pool, block, getVideoUrlForBlock, session)
         video.muted = true
         video.volume = 0
         const target = getSourceTimeForBlock(block, relativeSourceSec)
@@ -430,9 +431,16 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       video: HTMLVideoElement | null,
       layer: PreviewVideoLayerProps | null,
       forceSeek: boolean,
-      skipSeekBlockIds?: Set<string>,
-      audioMuted = true
+      options?: {
+        skipSeek?: boolean
+        audioMuted?: boolean
+        inDissolve?: boolean
+      }
     ) => {
+      const skipSeek = options?.skipSeek ?? false
+      const audioMuted = options?.audioMuted ?? true
+      const inDissolve = options?.inDissolve ?? false
+
       if (!video || !layer) {
         if (video && !layer) {
           video.pause()
@@ -441,10 +449,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         return false
       }
 
-      const blockId = layer.block.id
       const target = getSourceTimeForBlock(layer.block, layer.relativeSourceSec)
-      const skipSeek = skipSeekBlockIds?.has(blockId) ?? false
-      const rebinding = ensureDecoderBound(video, layer.block, getVideoUrlForBlock)
+      const rebinding = ensureDecoderBound(video, layer.block, getVideoUrlForBlock, session)
       ensureDecoderPreloadForTargetTime(video, target)
 
       video.muted = audioMuted
@@ -452,9 +458,11 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       video.playbackRate = Math.max(0.25, Math.min(4, layer.playbackRate || 1))
 
       const drift = Math.abs(video.currentTime - target)
+      const mustSeek =
+        forceSeek || rebinding || inDissolve || drift > PLAYBACK_SEEK_DRIFT_SEC
       let didSeek = false
       if (isPlaying) {
-        if (!skipSeek && (forceSeek || rebinding || drift > PLAYBACK_SEEK_DRIFT_SEC)) {
+        if (!skipSeek && mustSeek) {
           didSeek = seekVideoToTarget(video, target, { play: true, forceSeek: true })
         } else {
           void video.play().catch(() => undefined)
@@ -462,7 +470,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         return didSeek
       }
 
-      if (forceSeek || Math.abs(video.currentTime - target) > PAUSED_SEEK_THRESHOLD_SEC || rebinding) {
+      if (mustSeek || Math.abs(video.currentTime - target) > PAUSED_SEEK_THRESHOLD_SEC) {
         if (Math.abs(video.currentTime - target) > 0.001 || rebinding) {
           video.currentTime = target
           didSeek = true
@@ -471,14 +479,14 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       video.pause()
       return didSeek
     },
-    [getSourceTimeForBlock, getVideoUrlForBlock, isPlaying]
+    [getSourceTimeForBlock, getVideoUrlForBlock, isPlaying, session]
   )
 
   const syncVideosFromVm = useCallback(
     (
       vmLayers: PreviewVideoLayerProps[],
       forceSeek: boolean,
-      skipSeekBlockIds?: Set<string>,
+      inDissolve: boolean,
       warmupBlock?: EditBlock | null
     ) => {
       const pool = getDecoderPool()
@@ -500,10 +508,14 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       const warmupId = warmupBlock?.id ?? null
 
       for (const layer of vmLayers) {
-        const video = bindPreviewDecoder(pool, layer.block, getVideoUrlForBlock)
-        const audioMuted = clipAudioMuted || layer.block.id !== audioBlockId || layer.block.id === warmupId
+        const video = bindPreviewDecoder(pool, layer.block, getVideoUrlForBlock, session)
+        const audioMuted =
+          clipAudioMuted || layer.block.id !== audioBlockId || layer.block.id === warmupId
         if (
-          syncVideoElement(video, layer, forceSeek, skipSeekBlockIds, audioMuted)
+          syncVideoElement(video, layer, forceSeek, {
+            audioMuted,
+            inDissolve,
+          })
         ) {
           anySeek = true
         }
@@ -515,7 +527,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
       return anySeek
     },
-    [clipAudioMuted, getDecoderPool, syncVideoElement, syncWarmupDecoder]
+    [clipAudioMuted, getDecoderPool, getVideoUrlForBlock, session, syncVideoElement, syncWarmupDecoder]
   )
 
   const refreshBlockFrameCaches = useCallback(
@@ -587,13 +599,9 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       if (!canvas || !plan) return compositionSec
 
       const { vm } = resolveSceneVm(compositionSec)
-      const enteringCross = vm.inDissolve && !wasInCrossRef.current
-      const warmedIncomingId = enteringCross ? warmupBlockIdRef.current : null
-      const skipSeekBlockIds =
-        warmedIncomingId != null ? new Set([warmedIncomingId]) : undefined
       const warmupBlock = resolveWarmupBlock(compositionSec, vm.videoLayers)
       wasInCrossRef.current = vm.inDissolve
-      const anySeek = syncVideosFromVm(vm.videoLayers, forceSeek, skipSeekBlockIds, warmupBlock)
+      const anySeek = syncVideosFromVm(vm.videoLayers, forceSeek, vm.inDissolve, warmupBlock)
       const warmupLayers: PreviewVideoLayerProps[] = warmupBlock
         ? [
             {
