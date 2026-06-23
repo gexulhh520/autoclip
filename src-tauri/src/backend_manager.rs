@@ -2,10 +2,15 @@ use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
+
+const HEALTH_CHECK_INTERVAL_SEC: u64 = 5;
+const HEALTH_CHECK_TIMEOUT_SEC: u64 = 12;
+const HEALTH_CHECK_FAILURES_BEFORE_RESTART: u32 = 6;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackendStatus {
@@ -29,6 +34,7 @@ impl Default for BackendStatus {
 pub struct BackendManager {
     status: Arc<Mutex<BackendStatus>>,
     process: Arc<Mutex<Option<Child>>>,
+    health_epoch: Arc<AtomicU64>,
 }
 
 struct BackendLaunch {
@@ -42,7 +48,12 @@ impl BackendManager {
         Self {
             status: Arc::new(Mutex::new(BackendStatus::default())),
             process: Arc::new(Mutex::new(None)),
+            health_epoch: Arc::new(AtomicU64::new(0)),
         }
+    }
+
+    fn bump_health_epoch(&self) -> u64 {
+        self.health_epoch.fetch_add(1, Ordering::SeqCst) + 1
     }
 
     pub fn start(&self, app_handle: AppHandle) -> Result<(), String> {
@@ -100,13 +111,21 @@ impl BackendManager {
                 let mut process = self.process.lock().unwrap();
                 *process = Some(child);
 
-                // 启动端口读取和健康检查
+                // 启动端口读取和健康检查（递增 epoch 使旧 health loop 退出）
+                let epoch = self.bump_health_epoch();
                 let status_clone = self.status.clone();
                 let process_clone = self.process.clone();
                 let app_handle_clone = app_handle.clone();
+                let health_epoch = self.health_epoch.clone();
 
                 thread::spawn(move || {
-                    Self::read_port_and_health_check(status_clone, process_clone, app_handle_clone);
+                    Self::read_port_and_health_check(
+                        status_clone,
+                        process_clone,
+                        app_handle_clone,
+                        health_epoch,
+                        epoch,
+                    );
                 });
 
                 Ok(())
@@ -130,14 +149,13 @@ impl BackendManager {
         }
 
         *status = BackendStatus::default();
+        self.bump_health_epoch();
         Ok(())
     }
 
     pub fn restart(&self, app_handle: AppHandle) -> Result<(), String> {
         // 先停止
-        if let Err(e) = self.stop() {
-            return Err(format!("停止后端服务失败: {}", e));
-        }
+        let _ = self.stop();
 
         // 等待一秒
         std::thread::sleep(Duration::from_secs(1));
@@ -315,6 +333,8 @@ impl BackendManager {
         status: Arc<Mutex<BackendStatus>>,
         process: Arc<Mutex<Option<Child>>>,
         app_handle: AppHandle,
+        health_epoch: Arc<AtomicU64>,
+        spawn_epoch: u64,
     ) {
         let (stdout, stderr) = {
             let mut process_guard = process.lock().unwrap();
@@ -361,11 +381,14 @@ impl BackendManager {
                             let status_health = status.clone();
                             let process_health = process.clone();
                             let app_handle_health = app_handle.clone();
+                            let health_epoch_health = health_epoch.clone();
                             thread::spawn(move || {
                                 Self::health_check_loop(
                                     status_health,
                                     process_health,
                                     app_handle_health,
+                                    health_epoch_health,
+                                    spawn_epoch,
                                 );
                             });
 
@@ -387,7 +410,7 @@ impl BackendManager {
     fn http_health_check(port: u16) -> bool {
         let url = format!("http://127.0.0.1:{}/health", port);
         match reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(3))
+            .timeout(Duration::from_secs(HEALTH_CHECK_TIMEOUT_SEC))
             .build()
         {
             Ok(client) => client
@@ -403,11 +426,17 @@ impl BackendManager {
         status: Arc<Mutex<BackendStatus>>,
         process: Arc<Mutex<Option<Child>>>,
         app_handle: AppHandle,
+        health_epoch: Arc<AtomicU64>,
+        loop_epoch: u64,
     ) {
         let mut http_failures = 0_u32;
 
         loop {
-            thread::sleep(Duration::from_secs(5));
+            thread::sleep(Duration::from_secs(HEALTH_CHECK_INTERVAL_SEC));
+
+            if health_epoch.load(Ordering::SeqCst) != loop_epoch {
+                break;
+            }
 
             // 检查状态
             let should_continue = {
@@ -460,12 +489,13 @@ impl BackendManager {
                 } else {
                     http_failures += 1;
                     eprintln!(
-                        "后端 HTTP 健康检查失败 ({}/3): http://127.0.0.1:{}/health",
-                        http_failures, port
+                        "后端 HTTP 健康检查失败 ({}/{}): http://127.0.0.1:{}/health",
+                        http_failures,
+                        HEALTH_CHECK_FAILURES_BEFORE_RESTART,
+                        port
                     );
 
-                    if http_failures >= 3 {
-                        http_failures = 0;
+                    if http_failures >= HEALTH_CHECK_FAILURES_BEFORE_RESTART {
                         let _ = app_handle.emit("backend-unhealthy", ());
 
                         let process_still_alive = {
@@ -484,6 +514,7 @@ impl BackendManager {
                                 eprintln!("后端自动重启失败: {}", error);
                             }
                         }
+                        break;
                     }
                 }
             }

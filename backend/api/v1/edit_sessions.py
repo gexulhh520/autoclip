@@ -6,8 +6,12 @@ import logging
 import uuid
 from pathlib import Path
 
+from collections.abc import Callable
+from typing import TypeVar
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response, StreamingResponse
+from starlette.concurrency import iterate_in_threadpool
 from sqlalchemy.orm import Session
 
 from backend.core.database import get_db
@@ -1219,6 +1223,14 @@ def get_editor_agent_service() -> EditorAgentService:
     return EditorAgentService()
 
 
+T = TypeVar("T")
+
+
+async def _run_agent_sync(func: Callable[..., T], *args, **kwargs) -> T:
+    """Agent/LLM 为同步阻塞调用，须放线程池以免拖死 /health 等并发请求。"""
+    return await asyncio.to_thread(func, *args, **kwargs)
+
+
 @router.post(
     "/{project_id}/edit-sessions/{session_id}/agent/analyze-layout",
     response_model=AnalyzeLayoutResponse,
@@ -1233,7 +1245,7 @@ async def analyze_edit_session_layout(
     """参考图排版分析（Phase A：不修改时间线）。"""
     try:
         session_service.get_session(project_id, session_id)
-        return agent_service.analyze_layout(body)
+        return await _run_agent_sync(agent_service.analyze_layout, body)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
     except ValueError as exc:
@@ -1257,7 +1269,7 @@ async def analyze_edit_session_subtitle_frame(
     """字幕帧视觉验证：前端截帧 + 画面分析子 Agent，返回简短 JSON（不含 JPEG）。"""
     try:
         session_service.get_session(project_id, session_id)
-        return agent_service.analyze_subtitle_frame(body)
+        return await _run_agent_sync(agent_service.analyze_subtitle_frame, body)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
     except ValueError as exc:
@@ -1281,7 +1293,7 @@ async def analyze_edit_session_video_content(
     """视频片段内容分析：前端多帧抽帧 + 音频静音分段 + 视觉子 Agent。"""
     try:
         session_service.get_session(project_id, session_id)
-        return agent_service.analyze_video_content(body)
+        return await _run_agent_sync(agent_service.analyze_video_content, body)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
     except ValueError as exc:
@@ -1305,7 +1317,7 @@ async def classify_edit_session_agent_intent(
     """LLM 判断用户意图应走哪种 Agent 模式（片段检索/内容分析/导出缓存/通用对话）。"""
     try:
         session_service.get_session(project_id, session_id)
-        return agent_service.classify_intent(body)
+        return await _run_agent_sync(agent_service.classify_intent, body)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
     except ValueError as exc:
@@ -1332,7 +1344,8 @@ async def find_edit_session_block_moments(
         block = next((item for item in session.sequence if item.id == body.block_id), None)
         if block is None:
             raise ValueError(f"片段不存在: {body.block_id}")
-        return agent_service.find_block_moments(
+        return await _run_agent_sync(
+            agent_service.find_block_moments,
             body,
             block.model_dump(),
             session_id,
@@ -1365,16 +1378,15 @@ async def stream_edit_session_block_moments(
             raise ValueError(f"片段不存在: {body.block_id}")
 
         def event_stream():
-            for line in agent_service.iter_find_block_moments_stream(
+            yield from agent_service.iter_find_block_moments_stream(
                 body,
                 block.model_dump(),
                 session_id,
                 project_id,
-            ):
-                yield line
+            )
 
         return StreamingResponse(
-            event_stream(),
+            iterate_in_threadpool(event_stream()),
             media_type="application/x-ndjson",
         )
     except FileNotFoundError as exc:
@@ -1433,7 +1445,7 @@ async def agent_edit_session_chat(
     """剪辑 Agent 对话（Phase B：返回 tool_calls，由前端执行）。"""
     try:
         session_service.get_session(project_id, session_id)
-        return agent_service.chat(body)
+        return await _run_agent_sync(agent_service.chat, body)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
     except ValueError as exc:
