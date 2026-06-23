@@ -1722,7 +1722,6 @@ export const useEditSessionStore = create<EditSessionState>()(
             selectedCaptionBlockIds: [],
             selectedAudioClipId: null,
             assetPreviewClip: null,
-            isPlaying: false,
           })
           return
         }
@@ -1763,7 +1762,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           state.selectedCaptionBlockIds = []
           state.selectedAudioClipId = null
           state.assetPreviewClip = null
-          if (options?.seekPlayhead !== false && segment) {
+          if (options?.seekPlayhead === true && segment) {
             state.sequencePlayheadSec = blockTimelineVisualStartSec(
               segment.startSec,
               segment.block
@@ -1778,7 +1777,6 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (!overlayId) {
             state.selectedOverlayId = null
             state.selectedOverlayIds = []
-            state.isPlaying = false
             return
           }
           if (additive) {
@@ -1796,7 +1794,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             state.selectedCaptionBlockIds = []
             state.selectedAudioClipId = null
           }
-          if (options?.seekPlayhead === false || !state.session?.overlay_elements) return
+          if (options?.seekPlayhead !== true || !state.session?.overlay_elements) return
           const overlay = state.session.overlay_elements.find((item) => item.id === overlayId)
           if (overlay) {
             state.sequencePlayheadSec = overlay.start_sec
@@ -1810,7 +1808,6 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (!blockId) {
             state.selectedCaptionBlockId = null
             state.selectedCaptionBlockIds = []
-            state.isPlaying = false
             return
           }
           if (additive) {

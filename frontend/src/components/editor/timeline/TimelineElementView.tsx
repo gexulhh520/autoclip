@@ -51,8 +51,15 @@ const TimelineElementView: React.FC<TimelineElementViewProps> = ({
         type="button"
         className="oc-timeline__element-body"
         onPointerDown={(event) => {
+          event.stopPropagation()
           onSelect(event)
           onPointerDown(event)
+        }}
+        onMouseDown={(event) => {
+          event.stopPropagation()
+        }}
+        onClick={(event) => {
+          event.stopPropagation()
         }}
       >
         {track.type === 'video' && element.source.kind === 'block' ? (

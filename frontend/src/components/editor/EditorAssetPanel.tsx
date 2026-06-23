@@ -398,7 +398,7 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
                 type="button"
                 className={`editor-clip-item ${selectedBlockId === block.id ? 'is-selected' : ''}`}
                 onClick={() => {
-                  setSelectedBlockId(block.id)
+                  setSelectedBlockId(block.id, { seekPlayhead: true })
                   setInspectorTab('audio')
                 }}
               >

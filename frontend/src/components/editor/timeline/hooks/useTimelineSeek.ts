@@ -37,10 +37,21 @@ export function useTimelineSeek(options: {
 
   const handlePointerClick = useCallback(
     (event: React.MouseEvent) => {
-      const target = event.target as HTMLElement
-      if (target.closest('.oc-timeline__element, .oc-timeline__playhead, .oc-timeline__bookmark')) {
-        return
-      }
+      const target = event.target
+      const path = typeof event.nativeEvent.composedPath === 'function' ? event.nativeEvent.composedPath() : []
+      const hitClip =
+        (target instanceof Element &&
+          target.closest(
+            '.oc-timeline__element, .oc-timeline__element-body, .oc-timeline__playhead, .oc-timeline__bookmark, .oc-timeline__resize'
+          )) ||
+        path.some(
+          (node) =>
+            node instanceof Element &&
+            node.matches(
+              '.oc-timeline__element, .oc-timeline__element-body, .oc-timeline__playhead, .oc-timeline__bookmark, .oc-timeline__resize'
+            )
+        )
+      if (hitClip) return
       const { isMouseDown, downX, downY, downTime } = mouseTrackingRef.current
       if (!isMouseDown) return
       const deltaX = Math.abs(event.clientX - downX)

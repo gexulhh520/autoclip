@@ -196,6 +196,8 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const contextMenuRef = useRef<HTMLDivElement>(null)
   const [snapPoint, setSnapPoint] = useState<SnapPoint | null>(null)
   const tracksCanvasRef = useRef<HTMLDivElement>(null)
+  /** 素材 pointerdown 后跳过同一次 click 触发的轨道 seek */
+  const clipInteractionRef = useRef(false)
   const [tracksViewportWidth, setTracksViewportWidth] = useState(0)
   const [dragTargetTrackId, setDragTargetTrackId] = useState<string | null>(null)
   const [textDragPreview, setTextDragPreview] = useState<{
@@ -353,6 +355,10 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
 
   const handleTimelineClick = useCallback(
     (event: React.MouseEvent) => {
+      if (clipInteractionRef.current) {
+        clipInteractionRef.current = false
+        return
+      }
       if (shouldIgnoreBoxSelectClick()) return
       handlePointerClick(event)
     },
@@ -473,6 +479,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   }
 
   const selectElement = (_trackId: string, element: AdaptedElement, event: React.MouseEvent) => {
+    clipInteractionRef.current = true
     event.stopPropagation()
     const additive = event.ctrlKey || event.metaKey || event.shiftKey
     if (element.source.kind === 'block') {
