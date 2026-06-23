@@ -23,7 +23,13 @@ import {
   getCumulativeHeightBefore,
   getTotalTracksHeight,
 } from './trackUtils'
-import { getTimelinePaddingPx, getTimelineZoomMin, pxToTime, timeToPx } from './zoomUtils'
+import {
+  getScrollLeftToCenterPlayhead,
+  getTimelinePaddingPx,
+  getTimelineZoomMin,
+  pxToTime,
+  timeToPx,
+} from './zoomUtils'
 import { useTimelineZoom } from './hooks/useTimelineZoom'
 import { useScrollSync } from './hooks/useScrollSync'
 import { useTimelineHorizontalScroll } from './hooks/useTimelineHorizontalScroll'
@@ -285,8 +291,6 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const { zoomLevel, setZoomLevel, handleWheel } = useTimelineZoom({
     containerRef: timelineRef,
     minZoom,
-    playheadSec: sequencePlayheadSec,
-    tracksScrollRef,
     persistenceKey: session?.id ?? null,
   })
 
@@ -296,6 +300,36 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
 
   const { scrollLeft, maxScrollLeft, setScrollLeft, canScrollHorizontally } =
     useTimelineHorizontalScroll(tracksScrollRef, dynamicTimelineWidth, containerWidth)
+
+  const previousZoomRef = useRef(zoomLevel)
+  const playheadSecRef = useRef(sequencePlayheadSec)
+  playheadSecRef.current = sequencePlayheadSec
+  const dynamicTimelineWidthRef = useRef(dynamicTimelineWidth)
+  dynamicTimelineWidthRef.current = dynamicTimelineWidth
+
+  useLayoutEffect(() => {
+    if (previousZoomRef.current === zoomLevel) return
+    previousZoomRef.current = zoomLevel
+
+    const centerScrollOnPlayhead = () => {
+      const scrollEl = tracksScrollRef.current
+      if (!scrollEl) return
+      const viewportWidth = scrollEl.clientWidth || containerWidth
+      const maxScroll = Math.max(0, Math.round(dynamicTimelineWidthRef.current - viewportWidth))
+      setScrollLeft(
+        getScrollLeftToCenterPlayhead(
+          playheadSecRef.current,
+          zoomLevel,
+          viewportWidth,
+          maxScroll
+        )
+      )
+    }
+
+    centerScrollOnPlayhead()
+    const frameId = requestAnimationFrame(centerScrollOnPlayhead)
+    return () => cancelAnimationFrame(frameId)
+  }, [zoomLevel, setScrollLeft])
 
   useEffect(() => {
     setScrollLeft(0)

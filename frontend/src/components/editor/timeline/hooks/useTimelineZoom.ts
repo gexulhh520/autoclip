@@ -3,19 +3,15 @@ import {
   type WheelEvent as ReactWheelEvent,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
 } from 'react'
 import { readTimelineZoomLevel, writeTimelineZoomLevel } from '../../../../utils/timelineZoomPrefs'
 import { TIMELINE_CONSTANTS } from '../constants'
-import { getScrollLeftToCenterPlayhead } from '../zoomUtils'
 
 interface UseTimelineZoomOptions {
   containerRef: RefObject<HTMLDivElement | null>
   minZoom: number
-  playheadSec: number
-  tracksScrollRef: RefObject<HTMLDivElement | null>
   initialZoom?: number
   /** 剪辑 session id：用于记住 Ctrl+滚轮 / 滑条缩放 */
   persistenceKey?: string | null
@@ -28,8 +24,6 @@ function clampZoomLevel(value: number, minZoom: number): number {
 export function useTimelineZoom({
   containerRef,
   minZoom,
-  playheadSec,
-  tracksScrollRef,
   initialZoom,
   persistenceKey = null,
 }: UseTimelineZoomOptions) {
@@ -45,7 +39,6 @@ export function useTimelineZoom({
   const [zoomLevel, setZoomLevelRaw] = useState(() =>
     clampZoomLevel(readPersistedZoom(persistenceKey) ?? initialZoom ?? 1, minZoom)
   )
-  const previousZoomRef = useRef(zoomLevel)
   const skipPersistRef = useRef(true)
 
   const wrappedSetZoomLevel = useCallback(
@@ -95,25 +88,6 @@ export function useTimelineZoom({
     }, 250)
     return () => window.clearTimeout(timer)
   }, [persistenceKey, zoomLevel])
-
-  useLayoutEffect(() => {
-    const previousZoom = previousZoomRef.current
-    if (previousZoom === zoomLevel) return
-    const scrollElement = tracksScrollRef.current
-    if (!scrollElement) {
-      previousZoomRef.current = zoomLevel
-      return
-    }
-
-    const maxScrollLeft = scrollElement.scrollWidth - scrollElement.clientWidth
-    scrollElement.scrollLeft = getScrollLeftToCenterPlayhead(
-      playheadSec,
-      zoomLevel,
-      scrollElement.clientWidth,
-      maxScrollLeft
-    )
-    previousZoomRef.current = zoomLevel
-  }, [zoomLevel, playheadSec, tracksScrollRef])
 
   useEffect(() => {
     const preventZoom = (event: WheelEvent) => {
