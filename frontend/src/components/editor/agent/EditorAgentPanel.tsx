@@ -94,7 +94,7 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
     focusedBlockId != null
       ? session?.sequence.find((block) => block.id === focusedBlockId) ?? null
       : null
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(true)
   const [mode, setMode] = useState<AgentPanelMode>('assistant')
   const [chatInput, setChatInput] = useState('')
   const [chatTurns, setChatTurns] = useState<AgentChatTurn[]>([])
