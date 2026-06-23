@@ -1,5 +1,6 @@
 """宫格 Coarse-to-Fine clip 事件检测单元测试。"""
 from backend.services.clip_event_detector import (
+    COARSE_SAFETY_TILE_EVERY_N,
     COARSE_TILE_FRAMES,
     COARSE_TILE_SIZE_SEC,
     COARSE_TILE_STRIDE_SEC,
@@ -7,25 +8,26 @@ from backend.services.clip_event_detector import (
     build_coarse_tiles,
     build_sliding_windows,
     coarse_candidates_to_hotspots,
+    inject_coarse_safety_tiles,
     merge_clip_scores,
     select_coarse_candidates,
 )
 
 
-def test_build_coarse_tiles_1hour_stride_75():
+def test_build_coarse_tiles_1hour_stride_50():
     tiles = build_coarse_tiles(
         0.0,
         3600.0,
         tile_size=COARSE_TILE_SIZE_SEC,
         stride=COARSE_TILE_STRIDE_SEC,
     )
-    assert 45 <= len(tiles) <= 50
+    assert 68 <= len(tiles) <= 75
     assert tiles[0] == (0.0, 100.0)
-    assert tiles[1] == (75.0, 175.0)
+    assert tiles[1] == (50.0, 150.0)
 
 
 def test_coarse_tile_frame_count():
-    assert COARSE_TILE_FRAMES == 54
+    assert COARSE_TILE_FRAMES == 72
 
 
 def test_build_sliding_windows_fine_60s():
@@ -53,13 +55,30 @@ def test_select_coarse_candidates_threshold_or_top_k():
     records[8].score = 0.82
     selected = select_coarse_candidates(
         records,
-        score_threshold=0.35,
-        top_k_ratio=0.25,
-        max_tiles=40,
-        min_tiles=3,
+        score_threshold=0.22,
+        top_k_ratio=0.45,
+        max_tiles=80,
+        min_tiles=8,
     )
-    assert len(selected) >= 3
+    assert len(selected) >= 8
     assert any(row.start_sec == 800.0 for row in selected)
+
+
+def test_inject_coarse_safety_tiles_uniform_coverage():
+    records = [
+        ClipScoreRecord(float(i * 50), float(i * 50 + 100), 0.1, False, "")
+        for i in range(12)
+    ]
+    selected: dict[tuple[float, float], ClipScoreRecord] = {}
+    safety_keys = inject_coarse_safety_tiles(
+        records,
+        selected,
+        every_n=COARSE_SAFETY_TILE_EVERY_N,
+    )
+    assert len(safety_keys) == 4
+    assert len(selected) == 4
+    assert (0.0, 100.0) in selected
+    assert (150.0, 250.0) in selected
 
 
 def test_coarse_candidates_to_hotspots_merge_gap():

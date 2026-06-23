@@ -23,31 +23,32 @@ from backend.utils.ffmpeg_utils import get_ffmpeg_path
 
 logger = logging.getLogger(__name__)
 
-# --- Fine（精扫，保持不变）---
+# --- Fine（精扫）---
 FINE_WINDOW_SEC = 16.0
-FINE_STRIDE_SEC = 4.0
-FINE_STRIDE_HIGH_RECALL_SEC = 2.0
+FINE_STRIDE_SEC = 3.0
+FINE_STRIDE_HIGH_RECALL_SEC = 1.5
 FINE_FPS = 3.0
 FINE_FRAMES = 48
 FINE_INCLUDE_AUDIO = False
 MAX_FINE_WINDOWS_CAP = 200
 FINE_PARALLEL_WORKERS = 2
 
-# --- Coarse（宫格稀疏评分 + 3×2 六宫格）---
+# --- Coarse（宫格稀疏评分 + 3×2 六宫格，偏召回）---
 COARSE_TILE_SIZE_SEC = 100.0
-COARSE_TILE_STRIDE_SEC = 75.0
-COARSE_TILE_STRIDE_HIGH_RECALL_SEC = 60.0
-COARSE_TILE_FRAMES = 54
+COARSE_TILE_STRIDE_SEC = 50.0
+COARSE_TILE_STRIDE_HIGH_RECALL_SEC = 35.0
+COARSE_TILE_FRAMES = 72
 COARSE_COLLAGE_CELL_WIDTH = 120
 COARSE_TILE_MAX_WIDTH = 360
 COARSE_PARALLEL_WORKERS = 2
-COARSE_SALIENCY_THRESHOLD_BALANCED = 0.35
-COARSE_SALIENCY_THRESHOLD_HIGH = 0.28
-COARSE_TOP_K_RATIO = 0.25
-COARSE_MAX_TILES = 40
-COARSE_MIN_TILES = 3
-TILE_HOTSPOT_MERGE_GAP_SEC = 10.0
-HOTSPOT_PAD_SEC = 15.0
+COARSE_SALIENCY_THRESHOLD_BALANCED = 0.22
+COARSE_SALIENCY_THRESHOLD_HIGH = 0.15
+COARSE_TOP_K_RATIO = 0.45
+COARSE_MAX_TILES = 80
+COARSE_MIN_TILES = 8
+COARSE_SAFETY_TILE_EVERY_N = 3
+TILE_HOTSPOT_MERGE_GAP_SEC = 20.0
+HOTSPOT_PAD_SEC = 25.0
 SKIP_COARSE_DURATION_SEC = 180.0
 
 FINE_COLLAGE_CELL_WIDTH = 160
@@ -119,6 +120,24 @@ def build_coarse_tiles(
     )
 
 
+def inject_coarse_safety_tiles(
+    records: List[ClipScoreRecord],
+    selected: Dict[Tuple[float, float], ClipScoreRecord],
+    *,
+    every_n: int = COARSE_SAFETY_TILE_EVERY_N,
+) -> set[Tuple[float, float]]:
+    """均匀强制保留部分宫格，避免 LLM 低分导致整段永不精扫。"""
+    safety_keys: set[Tuple[float, float]] = set()
+    ordered = sorted(records, key=lambda item: item.start_sec)
+    step = max(1, every_n)
+    for index in range(0, len(ordered), step):
+        row = ordered[index]
+        key = (row.start_sec, row.end_sec)
+        selected[key] = row
+        safety_keys.add(key)
+    return safety_keys
+
+
 def select_coarse_candidates(
     records: List[ClipScoreRecord],
     *,
@@ -127,7 +146,7 @@ def select_coarse_candidates(
     max_tiles: int = COARSE_MAX_TILES,
     min_tiles: int = COARSE_MIN_TILES,
 ) -> List[ClipScoreRecord]:
-    """阈值或 Top-K（取并集）：粗筛只做筛选，不做语义确认。"""
+    """阈值或 Top-K（取并集）+ 均匀安全网：粗筛只做筛选，不做语义确认。"""
     if not records:
         return []
 
@@ -145,10 +164,22 @@ def select_coarse_candidates(
         for row in by_score[: min(min_tiles, max_tiles)]:
             selected[(row.start_sec, row.end_sec)] = row
 
-    ordered = sorted(selected.values(), key=lambda item: item.score, reverse=True)
-    if len(ordered) > max_tiles:
-        ordered = ordered[:max_tiles]
-    return sorted(ordered, key=lambda item: item.start_sec)
+    safety_keys = inject_coarse_safety_tiles(records, selected)
+
+    if len(selected) <= max_tiles:
+        return sorted(selected.values(), key=lambda item: item.start_sec)
+
+    safety_rows = [
+        row for row in selected.values() if (row.start_sec, row.end_sec) in safety_keys
+    ]
+    other_rows = [
+        row
+        for row in selected.values()
+        if (row.start_sec, row.end_sec) not in safety_keys
+    ]
+    other_rows.sort(key=lambda item: item.score, reverse=True)
+    kept = safety_rows + other_rows[: max(0, max_tiles - len(safety_rows))]
+    return sorted(kept, key=lambda item: item.start_sec)
 
 
 def coarse_candidates_to_hotspots(
@@ -159,7 +190,7 @@ def coarse_candidates_to_hotspots(
     merge_gap_sec: float = TILE_HOTSPOT_MERGE_GAP_SEC,
     pad_sec: float = HOTSPOT_PAD_SEC,
 ) -> List[Tuple[float, float]]:
-    """相邻宫格（gap ≤ 10s）合并为 hotspot，前后 padding 供精扫。"""
+    """相邻宫格合并为 hotspot，前后 padding 供精扫。"""
     if not candidates:
         return []
 
@@ -649,10 +680,12 @@ def score_tile_saliency(
         return ClipScoreRecord(start_sec, end_sec, 0.0, False, "")
 
     user_query = (search_spec.search_description or search_spec.user_query or "").strip()
+    group_count = len(collage_b64_list)
+    group_sec = tile_sec / group_count if group_count else tile_sec
     user_message = (
         f"用户目标：\n{user_query}\n\n"
         f"下面提供的是同一段约 {tile_sec:.0f} 秒视频在不同时间点采样得到的连续画面。\n"
-        f"这些画面已经按照时间顺序分组为 {len(collage_b64_list)} 张六宫格（每组 3×2，约每 11 秒一组）。\n\n"
+        f"这些画面已经按照时间顺序分组为 {group_count} 张六宫格（每组 3×2，约每 {group_sec:.0f} 秒一组）。\n\n"
         f"请判断：这段视频是否可能包含与用户目标相关的内容。\n\n"
         f"要求：\n"
         f"- 宁可误报，不要漏报\n"
@@ -829,9 +862,11 @@ def iter_clip_event_search(
             stride=coarse_tile_stride,
         )
         meta.coarse_windows = len(coarse_tiles)
+        coarse_collage_count = max(1, COARSE_TILE_FRAMES // 6)
         meta.note_parts.append(
             f"宫格粗筛 {len(coarse_tiles)} 格（{coarse_tile_size:.0f}s/{coarse_tile_stride:.0f}s，"
-            f"{COARSE_TILE_FRAMES}帧→9×3×2六宫格，Top-{int(COARSE_TOP_K_RATIO * 100)}%，并行×{COARSE_PARALLEL_WORKERS}）"
+            f"{COARSE_TILE_FRAMES}帧→{coarse_collage_count}×3×2六宫格，Top-{int(COARSE_TOP_K_RATIO * 100)}%+均匀安全网，"
+            f"并行×{COARSE_PARALLEL_WORKERS}）"
         )
 
     meta.fine_windows = len(fine_windows)

@@ -28,10 +28,10 @@ function phaseMeta(progress: FindBlockMomentsProgress): { label: string; detail?
     return { label: '精扫', detail: '短视频跳过粗筛' }
   }
   if (progress.scanPhase === 'coarse') {
-    return { label: '宫格粗筛', detail: '100s/75s · 54帧→9六宫格' }
+    return { label: '宫格粗筛', detail: '100s/50s · 72帧→12六宫格 · 均匀安全网' }
   }
   if (progress.scanPhase === 'fine') {
-    return { label: '精扫', detail: '16s/窗 · 8六宫格 · 并行×2' }
+    return { label: '精扫', detail: '16s/窗 · 3s步长 · 8六宫格 · 并行×2' }
   }
   return { label: '检索', detail: undefined }
 }
