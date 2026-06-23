@@ -74,7 +74,10 @@ export interface UsePreviewTextDragOptions {
     options?: { additive?: boolean; seekPlayhead?: boolean }
   ) => void
   onSelectCaption?: (blockId: string | null, options?: { additive?: boolean }) => void
-  onSelectVideoBlock?: (blockId: string | null, options?: { additive?: boolean }) => void
+  onSelectVideoBlock?: (
+    blockId: string | null,
+    options?: { additive?: boolean; seekPlayhead?: boolean }
+  ) => void
   setBoxSelection?: (items: BoxSelectableItem[], options?: { additive?: boolean }) => void
   clearEditorSelection?: () => void
   beginOverlayDragHistory: () => void
@@ -232,7 +235,7 @@ export function usePreviewTextDrag({
         if (startPositions.size === 0) return
 
         if (!selectedVideoBlockIds.includes(hit.blockId)) {
-          onSelectVideoBlock?.(hit.blockId, { additive })
+          onSelectVideoBlock?.(hit.blockId, { additive, seekPlayhead: false })
         }
 
         dragRef.current = {
@@ -454,7 +457,7 @@ export function usePreviewTextDrag({
         if (drag.mode === 'caption') {
           onSelectCaption?.(drag.blockIds[0] ?? null, { additive })
         } else if (drag.mode === 'video') {
-          onSelectVideoBlock?.(drag.blockIds[0] ?? null, { additive })
+          onSelectVideoBlock?.(drag.blockIds[0] ?? null, { additive, seekPlayhead: false })
         } else {
           onSelectOverlay?.(drag.overlayIds[0] ?? null, {
             additive,

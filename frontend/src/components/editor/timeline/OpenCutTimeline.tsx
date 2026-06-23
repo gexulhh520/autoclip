@@ -498,7 +498,10 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       }
       if (!additive) {
         setSelectedOverlayId(null)
-        setSelectedBlockId(element.source.blockId, { skipTemplateCaptionSync: true })
+        setSelectedBlockId(element.source.blockId, {
+          skipTemplateCaptionSync: true,
+          seekPlayhead: false,
+        })
       }
       setSelectedCaptionBlockId(element.source.blockId, { additive })
       setInspectorTab('text')

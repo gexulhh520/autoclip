@@ -1785,7 +1785,6 @@ export const useEditSessionStore = create<EditSessionState>()(
               segment.block
             )
           }
-          state.isPlaying = false
         })
       },
 
@@ -1813,7 +1812,6 @@ export const useEditSessionStore = create<EditSessionState>()(
             state.selectedCaptionBlockIds = []
             state.selectedAudioClipId = null
           }
-          state.isPlaying = false
           if (options?.seekPlayhead === false || !state.session?.overlay_elements) return
           const overlay = state.session.overlay_elements.find((item) => item.id === overlayId)
           if (overlay) {
@@ -1844,7 +1842,6 @@ export const useEditSessionStore = create<EditSessionState>()(
             state.selectedOverlayIds = []
             state.selectedAudioClipId = null
           }
-          state.isPlaying = false
         })
       },
 
@@ -1860,7 +1857,6 @@ export const useEditSessionStore = create<EditSessionState>()(
           state.selectedCaptionBlockIds = []
           state.assetPreviewClip = null
           state.inspectorTab = 'audio'
-          state.isPlaying = false
         })
       },
 
@@ -1906,7 +1902,6 @@ export const useEditSessionStore = create<EditSessionState>()(
           }
           state.selectedAudioClipId = null
           state.assetPreviewClip = null
-          state.isPlaying = false
         })
       },
 

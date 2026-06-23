@@ -103,7 +103,10 @@ export interface CompositorPreviewProps {
     options?: { additive?: boolean; seekPlayhead?: boolean }
   ) => void
   onSelectCaption?: (blockId: string | null, options?: { additive?: boolean }) => void
-  onSelectVideoBlock?: (blockId: string | null, options?: { additive?: boolean }) => void
+  onSelectVideoBlock?: (
+    blockId: string | null,
+    options?: { additive?: boolean; seekPlayhead?: boolean }
+  ) => void
   setBoxSelection?: (items: BoxSelectableItem[], options?: { additive?: boolean }) => void
   clearEditorSelection?: () => void
   beginOverlayDragHistory?: () => void
