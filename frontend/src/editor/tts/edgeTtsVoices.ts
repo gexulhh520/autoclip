@@ -8,7 +8,31 @@ export interface EdgeTtsVoiceOption {
   scene: string
   /** 特点说明 */
   hint: string
+  group: EdgeTtsVoiceGroupId
 }
+
+export type EdgeTtsVoiceGroupId =
+  | 'mandarin_female'
+  | 'mandarin_male'
+  | 'dialect'
+  | 'cantonese'
+  | 'taiwan'
+
+export const EDGE_TTS_VOICE_GROUP_LABELS: Record<EdgeTtsVoiceGroupId, string> = {
+  mandarin_female: '普通话 · 女声',
+  mandarin_male: '普通话 · 男声',
+  dialect: '中文方言',
+  cantonese: '粤语',
+  taiwan: '台湾国语',
+}
+
+export const EDGE_TTS_VOICE_GROUP_ORDER: EdgeTtsVoiceGroupId[] = [
+  'mandarin_female',
+  'mandarin_male',
+  'dialect',
+  'cantonese',
+  'taiwan',
+]
 
 export const DEFAULT_EDGE_TTS_VOICE = 'zh-CN-XiaoxiaoNeural'
 
@@ -25,56 +49,112 @@ export const EDGE_TTS_VOICES_ZH: EdgeTtsVoiceOption[] = [
     gender: '女',
     name: '晓晓',
     scene: '口播主力',
-    hint: '清晰自然，适合大多数内容',
+    hint: '温暖自然，新闻/小说感，适合大多数内容',
+    group: 'mandarin_female',
   },
   {
     id: 'zh-CN-XiaoyiNeural',
     gender: '女',
     name: '晓伊',
-    scene: '温柔情感',
-    hint: '语气柔和，适合情感向内容',
-  },
-  {
-    id: 'zh-CN-liaoning-XiaobeiNeural',
-    gender: '女',
-    name: '晓北',
-    scene: '年轻活力',
-    hint: '东北女声，语气活泼，适合轻松向口播',
-  },
-  {
-    id: 'zh-CN-shaanxi-XiaoniNeural',
-    gender: '女',
-    name: '晓妮',
-    scene: '情感叙事',
-    hint: '陕西女声，表现力较好，适合故事类内容',
+    scene: '活泼情感',
+    hint: '语气活泼，偏卡通/小说感',
+    group: 'mandarin_female',
   },
   {
     id: 'zh-CN-YunxiNeural',
     gender: '男',
     name: '云希',
-    scene: '知识教程',
-    hint: '声音稳重，适合知识分享与教程',
-  },
-  {
-    id: 'zh-CN-YunyangNeural',
-    gender: '男',
-    name: '云扬',
-    scene: '专业讲解',
-    hint: '讲解感强，适合干货内容',
-  },
-  {
-    id: 'zh-CN-YunjianNeural',
-    gender: '男',
-    name: '云健',
-    scene: '新闻正式',
-    hint: '较为严肃，适合新闻与正式场合',
+    scene: '阳光知识',
+    hint: '阳光 lively，适合教程与解说',
+    group: 'mandarin_male',
   },
   {
     id: 'zh-CN-YunxiaNeural',
     gender: '男',
     name: '云夏',
-    scene: '年轻男声',
-    hint: '少年感较强，适合轻松解说',
+    scene: '少年男声',
+    hint: '偏可爱少年感，适合轻松内容',
+    group: 'mandarin_male',
+  },
+  {
+    id: 'zh-CN-YunyangNeural',
+    gender: '男',
+    name: '云扬',
+    scene: '新闻专业',
+    hint: '专业可靠，新闻/正式讲解',
+    group: 'mandarin_male',
+  },
+  {
+    id: 'zh-CN-YunjianNeural',
+    gender: '男',
+    name: '云健',
+    scene: '激情叙述',
+    hint: '富有激情，适合体育/故事叙述',
+    group: 'mandarin_male',
+  },
+  {
+    id: 'zh-CN-liaoning-XiaobeiNeural',
+    gender: '女',
+    name: '晓北',
+    scene: '东北方言',
+    hint: '东北口音女声，幽默活泼',
+    group: 'dialect',
+  },
+  {
+    id: 'zh-CN-shaanxi-XiaoniNeural',
+    gender: '女',
+    name: '晓妮',
+    scene: '陕西方言',
+    hint: '陕西口音女声，明亮有表现力',
+    group: 'dialect',
+  },
+  {
+    id: 'zh-HK-HiuGaaiNeural',
+    gender: '女',
+    name: '晓佳',
+    scene: '粤语女声',
+    hint: '粤语通用女声，友好自然',
+    group: 'cantonese',
+  },
+  {
+    id: 'zh-HK-HiuMaanNeural',
+    gender: '女',
+    name: '晓曼',
+    scene: '粤语女声',
+    hint: '粤语通用女声，亲切柔和',
+    group: 'cantonese',
+  },
+  {
+    id: 'zh-HK-WanLungNeural',
+    gender: '男',
+    name: '云龙',
+    scene: '粤语男声',
+    hint: '粤语通用男声，友好自然',
+    group: 'cantonese',
+  },
+  {
+    id: 'zh-TW-HsiaoChenNeural',
+    gender: '女',
+    name: '晓臻',
+    scene: '台湾女声',
+    hint: '台湾国语女声，Friendly 风格',
+    group: 'taiwan',
+  },
+  {
+    id: 'zh-TW-HsiaoYuNeural',
+    gender: '女',
+    name: '晓雨',
+    scene: '台湾女声',
+    hint: '台湾国语女声，柔和亲切',
+    group: 'taiwan',
+  },
+  {
+    id: 'zh-TW-YunJheNeural',
+    gender: '男',
+    name: '云哲',
+    scene: '台湾男声',
+    hint: '台湾国语男声，清晰自然',
+    group: 'taiwan',
   },
 ]
 
@@ -95,7 +175,21 @@ export function formatEdgeTtsVoiceLabel(voice: EdgeTtsVoiceOption): string {
   return `${voice.gender} · ${voice.name} · ${voice.scene}`
 }
 
+export function getEdgeTtsVoiceGroups(): Array<{
+  id: EdgeTtsVoiceGroupId
+  label: string
+  voices: EdgeTtsVoiceOption[]
+}> {
+  return EDGE_TTS_VOICE_GROUP_ORDER.map((id) => ({
+    id,
+    label: EDGE_TTS_VOICE_GROUP_LABELS[id],
+    voices: EDGE_TTS_VOICES_ZH.filter((item) => item.group === id),
+  })).filter((group) => group.voices.length > 0)
+}
+
+/** @deprecated 使用 getEdgeTtsVoiceGroups */
 export const EDGE_TTS_VOICES_ZH_FEMALE = EDGE_TTS_VOICES_ZH.filter((item) => item.gender === '女')
+/** @deprecated 使用 getEdgeTtsVoiceGroups */
 export const EDGE_TTS_VOICES_ZH_MALE = EDGE_TTS_VOICES_ZH.filter((item) => item.gender === '男')
 
 export const EDGE_TTS_VOICE_IDS = EDGE_TTS_VOICES_ZH.map((item) => item.id)

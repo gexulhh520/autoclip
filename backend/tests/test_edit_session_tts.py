@@ -82,6 +82,8 @@ def test_resolve_edge_tts_voice_maps_deprecated_ids():
     assert resolve_edge_tts_voice("zh-CN-XiaomoNeural") == "zh-CN-shaanxi-XiaoniNeural"
     assert resolve_edge_tts_voice("zh-CN-YunfengNeural") == "zh-CN-YunxiaNeural"
     assert resolve_edge_tts_voice("zh-CN-XiaoxiaoNeural") == "zh-CN-XiaoxiaoNeural"
+    assert resolve_edge_tts_voice("zh-HK-WanLungNeural") == "zh-HK-WanLungNeural"
+    assert resolve_edge_tts_voice("zh-TW-HsiaoChenNeural") == "zh-TW-HsiaoChenNeural"
     assert resolve_edge_tts_voice("invalid-voice") == "zh-CN-XiaoxiaoNeural"
 
 

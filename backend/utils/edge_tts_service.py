@@ -19,14 +19,24 @@ EDGE_TTS_VOICE_ALIASES: dict[str, str] = {
 
 EDGE_TTS_VOICE_IDS: frozenset[str] = frozenset(
     {
+        # 普通话
         "zh-CN-XiaoxiaoNeural",
         "zh-CN-XiaoyiNeural",
-        "zh-CN-liaoning-XiaobeiNeural",
-        "zh-CN-shaanxi-XiaoniNeural",
         "zh-CN-YunxiNeural",
+        "zh-CN-YunxiaNeural",
         "zh-CN-YunyangNeural",
         "zh-CN-YunjianNeural",
-        "zh-CN-YunxiaNeural",
+        # 方言
+        "zh-CN-liaoning-XiaobeiNeural",
+        "zh-CN-shaanxi-XiaoniNeural",
+        # 粤语
+        "zh-HK-HiuGaaiNeural",
+        "zh-HK-HiuMaanNeural",
+        "zh-HK-WanLungNeural",
+        # 台湾国语
+        "zh-TW-HsiaoChenNeural",
+        "zh-TW-HsiaoYuNeural",
+        "zh-TW-YunJheNeural",
     }
 )
 

@@ -3,10 +3,9 @@ import { Headphones, Volume2 } from 'lucide-react'
 import {
   DEFAULT_EDGE_TTS_VOICE,
   EDGE_TTS_VOICES_ZH,
-  EDGE_TTS_VOICES_ZH_FEMALE,
-  EDGE_TTS_VOICES_ZH_MALE,
   findEdgeTtsVoice,
   formatEdgeTtsVoiceLabel,
+  getEdgeTtsVoiceGroups,
   resolveEdgeTtsVoiceId,
 } from '../../editor/tts/edgeTtsVoices'
 
@@ -40,6 +39,7 @@ const TextToSpeechPanel: React.FC<TextToSpeechPanelProps> = ({
   const trimmed = text.trim()
   const busy = previewLoading || synthesizeLoading
   const canSpeak = !disabled && trimmed.length > 0
+  const voiceGroups = useMemo(() => getEdgeTtsVoiceGroups(), [])
   const selectedVoice = useMemo(
     () => findEdgeTtsVoice(voice) ?? findEdgeTtsVoice(DEFAULT_EDGE_TTS_VOICE),
     [voice]
@@ -96,13 +96,6 @@ const TextToSpeechPanel: React.FC<TextToSpeechPanelProps> = ({
     }
   }
 
-  const renderVoiceOptions = (items: typeof EDGE_TTS_VOICES_ZH) =>
-    items.map((item) => (
-      <option key={item.id} value={item.id}>
-        {formatEdgeTtsVoiceLabel(item)}
-      </option>
-    ))
-
   return (
     <div className="editor-inspector-section editor-tts-panel">
       <div className="editor-inspector-label">朗读</div>
@@ -116,12 +109,15 @@ const TextToSpeechPanel: React.FC<TextToSpeechPanelProps> = ({
         onChange={(event) => onVoiceChange(event.target.value)}
         aria-label="朗读音色"
       >
-        <optgroup label="女声">
-          {renderVoiceOptions(EDGE_TTS_VOICES_ZH_FEMALE)}
-        </optgroup>
-        <optgroup label="男声">
-          {renderVoiceOptions(EDGE_TTS_VOICES_ZH_MALE)}
-        </optgroup>
+        {voiceGroups.map((group) => (
+          <optgroup key={group.id} label={group.label}>
+            {group.voices.map((item) => (
+              <option key={item.id} value={item.id}>
+                {formatEdgeTtsVoiceLabel(item)}
+              </option>
+            ))}
+          </optgroup>
+        ))}
       </select>
       {selectedVoice ? (
         <p className="editor-inspector-muted editor-tts-panel__hint">{selectedVoice.hint}</p>
