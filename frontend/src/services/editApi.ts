@@ -354,46 +354,40 @@ export const editApi = {
     sessionId: string,
     payload: EditSessionTtsRequest
   ): Promise<Blob> => {
+    const parseBlobErrorDetail = async (blob: Blob): Promise<string | null> => {
+      if (!blob.type.includes('json')) return null
+      try {
+        const text = await blob.text()
+        const body = JSON.parse(text) as { detail?: unknown }
+        if (typeof body.detail === 'string' && body.detail.trim()) return body.detail.trim()
+      } catch {
+        return null
+      }
+      return null
+    }
+
     try {
-      const response = await api.post(
+      const blob = (await api.post(
         `/projects/${projectId}/edit-sessions/${sessionId}/tts/preview`,
         payload,
         { responseType: 'blob' }
-      )
-      const blob = response.data as Blob
-      if (blob.type.includes('json')) {
-        const text = await blob.text()
-        try {
-          const body = JSON.parse(text) as { detail?: unknown }
-          if (typeof body.detail === 'string' && body.detail.trim()) {
-            throw new Error(body.detail)
-          }
-        } catch (parseError) {
-          if (parseError instanceof Error && parseError.message !== text) {
-            throw parseError
-          }
-        }
-        throw new Error('预读失败')
+      )) as Blob
+
+      if (!(blob instanceof Blob)) {
+        throw new Error('预读失败：无效响应')
       }
+
+      const detail = await parseBlobErrorDetail(blob)
+      if (detail) throw new Error(detail)
+      if (blob.size <= 0) throw new Error('预读失败：音频为空')
+
       return blob
     } catch (error: unknown) {
-      const axiosLike = error as {
-        response?: { data?: Blob }
-        message?: string
-      }
-      const errBlob = axiosLike.response?.data
-      if (errBlob instanceof Blob && errBlob.type.includes('json')) {
-        const text = await errBlob.text()
-        try {
-          const body = JSON.parse(text) as { detail?: unknown }
-          if (typeof body.detail === 'string' && body.detail.trim()) {
-            throw new Error(body.detail)
-          }
-        } catch (parseError) {
-          if (parseError instanceof Error && parseError.message !== text) {
-            throw parseError
-          }
-        }
+      const axiosLike = error as { response?: { data?: unknown } }
+      const errData = axiosLike.response?.data
+      if (errData instanceof Blob) {
+        const detail = await parseBlobErrorDetail(errData)
+        if (detail) throw new Error(detail)
       }
       throw error
     }
