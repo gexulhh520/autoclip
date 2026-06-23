@@ -587,6 +587,25 @@ export const EDITOR_AGENT_TOOL_DEFINITIONS = [
   {
     type: 'function',
     function: {
+      name: 'download_material_to_library',
+      description:
+        '下载网络视频到全局素材库，不加入时间线。传 url 或 urls（YouTube/Bilibili）；适合先囤素材再 import_from_library',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: '单个视频链接' },
+          urls: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '批量链接',
+          },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'verify_subtitle_in_frame',
       description:
         '只读：在字幕出现时刻截帧，委派画面分析子 Agent 检查字幕是否超出画面；返回简短 JSON（不含 JPEG），用于改位置后的验证反馈',
@@ -773,6 +792,7 @@ export const ASYNC_WRITE_AGENT_TOOLS = new Set([
   'add_clips_to_timeline',
   'detect_silence_trim',
   'import_from_library',
+  'download_material_to_library',
 ])
 
 export const DANGEROUS_AGENT_TOOLS = new Set(['remove_block'])
@@ -873,6 +893,10 @@ export function formatToolCallSummary(name: string, args: Record<string, unknown
       return args.url
         ? `下载并导入素材 ${String(args.url).slice(0, 40)}`
         : `导入素材库 ${args.asset_id ?? ''}`
+    case 'download_material_to_library': {
+      const count = Array.isArray(args.urls) ? args.urls.length : args.url ? 1 : 0
+      return `下载到素材库 (${count || 1} 条)`
+    }
     case 'verify_subtitle_in_frame':
       return `验证字幕帧 ${args.overlay_id ?? '（自动）'}`
     case 'find_block_moments':

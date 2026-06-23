@@ -29,6 +29,119 @@
   font-weight: 500;
 }
 
+.material-library-stats {
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--ac-line);
+  border-radius: 10px;
+  background: var(--ac-line-2);
+  color: var(--ac-sub);
+  font-size: 13px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.material-library-stats__sub {
+  color: var(--ac-sub);
+  opacity: 0.85;
+}
+
+.material-library-tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.material-library-tag-chip {
+  border: 1px solid var(--ac-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ac-sub);
+  font-size: 12px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.material-library-tag-chip:hover {
+  border-color: var(--ac-ink);
+  color: var(--ac-ink);
+}
+
+.material-library-tag-chip.is-active {
+  border-color: var(--ac-accent, #3b6fd4);
+  color: var(--ac-accent, #3b6fd4);
+  background: rgba(59, 111, 212, 0.08);
+}
+
+.material-library-btn--danger {
+  border-color: #c0392b;
+  color: #c0392b;
+}
+
+.material-library-btn--danger:hover:not(:disabled) {
+  background: rgba(192, 57, 43, 0.08);
+}
+
+.material-library-card.is-selected {
+  outline: 2px solid var(--ac-accent, #3b6fd4);
+  outline-offset: 2px;
+}
+
+.material-library-card__select {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--ac-line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--ac-ink);
+  cursor: pointer;
+}
+
+.material-library-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.material-library-card__tag {
+  font-size: 11px;
+  color: var(--ac-sub);
+  border: 1px solid var(--ac-line);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.material-library-card__tag-btn {
+  position: absolute;
+  top: 8px;
+  right: 44px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  cursor: pointer;
+}
+
+.material-library-card__tag-btn:hover {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.material-library-tag-modal__hint {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--ac-sub);
+}
+
 .material-library-tab {
   min-height: 240px;
 }

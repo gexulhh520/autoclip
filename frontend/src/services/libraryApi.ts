@@ -22,6 +22,17 @@ export interface LibraryAsset {
   promoted_at?: string
   created_at?: string
   metadata?: Record<string, unknown>
+  tags?: string[]
+}
+
+export interface LibraryStorageStats {
+  total_assets: number
+  total_bytes: number
+  video_bytes: number
+  thumbnail_bytes: number
+  disk_bytes: number
+  by_origin: Record<string, { count: number; bytes: number }>
+  by_platform: Record<string, { count: number; bytes: number }>
 }
 
 export interface LibraryAssetsPage {
@@ -76,6 +87,7 @@ const libraryBase = () => api.defaults.baseURL || '/api/v1'
 export const libraryApi = {
   listAssets: async (params?: {
     q?: string
+    tags?: string
     origin?: string
     platform?: string
     page?: number
@@ -158,6 +170,34 @@ export const libraryApi = {
 
   deleteAsset: async (assetId: string): Promise<void> => {
     await api.delete(`/library/assets/${encodeURIComponent(assetId)}`)
+  },
+
+  batchDeleteAssets: async (
+    assetIds: string[]
+  ): Promise<{ deleted: string[]; errors: Array<{ id: string; error: string }> }> => {
+    const response = (await api.post('/library/assets/batch-delete', {
+      asset_ids: assetIds,
+    })) as { ok: boolean; deleted: string[]; errors: Array<{ id: string; error: string }> }
+    return {
+      deleted: Array.isArray(response.deleted) ? response.deleted : [],
+      errors: Array.isArray(response.errors) ? response.errors : [],
+    }
+  },
+
+  listTags: async (): Promise<string[]> => {
+    const response = (await api.get('/library/tags')) as { items: string[] }
+    return Array.isArray(response.items) ? response.items : []
+  },
+
+  updateAssetTags: async (assetId: string, tags: string[]): Promise<LibraryAsset> => {
+    const response = (await api.patch(`/library/assets/${encodeURIComponent(assetId)}/tags`, {
+      tags,
+    })) as { ok: boolean; asset: LibraryAsset }
+    return response.asset
+  },
+
+  getStats: async (): Promise<LibraryStorageStats> => {
+    return (await api.get('/library/stats')) as LibraryStorageStats
   },
 
   importLocalPath: async (sourcePath: string, title?: string): Promise<LibraryAsset> => {

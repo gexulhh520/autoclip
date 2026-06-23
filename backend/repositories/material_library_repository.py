@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import desc, func, or_
+from sqlalchemy import desc, func, or_, text
 from sqlalchemy.orm import Session
 
 from backend.models.material_library import (
@@ -16,11 +16,49 @@ from backend.models.material_library import (
     MaterialLibraryAsset,
 )
 from backend.repositories.base import BaseRepository
+from backend.services.material_library_fts import (
+    delete_material_library_fts,
+    normalize_tags,
+    search_material_library_fts,
+    upsert_material_library_fts,
+)
 
 
 class MaterialLibraryRepository(BaseRepository[MaterialLibraryAsset]):
     def __init__(self, db: Session):
         super().__init__(MaterialLibraryAsset, db)
+
+    def create(self, auto_commit: bool = True, **kwargs):
+        instance = super().create(auto_commit=False, **kwargs)
+        upsert_material_library_fts(self.db, instance, commit=False)
+        if auto_commit:
+            self.db.commit()
+        else:
+            self.db.flush()
+        self.db.refresh(instance)
+        return instance
+
+    def update(self, id: str, auto_commit: bool = True, **kwargs):
+        instance = super().update(id, auto_commit=False, **kwargs)
+        if instance is not None:
+            upsert_material_library_fts(self.db, instance, commit=False)
+        if auto_commit:
+            self.db.commit()
+        else:
+            self.db.flush()
+        if instance is not None:
+            self.db.refresh(instance)
+        return instance
+
+    def delete(self, id: str, auto_commit: bool = True) -> bool:
+        deleted = super().delete(id, auto_commit=False)
+        if deleted:
+            delete_material_library_fts(self.db, id, commit=False)
+        if auto_commit:
+            self.db.commit()
+        else:
+            self.db.flush()
+        return deleted
 
     def find_ready_by_platform_external(
         self, platform: str, external_id: str
@@ -37,10 +75,43 @@ class MaterialLibraryRepository(BaseRepository[MaterialLibraryAsset]):
             .first()
         )
 
+    @staticmethod
+    def _apply_tag_filters(query, tags: Optional[List[str]]):
+        if not tags:
+            return query
+        for tag in normalize_tags(tags):
+            query = query.filter(
+                text(
+                    "EXISTS (SELECT 1 FROM json_each(material_library_assets.tags) "
+                    "WHERE json_each.value = :tag)"
+                ).bindparams(tag=tag)
+            )
+        return query
+
+    def list_distinct_tags(self, *, limit: int = 100) -> List[str]:
+        rows = self.db.query(self.model.tags).filter(
+            self.model.file_status == MaterialFileStatus.READY,
+            self.model.tags.isnot(None),
+        )
+        seen: set[str] = set()
+        tags: List[str] = []
+        for (raw,) in rows:
+            if not isinstance(raw, list):
+                continue
+            for item in normalize_tags(raw):
+                if item in seen:
+                    continue
+                seen.add(item)
+                tags.append(item)
+                if len(tags) >= limit:
+                    return sorted(tags)
+        return sorted(tags)
+
     def search_assets(
         self,
         *,
         q: Optional[str] = None,
+        tags: Optional[List[str]] = None,
         origin: Optional[MaterialAssetOrigin] = None,
         platform: Optional[str] = None,
         page: int = 1,
@@ -51,13 +122,20 @@ class MaterialLibraryRepository(BaseRepository[MaterialLibraryAsset]):
             self.model.file_status == MaterialFileStatus.READY
         )
         if q:
-            pattern = f"%{q.strip()}%"
-            query = query.filter(
-                or_(
-                    self.model.title.ilike(pattern),
-                    self.model.uploader.ilike(pattern),
+            keyword = q.strip()
+            fts_ids = search_material_library_fts(self.db, keyword)
+            pattern = f"%{keyword}%"
+            uploader_filter = self.model.uploader.ilike(pattern)
+            if fts_ids:
+                query = query.filter(or_(self.model.id.in_(fts_ids), uploader_filter))
+            else:
+                query = query.filter(
+                    or_(
+                        self.model.title.ilike(pattern),
+                        uploader_filter,
+                    )
                 )
-            )
+        query = self._apply_tag_filters(query, tags)
         if origin is not None:
             query = query.filter(self.model.origin == origin)
         if platform:

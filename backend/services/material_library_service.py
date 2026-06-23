@@ -12,6 +12,7 @@ from backend.core.database import SessionLocal
 from backend.core.path_utils import get_data_directory
 from backend.models.material_library import MaterialAssetOrigin, MaterialFileStatus, MaterialLibraryAsset
 from backend.repositories.material_library_repository import MaterialLibraryRepository
+from backend.services.material_library_fts import backfill_material_library_fts, normalize_tags
 from backend.services.material_library_migration import migrate_legacy_assets_json_if_needed
 from backend.services.session_clip_pool_service import (
     get_session_pool_clip,
@@ -40,11 +41,17 @@ def ensure_material_library_initialized() -> None:
         return
     _library_root()
     migrate_legacy_assets_json_if_needed()
+    db = SessionLocal()
+    try:
+        backfill_material_library_fts(db)
+    finally:
+        db.close()
     _initialized = True
 
 
 def asset_to_dict(asset: MaterialLibraryAsset) -> Dict[str, Any]:
     metadata = asset.asset_metadata if isinstance(asset.asset_metadata, dict) else {}
+    tags = asset.tags if isinstance(asset.tags, list) else []
     return {
         "id": asset.id,
         "title": asset.title,
@@ -63,6 +70,7 @@ def asset_to_dict(asset: MaterialLibraryAsset) -> Dict[str, Any]:
         "source_project_id": asset.source_project_id,
         "source_session_id": asset.source_session_id,
         "source_clip_id": asset.source_clip_id,
+        "tags": normalize_tags(tags),
         "promoted_at": asset.created_at.isoformat() if asset.created_at else None,
         "created_at": asset.created_at.isoformat() if asset.created_at else None,
         "updated_at": asset.updated_at.isoformat() if asset.updated_at else None,
@@ -73,6 +81,7 @@ def asset_to_dict(asset: MaterialLibraryAsset) -> Dict[str, Any]:
 def list_library_assets(
     *,
     q: Optional[str] = None,
+    tags: Optional[List[str]] = None,
     origin: Optional[str] = None,
     platform: Optional[str] = None,
     page: int = 1,
@@ -91,6 +100,7 @@ def list_library_assets(
                 pass
         items, total = repo.search_assets(
             q=q,
+            tags=normalize_tags(tags) if tags else None,
             origin=parsed_origin,
             platform=platform,
             page=page,
@@ -361,6 +371,102 @@ def delete_library_asset(asset_id: str) -> None:
                     file_path.unlink()
                 except OSError as exc:
                     logger.warning("删除素材库文件失败 %s: %s", file_path, exc)
-        repo.delete(asset_id)
+        if not repo.delete(asset_id):
+            raise ValueError(f"素材库条目不存在: {asset_id}")
     finally:
         db.close()
+
+
+def delete_library_assets_batch(asset_ids: List[str]) -> Dict[str, Any]:
+    ensure_material_library_initialized()
+    deleted: List[str] = []
+    errors: List[Dict[str, str]] = []
+    for asset_id in asset_ids:
+        asset_key = str(asset_id or "").strip()
+        if not asset_key:
+            continue
+        try:
+            delete_library_asset(asset_key)
+            deleted.append(asset_key)
+        except ValueError as exc:
+            errors.append({"id": asset_key, "error": str(exc)})
+        except Exception as exc:
+            logger.exception("批量删除素材失败: %s", asset_key)
+            errors.append({"id": asset_key, "error": str(exc)})
+    return {"deleted": deleted, "errors": errors}
+
+
+def update_library_asset_tags(asset_id: str, tags: List[str]) -> Dict[str, Any]:
+    ensure_material_library_initialized()
+    normalized = normalize_tags(tags)
+    db = SessionLocal()
+    try:
+        repo = MaterialLibraryRepository(db)
+        asset = repo.update(asset_id, tags=normalized)
+        if asset is None:
+            raise ValueError(f"素材库条目不存在: {asset_id}")
+        return asset_to_dict(asset)
+    finally:
+        db.close()
+
+
+def list_library_tags(*, limit: int = 100) -> List[str]:
+    ensure_material_library_initialized()
+    db = SessionLocal()
+    try:
+        return MaterialLibraryRepository(db).list_distinct_tags(limit=limit)
+    finally:
+        db.close()
+
+
+def get_library_storage_stats() -> Dict[str, Any]:
+    ensure_material_library_initialized()
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(
+                MaterialLibraryAsset.origin,
+                MaterialLibraryAsset.platform,
+                MaterialLibraryAsset.file_size_bytes,
+            )
+            .filter(MaterialLibraryAsset.file_status == MaterialFileStatus.READY)
+            .all()
+        )
+    finally:
+        db.close()
+
+    total_assets = len(rows)
+    total_bytes = 0
+    by_origin: Dict[str, Dict[str, int]] = {}
+    by_platform: Dict[str, Dict[str, int]] = {}
+
+    for origin, platform, file_size_bytes in rows:
+        size = int(file_size_bytes or 0)
+        total_bytes += size
+        origin_key = origin.value if origin else "unknown"
+        platform_key = str(platform or "unknown")
+        for bucket, key in ((by_origin, origin_key), (by_platform, platform_key)):
+            entry = bucket.setdefault(key, {"count": 0, "bytes": 0})
+            entry["count"] += 1
+            entry["bytes"] += size
+
+    library_root = _library_root()
+    thumb_bytes = 0
+    thumbs_dir = library_root / "thumbs"
+    if thumbs_dir.exists():
+        for path in thumbs_dir.iterdir():
+            if path.is_file():
+                try:
+                    thumb_bytes += path.stat().st_size
+                except OSError:
+                    pass
+
+    return {
+        "total_assets": total_assets,
+        "total_bytes": total_bytes,
+        "video_bytes": total_bytes,
+        "thumbnail_bytes": thumb_bytes,
+        "disk_bytes": total_bytes + thumb_bytes,
+        "by_origin": by_origin,
+        "by_platform": by_platform,
+    }

@@ -564,6 +564,20 @@ EDITOR_AGENT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "download_material_to_library",
+            "description": "下载网络视频到素材库，不加入时间线；传 url 或 urls",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string"},
+                    "urls": {"type": "array", "items": {"type": "string"}},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "verify_subtitle_in_frame",
             "description": "只读：截字幕时刻预览帧并由画面分析子 Agent 返回简短 JSON（是否超出画面），不含 JPEG",
             "parameters": {

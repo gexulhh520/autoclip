@@ -28,6 +28,7 @@ export interface ListAssetsLibraryItem {
   duration_sec: number
   platform?: string | null
   origin?: string | null
+  tags?: string[]
 }
 
 export interface ListAssetsResult {
@@ -102,6 +103,7 @@ async function mapLibraryAssets(category: ListAssetsCategory): Promise<ListAsset
       duration_sec: item.duration_sec ?? 0,
       platform: item.platform,
       origin: item.origin,
+      tags: item.tags,
     }))
   } catch {
     return []

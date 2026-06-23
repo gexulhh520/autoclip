@@ -12,7 +12,11 @@ import { analyzeBlockContent } from './analyzeBlockContent'
 import { findBlockMoments } from './findBlockMoments'
 import { verifySubtitleInFrame } from './verifySubtitleInFrame'
 import { listAssets } from './listAssets'
-import { resolveLibraryAssetIdFromUrl, searchMaterials } from './materialLibraryTools'
+import {
+  downloadMaterialToLibrary,
+  resolveLibraryAssetIdFromUrl,
+  searchMaterials,
+} from './materialLibraryTools'
 import {
   parseClipIds,
   resolveDefaultMainTrackAppendIndex,
@@ -308,6 +312,10 @@ export async function executeWriteToolCall(
             import_method: result.import_method,
           },
         }
+      }
+      case 'download_material_to_library': {
+        const data = await downloadMaterialToLibrary(call.arguments)
+        return { ok: true, tool_name: call.name, data }
       }
       case 'reorder_main_track': {
         const blockId = str(call.arguments.block_id)

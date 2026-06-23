@@ -67,3 +67,43 @@ export async function resolveLibraryAssetIdFromUrl(url: string): Promise<string>
   }
   return waitForDownloadTask(task.id)
 }
+
+export interface DownloadMaterialToLibraryArgs {
+  url?: unknown
+  urls?: unknown
+}
+
+export async function downloadMaterialToLibrary(
+  args: DownloadMaterialToLibraryArgs
+): Promise<{
+  asset_ids: string[]
+  tasks: Array<{ task_id: string; url: string; asset_id?: string | null }>
+}> {
+  const single = String(args.url ?? '').trim()
+  const many = Array.isArray(args.urls)
+    ? args.urls.map((item) => String(item ?? '').trim()).filter(Boolean)
+    : []
+  const urls = many.length > 0 ? many : single ? [single] : []
+  if (urls.length === 0) {
+    throw new Error('需要提供 url 或 urls')
+  }
+
+  const tasks: Array<{ task_id: string; url: string; asset_id?: string | null }> = []
+  const assetIds: string[] = []
+
+  for (const url of urls) {
+    const created = await libraryApi.downloadFromUrl(url)
+    if (created.length === 0) {
+      throw new Error(`无法创建下载任务: ${url}`)
+    }
+    const task = created[0]
+    let assetId = task.asset_id ?? null
+    if (!assetId) {
+      assetId = await waitForDownloadTask(task.id)
+    }
+    tasks.push({ task_id: task.id, url, asset_id: assetId })
+    assetIds.push(assetId)
+  }
+
+  return { asset_ids: assetIds, tasks }
+}

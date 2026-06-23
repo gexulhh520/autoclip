@@ -21,12 +21,16 @@ from backend.services.material_download_service import (
 )
 from backend.services.material_library_service import (
     delete_library_asset,
+    delete_library_assets_batch,
     get_library_asset,
+    get_library_storage_stats,
     import_local_file_to_library,
     import_local_upload_to_library,
     list_library_assets,
+    list_library_tags,
     resolve_library_thumbnail_path,
     resolve_library_video_path,
+    update_library_asset_tags,
 )
 from backend.services.material_search_service import search_materials
 
@@ -68,17 +72,28 @@ class MaterialImportPathRequest(BaseModel):
     title: Optional[str] = None
 
 
+class MaterialAssetTagsRequest(BaseModel):
+    tags: List[str] = Field(default_factory=list)
+
+
+class MaterialBatchDeleteRequest(BaseModel):
+    asset_ids: List[str] = Field(..., min_length=1, max_length=100)
+
+
 @router.get("/assets")
 async def list_material_library_assets(
     q: Optional[str] = Query(default=None),
+    tags: Optional[str] = Query(default=None, description="逗号分隔标签，需全部匹配"),
     origin: Optional[str] = Query(default=None),
     platform: Optional[str] = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=24, ge=1, le=100),
     sort: str = Query(default="created_at_desc"),
 ):
+    parsed_tags = [part.strip() for part in (tags or "").split(",") if part.strip()] or None
     return list_library_assets(
         q=q,
+        tags=parsed_tags,
         origin=origin,
         platform=platform,
         page=page,
@@ -127,6 +142,38 @@ async def remove_material_library_asset(asset_id: str):
     except Exception as exc:
         logger.exception("删除素材库条目失败: %s", asset_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/assets/batch-delete")
+async def remove_material_library_assets_batch(body: MaterialBatchDeleteRequest):
+    try:
+        result = delete_library_assets_batch(body.asset_ids)
+        return {"ok": True, **result}
+    except Exception as exc:
+        logger.exception("批量删除素材库条目失败")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.patch("/assets/{asset_id}/tags")
+async def patch_material_library_asset_tags(asset_id: str, body: MaterialAssetTagsRequest):
+    try:
+        asset = update_library_asset_tags(asset_id, body.tags)
+        return {"ok": True, "asset": asset}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("更新素材标签失败: %s", asset_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/tags")
+async def list_material_library_tags(limit: int = Query(default=100, ge=1, le=200)):
+    return {"items": list_library_tags(limit=limit)}
+
+
+@router.get("/stats")
+async def get_material_library_stats():
+    return get_library_storage_stats()
 
 
 @router.post("/assets/import-path")
