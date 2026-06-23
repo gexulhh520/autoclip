@@ -103,6 +103,14 @@ export function createPreviewDecoderPool(
 
       for (const blockId of [...blockToStorageKey.keys()]) {
         if (!active.has(blockId)) {
+          const storageKey = blockToStorageKey.get(blockId)
+          if (storageKey) {
+            const video = decoders.get(storageKey)
+            if (video) {
+              video.pause()
+              video.muted = true
+            }
+          }
           blockToStorageKey.delete(blockId)
           frameCaches.delete(blockId)
         }

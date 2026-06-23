@@ -2575,6 +2575,7 @@ export const useEditSessionStore = create<EditSessionState>()(
         set({ isPlaying: false, assetPreviewClip: null })
       },
       setSequencePlayheadSec: (sec) => {
+        stopEditorPlayback()
         const clamped = clampPlayhead(sec)
         set((state) => {
           state.sequencePlayheadSec = clamped

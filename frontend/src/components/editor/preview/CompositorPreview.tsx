@@ -707,6 +707,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       }
     } else if (wasPlayingRef.current) {
       clock.stop()
+      stopEditorPlayback()
     }
     wasPlayingRef.current = isPlaying
   }, [isPlaying, paintAt])
