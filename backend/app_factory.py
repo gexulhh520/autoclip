@@ -71,7 +71,11 @@ def create_app(mode: str = "web") -> FastAPI:
         
         # 导入所有模型以确保表被创建
         from backend.models.bilibili import BilibiliAccount, UploadRecord
+        from backend.models.material_library import MaterialDownloadTask, MaterialLibraryAsset
+        from backend.services.material_library_service import ensure_material_library_initialized
+
         Base.metadata.create_all(bind=engine)
+        ensure_material_library_initialized()
         logger.info("数据库表创建完成")
         
         # 加载 API 密钥到环境变量

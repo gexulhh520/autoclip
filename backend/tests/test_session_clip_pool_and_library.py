@@ -2,7 +2,10 @@
 from pathlib import Path
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
+from backend.models.base import Base
 from backend.services.material_library_service import (
     list_library_assets,
     promote_session_clip_to_library,
@@ -25,6 +28,14 @@ def project_layout(tmp_path, monkeypatch):
     project_dir.mkdir(parents=True)
     data_dir.mkdir(parents=True)
 
+    db_path = data_dir / "test.db"
+    engine = create_engine(
+        f"sqlite:///{db_path}",
+        connect_args={"check_same_thread": False},
+    )
+    Base.metadata.create_all(bind=engine)
+    TestSession = sessionmaker(bind=engine)
+
     monkeypatch.setattr(
         "backend.services.session_clip_pool_service.get_project_directory",
         lambda _pid: project_dir,
@@ -33,6 +44,15 @@ def project_layout(tmp_path, monkeypatch):
         "backend.services.material_library_service.get_data_directory",
         lambda: data_dir,
     )
+    monkeypatch.setattr(
+        "backend.services.material_library_migration.get_data_directory",
+        lambda: data_dir,
+    )
+    monkeypatch.setattr("backend.services.material_library_service.SessionLocal", TestSession)
+    monkeypatch.setattr("backend.services.material_library_migration.SessionLocal", TestSession)
+    monkeypatch.setattr("backend.services.material_search_service.SessionLocal", TestSession)
+    monkeypatch.setattr("backend.services.material_download_service.SessionLocal", TestSession)
+    monkeypatch.setattr("backend.services.material_library_service._initialized", True)
 
     pool_dir = project_dir / "edit_sessions" / session_id / "pool"
     pool_dir.mkdir(parents=True)
@@ -93,12 +113,14 @@ def test_promote_to_library_copies_video(project_layout):
     assert library_path.read_bytes() == b"fake-video-bytes"
 
     pool_clips = list_session_pool_clips(
-        project_layout["project_id"], project_layout["session_id"]
+        project_layout["project_id"],
+        project_layout["session_id"]
     )
     assert pool_clips[0]["in_library"] is True
     assert pool_clips[0]["library_asset_id"] == asset["id"]
 
-    assert len(list_library_assets()) == 1
+    page = list_library_assets()
+    assert len(page["items"]) == 1
 
 
 def test_delete_session_pool_skips_promoted_clips(project_layout):
@@ -150,6 +172,7 @@ def test_delete_single_session_pool_clip(project_layout):
         project_layout["clip_id"],
     )
     assert list_session_pool_clips(
-        project_layout["project_id"], project_layout["session_id"]
+        project_layout["project_id"],
+        project_layout["session_id"]
     ) == []
     assert not project_layout["video_path"].exists()

@@ -1,49 +1,71 @@
-import React, { useCallback, useEffect, useState } from 'react'
-import { message, Modal } from 'antd'
-import { DeleteOutlined } from '@ant-design/icons'
-import libraryApi, { type LibraryAsset } from '../services/libraryApi'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import libraryApi, { type MaterialLibraryTab } from '../services/libraryApi'
+import MaterialAssetsTab from '../components/materialLibrary/MaterialAssetsTab'
+import MaterialSearchTab from '../components/materialLibrary/MaterialSearchTab'
+import MaterialDownloadsTab from '../components/materialLibrary/MaterialDownloadsTab'
 import './DesktopHomePage.css'
 import './MaterialLibraryPage.css'
 
-const MaterialLibraryPage: React.FC = () => {
-  const [assets, setAssets] = useState<LibraryAsset[]>([])
-  const [loading, setLoading] = useState(true)
+const TAB_ITEMS: Array<{ key: MaterialLibraryTab; label: string }> = [
+  { key: 'assets', label: '我的素材' },
+  { key: 'search', label: '搜索' },
+  { key: 'downloads', label: '下载中' },
+]
 
-  const loadAssets = useCallback(async () => {
-    setLoading(true)
+const parseTab = (value: string | null): MaterialLibraryTab => {
+  if (value === 'search' || value === 'downloads' || value === 'assets') return value
+  return 'assets'
+}
+
+const MaterialLibraryPage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeTab = parseTab(searchParams.get('tab'))
+  const [downloadRefreshNonce, setDownloadRefreshNonce] = useState(0)
+  const [activeDownloadCount, setActiveDownloadCount] = useState(0)
+
+  const refreshActiveCount = useCallback(async () => {
     try {
-      const items = await libraryApi.listAssets()
-      setAssets(items)
-    } catch (error: unknown) {
-      message.error(error instanceof Error ? error.message : '加载素材库失败')
-      setAssets([])
-    } finally {
-      setLoading(false)
+      const response = await libraryApi.listDownloads()
+      setActiveDownloadCount(response.active_count)
+    } catch {
+      setActiveDownloadCount(0)
     }
   }, [])
 
   useEffect(() => {
-    void loadAssets()
-  }, [loadAssets])
+    void refreshActiveCount()
+  }, [refreshActiveCount, downloadRefreshNonce])
 
-  const handleDelete = (asset: LibraryAsset) => {
-    Modal.confirm({
-      title: '从素材库移除？',
-      content: '仅删除素材库中的副本，不影响已删除草稿的历史记录。',
-      okText: '移除',
-      okButtonProps: { danger: true },
-      cancelText: '取消',
-      onOk: async () => {
-        try {
-          await libraryApi.deleteAsset(asset.id)
-          setAssets((prev) => prev.filter((item) => item.id !== asset.id))
-          message.success('已移除')
-        } catch (error: unknown) {
-          message.error(error instanceof Error ? error.message : '移除失败')
-        }
-      },
-    })
+  useEffect(() => {
+    if (activeTab !== 'downloads') return undefined
+    const timer = window.setInterval(() => {
+      void refreshActiveCount()
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [activeTab, refreshActiveCount])
+
+  const setActiveTab = (tab: MaterialLibraryTab) => {
+    const next = new URLSearchParams(searchParams)
+    if (tab === 'assets') next.delete('tab')
+    else next.set('tab', tab)
+    setSearchParams(next, { replace: true })
   }
+
+  const handleDownloadStarted = useCallback(() => {
+    setDownloadRefreshNonce((value) => value + 1)
+    setActiveTab('downloads')
+  }, [searchParams, setSearchParams])
+
+  const tabContent = useMemo(() => {
+    if (activeTab === 'search') {
+      return <MaterialSearchTab onDownloadStarted={handleDownloadStarted} />
+    }
+    if (activeTab === 'downloads') {
+      return <MaterialDownloadsTab refreshNonce={downloadRefreshNonce} />
+    }
+    return <MaterialAssetsTab />
+  }, [activeTab, downloadRefreshNonce, handleDownloadStarted])
 
   return (
     <div className="desktop-page">
@@ -51,48 +73,30 @@ const MaterialLibraryPage: React.FC = () => {
         <div>
           <h1 className="desktop-page__title">素材库</h1>
           <p className="desktop-page__subtitle">
-            从剪辑草稿收藏的 AI 片段，可在任意新草稿中复用（后续支持拖入时间线）。
+            搜索并下载网络素材，或管理从剪辑草稿收藏的 AI 片段。
           </p>
         </div>
       </header>
 
-      {loading ? (
-        <div className="desktop-empty">加载中…</div>
-      ) : assets.length === 0 ? (
-        <div className="desktop-empty">
-          暂无收藏。在剪辑编辑器「本草稿 AI 素材」上点击 ★ 即可收藏到这里。
-        </div>
-      ) : (
-        <div className="material-library-grid">
-          {assets.map((asset) => (
-            <div key={asset.id} className="material-library-card">
-              <video
-                className="material-library-card__video"
-                src={libraryApi.getVideoUrl(asset.id)}
-                controls
-                playsInline
-                preload="metadata"
-              />
-              <div className="material-library-card__meta">
-                <div className="material-library-card__title">{asset.title || asset.id}</div>
-                {asset.promoted_at ? (
-                  <div className="material-library-card__sub">
-                    收藏于 {new Date(asset.promoted_at).toLocaleString()}
-                  </div>
-                ) : null}
-              </div>
-              <button
-                type="button"
-                className="material-library-card__delete"
-                title="从素材库移除"
-                onClick={() => handleDelete(asset)}
-              >
-                <DeleteOutlined />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="material-library-tabs" role="tablist" aria-label="素材库分区">
+        {TAB_ITEMS.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === item.key}
+            className={`material-library-tabs__item ${activeTab === item.key ? 'is-active' : ''}`}
+            onClick={() => setActiveTab(item.key)}
+          >
+            {item.label}
+            {item.key === 'downloads' && activeDownloadCount > 0
+              ? ` · ${activeDownloadCount}`
+              : ''}
+          </button>
+        ))}
+      </div>
+
+      {tabContent}
     </div>
   )
 }

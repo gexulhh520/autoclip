@@ -8,6 +8,13 @@ from .clip import Clip
 from .collection import Collection
 from .task import Task, TaskStatus, TaskType
 from .bilibili import BilibiliAccount, UploadRecord
+from .material_library import (
+    MaterialAssetOrigin,
+    MaterialDownloadStatus,
+    MaterialDownloadTask,
+    MaterialFileStatus,
+    MaterialLibraryAsset,
+)
 
 __all__ = [
     "Base",
@@ -19,5 +26,10 @@ __all__ = [
     "TaskStatus",
     "TaskType",
     "BilibiliAccount",
-    "UploadRecord"
+    "UploadRecord",
+    "MaterialLibraryAsset",
+    "MaterialDownloadTask",
+    "MaterialAssetOrigin",
+    "MaterialFileStatus",
+    "MaterialDownloadStatus",
 ]

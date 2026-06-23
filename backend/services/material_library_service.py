@@ -1,7 +1,6 @@
-"""桌面全局素材库：从草稿 AI 素材收藏，跨草稿复用。"""
+"""桌面全局素材库：DB 索引 + 本地文件存储。"""
 from __future__ import annotations
 
-import json
 import logging
 import shutil
 import uuid
@@ -9,7 +8,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from backend.core.database import SessionLocal
 from backend.core.path_utils import get_data_directory
+from backend.models.material_library import MaterialAssetOrigin, MaterialFileStatus, MaterialLibraryAsset
+from backend.repositories.material_library_repository import MaterialLibraryRepository
+from backend.services.material_library_migration import migrate_legacy_assets_json_if_needed
 from backend.services.session_clip_pool_service import (
     get_session_pool_clip,
     mark_session_pool_clip_promoted,
@@ -18,52 +21,97 @@ from backend.services.session_clip_pool_service import (
 
 logger = logging.getLogger(__name__)
 
+_initialized = False
+
 
 def _library_root() -> Path:
     root = get_data_directory() / "material_library"
     root.mkdir(parents=True, exist_ok=True)
     (root / "videos").mkdir(parents=True, exist_ok=True)
+    (root / "thumbs").mkdir(parents=True, exist_ok=True)
     return root
 
 
-def _library_index_path() -> Path:
-    return _library_root() / "assets.json"
+def ensure_material_library_initialized() -> None:
+    global _initialized
+    if _initialized:
+        return
+    _library_root()
+    migrate_legacy_assets_json_if_needed()
+    _initialized = True
 
 
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+def asset_to_dict(asset: MaterialLibraryAsset) -> Dict[str, Any]:
+    metadata = asset.asset_metadata if isinstance(asset.asset_metadata, dict) else {}
+    return {
+        "id": asset.id,
+        "title": asset.title,
+        "video_path": asset.video_path,
+        "thumbnail_path": asset.thumbnail_path,
+        "origin": asset.origin.value if asset.origin else None,
+        "platform": asset.platform,
+        "external_id": asset.external_id,
+        "source_url": asset.source_url,
+        "duration_sec": asset.duration_sec,
+        "file_size_bytes": asset.file_size_bytes,
+        "uploader": asset.uploader,
+        "upload_date": asset.upload_date,
+        "view_count": asset.view_count,
+        "search_query": asset.search_query,
+        "source_project_id": asset.source_project_id,
+        "source_session_id": asset.source_session_id,
+        "source_clip_id": asset.source_clip_id,
+        "promoted_at": asset.created_at.isoformat() if asset.created_at else None,
+        "created_at": asset.created_at.isoformat() if asset.created_at else None,
+        "updated_at": asset.updated_at.isoformat() if asset.updated_at else None,
+        "metadata": metadata,
+    }
 
 
-def _load_assets() -> List[Dict[str, Any]]:
-    path = _library_index_path()
-    if not path.exists():
-        return []
+def list_library_assets(
+    *,
+    q: Optional[str] = None,
+    origin: Optional[str] = None,
+    platform: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 24,
+    sort: str = "created_at_desc",
+) -> Dict[str, Any]:
+    ensure_material_library_initialized()
+    db = SessionLocal()
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as exc:
-        logger.warning("读取素材库索引失败: %s", exc)
-        return []
-    if not isinstance(raw, list):
-        return []
-    return [item for item in raw if isinstance(item, dict)]
-
-
-def _save_assets(entries: List[Dict[str, Any]]) -> None:
-    path = _library_index_path()
-    path.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def list_library_assets() -> List[Dict[str, Any]]:
-    assets = _load_assets()
-    assets.sort(key=lambda item: str(item.get("promoted_at") or ""), reverse=True)
-    return assets
+        repo = MaterialLibraryRepository(db)
+        parsed_origin = None
+        if origin:
+            try:
+                parsed_origin = MaterialAssetOrigin(origin)
+            except ValueError:
+                pass
+        items, total = repo.search_assets(
+            q=q,
+            origin=parsed_origin,
+            platform=platform,
+            page=page,
+            page_size=page_size,
+            sort=sort,
+        )
+        meta = MaterialLibraryRepository.paginate_meta(total, page, page_size)
+        return {
+            "items": [asset_to_dict(item) for item in items],
+            **meta,
+        }
+    finally:
+        db.close()
 
 
 def get_library_asset(asset_id: str) -> Optional[Dict[str, Any]]:
-    for row in _load_assets():
-        if str(row.get("id") or "") == str(asset_id):
-            return row
-    return None
+    ensure_material_library_initialized()
+    db = SessionLocal()
+    try:
+        asset = MaterialLibraryRepository(db).get_by_id(asset_id)
+        return asset_to_dict(asset) if asset else None
+    finally:
+        db.close()
 
 
 def resolve_library_video_path(asset_id: str) -> Optional[Path]:
@@ -77,17 +125,36 @@ def resolve_library_video_path(asset_id: str) -> Optional[Path]:
     return path if path.exists() else None
 
 
+def resolve_library_thumbnail_path(asset_id: str) -> Optional[Path]:
+    row = get_library_asset(asset_id)
+    if not row:
+        return None
+    rel = str(row.get("thumbnail_path") or "").strip()
+    if not rel:
+        return None
+    path = get_data_directory() / rel
+    return path if path.exists() else None
+
+
 def is_clip_protected_in_library(
     project_id: str, session_id: str, clip_id: str
 ) -> bool:
-    for row in _load_assets():
-        if (
-            str(row.get("source_project_id") or "") == str(project_id)
-            and str(row.get("source_session_id") or "") == str(session_id)
-            and str(row.get("source_clip_id") or "") == str(clip_id)
-        ):
-            return True
-    return False
+    ensure_material_library_initialized()
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(MaterialLibraryAsset)
+            .filter(
+                MaterialLibraryAsset.source_project_id == str(project_id),
+                MaterialLibraryAsset.source_session_id == str(session_id),
+                MaterialLibraryAsset.source_clip_id == str(clip_id),
+                MaterialLibraryAsset.file_status == MaterialFileStatus.READY,
+            )
+            .count()
+        )
+        return rows > 0
+    finally:
+        db.close()
 
 
 def promote_session_clip_to_library(
@@ -95,13 +162,29 @@ def promote_session_clip_to_library(
     session_id: str,
     clip_id: str,
 ) -> Dict[str, Any]:
+    ensure_material_library_initialized()
     row = get_session_pool_clip(project_id, session_id, clip_id)
     if row is None:
         raise ValueError(f"草稿素材不存在: {clip_id}")
-    if row.get("in_library") and row.get("library_asset_id"):
-        existing = get_library_asset(str(row["library_asset_id"]))
-        if existing:
-            return existing
+
+    db = SessionLocal()
+    try:
+        repo = MaterialLibraryRepository(db)
+        if row.get("in_library") and row.get("library_asset_id"):
+            existing = repo.get_by_id(str(row["library_asset_id"]))
+            if existing and existing.file_status == MaterialFileStatus.READY:
+                return asset_to_dict(existing)
+
+        for asset in db.query(MaterialLibraryAsset).filter(
+            MaterialLibraryAsset.source_project_id == str(project_id),
+            MaterialLibraryAsset.source_session_id == str(session_id),
+            MaterialLibraryAsset.source_clip_id == str(clip_id),
+            MaterialLibraryAsset.file_status == MaterialFileStatus.READY,
+        ):
+            mark_session_pool_clip_promoted(project_id, session_id, clip_id, asset.id)
+            return asset_to_dict(asset)
+    finally:
+        db.close()
 
     source_path = resolve_session_pool_video_path(project_id, session_id, clip_id)
     if source_path is None or not source_path.exists():
@@ -116,38 +199,51 @@ def promote_session_clip_to_library(
     title = str(
         row.get("generated_title") or row.get("outline") or row.get("title") or clip_id
     ).strip()
-    entry: Dict[str, Any] = {
-        "id": asset_id,
-        "title": title[:120],
-        "video_path": dest_rel,
-        "source_project_id": project_id,
-        "source_session_id": session_id,
-        "source_clip_id": clip_id,
-        "promoted_at": _utc_now_iso(),
-        "metadata": {
-            "recommend_reason": row.get("recommend_reason"),
-            "match_score": row.get("match_score"),
-            "source": row.get("source"),
-        },
+    metadata = {
+        "recommend_reason": row.get("recommend_reason"),
+        "match_score": row.get("match_score"),
+        "source": row.get("source"),
     }
-    assets = _load_assets()
-    assets.append(entry)
-    _save_assets(assets)
-    mark_session_pool_clip_promoted(project_id, session_id, clip_id, asset_id)
-    return entry
+
+    db = SessionLocal()
+    try:
+        repo = MaterialLibraryRepository(db)
+        asset = repo.create(
+            id=asset_id,
+            title=title[:255],
+            origin=MaterialAssetOrigin.SESSION_POOL,
+            video_path=dest_rel,
+            source_project_id=project_id,
+            source_session_id=session_id,
+            source_clip_id=clip_id,
+            asset_metadata=metadata,
+            file_status=MaterialFileStatus.READY,
+            file_size_bytes=dest_path.stat().st_size if dest_path.exists() else None,
+        )
+        mark_session_pool_clip_promoted(project_id, session_id, clip_id, asset_id)
+        return asset_to_dict(asset)
+    finally:
+        db.close()
 
 
 def delete_library_asset(asset_id: str) -> None:
-    assets = _load_assets()
-    target = next((item for item in assets if str(item.get("id")) == str(asset_id)), None)
-    if target is None:
-        raise ValueError(f"素材库条目不存在: {asset_id}")
-    rel = str(target.get("video_path") or "").strip()
-    if rel:
-        file_path = get_data_directory() / rel
-        if file_path.exists():
-            try:
-                file_path.unlink()
-            except OSError as exc:
-                logger.warning("删除素材库视频失败 %s: %s", file_path, exc)
-    _save_assets([item for item in assets if str(item.get("id")) != str(asset_id)])
+    ensure_material_library_initialized()
+    db = SessionLocal()
+    try:
+        repo = MaterialLibraryRepository(db)
+        asset = repo.get_by_id(asset_id)
+        if asset is None:
+            raise ValueError(f"素材库条目不存在: {asset_id}")
+
+        for rel in (asset.video_path, asset.thumbnail_path):
+            if not rel:
+                continue
+            file_path = get_data_directory() / rel
+            if file_path.exists():
+                try:
+                    file_path.unlink()
+                except OSError as exc:
+                    logger.warning("删除素材库文件失败 %s: %s", file_path, exc)
+        repo.delete(asset_id)
+    finally:
+        db.close()
