@@ -13,6 +13,7 @@ import {
   resolveBlockVideoTransform,
 } from '../../utils/blockVideoTransform'
 import { srtTimeToSeconds, secondsToSrtTime } from '../../utils/srtTime'
+import { getErrorMessage } from '../../utils/errorHandler'
 import { projectApi } from '../../services/api'
 import EditorInspectorSelectionBanner from './EditorInspectorSelectionBanner'
 import OpenCutTextParamsPanel from './OpenCutTextParamsPanel'
@@ -246,7 +247,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
                 message.success('朗读已生成并加入时间线')
                 return { audioUrl: result.audioUrl }
               } catch (error: unknown) {
-                message.error(error instanceof Error ? error.message : '朗读生成失败')
+                message.error(getErrorMessage(error, '朗读生成失败'))
                 return null
               } finally {
                 setTtsLoading(false)
