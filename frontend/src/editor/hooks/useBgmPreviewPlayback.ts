@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { clampHtmlMediaVolume } from '../audioVolume'
 
 interface UseBgmPreviewPlaybackOptions {
   bgmRef: React.RefObject<HTMLAudioElement | null>
@@ -30,7 +31,7 @@ export function useBgmPreviewPlayback({
     if (!bgm || !bgmUrl || isAssetPreview) return
 
     const applyVolumeAndPlay = () => {
-      bgm.volume = bgmMuted ? 0 : bgmVolume
+      bgm.volume = bgmMuted ? 0 : clampHtmlMediaVolume(bgmVolume)
       if (isPlaying && !bgmMuted) {
         void bgm.play().catch(() => undefined)
       } else {

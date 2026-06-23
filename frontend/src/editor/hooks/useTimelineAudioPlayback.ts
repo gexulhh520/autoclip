@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import editApi from '../../services/editApi'
+import { clampHtmlMediaVolume } from '../audioVolume'
 import { findAudioAsset, getAudioClipTrackId } from '../audioTracks'
 import { stopEditorPlayback } from '../stopEditorPlayback'
 import type { AudioClipElement, EditSession } from '../../types/editSession'
@@ -140,7 +141,7 @@ export function useTimelineAudioPlayback({
       const { clip } = item
       const clipEnd = clip.start_sec + clip.duration_sec
       const inRange = playhead >= clip.start_sec && playhead < clipEnd
-      audio.volume = item.muted ? 0 : item.volume
+      audio.volume = item.muted ? 0 : clampHtmlMediaVolume(item.volume)
       stopClip(audio, clip.id)
       if (inRange) {
         const sourceTime = sourceTimeForClip(clip, playhead)
@@ -161,7 +162,7 @@ export function useTimelineAudioPlayback({
       const inRange = playhead >= clip.start_sec && playhead < clipEnd
       const mode = clipModeRef.current.get(clip.id) ?? 'idle'
 
-      audio.volume = item.muted ? 0 : item.volume
+      audio.volume = item.muted ? 0 : clampHtmlMediaVolume(item.volume)
 
       if (!inRange || item.muted) {
         if (mode === 'playing') {
