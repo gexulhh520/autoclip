@@ -1,10 +1,15 @@
-import React, { useRef } from 'react'
+import React, { useMemo, useRef } from 'react'
 import { Volume2 } from 'lucide-react'
+import {
+  DEFAULT_EDGE_TTS_VOICE,
+  EDGE_TTS_VOICES_ZH,
+  EDGE_TTS_VOICES_ZH_FEMALE,
+  EDGE_TTS_VOICES_ZH_MALE,
+  findEdgeTtsVoice,
+  formatEdgeTtsVoiceLabel,
+} from '../../editor/tts/edgeTtsVoices'
 
-export const EDGE_TTS_VOICES = [
-  { id: 'zh-CN-XiaoxiaoNeural', label: '女声' },
-  { id: 'zh-CN-YunxiNeural', label: '男声' },
-] as const
+export { DEFAULT_EDGE_TTS_VOICE, EDGE_TTS_VOICES_ZH as EDGE_TTS_VOICES }
 
 interface TextToSpeechPanelProps {
   text: string
@@ -28,6 +33,10 @@ const TextToSpeechPanel: React.FC<TextToSpeechPanelProps> = ({
   const previewRef = useRef<HTMLAudioElement | null>(null)
   const trimmed = text.trim()
   const canSpeak = !disabled && trimmed.length > 0
+  const selectedVoice = useMemo(
+    () => findEdgeTtsVoice(voice) ?? findEdgeTtsVoice(DEFAULT_EDGE_TTS_VOICE),
+    [voice]
+  )
 
   const handleClick = async () => {
     if (!canSpeak || loading) return
@@ -46,26 +55,37 @@ const TextToSpeechPanel: React.FC<TextToSpeechPanelProps> = ({
     }
   }
 
+  const renderVoiceOptions = (items: typeof EDGE_TTS_VOICES_ZH) =>
+    items.map((item) => (
+      <option key={item.id} value={item.id}>
+        {formatEdgeTtsVoiceLabel(item)}
+      </option>
+    ))
+
   return (
     <div className="editor-inspector-section editor-tts-panel">
       <div className="editor-inspector-label">朗读</div>
       <p className="editor-inspector-muted" style={{ marginTop: 4, marginBottom: 10 }}>
         使用 Edge 神经语音合成，生成后自动加入时间线并预览
       </p>
-      <div className="editor-tts-panel__row">
-        <select
-          className="editor-select editor-tts-panel__voice"
-          value={voice}
-          disabled={loading || disabled}
-          onChange={(event) => onVoiceChange(event.target.value)}
-          aria-label="朗读音色"
-        >
-          {EDGE_TTS_VOICES.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.label}
-            </option>
-          ))}
-        </select>
+      <select
+        className="editor-select editor-tts-panel__voice"
+        value={voice}
+        disabled={loading || disabled}
+        onChange={(event) => onVoiceChange(event.target.value)}
+        aria-label="朗读音色"
+      >
+        <optgroup label="女声">
+          {renderVoiceOptions(EDGE_TTS_VOICES_ZH_FEMALE)}
+        </optgroup>
+        <optgroup label="男声">
+          {renderVoiceOptions(EDGE_TTS_VOICES_ZH_MALE)}
+        </optgroup>
+      </select>
+      {selectedVoice ? (
+        <p className="editor-inspector-muted editor-tts-panel__hint">{selectedVoice.hint}</p>
+      ) : null}
+      <div className="editor-tts-panel__actions">
         <button
           type="button"
           className="editor-tts-panel__btn"

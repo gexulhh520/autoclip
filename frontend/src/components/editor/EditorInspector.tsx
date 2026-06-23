@@ -21,7 +21,7 @@ import TransitionTypePicker from './TransitionTypePicker'
 import { areMainTrackBlocksAdjacent } from '../../editor/timeline/sequenceBlockGaps'
 import TextPresetPicker from './TextPresetPicker'
 import TextAnimationPanel from './TextAnimationPanel'
-import TextToSpeechPanel, { EDGE_TTS_VOICES } from './TextToSpeechPanel'
+import TextToSpeechPanel, { DEFAULT_EDGE_TTS_VOICE } from './TextToSpeechPanel'
 import { readTextPresetId } from '../../editor/effects'
 import {
   blockHasMigratedTemplateOverlays,
@@ -98,7 +98,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
 
   const [regenerating, setRegenerating] = useState(false)
   const [ttsLoading, setTtsLoading] = useState(false)
-  const [ttsVoice, setTtsVoice] = useState<string>(EDGE_TTS_VOICES[0].id)
+  const [ttsVoice, setTtsVoice] = useState<string>(DEFAULT_EDGE_TTS_VOICE)
   const [uniformVideoScale, setUniformVideoScale] = useState(true)
   const [srtBoundaries, setSrtBoundaries] = useState<number[]>([])
 

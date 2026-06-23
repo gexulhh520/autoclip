@@ -1758,8 +1758,19 @@
 }
 
 .editor-tts-panel__voice {
-  flex: 1;
-  min-width: 0;
+  width: 100%;
+}
+
+.editor-tts-panel__hint {
+  margin-top: 8px;
+  margin-bottom: 0;
+  line-height: 1.45;
+}
+
+.editor-tts-panel__actions {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 10px;
 }
 
 .editor-tts-panel__btn {
