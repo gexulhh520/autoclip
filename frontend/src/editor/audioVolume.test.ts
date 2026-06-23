@@ -1,4 +1,5 @@
-import { clampHtmlMediaVolume } from '../audioVolume'
+import { describe, expect, it } from 'vitest'
+import { clampHtmlMediaVolume } from './audioVolume'
 
 describe('clampHtmlMediaVolume', () => {
   it('clamps to [0, 1]', () => {
