@@ -1211,6 +1211,68 @@ class EditSessionService:
             upload_prefix="sfx_upload",
         )
 
+    async def synthesize_speech(
+        self,
+        project_id: str,
+        session_id: str,
+        text: str,
+        *,
+        voice: Optional[str] = None,
+        rate: str = "+0%",
+        overlay_id: Optional[str] = None,
+    ) -> tuple[EditSession, str, float, str]:
+        from backend.utils.edge_tts_service import synthesize_to_file
+
+        session = self.get_session(project_id, session_id)
+        project_dir = get_project_directory(project_id)
+        session_dir = _edit_sessions_dir(project_dir) / session_id
+        session_dir.mkdir(parents=True, exist_ok=True)
+
+        snippet = text.strip().replace("\n", " ")
+        if not snippet:
+            raise ValueError("文本为空")
+
+        tmp_path = session_dir / f"tts_{uuid.uuid4().hex}.mp3"
+        try:
+            selected_voice = await synthesize_to_file(
+                snippet,
+                tmp_path,
+                voice=voice,
+                rate=rate,
+            )
+            label = snippet[:24] + ("…" if len(snippet) > 24 else "")
+            display_name = f"朗读-{label}.mp3"
+            updated = self._import_bgm_from_local_file(
+                project_id,
+                session_id,
+                session,
+                tmp_path,
+                display_name,
+                category="sfx",
+            )
+        finally:
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    logger.warning("无法删除临时 TTS 文件: %s", tmp_path)
+
+        new_asset = updated.audio_assets[-1] if updated.audio_assets else None
+        if not new_asset:
+            raise RuntimeError("TTS 音频资源写入失败")
+
+        duration_sec = float(new_asset.duration_sec or 0.0)
+        if duration_sec <= 0:
+            try:
+                info = VideoProcessor.get_video_info(
+                    project_dir / new_asset.path
+                )
+                duration_sec = float(info.get("duration") or 0) or 1.0
+            except Exception:
+                duration_sec = 1.0
+
+        return updated, new_asset.id, duration_sec, selected_voice
+
     def import_bgm_from_url(
         self,
         project_id: str,

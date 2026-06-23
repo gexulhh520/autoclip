@@ -252,6 +252,20 @@ export interface EditSessionRegenerateResponse {
   mode: string
 }
 
+export interface EditSessionTtsRequest {
+  text: string
+  voice?: string | null
+  rate?: string
+  overlay_id?: string | null
+}
+
+export interface EditSessionTtsResponse {
+  session: EditSession
+  asset_id: string
+  duration_sec: number
+  voice: string
+}
+
 export interface EditSessionSilenceDetectRequest {
   block_id: string
   noise_db?: number

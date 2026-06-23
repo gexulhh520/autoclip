@@ -1751,6 +1751,40 @@
   font-size: 13px;
 }
 
+.editor-tts-panel__row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.editor-tts-panel__voice {
+  flex: 1;
+  min-width: 0;
+}
+
+.editor-tts-panel__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--editor-border-light);
+  background: var(--ac-cta-bg, #1a1a19);
+  color: var(--ac-cta-fg, #fff);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.editor-tts-panel__btn:hover:not(:disabled) {
+  opacity: 0.92;
+}
+
+.editor-tts-panel__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .editor-audio-panel {
   display: flex;
   flex-direction: column;

@@ -10,6 +10,8 @@ import type {
   EditSessionExportJobStatus,
   EditSessionBatchExportResponse,
   EditSessionRegenerateResponse,
+  EditSessionTtsRequest,
+  EditSessionTtsResponse,
   EditSessionUpdateRequest,
   EditSessionAppendRequest,
   EditSessionAppendResponse,
@@ -334,6 +336,17 @@ export const editApi = {
       `/projects/${projectId}/edit-sessions/${sessionId}/regenerate-content`,
       payload
     )) as EditSessionRegenerateResponse
+  },
+
+  synthesizeSpeech: async (
+    projectId: string,
+    sessionId: string,
+    payload: EditSessionTtsRequest
+  ): Promise<EditSessionTtsResponse> => {
+    return (await api.post(
+      `/projects/${projectId}/edit-sessions/${sessionId}/tts`,
+      payload
+    )) as EditSessionTtsResponse
   },
 
   batchExport: async (

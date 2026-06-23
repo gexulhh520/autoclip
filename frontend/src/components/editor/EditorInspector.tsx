@@ -20,6 +20,7 @@ import TransitionTypePicker from './TransitionTypePicker'
 import { areMainTrackBlocksAdjacent } from '../../editor/timeline/sequenceBlockGaps'
 import TextPresetPicker from './TextPresetPicker'
 import TextAnimationPanel from './TextAnimationPanel'
+import TextToSpeechPanel, { EDGE_TTS_VOICES } from './TextToSpeechPanel'
 import { readTextPresetId } from '../../editor/effects'
 import {
   blockHasMigratedTemplateOverlays,
@@ -90,10 +91,13 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   const applyTextPreset = useEditSessionStore((state) => state.applyTextPreset)
   const applyTextPresetToOverlays = useEditSessionStore((state) => state.applyTextPresetToOverlays)
   const applyBatchTextAnimation = useEditSessionStore((state) => state.applyBatchTextAnimation)
+  const synthesizeOverlaySpeech = useEditSessionStore((state) => state.synthesizeOverlaySpeech)
   const clearBlockCaption = useEditSessionStore((state) => state.clearBlockCaption)
   const deleteSelectedCaption = useEditSessionStore((state) => state.deleteSelectedCaption)
 
   const [regenerating, setRegenerating] = useState(false)
+  const [ttsLoading, setTtsLoading] = useState(false)
+  const [ttsVoice, setTtsVoice] = useState<string>(EDGE_TTS_VOICES[0].id)
   const [uniformVideoScale, setUniformVideoScale] = useState(true)
   const [srtBoundaries, setSrtBoundaries] = useState<number[]>([])
 
@@ -219,6 +223,37 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
 
     return (
       <React.Fragment key={isBatch ? 'batch' : seed.id}>
+        {!isBatch ? (
+          <TextToSpeechPanel
+            text={readStringParam(seed.params, 'content', '')}
+            loading={ttsLoading || saving}
+            voice={ttsVoice}
+            onVoiceChange={setTtsVoice}
+            onSynthesize={async () => {
+              const content = readStringParam(seed.params, 'content', '').trim()
+              if (!content) {
+                message.warning('请先输入文本内容')
+                return null
+              }
+              setTtsLoading(true)
+              try {
+                const result = await synthesizeOverlaySpeech(projectId, {
+                  overlayId: seed.id,
+                  text: content,
+                  voice: ttsVoice,
+                  startSec: seed.start_sec,
+                })
+                message.success('朗读已生成并加入时间线')
+                return { audioUrl: result.audioUrl }
+              } catch (error: unknown) {
+                message.error(error instanceof Error ? error.message : '朗读生成失败')
+                return null
+              } finally {
+                setTtsLoading(false)
+              }
+            }}
+          />
+        ) : null}
         <div className="editor-inspector-section">
           <div className="editor-inspector-label">花字预设</div>
           <TextPresetPicker

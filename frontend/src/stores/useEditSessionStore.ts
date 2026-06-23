@@ -408,6 +408,15 @@ interface EditSessionState {
   ) => void
   uploadBgm: (projectId: string, file: File) => Promise<void>
   uploadSfx: (projectId: string, file: File) => Promise<void>
+  synthesizeOverlaySpeech: (
+    projectId: string,
+    payload: {
+      overlayId: string
+      text: string
+      voice?: string
+      startSec: number
+    }
+  ) => Promise<{ assetId: string; audioUrl: string; clipId: string | null }>
   importBgmFromUrl: (projectId: string, url: string) => Promise<void>
   removeAudioAsset: (assetId: string) => void
   addAudioClipToTimeline: (
@@ -2920,6 +2929,46 @@ export const useEditSessionStore = create<EditSessionState>()(
           set({
             saving: false,
             error: error instanceof Error ? error.message : '音效上传失败',
+          })
+          throw error
+        }
+      },
+
+      synthesizeOverlaySpeech: async (projectId, payload) => {
+        const { session } = get()
+        if (!session) throw new Error('无剪辑工程')
+        const trimmed = payload.text.trim()
+        if (!trimmed) throw new Error('文本为空')
+        set({ saving: true, error: null })
+        try {
+          const result = await editApi.synthesizeSpeech(projectId, session.id, {
+            text: trimmed,
+            voice: payload.voice,
+            overlay_id: payload.overlayId,
+          })
+          set((state) => {
+            state.session = cloneSessionFromApi(result.session)
+            state.saving = false
+            state.dirty = false
+          })
+          const clipId = get().addAudioClipToTimeline(result.asset_id, {
+            startSec: payload.startSec,
+            durationSec: result.duration_sec,
+            recordHistory: true,
+          })
+          if (!clipId) {
+            throw new Error('时间线音频轨已满，无法放置朗读')
+          }
+          await get().saveSession(projectId)
+          return {
+            assetId: result.asset_id,
+            audioUrl: editApi.getAudioAssetUrl(projectId, session.id, result.asset_id),
+            clipId,
+          }
+        } catch (error: unknown) {
+          set({
+            saving: false,
+            error: error instanceof Error ? error.message : '朗读生成失败',
           })
           throw error
         }

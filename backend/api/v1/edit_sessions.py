@@ -40,6 +40,8 @@ from backend.schemas.edit_session import (
     EditSessionSilenceDetectRequest,
     EditSessionSilenceDetectResponse,
     EditSessionSilenceRegion,
+    EditSessionTtsRequest,
+    EditSessionTtsResponse,
     EditSessionUpdateRequest,
 )
 from backend.schemas.editor_agent import (
@@ -767,6 +769,42 @@ async def upload_edit_session_sfx(
         raise
     except Exception as exc:
         logger.exception("上传音效失败: %s/%s", project_id, session_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/tts",
+    response_model=EditSessionTtsResponse,
+)
+async def synthesize_edit_session_tts(
+    project_id: str,
+    session_id: str,
+    payload: EditSessionTtsRequest,
+    service: EditSessionService = Depends(get_edit_session_service),
+):
+    try:
+        session, asset_id, duration_sec, voice = await service.synthesize_speech(
+            project_id,
+            session_id,
+            payload.text,
+            voice=payload.voice,
+            rate=payload.rate,
+            overlay_id=payload.overlay_id,
+        )
+        return EditSessionTtsResponse(
+            session=session,
+            asset_id=asset_id,
+            duration_sec=duration_sec,
+            voice=voice,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("文本转语音失败: %s/%s", project_id, session_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

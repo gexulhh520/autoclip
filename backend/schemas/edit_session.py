@@ -599,3 +599,20 @@ class EditSessionBilibiliUploadResponse(BaseModel):
     record_id: Optional[int] = None
     message: str
     upload_status_path: Optional[str] = None
+
+
+class EditSessionTtsRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=5000)
+    voice: Optional[str] = Field(
+        default=None,
+        description="Edge TTS voice id，如 zh-CN-XiaoxiaoNeural",
+    )
+    rate: str = Field(default="+0%", description="语速，如 +10% / -10%")
+    overlay_id: Optional[str] = None
+
+
+class EditSessionTtsResponse(BaseModel):
+    session: "EditSession"
+    asset_id: str
+    duration_sec: float
+    voice: str
