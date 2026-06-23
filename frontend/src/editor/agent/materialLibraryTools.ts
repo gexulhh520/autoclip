@@ -32,7 +32,7 @@ export async function waitForDownloadTask(
   const intervalMs = options?.intervalMs ?? 2000
   const started = Date.now()
 
-  while Date.now() - started < timeoutMs) {
+  while (Date.now() - started < timeoutMs) {
     const response = await libraryApi.listDownloads()
     const task = response.items.find((item) => item.id === taskId)
     if (!task) {
