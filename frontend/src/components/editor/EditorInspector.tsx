@@ -22,6 +22,7 @@ import { areMainTrackBlocksAdjacent } from '../../editor/timeline/sequenceBlockG
 import TextPresetPicker from './TextPresetPicker'
 import TextAnimationPanel from './TextAnimationPanel'
 import TextToSpeechPanel, { DEFAULT_EDGE_TTS_VOICE } from './TextToSpeechPanel'
+import { resolveEdgeTtsVoiceId } from '../../editor/tts/edgeTtsVoices'
 import { readTextPresetId } from '../../editor/effects'
 import {
   blockHasMigratedTemplateOverlays,
@@ -243,7 +244,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
               try {
                 return await previewOverlaySpeech(projectId, {
                   text: content,
-                  voice: ttsVoice,
+                  voice: resolveEdgeTtsVoiceId(ttsVoice),
                 })
               } catch (error: unknown) {
                 message.error(getErrorMessage(error, '预读失败'))
@@ -263,7 +264,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
                 const result = await synthesizeOverlaySpeech(projectId, {
                   overlayId: seed.id,
                   text: content,
-                  voice: ttsVoice,
+                  voice: resolveEdgeTtsVoiceId(ttsVoice),
                   startSec: seed.start_sec,
                 })
                 message.success('朗读已生成并加入时间线')

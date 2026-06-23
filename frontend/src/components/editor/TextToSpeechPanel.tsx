@@ -7,6 +7,7 @@ import {
   EDGE_TTS_VOICES_ZH_MALE,
   findEdgeTtsVoice,
   formatEdgeTtsVoiceLabel,
+  resolveEdgeTtsVoiceId,
 } from '../../editor/tts/edgeTtsVoices'
 
 export { DEFAULT_EDGE_TTS_VOICE, EDGE_TTS_VOICES_ZH as EDGE_TTS_VOICES }
@@ -43,6 +44,7 @@ const TextToSpeechPanel: React.FC<TextToSpeechPanelProps> = ({
     () => findEdgeTtsVoice(voice) ?? findEdgeTtsVoice(DEFAULT_EDGE_TTS_VOICE),
     [voice]
   )
+  const resolvedVoice = resolveEdgeTtsVoiceId(voice)
 
   useEffect(() => {
     return () => {
@@ -109,7 +111,7 @@ const TextToSpeechPanel: React.FC<TextToSpeechPanelProps> = ({
       </p>
       <select
         className="editor-select editor-tts-panel__voice"
-        value={voice}
+        value={resolvedVoice}
         disabled={busy || disabled}
         onChange={(event) => onVoiceChange(event.target.value)}
         aria-label="朗读音色"

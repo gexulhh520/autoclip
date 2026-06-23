@@ -75,6 +75,16 @@ def test_synthesize_speech_rejects_empty_text(tts_session):
         asyncio.run(service.synthesize_speech(project_id, session_id, "   "))
 
 
+def test_resolve_edge_tts_voice_maps_deprecated_ids():
+    from backend.utils.edge_tts_service import resolve_edge_tts_voice
+
+    assert resolve_edge_tts_voice("zh-CN-XiaohanNeural") == "zh-CN-liaoning-XiaobeiNeural"
+    assert resolve_edge_tts_voice("zh-CN-XiaomoNeural") == "zh-CN-shaanxi-XiaoniNeural"
+    assert resolve_edge_tts_voice("zh-CN-YunfengNeural") == "zh-CN-YunxiaNeural"
+    assert resolve_edge_tts_voice("zh-CN-XiaoxiaoNeural") == "zh-CN-XiaoxiaoNeural"
+    assert resolve_edge_tts_voice("invalid-voice") == "zh-CN-XiaoxiaoNeural"
+
+
 def test_preview_speech_returns_audio_bytes(tts_session, monkeypatch):
     service, project_id, session_id = tts_session
 

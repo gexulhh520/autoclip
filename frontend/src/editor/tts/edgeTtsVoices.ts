@@ -1,4 +1,4 @@
-/** Edge TTS 中文神经音色（Microsoft Read Aloud） */
+/** Edge TTS 中文神经音色（Microsoft Read Aloud，以当前在线列表为准） */
 export interface EdgeTtsVoiceOption {
   id: string
   gender: '女' | '男'
@@ -11,6 +11,13 @@ export interface EdgeTtsVoiceOption {
 }
 
 export const DEFAULT_EDGE_TTS_VOICE = 'zh-CN-XiaoxiaoNeural'
+
+/** 微软已下线的旧 voice id → 当前可用替代 */
+export const EDGE_TTS_VOICE_ALIASES: Record<string, string> = {
+  'zh-CN-XiaohanNeural': 'zh-CN-liaoning-XiaobeiNeural',
+  'zh-CN-XiaomoNeural': 'zh-CN-shaanxi-XiaoniNeural',
+  'zh-CN-YunfengNeural': 'zh-CN-YunxiaNeural',
+}
 
 export const EDGE_TTS_VOICES_ZH: EdgeTtsVoiceOption[] = [
   {
@@ -28,18 +35,18 @@ export const EDGE_TTS_VOICES_ZH: EdgeTtsVoiceOption[] = [
     hint: '语气柔和，适合情感向内容',
   },
   {
-    id: 'zh-CN-XiaohanNeural',
+    id: 'zh-CN-liaoning-XiaobeiNeural',
     gender: '女',
-    name: '晓涵',
+    name: '晓北',
     scene: '年轻活力',
-    hint: '语气活泼，适合轻松向口播',
+    hint: '东北女声，语气活泼，适合轻松向口播',
   },
   {
-    id: 'zh-CN-XiaomoNeural',
+    id: 'zh-CN-shaanxi-XiaoniNeural',
     gender: '女',
-    name: '晓墨',
-    scene: '情感故事',
-    hint: '表现力较强，适合叙事与故事',
+    name: '晓妮',
+    scene: '情感叙事',
+    hint: '陕西女声，表现力较好，适合故事类内容',
   },
   {
     id: 'zh-CN-YunxiNeural',
@@ -63,16 +70,25 @@ export const EDGE_TTS_VOICES_ZH: EdgeTtsVoiceOption[] = [
     hint: '较为严肃，适合新闻与正式场合',
   },
   {
-    id: 'zh-CN-YunfengNeural',
+    id: 'zh-CN-YunxiaNeural',
     gender: '男',
-    name: '云枫',
-    scene: '成熟专业',
-    hint: '成熟稳重，适合专业向解说',
+    name: '云夏',
+    scene: '年轻男声',
+    hint: '少年感较强，适合轻松解说',
   },
 ]
 
+export function resolveEdgeTtsVoiceId(voiceId: string | null | undefined): string {
+  const raw = (voiceId ?? '').trim()
+  if (!raw) return DEFAULT_EDGE_TTS_VOICE
+  if (EDGE_TTS_VOICE_ALIASES[raw]) return EDGE_TTS_VOICE_ALIASES[raw]
+  if (EDGE_TTS_VOICES_ZH.some((item) => item.id === raw)) return raw
+  return DEFAULT_EDGE_TTS_VOICE
+}
+
 export function findEdgeTtsVoice(voiceId: string): EdgeTtsVoiceOption | undefined {
-  return EDGE_TTS_VOICES_ZH.find((item) => item.id === voiceId)
+  const resolved = resolveEdgeTtsVoiceId(voiceId)
+  return EDGE_TTS_VOICES_ZH.find((item) => item.id === resolved)
 }
 
 export function formatEdgeTtsVoiceLabel(voice: EdgeTtsVoiceOption): string {
@@ -81,3 +97,5 @@ export function formatEdgeTtsVoiceLabel(voice: EdgeTtsVoiceOption): string {
 
 export const EDGE_TTS_VOICES_ZH_FEMALE = EDGE_TTS_VOICES_ZH.filter((item) => item.gender === '女')
 export const EDGE_TTS_VOICES_ZH_MALE = EDGE_TTS_VOICES_ZH.filter((item) => item.gender === '男')
+
+export const EDGE_TTS_VOICE_IDS = EDGE_TTS_VOICES_ZH.map((item) => item.id)
