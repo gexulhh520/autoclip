@@ -30,8 +30,10 @@ export function sliderToZoom(sliderPosition: number, minZoom: number): number {
 }
 
 export function zoomToSlider(zoomLevel: number, minZoom: number): number {
-  const clampedZoom = Math.max(minZoom, Math.min(TIMELINE_CONSTANTS.ZOOM_MAX, zoomLevel))
-  return Math.log(clampedZoom / minZoom) / Math.log(TIMELINE_CONSTANTS.ZOOM_MAX / minZoom)
+  const effectiveMin = Math.min(minZoom, zoomLevel)
+  const clampedZoom = Math.max(effectiveMin, Math.min(TIMELINE_CONSTANTS.ZOOM_MAX, zoomLevel))
+  if (clampedZoom <= effectiveMin) return 0
+  return Math.log(clampedZoom / effectiveMin) / Math.log(TIMELINE_CONSTANTS.ZOOM_MAX / effectiveMin)
 }
 
 export function timeToPx(timeSec: number, zoomLevel: number): number {

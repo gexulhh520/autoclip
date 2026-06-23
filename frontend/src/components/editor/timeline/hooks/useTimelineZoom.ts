@@ -27,18 +27,13 @@ export function useTimelineZoom({
   initialZoom,
   persistenceKey = null,
 }: UseTimelineZoomOptions) {
-  const readPersistedZoom = useCallback(
-    (key: string | null | undefined) => {
-      if (!key) return null
-      const stored = readTimelineZoomLevel(key)
-      return stored == null ? null : clampZoomLevel(stored, minZoom)
-    },
-    [minZoom]
-  )
+  const minZoomRef = useRef(minZoom)
+  minZoomRef.current = minZoom
 
-  const [zoomLevel, setZoomLevelRaw] = useState(() =>
-    clampZoomLevel(readPersistedZoom(persistenceKey) ?? initialZoom ?? 1, minZoom)
-  )
+  const [zoomLevel, setZoomLevelRaw] = useState(() => {
+    const stored = persistenceKey ? readTimelineZoomLevel(persistenceKey) : null
+    return clampZoomLevel(stored ?? initialZoom ?? 1, minZoom)
+  })
   const skipPersistRef = useRef(true)
 
   const wrappedSetZoomLevel = useCallback(
@@ -48,10 +43,10 @@ export function useTimelineZoom({
           typeof zoomLevelOrUpdater === 'function'
             ? zoomLevelOrUpdater(prev)
             : zoomLevelOrUpdater
-        return clampZoomLevel(nextZoom, minZoom)
+        return clampZoomLevel(nextZoom, minZoomRef.current)
       })
     },
-    [minZoom]
+    []
   )
 
   const handleWheel = useCallback(
@@ -69,13 +64,13 @@ export function useTimelineZoom({
 
   useEffect(() => {
     skipPersistRef.current = true
-    const persisted = readPersistedZoom(persistenceKey)
-    wrappedSetZoomLevel(persisted ?? initialZoom ?? 1)
-  }, [persistenceKey, initialZoom, readPersistedZoom, wrappedSetZoomLevel])
-
-  useEffect(() => {
-    wrappedSetZoomLevel((prev) => (prev < minZoom ? minZoom : prev))
-  }, [minZoom, wrappedSetZoomLevel])
+    if (!persistenceKey) {
+      wrappedSetZoomLevel(initialZoom ?? 1)
+      return
+    }
+    const stored = readTimelineZoomLevel(persistenceKey)
+    wrappedSetZoomLevel(stored ?? initialZoom ?? 1)
+  }, [persistenceKey, initialZoom, wrappedSetZoomLevel])
 
   useEffect(() => {
     if (!persistenceKey) return
