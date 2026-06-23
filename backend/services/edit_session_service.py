@@ -1211,6 +1211,45 @@ class EditSessionService:
             upload_prefix="sfx_upload",
         )
 
+    @staticmethod
+    def _normalize_tts_text(text: str) -> str:
+        snippet = text.strip().replace("\n", " ")
+        if not snippet:
+            raise ValueError("文本为空")
+        return snippet
+
+    async def preview_speech(
+        self,
+        project_id: str,
+        session_id: str,
+        text: str,
+        *,
+        voice: Optional[str] = None,
+        rate: str = "+0%",
+    ) -> tuple[bytes, str]:
+        import tempfile
+
+        from backend.utils.edge_tts_service import synthesize_to_file
+
+        self.get_session(project_id, session_id)
+        snippet = self._normalize_tts_text(text)
+
+        tmp_path = Path(tempfile.mktemp(suffix=".mp3", prefix="tts_preview_"))
+        try:
+            await synthesize_to_file(
+                snippet,
+                tmp_path,
+                voice=voice,
+                rate=rate,
+            )
+            return tmp_path.read_bytes(), "audio/mpeg"
+        finally:
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    logger.warning("无法删除临时预读文件: %s", tmp_path)
+
     async def synthesize_speech(
         self,
         project_id: str,
@@ -1228,9 +1267,7 @@ class EditSessionService:
         session_dir = _edit_sessions_dir(project_dir) / session_id
         session_dir.mkdir(parents=True, exist_ok=True)
 
-        snippet = text.strip().replace("\n", " ")
-        if not snippet:
-            raise ValueError("文本为空")
+        snippet = self._normalize_tts_text(text)
 
         tmp_path = session_dir / f"tts_{uuid.uuid4().hex}.mp3"
         try:

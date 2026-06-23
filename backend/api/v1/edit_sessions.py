@@ -772,6 +772,33 @@ async def upload_edit_session_sfx(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@router.post("/{project_id}/edit-sessions/{session_id}/tts/preview")
+async def preview_edit_session_tts(
+    project_id: str,
+    session_id: str,
+    payload: EditSessionTtsRequest,
+    service: EditSessionService = Depends(get_edit_session_service),
+):
+    try:
+        audio_bytes, media_type = await service.preview_speech(
+            project_id,
+            session_id,
+            payload.text,
+            voice=payload.voice,
+            rate=payload.rate,
+        )
+        return Response(content=audio_bytes, media_type=media_type)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("文本预读失败: %s/%s", project_id, session_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @router.post(
     "/{project_id}/edit-sessions/{session_id}/tts",
     response_model=EditSessionTtsResponse,

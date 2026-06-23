@@ -93,10 +93,12 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   const applyTextPresetToOverlays = useEditSessionStore((state) => state.applyTextPresetToOverlays)
   const applyBatchTextAnimation = useEditSessionStore((state) => state.applyBatchTextAnimation)
   const synthesizeOverlaySpeech = useEditSessionStore((state) => state.synthesizeOverlaySpeech)
+  const previewOverlaySpeech = useEditSessionStore((state) => state.previewOverlaySpeech)
   const clearBlockCaption = useEditSessionStore((state) => state.clearBlockCaption)
   const deleteSelectedCaption = useEditSessionStore((state) => state.deleteSelectedCaption)
 
   const [regenerating, setRegenerating] = useState(false)
+  const [ttsPreviewLoading, setTtsPreviewLoading] = useState(false)
   const [ttsLoading, setTtsLoading] = useState(false)
   const [ttsVoice, setTtsVoice] = useState<string>(DEFAULT_EDGE_TTS_VOICE)
   const [uniformVideoScale, setUniformVideoScale] = useState(true)
@@ -227,9 +229,29 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
         {!isBatch ? (
           <TextToSpeechPanel
             text={readStringParam(seed.params, 'content', '')}
-            loading={ttsLoading || saving}
+            previewLoading={ttsPreviewLoading}
+            synthesizeLoading={ttsLoading || saving}
             voice={ttsVoice}
             onVoiceChange={setTtsVoice}
+            onPreview={async () => {
+              const content = readStringParam(seed.params, 'content', '').trim()
+              if (!content) {
+                message.warning('请先输入文本内容')
+                return null
+              }
+              setTtsPreviewLoading(true)
+              try {
+                return await previewOverlaySpeech(projectId, {
+                  text: content,
+                  voice: ttsVoice,
+                })
+              } catch (error: unknown) {
+                message.error(getErrorMessage(error, '预读失败'))
+                return null
+              } finally {
+                setTtsPreviewLoading(false)
+              }
+            }}
             onSynthesize={async () => {
               const content = readStringParam(seed.params, 'content', '').trim()
               if (!content) {

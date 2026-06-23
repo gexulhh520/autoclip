@@ -73,3 +73,28 @@ def test_synthesize_speech_rejects_empty_text(tts_session):
     service, project_id, session_id = tts_session
     with pytest.raises(ValueError, match="文本为空"):
         asyncio.run(service.synthesize_speech(project_id, session_id, "   "))
+
+
+def test_preview_speech_returns_audio_bytes(tts_session, monkeypatch):
+    service, project_id, session_id = tts_session
+
+    async def fake_synthesize(text, output_path, *, voice=None, rate="+0%"):
+        output_path.write_bytes(b"preview-mp3")
+        return voice or "zh-CN-XiaoxiaoNeural"
+
+    monkeypatch.setattr(
+        "backend.utils.edge_tts_service.synthesize_to_file",
+        fake_synthesize,
+    )
+
+    audio_bytes, media_type = asyncio.run(
+        service.preview_speech(
+            project_id,
+            session_id,
+            "预读测试",
+            voice="zh-CN-XiaoxiaoNeural",
+        )
+    )
+
+    assert audio_bytes == b"preview-mp3"
+    assert media_type == "audio/mpeg"

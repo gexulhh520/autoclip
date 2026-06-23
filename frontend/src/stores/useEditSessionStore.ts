@@ -417,6 +417,13 @@ interface EditSessionState {
       startSec: number
     }
   ) => Promise<{ assetId: string; audioUrl: string; clipId: string | null }>
+  previewOverlaySpeech: (
+    projectId: string,
+    payload: {
+      text: string
+      voice?: string
+    }
+  ) => Promise<Blob>
   importBgmFromUrl: (projectId: string, url: string) => Promise<void>
   removeAudioAsset: (assetId: string) => void
   addAudioClipToTimeline: (
@@ -2932,6 +2939,17 @@ export const useEditSessionStore = create<EditSessionState>()(
           })
           throw error
         }
+      },
+
+      previewOverlaySpeech: async (projectId, payload) => {
+        const { session } = get()
+        if (!session) throw new Error('无剪辑工程')
+        const trimmed = payload.text.trim()
+        if (!trimmed) throw new Error('文本为空')
+        return editApi.previewSpeech(projectId, session.id, {
+          text: trimmed,
+          voice: payload.voice,
+        })
       },
 
       synthesizeOverlaySpeech: async (projectId, payload) => {

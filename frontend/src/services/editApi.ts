@@ -349,6 +349,56 @@ export const editApi = {
     )) as EditSessionTtsResponse
   },
 
+  previewSpeech: async (
+    projectId: string,
+    sessionId: string,
+    payload: EditSessionTtsRequest
+  ): Promise<Blob> => {
+    try {
+      const response = await api.post(
+        `/projects/${projectId}/edit-sessions/${sessionId}/tts/preview`,
+        payload,
+        { responseType: 'blob' }
+      )
+      const blob = response.data as Blob
+      if (blob.type.includes('json')) {
+        const text = await blob.text()
+        try {
+          const body = JSON.parse(text) as { detail?: unknown }
+          if (typeof body.detail === 'string' && body.detail.trim()) {
+            throw new Error(body.detail)
+          }
+        } catch (parseError) {
+          if (parseError instanceof Error && parseError.message !== text) {
+            throw parseError
+          }
+        }
+        throw new Error('预读失败')
+      }
+      return blob
+    } catch (error: unknown) {
+      const axiosLike = error as {
+        response?: { data?: Blob }
+        message?: string
+      }
+      const errBlob = axiosLike.response?.data
+      if (errBlob instanceof Blob && errBlob.type.includes('json')) {
+        const text = await errBlob.text()
+        try {
+          const body = JSON.parse(text) as { detail?: unknown }
+          if (typeof body.detail === 'string' && body.detail.trim()) {
+            throw new Error(body.detail)
+          }
+        } catch (parseError) {
+          if (parseError instanceof Error && parseError.message !== text) {
+            throw parseError
+          }
+        }
+      }
+      throw error
+    }
+  },
+
   batchExport: async (
     projectId: string,
     sessionId: string,
