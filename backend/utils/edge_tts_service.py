@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 DEFAULT_ZH_VOICE = "zh-CN-XiaoxiaoNeural"
 DEFAULT_EN_VOICE = "en-US-AriaNeural"
 
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+_TICKS_TO_SEC = 1 / 10_000_000
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[。！？；.!?;])\s*")
 
 # 与 frontend/src/editor/tts/edgeTtsVoices.ts 保持同步
 EDGE_TTS_VOICE_ALIASES: dict[str, str] = {
@@ -41,6 +44,22 @@ EDGE_TTS_VOICE_IDS: frozenset[str] = frozenset(
 )
 
 
+@dataclass
+class SubtitleCueTiming:
+    text: str
+    start_sec: float
+    end_sec: float
+    boundary_type: str = "SentenceBoundary"
+
+
+@dataclass
+class SynthesizedSpeech:
+    voice: str
+    duration_sec: float
+    cues: List[SubtitleCueTiming] = field(default_factory=list)
+    word_timings: List[SubtitleCueTiming] = field(default_factory=list)
+
+
 def resolve_edge_tts_voice(voice: Optional[str]) -> str:
     raw = (voice or "").strip()
     if not raw:
@@ -60,6 +79,117 @@ def guess_voice(text: str, preferred: Optional[str] = None) -> str:
     return DEFAULT_EN_VOICE
 
 
+def _split_clauses(text: str) -> List[str]:
+    parts = [part.strip() for part in _SENTENCE_SPLIT_RE.split(text.strip()) if part.strip()]
+    return parts or [text.strip()]
+
+
+def _allocate_clause_timings(
+    clauses: List[str],
+    start_sec: float,
+    end_sec: float,
+) -> List[SubtitleCueTiming]:
+    if not clauses:
+        return []
+    if len(clauses) == 1:
+        return [
+            SubtitleCueTiming(
+                text=clauses[0],
+                start_sec=start_sec,
+                end_sec=end_sec,
+                boundary_type="ClauseSplit",
+            )
+        ]
+
+    total_chars = sum(max(1, len(clause)) for clause in clauses)
+    span = max(end_sec - start_sec, 0.05)
+    cursor = start_sec
+    cues: List[SubtitleCueTiming] = []
+    for index, clause in enumerate(clauses):
+        weight = max(1, len(clause)) / total_chars
+        if index == len(clauses) - 1:
+            cue_end = end_sec
+        else:
+            cue_end = cursor + span * weight
+        cues.append(
+            SubtitleCueTiming(
+                text=clause,
+                start_sec=cursor,
+                end_sec=max(cue_end, cursor + 0.05),
+                boundary_type="ClauseSplit",
+            )
+        )
+        cursor = cue_end
+    return cues
+
+
+def refine_subtitle_cues(
+    boundaries: List[SubtitleCueTiming],
+    narration_text: str,
+) -> tuple[List[SubtitleCueTiming], List[SubtitleCueTiming]]:
+    """句级 cue 优先；过长单句按标点拆分为多条字幕。"""
+    if not boundaries:
+        duration_guess = max(0.5, len(narration_text) * 0.12)
+        clauses = _split_clauses(narration_text)
+        sentence_cues = _allocate_clause_timings(clauses, 0.0, duration_guess)
+        return sentence_cues, _expand_word_timings(sentence_cues)
+
+    sentence_cues: List[SubtitleCueTiming] = []
+    for boundary in boundaries:
+        clauses = _split_clauses(boundary.text)
+        if len(clauses) <= 1:
+            sentence_cues.append(boundary)
+            continue
+        sentence_cues.extend(
+            _allocate_clause_timings(clauses, boundary.start_sec, boundary.end_sec)
+        )
+
+    word_timings = _expand_word_timings(sentence_cues)
+    return sentence_cues, word_timings
+
+
+def _expand_word_timings(sentence_cues: List[SubtitleCueTiming]) -> List[SubtitleCueTiming]:
+    """在无 WordBoundary 时，按字符权重在句内分配词级时间戳。"""
+    word_timings: List[SubtitleCueTiming] = []
+    for cue in sentence_cues:
+        text = cue.text.strip()
+        if not text:
+            continue
+        if _CJK_RE.search(text):
+            units = [char for char in text if not char.isspace()]
+        else:
+            units = [part for part in re.split(r"(\s+)", text) if part and not part.isspace()]
+        if len(units) <= 1:
+            word_timings.append(
+                SubtitleCueTiming(
+                    text=text,
+                    start_sec=cue.start_sec,
+                    end_sec=cue.end_sec,
+                    boundary_type="WordEstimate",
+                )
+            )
+            continue
+        total = sum(max(1, len(unit)) for unit in units)
+        span = max(cue.end_sec - cue.start_sec, 0.05)
+        cursor = cue.start_sec
+        for index, unit in enumerate(units):
+            weight = max(1, len(unit)) / total
+            if index == len(units) - 1:
+                unit_end = cue.end_sec
+            else:
+                unit_end = cursor + span * weight
+            word_timings.append(
+                SubtitleCueTiming(
+                    text=unit,
+                    start_sec=cursor,
+                    end_sec=max(unit_end, cursor + 0.03),
+                    boundary_type="WordEstimate",
+                )
+            )
+            cursor = unit_end
+    return word_timings
+
+
 async def synthesize_to_file(
     text: str,
     output_path: Path,
@@ -67,6 +197,22 @@ async def synthesize_to_file(
     voice: Optional[str] = None,
     rate: str = "+0%",
 ) -> str:
+    result = await synthesize_with_timings(
+        text,
+        output_path,
+        voice=voice,
+        rate=rate,
+    )
+    return result.voice
+
+
+async def synthesize_with_timings(
+    text: str,
+    output_path: Path,
+    *,
+    voice: Optional[str] = None,
+    rate: str = "+0%",
+) -> SynthesizedSpeech:
     try:
         import edge_tts
         from edge_tts.communicate import NoAudioReceived
@@ -80,10 +226,48 @@ async def synthesize_to_file(
     selected_voice = guess_voice(cleaned, voice)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     communicate = edge_tts.Communicate(cleaned, selected_voice, rate=rate)
+    boundaries: List[SubtitleCueTiming] = []
+
     try:
-        await communicate.save(str(output_path))
+        with output_path.open("wb") as audio_file:
+            async for chunk in communicate.stream():
+                chunk_type = chunk.get("type")
+                if chunk_type == "audio":
+                    audio_file.write(chunk["data"])
+                elif chunk_type in ("WordBoundary", "SentenceBoundary"):
+                    offset = float(chunk.get("offset") or 0) * _TICKS_TO_SEC
+                    duration = float(chunk.get("duration") or 0) * _TICKS_TO_SEC
+                    boundaries.append(
+                        SubtitleCueTiming(
+                            text=str(chunk.get("text") or "").strip(),
+                            start_sec=offset,
+                            end_sec=offset + duration,
+                            boundary_type=str(chunk_type),
+                        )
+                    )
     except NoAudioReceived as exc:
         raise ValueError(
             f"音色 {selected_voice} 当前不可用，请更换其他音色后重试"
         ) from exc
-    return selected_voice
+
+    duration_sec = 0.0
+    if boundaries:
+        duration_sec = max(item.end_sec for item in boundaries)
+    if duration_sec <= 0 and output_path.exists() and output_path.stat().st_size > 0:
+        try:
+            from backend.utils.video_processor import VideoProcessor
+
+            info = VideoProcessor.get_video_info(output_path)
+            duration_sec = float(info.get("duration") or 0) or 0.0
+        except Exception:
+            duration_sec = 0.0
+    if duration_sec <= 0:
+        duration_sec = max(0.5, len(cleaned) * 0.12)
+
+    sentence_cues, word_timings = refine_subtitle_cues(boundaries, cleaned)
+    return SynthesizedSpeech(
+        voice=selected_voice,
+        duration_sec=duration_sec,
+        cues=sentence_cues,
+        word_timings=word_timings,
+    )

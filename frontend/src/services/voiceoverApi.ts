@@ -1,6 +1,8 @@
 import api from './api'
 import type { EditSession } from '../types/editSession'
 import type {
+  VoiceoverExecuteRequest,
+  VoiceoverExecuteResponse,
   VoiceoverGenerateRequest,
   VoiceoverGenerateResponse,
   VoiceoverPlan,
@@ -84,6 +86,29 @@ export const voiceoverApi = {
     return (await api.delete(
       `${voiceoverBase(projectId, sessionId)}/segments/${encodeURIComponent(segmentId)}`
     )) as VoiceoverPlanResponse
+  },
+
+  execute: async (
+    projectId: string,
+    sessionId: string,
+    payload: VoiceoverExecuteRequest
+  ): Promise<VoiceoverExecuteResponse> => {
+    return (await api.post(`${voiceoverBase(projectId, sessionId)}/execute`, payload, {
+      timeout: VOICEOVER_TIMEOUT_MS,
+    })) as VoiceoverExecuteResponse
+  },
+
+  executeSegment: async (
+    projectId: string,
+    sessionId: string,
+    segmentId: string,
+    payload: VoiceoverExecuteRequest = {}
+  ): Promise<VoiceoverExecuteResponse> => {
+    return (await api.post(
+      `${voiceoverBase(projectId, sessionId)}/execute-segment/${encodeURIComponent(segmentId)}`,
+      payload,
+      { timeout: VOICEOVER_TIMEOUT_MS }
+    )) as VoiceoverExecuteResponse
   },
 
   applyResponse: (response: VoiceoverPlanResponse): EditSession => response.session,

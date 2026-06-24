@@ -8,6 +8,7 @@ from backend.core.llm_manager import get_llm_manager
 from backend.schemas.edit_session import EditSession, EditSessionUpdateRequest
 from backend.schemas.voiceover_plan import (
     MAX_VOICEOVER_SEGMENTS,
+    VoiceoverExecuteRequest,
     VoiceoverGenerateRequest,
     VoiceoverPlan,
     VoiceoverPlanStatus,
@@ -21,11 +22,17 @@ from backend.services.voiceover_script_generator import (
     generate_voiceover_plan,
     regenerate_voiceover_segment,
 )
+from backend.services.voiceover_orchestrator import VoiceoverOrchestrator
 
 
 class VoiceoverPlanService:
-    def __init__(self, session_service: Optional[EditSessionService] = None):
+    def __init__(
+        self,
+        session_service: Optional[EditSessionService] = None,
+        orchestrator: Optional[VoiceoverOrchestrator] = None,
+    ):
         self.session_service = session_service or EditSessionService()
+        self.orchestrator = orchestrator or VoiceoverOrchestrator(self.session_service)
 
     def get_plan(self, project_id: str, session_id: str) -> tuple[EditSession, Optional[VoiceoverPlan]]:
         session = self.session_service.get_session(project_id, session_id)
@@ -199,3 +206,31 @@ class VoiceoverPlanService:
             raise ValueError("至少保留 1 个分段")
         plan.segments = self._normalize_segment_indices(remaining)
         return self._save_plan(project_id, session_id, plan)
+
+    async def execute_plan(
+        self,
+        project_id: str,
+        session_id: str,
+        payload: VoiceoverExecuteRequest,
+    ) -> tuple[EditSession, VoiceoverPlan, str]:
+        return await self.orchestrator.execute_plan(
+            project_id,
+            session_id,
+            placeholder_library_asset_id=payload.placeholder_library_asset_id or "",
+            segment_ids=payload.segment_ids,
+        )
+
+    async def execute_segment(
+        self,
+        project_id: str,
+        session_id: str,
+        segment_id: str,
+        *,
+        placeholder_library_asset_id: Optional[str] = None,
+    ) -> tuple[EditSession, VoiceoverPlan, str]:
+        return await self.orchestrator.execute_segment(
+            project_id,
+            session_id,
+            segment_id,
+            placeholder_library_asset_id=placeholder_library_asset_id,
+        )

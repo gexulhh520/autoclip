@@ -66,6 +66,8 @@ from backend.schemas.editor_agent import (
 )
 from backend.core.path_utils import get_project_directory
 from backend.schemas.voiceover_plan import (
+    VoiceoverExecuteRequest,
+    VoiceoverExecuteResponse,
     VoiceoverGenerateRequest,
     VoiceoverGenerateResponse,
     VoiceoverPlanResponse,
@@ -1661,3 +1663,53 @@ async def remove_voiceover_segment(
         raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/voiceover/execute",
+    response_model=VoiceoverExecuteResponse,
+)
+async def execute_voiceover_plan(
+    project_id: str,
+    session_id: str,
+    body: VoiceoverExecuteRequest,
+    service: VoiceoverPlanService = Depends(get_voiceover_plan_service),
+):
+    try:
+        session, plan, note = await service.execute_plan(project_id, session_id, body)
+        return VoiceoverExecuteResponse(session=session, plan=plan, note=note)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("口播执行失败: %s/%s", project_id, session_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/voiceover/execute-segment/{segment_id}",
+    response_model=VoiceoverExecuteResponse,
+)
+async def execute_voiceover_segment(
+    project_id: str,
+    session_id: str,
+    segment_id: str,
+    body: VoiceoverExecuteRequest,
+    service: VoiceoverPlanService = Depends(get_voiceover_plan_service),
+):
+    try:
+        session, plan, note = await service.execute_segment(
+            project_id,
+            session_id,
+            segment_id,
+            placeholder_library_asset_id=body.placeholder_library_asset_id,
+        )
+        return VoiceoverExecuteResponse(session=session, plan=plan, note=note)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("口播分段执行失败: %s/%s segment=%s", project_id, session_id, segment_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

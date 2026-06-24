@@ -34,6 +34,7 @@ class VoiceoverWordTiming(BaseModel):
 
 class VoiceoverTtsState(BaseModel):
     asset_id: Optional[str] = None
+    audio_clip_id: Optional[str] = None
     duration_sec: Optional[float] = None
     timeline_start_sec: Optional[float] = None
     word_timings: List[VoiceoverWordTiming] = Field(default_factory=list)
@@ -93,6 +94,7 @@ class VoiceoverPlan(BaseModel):
     voice_id: str = DEFAULT_VOICEOVER_VOICE
     speech_rate: str = "+0%"
     user_brief: str = ""
+    placeholder_library_asset_id: Optional[str] = None
     segments: List[VoiceoverSegment] = Field(default_factory=list, max_length=MAX_VOICEOVER_SEGMENTS)
 
     @field_validator("segments")
@@ -125,6 +127,17 @@ class VoiceoverPlanResponse(BaseModel):
 
 
 class VoiceoverGenerateResponse(BaseModel):
+    session: "EditSession"
+    plan: VoiceoverPlan
+    note: str = ""
+
+
+class VoiceoverExecuteRequest(BaseModel):
+    placeholder_library_asset_id: Optional[str] = None
+    segment_ids: Optional[List[str]] = Field(default=None, max_length=MAX_VOICEOVER_SEGMENTS)
+
+
+class VoiceoverExecuteResponse(BaseModel):
     session: "EditSession"
     plan: VoiceoverPlan
     note: str = ""

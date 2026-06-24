@@ -20,6 +20,7 @@ export interface VoiceoverWordTiming {
 
 export interface VoiceoverTtsState {
   asset_id?: string | null
+  audio_clip_id?: string | null
   duration_sec?: number | null
   timeline_start_sec?: number | null
   word_timings?: VoiceoverWordTiming[]
@@ -69,6 +70,7 @@ export interface VoiceoverPlan {
   voice_id: string
   speech_rate: string
   user_brief: string
+  placeholder_library_asset_id?: string | null
   segments: VoiceoverSegment[]
 }
 
@@ -90,6 +92,17 @@ export interface VoiceoverGenerateResponse {
   note: string
 }
 
+export interface VoiceoverExecuteRequest {
+  placeholder_library_asset_id?: string | null
+  segment_ids?: string[] | null
+}
+
+export interface VoiceoverExecuteResponse {
+  session: import('./editSession').EditSession
+  plan: VoiceoverPlan
+  note: string
+}
+
 export const MAX_VOICEOVER_SEGMENTS = 24
 
 export const VOICEOVER_PLAN_STATUS_LABEL: Record<VoiceoverPlanStatus, string> = {
@@ -97,5 +110,13 @@ export const VOICEOVER_PLAN_STATUS_LABEL: Record<VoiceoverPlanStatus, string> = 
   confirmed: '已确认',
   executing: '执行中',
   completed: '已完成',
+  failed: '失败',
+}
+
+export const VOICEOVER_SEGMENT_STATUS_LABEL: Record<VoiceoverSegmentStatus, string> = {
+  draft: '草稿',
+  script_confirmed: '脚本已确认',
+  tts_done: 'TTS 完成',
+  broll_done: '素材完成',
   failed: '失败',
 }

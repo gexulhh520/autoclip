@@ -1065,3 +1065,37 @@
   line-height: 1.45;
   color: var(--editor-sub);
 }
+
+.editor-agent-panel__voiceover-execute {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--editor-border-light);
+  border-radius: 10px;
+  background: var(--editor-panel);
+}
+
+.editor-agent-panel__voiceover-segment-status {
+  margin-left: 8px;
+  font-weight: 500;
+  color: var(--editor-sub);
+}
+
+.editor-agent-panel__voiceover-segment-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.editor-agent-panel__voiceover-segment-error {
+  margin: 0;
+  font-size: 12px;
+  color: #c45c5c;
+}
+
+.editor-agent-panel__voiceover-segment-meta {
+  margin: 0;
+  font-size: 12px;
+  color: var(--editor-sub);
+}
