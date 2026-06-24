@@ -18,7 +18,11 @@ from backend.schemas.voiceover_plan import (
     VoiceoverSegmentStatus,
 )
 from backend.services.edit_session_service import EditSessionService, _edit_sessions_dir, _relative_project_path
-from backend.services.material_download_service import create_download_tasks, get_download_task
+from backend.services.material_download_service import (
+    create_download_tasks,
+    format_material_download_error,
+    get_download_task,
+)
 from backend.services.material_library_service import get_library_asset, resolve_library_video_path
 from backend.services.material_search_service import search_materials
 from backend.services.voiceover_broll_selection import (
@@ -505,7 +509,11 @@ class VoiceoverBrollService:
                     return str(asset_id)
                 raise ValueError("下载完成但未找到素材库文件")
             if status == "failed":
-                raise ValueError(task.get("error_message") or "素材下载失败")
+                raise ValueError(
+                    format_material_download_error(
+                        str(task.get("error_message") or "素材下载失败")
+                    )
+                )
             if status == "cancelled":
                 raise ValueError("素材下载已取消")
             time.sleep(2.0)

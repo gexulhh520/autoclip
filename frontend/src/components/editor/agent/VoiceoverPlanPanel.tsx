@@ -415,7 +415,7 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
       )
       applyResponse(response)
     } catch (err: unknown) {
-      onError(err instanceof Error ? err.message : 'B-roll 应用失败')
+      onError(readApiErrorMessage(err, 'B-roll 应用失败'))
     } finally {
       setBrollBusySegmentId(null)
     }

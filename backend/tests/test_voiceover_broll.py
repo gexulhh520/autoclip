@@ -5,12 +5,39 @@ from types import SimpleNamespace
 
 import pytest
 
+from backend.services.material_download_service import format_material_download_error
+from backend.services.voiceover_broll_service import VoiceoverBrollService
+
 from backend.services.voiceover_broll_selection import (
     align_interval_to_target_duration,
     apply_manual_trim_override,
     build_broll_search_criteria,
     pick_best_semantic_match,
 )
+
+
+def test_format_material_download_error_unavailable_video():
+    raw = "ERROR: [youtube] S8pbUz2OpqE: This video is not available"
+    message = format_material_download_error(raw)
+    assert "不可用" in message
+    assert "换一条候选" in message
+
+
+def test_wait_for_material_download_raises_on_failed_task(monkeypatch):
+    task_state = {
+        "id": "mdl-failed",
+        "status": "failed",
+        "error_message": "ERROR: [youtube] abc: This video is not available",
+    }
+
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.get_download_task",
+        lambda _task_id: task_state,
+    )
+    monkeypatch.setattr("backend.services.voiceover_broll_service.time.sleep", lambda _sec: None)
+
+    with pytest.raises(ValueError, match="不可用"):
+        VoiceoverBrollService.wait_for_material_download("mdl-failed", timeout_sec=10.0)
 
 
 def test_build_broll_search_criteria_combines_brief_and_narration():

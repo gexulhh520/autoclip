@@ -35,6 +35,24 @@ _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="material-dl")
 _queue_lock = threading.Lock()
 
 
+def format_material_download_error(raw: str) -> str:
+    message = (raw or "").strip()
+    if not message:
+        return "素材下载失败"
+    lower = message.lower()
+    if "not available" in lower:
+        return "该 YouTube 视频不可用（可能已删除、设为私有或受地区限制），请换一条候选"
+    if "private video" in lower or "video is private" in lower:
+        return "该视频为私有，无法下载，请换一条候选"
+    if "sign in" in lower or "login" in lower or "members only" in lower:
+        return "该视频需要登录或受平台限制，请换一条候选或从素材库选择"
+    if "copyright" in lower or "blocked" in lower:
+        return "该视频受版权或平台限制无法下载，请换一条候选"
+    if message.startswith("ERROR:"):
+        message = message[len("ERROR:") :].strip()
+    return message or "素材下载失败"
+
+
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -457,7 +475,7 @@ def _run_download_task(task_id: str) -> None:
         _update_task(
             task_id,
             status=MaterialDownloadStatus.FAILED,
-            error_message=str(exc),
+            error_message=format_material_download_error(str(exc)),
             completed_at=_utc_now(),
         )
     finally:
