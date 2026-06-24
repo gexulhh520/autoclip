@@ -82,6 +82,14 @@ def guess_voice(text: str, preferred: Optional[str] = None) -> str:
     return DEFAULT_EN_VOICE
 
 
+def normalize_text_for_tts(text: str) -> str:
+    """TTS 前将逗号/顿号改为句号，便于 Edge TTS 输出 SentenceBoundary。"""
+    cleaned = text.strip()
+    if not cleaned:
+        return cleaned
+    return re.sub(r"[，,、]", "。", cleaned)
+
+
 def _visible_char_count(text: str) -> int:
     return len(re.sub(r"\s+", "", text))
 
@@ -192,23 +200,23 @@ def refine_subtitle_cues(
     boundaries: List[SubtitleCueTiming],
     narration_text: str,
 ) -> tuple[List[SubtitleCueTiming], List[SubtitleCueTiming]]:
-    """句级 cue 优先；过长单句按标点拆分为多条字幕。"""
+    """句级 cue 直接使用 TTS 边界，不做逗号/字数估算切分。"""
     if not boundaries:
-        duration_guess = max(0.5, len(narration_text) * 0.12)
-        clauses = _split_clauses(narration_text)
-        sentence_cues = _allocate_clause_timings(clauses, 0.0, duration_guess)
+        text = narration_text.strip()
+        if not text:
+            return [], []
+        duration_guess = max(0.5, len(text) * 0.12)
+        sentence_cues = [
+            SubtitleCueTiming(
+                text=text,
+                start_sec=0.0,
+                end_sec=duration_guess,
+                boundary_type="Estimated",
+            )
+        ]
         return sentence_cues, _expand_word_timings(sentence_cues)
 
-    sentence_cues: List[SubtitleCueTiming] = []
-    for boundary in boundaries:
-        clauses = _split_clauses(boundary.text)
-        if len(clauses) <= 1:
-            sentence_cues.append(boundary)
-            continue
-        sentence_cues.extend(
-            _allocate_clause_timings(clauses, boundary.start_sec, boundary.end_sec)
-        )
-
+    sentence_cues = [item for item in boundaries if item.text.strip()]
     word_timings = _expand_word_timings(sentence_cues)
     return sentence_cues, word_timings
 
@@ -288,9 +296,10 @@ async def synthesize_with_timings(
     if not cleaned:
         raise ValueError("文本为空")
 
-    selected_voice = guess_voice(cleaned, voice)
+    tts_text = normalize_text_for_tts(cleaned)
+    selected_voice = guess_voice(tts_text, voice)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    communicate = edge_tts.Communicate(cleaned, selected_voice, rate=rate)
+    communicate = edge_tts.Communicate(tts_text, selected_voice, rate=rate)
     boundaries: List[SubtitleCueTiming] = []
 
     try:
@@ -327,9 +336,9 @@ async def synthesize_with_timings(
         except Exception:
             duration_sec = 0.0
     if duration_sec <= 0:
-        duration_sec = max(0.5, len(cleaned) * 0.12)
+        duration_sec = max(0.5, len(tts_text) * 0.12)
 
-    sentence_cues, word_timings = refine_subtitle_cues(boundaries, cleaned)
+    sentence_cues, word_timings = refine_subtitle_cues(boundaries, tts_text)
 
     return SynthesizedSpeech(
         voice=selected_voice,

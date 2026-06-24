@@ -16,28 +16,41 @@ from backend.schemas.voiceover_plan import (
 from backend.services.voiceover_orchestrator import VoiceoverOrchestrator
 from backend.utils.edge_tts_service import (
     SubtitleCueTiming,
+    normalize_text_for_tts,
     refine_subtitle_cues,
     synthesize_with_timings,
 )
 
 
-def test_refine_subtitle_cues_splits_long_sentence():
+def test_normalize_text_for_tts_replaces_commas():
+    assert normalize_text_for_tts("你好，世界、测试") == "你好。世界。测试"
+    assert normalize_text_for_tts("  hello, world  ") == "hello。 world"
+
+
+def test_refine_subtitle_cues_uses_tts_boundaries_directly():
     boundaries = [
         SubtitleCueTiming(
-            text="第一句很长。第二句也很长。",
+            text="第一句很长。",
             start_sec=0.1,
+            end_sec=1.5,
+            boundary_type="SentenceBoundary",
+        ),
+        SubtitleCueTiming(
+            text="第二句也很长。",
+            start_sec=1.5,
             end_sec=3.0,
             boundary_type="SentenceBoundary",
-        )
+        ),
     ]
-    sentence_cues, word_timings = refine_subtitle_cues(boundaries, boundaries[0].text)
-    assert len(sentence_cues) >= 2
+    sentence_cues, word_timings = refine_subtitle_cues(boundaries, "")
+    assert len(sentence_cues) == 2
     assert sentence_cues[0].text.startswith("第一句")
+    assert sentence_cues[1].text.startswith("第二句")
     assert word_timings
     assert word_timings[0].end_sec > word_timings[0].start_sec
 
 
-def test_refine_subtitle_cues_splits_comma_and_long_clause():
+def test_refine_subtitle_cues_keeps_single_boundary_without_comma_split():
     long_line = (
         "在影片中，李连杰饰演的角色并非简单的武林高手，"
         "而是一个在复杂政治漩涡中挣扎的孤独灵魂。"
@@ -51,15 +64,10 @@ def test_refine_subtitle_cues_splits_comma_and_long_clause():
         )
     ]
     sentence_cues, _word_timings = refine_subtitle_cues(boundaries, long_line)
-    assert len(sentence_cues) >= 3
-    joined = "".join(cue.text for cue in sentence_cues)
-    assert "李连杰" in joined
-    assert "孤独灵魂" in joined
-    for cue in sentence_cues:
-        visible = len(cue.text.replace(" ", ""))
-        assert visible <= 18, cue.text
+    assert len(sentence_cues) == 1
+    assert sentence_cues[0].text == long_line
     assert sentence_cues[0].start_sec == pytest.approx(0.0)
-    assert sentence_cues[-1].end_sec == pytest.approx(8.0)
+    assert sentence_cues[0].end_sec == pytest.approx(8.0)
 
 
 def test_build_voiceover_overlays_multiple_cues():
