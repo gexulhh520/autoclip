@@ -37,6 +37,31 @@ def test_refine_subtitle_cues_splits_long_sentence():
     assert word_timings[0].end_sec > word_timings[0].start_sec
 
 
+def test_refine_subtitle_cues_splits_comma_and_long_clause():
+    long_line = (
+        "在影片中，李连杰饰演的角色并非简单的武林高手，"
+        "而是一个在复杂政治漩涡中挣扎的孤独灵魂。"
+    )
+    boundaries = [
+        SubtitleCueTiming(
+            text=long_line,
+            start_sec=0.0,
+            end_sec=8.0,
+            boundary_type="SentenceBoundary",
+        )
+    ]
+    sentence_cues, _word_timings = refine_subtitle_cues(boundaries, long_line)
+    assert len(sentence_cues) >= 3
+    joined = "".join(cue.text for cue in sentence_cues)
+    assert "李连杰" in joined
+    assert "孤独灵魂" in joined
+    for cue in sentence_cues:
+        visible = len(cue.text.replace(" ", ""))
+        assert visible <= 18, cue.text
+    assert sentence_cues[0].start_sec == pytest.approx(0.0)
+    assert sentence_cues[-1].end_sec == pytest.approx(8.0)
+
+
 def test_build_voiceover_overlays_multiple_cues():
     from backend.schemas.edit_session import EditSession
     from backend.services.voiceover_subtitle_builder import build_voiceover_overlays

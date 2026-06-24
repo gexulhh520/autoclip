@@ -1,8 +1,9 @@
 """口播 TTS 时间戳 → 时间线字幕 overlay。"""
 from __future__ import annotations
 
+import re
 import uuid
-from typing import List, Literal, Optional
+from typing import List, Literal
 
 from backend.schemas.edit_session import EditOverlayElement, EditSession
 from backend.utils.edge_tts_service import SubtitleCueTiming
@@ -39,6 +40,18 @@ def _bottom_center_position(session: EditSession) -> tuple[float, float]:
     return normalized_x * width - width / 2, normalized_y * height - height / 2
 
 
+def _subtitle_font_size(text: str, session: EditSession) -> float:
+    settings = session.export_settings
+    aspect = str(getattr(settings, "aspect", None) or "9:16")
+    char_count = len(re.sub(r"\s+", "", text))
+    base = 6.5 if aspect == "16:9" else 6.0
+    if char_count > 14:
+        return max(5.0, base - 1.5)
+    if char_count > 10:
+        return max(5.0, base - 0.75)
+    return base
+
+
 def build_voiceover_overlays(
     cues: List[SubtitleCueTiming],
     *,
@@ -62,6 +75,7 @@ def build_voiceover_overlays(
         offset_sec = max(0.0, cue.start_sec)
         duration_sec = max(0.08, cue.end_sec - cue.start_sec)
         overlay_id = f"vo-sub-{uuid.uuid4().hex[:12]}"
+        font_size = _subtitle_font_size(text, session)
         overlays.append(
             EditOverlayElement(
                 id=overlay_id,
@@ -71,7 +85,7 @@ def build_voiceover_overlays(
                 track_id=DEFAULT_TEXT_TRACK_ID,
                 params={
                     "content": text,
-                    "fontSize": 6,
+                    "fontSize": font_size,
                     "fontFamily": "Noto Sans SC",
                     "color": "#ffffff",
                     "textAlign": "center",

@@ -11,7 +11,10 @@ DEFAULT_EN_VOICE = "en-US-AriaNeural"
 
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 _TICKS_TO_SEC = 1 / 10_000_000
-_SENTENCE_SPLIT_RE = re.compile(r"(?<=[。！？；.!?;])\s*")
+_MAJOR_SPLIT_RE = re.compile(r"(?<=[。！？；.!?;])\s*")
+_COMMA_SPLIT_RE = re.compile(r"(?<=[，,、])\s*")
+# 竖屏口播字幕单行上限（不含空格）；超出则再按字数切分
+MAX_SUBTITLE_DISPLAY_CHARS = 14
 
 # 与 frontend/src/editor/tts/edgeTtsVoices.ts 保持同步
 EDGE_TTS_VOICE_ALIASES: dict[str, str] = {
@@ -79,9 +82,71 @@ def guess_voice(text: str, preferred: Optional[str] = None) -> str:
     return DEFAULT_EN_VOICE
 
 
-def _split_clauses(text: str) -> List[str]:
-    parts = [part.strip() for part in _SENTENCE_SPLIT_RE.split(text.strip()) if part.strip()]
-    return parts or [text.strip()]
+def _visible_char_count(text: str) -> int:
+    return len(re.sub(r"\s+", "", text))
+
+
+def _split_by_max_chars(text: str, max_chars: int) -> List[str]:
+    """过长无标点片段按字数切分，尽量在弱标点处断开。"""
+    text = text.strip()
+    if not text or max_chars <= 0:
+        return []
+    if _visible_char_count(text) <= max_chars:
+        return [text]
+
+    weak_breaks = "，,、：:；; "
+    chunks: List[str] = []
+    remaining = text
+    while _visible_char_count(remaining) > max_chars:
+        break_at: Optional[int] = None
+        visible = 0
+        for index, char in enumerate(remaining):
+            if not char.isspace():
+                visible += 1
+            if visible >= max_chars:
+                window_start = max(0, index - 8)
+                for pos in range(index, window_start - 1, -1):
+                    if remaining[pos] in weak_breaks:
+                        break_at = pos + 1
+                        break
+                if break_at is None:
+                    break_at = min(index + 1, len(remaining))
+                break
+        if break_at is None:
+            break_at = len(remaining)
+        chunk = remaining[:break_at].strip()
+        if chunk:
+            chunks.append(chunk)
+        remaining = remaining[break_at:].strip()
+    if remaining:
+        chunks.append(remaining)
+    return chunks or [text.strip()]
+
+
+def _split_clauses(text: str, *, max_chars: int = MAX_SUBTITLE_DISPLAY_CHARS) -> List[str]:
+    """句级 → 逗号/顿号 → 字数上限，生成适合屏幕宽度的字幕片段。"""
+    text = text.strip()
+    if not text:
+        return []
+
+    parts: List[str] = []
+    for major in _MAJOR_SPLIT_RE.split(text):
+        major = major.strip()
+        if not major:
+            continue
+        comma_parts = _COMMA_SPLIT_RE.split(major)
+        if len(comma_parts) <= 1:
+            comma_parts = [major]
+        for segment in comma_parts:
+            segment = segment.strip()
+            if not segment:
+                continue
+            if _visible_char_count(segment) > max_chars:
+                parts.extend(_split_by_max_chars(segment, max_chars))
+            else:
+                parts.append(segment)
+
+    return parts or [text]
 
 
 def _allocate_clause_timings(
