@@ -94,6 +94,89 @@ def _visible_char_count(text: str) -> int:
     return len(re.sub(r"\s+", "", text))
 
 
+_DISPLAY_BREAK_CHARS = frozenset("。！？；.!?;，,、：:")
+
+
+def split_oversized_display_cues(
+    cues: List[SubtitleCueTiming],
+    *,
+    max_chars: int = MAX_SUBTITLE_DISPLAY_CHARS,
+) -> List[SubtitleCueTiming]:
+    """在句级 TTS 时间轴内，按标点递归切分超长显示字幕。"""
+    result: List[SubtitleCueTiming] = []
+    for cue in cues:
+        result.extend(_split_oversized_display_cue(cue, max_chars=max_chars))
+    return result
+
+
+def _split_oversized_display_cue(
+    cue: SubtitleCueTiming,
+    *,
+    max_chars: int,
+) -> List[SubtitleCueTiming]:
+    text = cue.text.strip()
+    if not text or _visible_char_count(text) <= max_chars:
+        return [cue]
+
+    split_at = _find_symbol_bisect_index(text, max_chars)
+    if split_at is None:
+        parts = _split_by_max_chars(text, max_chars)
+        if len(parts) <= 1:
+            return [cue]
+        return _recurse_split_parts(parts, cue, max_chars=max_chars)
+
+    left = text[:split_at].strip()
+    right = text[split_at:].strip()
+    if not left or not right:
+        parts = _split_by_max_chars(text, max_chars)
+        if len(parts) <= 1:
+            return [cue]
+        return _recurse_split_parts(parts, cue, max_chars=max_chars)
+
+    return _recurse_split_parts([left, right], cue, max_chars=max_chars)
+
+
+def _recurse_split_parts(
+    parts: List[str],
+    parent: SubtitleCueTiming,
+    *,
+    max_chars: int,
+) -> List[SubtitleCueTiming]:
+    sub_cues = _allocate_clause_timings(parts, parent.start_sec, parent.end_sec)
+    expanded: List[SubtitleCueTiming] = []
+    for sub in sub_cues:
+        expanded.extend(_split_oversized_display_cue(sub, max_chars=max_chars))
+    return expanded
+
+
+def _find_symbol_bisect_index(text: str, max_chars: int) -> Optional[int]:
+    """在标点处找尽量均分的切分点；优先使左右两段都不超过 max_chars。"""
+    total = _visible_char_count(text)
+    if total <= max_chars:
+        return None
+
+    candidates: List[tuple[int, int, int]] = []
+    visible = 0
+    for index, char in enumerate(text):
+        if not char.isspace():
+            visible += 1
+        if char not in _DISPLAY_BREAK_CHARS:
+            continue
+        left = visible
+        right = total - left
+        if left <= 0 or right <= 0:
+            continue
+        candidates.append((index + 1, left, right))
+
+    if not candidates:
+        return None
+
+    valid = [item for item in candidates if item[1] <= max_chars and item[2] <= max_chars]
+    pool = valid if valid else candidates
+    pool.sort(key=lambda item: (abs(item[1] - item[2]), abs(item[1] - total / 2)))
+    return pool[0][0]
+
+
 def _split_by_max_chars(text: str, max_chars: int) -> List[str]:
     """过长无标点片段按字数切分，尽量在弱标点处断开。"""
     text = text.strip()

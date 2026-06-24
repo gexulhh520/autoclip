@@ -66,6 +66,10 @@ def build_voiceover_overlays(
     position_x, position_y = _bottom_center_position(session)
     use_word = alignment == "word"
     source = cues if not use_word else _word_level_cues(cues)
+    if not use_word:
+        from backend.utils.edge_tts_service import split_oversized_display_cues
+
+        source = split_oversized_display_cues(source)
     overlays: List[EditOverlayElement] = []
 
     for cue in source:

@@ -15,9 +15,11 @@ from backend.schemas.voiceover_plan import (
 )
 from backend.services.voiceover_orchestrator import VoiceoverOrchestrator
 from backend.utils.edge_tts_service import (
+    MAX_SUBTITLE_DISPLAY_CHARS,
     SubtitleCueTiming,
     normalize_text_for_tts,
     refine_subtitle_cues,
+    split_oversized_display_cues,
     synthesize_with_timings,
 )
 
@@ -68,6 +70,50 @@ def test_refine_subtitle_cues_keeps_single_boundary_without_comma_split():
     assert sentence_cues[0].text == long_line
     assert sentence_cues[0].start_sec == pytest.approx(0.0)
     assert sentence_cues[0].end_sec == pytest.approx(8.0)
+
+
+def test_split_oversized_display_cues_by_symbol_recursive():
+    long_line = (
+        "在影片中，李连杰饰演的角色并非简单的武林高手，"
+        "而是一个在复杂政治漩涡中挣扎的孤独灵魂。"
+    )
+    cue = SubtitleCueTiming(text=long_line, start_sec=0.0, end_sec=8.0)
+    display_cues = split_oversized_display_cues([cue], max_chars=MAX_SUBTITLE_DISPLAY_CHARS)
+    assert len(display_cues) >= 3
+    joined = "".join(item.text for item in display_cues)
+    assert "李连杰" in joined
+    assert "孤独灵魂" in joined
+    for item in display_cues:
+        assert _visible_chars(item.text) <= MAX_SUBTITLE_DISPLAY_CHARS, item.text
+    assert display_cues[0].start_sec == pytest.approx(0.0)
+    assert display_cues[-1].end_sec == pytest.approx(8.0)
+
+
+def _visible_chars(text: str) -> int:
+    return len(text.replace(" ", ""))
+
+
+def test_build_voiceover_overlays_splits_long_sentence_for_display():
+    from backend.schemas.edit_session import EditSession
+    from backend.services.voiceover_subtitle_builder import build_voiceover_overlays
+
+    session = EditSession(
+        id="sess",
+        project_id="proj",
+        created_at="",
+        updated_at="",
+    )
+    long_line = "很多人以为剪辑只是剪片段，其实节奏和口播才是留住观众的关键所在。"
+    cues = [SubtitleCueTiming(text=long_line, start_sec=0.0, end_sec=4.0)]
+    overlays = build_voiceover_overlays(
+        cues,
+        session=session,
+        block_id="block-1",
+        block_timeline_start_sec=5.0,
+    )
+    assert len(overlays) >= 2
+    assert overlays[0].start_sec == pytest.approx(5.0)
+    assert overlays[-1].start_sec + overlays[-1].duration_sec == pytest.approx(9.0)
 
 
 def test_build_voiceover_overlays_multiple_cues():
