@@ -158,6 +158,9 @@ import {
   splitVideoBlockAt,
 } from '../editor/timeline/splitAtPlayhead'
 import {
+  resolveEditSessionTimelineDurationSec,
+} from '../editor/timeline/sessionTimelineDuration'
+import {
   BASE_PX_PER_SEC,
   blockDuration,
   buildCompositionTimelineSegments,
@@ -216,21 +219,6 @@ const playheadSecForBlock = (session: EditSession, blockId: string): number => {
   const segment = segments.find((item) => item.block.id === blockId)
   if (!segment) return 0
   return blockTimelineVisualStartSec(segment.startSec, segment.block)
-}
-
-const compositionTotalDuration = (session: EditSession): number => {
-  const mainDuration = getCompositionTotalDuration(
-    resolveMainTrackBlocks(session),
-    transitionDurationSec(session),
-    session.sequence_block_gaps
-  )
-  let overlayMax = 0
-  for (const block of session.sequence) {
-    if (isMainTrackBlock(block)) continue
-    const end = (block.timeline_start_sec ?? 0) + blockDuration(block)
-    overlayMax = Math.max(overlayMax, end)
-  }
-  return Math.max(mainDuration, overlayMax)
 }
 
 /** API 返回的 session 需深拷贝后再写入 immer，避免与后续 draft 更新冲突 */
@@ -665,7 +653,7 @@ export const useEditSessionStore = create<EditSessionState>()(
     const clampPlayhead = (sec: number) => {
       const { session } = get()
       if (!session) return 0
-      return Math.max(0, Math.min(sec, compositionTotalDuration(session)))
+      return Math.max(0, Math.min(sec, resolveEditSessionTimelineDurationSec(session)))
     }
 
     const pollExportJob = async (
