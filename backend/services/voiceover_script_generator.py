@@ -17,7 +17,7 @@ from backend.schemas.voiceover_plan import (
 
 logger = logging.getLogger(__name__)
 
-VOICEOVER_SCRIPT_SYSTEM = """你是短视频口播分镜编剧。用户会提供口播意图或原始文案，你需要拆成适合逐段录制与配画面的分段脚本。
+VOICEOVER_SCRIPT_SYSTEM = """你是短视频口播分镜编剧。用户会提供口播意图或原始文案，你需要拆成适合逐段录制、TTS 朗读与配画面的分段脚本。
 
 只输出一个 JSON 对象（不要 markdown、不要解释）：
 
@@ -32,12 +32,15 @@ VOICEOVER_SCRIPT_SYSTEM = """你是短视频口播分镜编剧。用户会提供
 }
 
 规则：
-- 每段 narration_text 是可直接朗读的完整口播，30–120 字为宜，最长不超过 280 字
+- 每段 narration_text 是可直接朗读的完整口播，整段 30–80 字为宜，单段最长不超过 120 字
+- 口播句式：**短句为主**。每句尽量 8–18 字，绝不超过 24 字
+- 一句一意；多用句号「。」收束，少用长串逗号从句。避免「A，B，C，D」式超长单句
+- 若用户原文某段句子过长，应改写为多个短句，或拆成更多 segments，不要硬塞进一段
 - 分段数量 3–12 段（内容少可 2 段，绝不超过 24 段）
 - visual_brief 要具体可检索，避免抽象空话
 - search_queries 1–3 个，适合 YouTube/Bilibili 搜 B-roll（中文或英文均可）
 - 保持叙事顺序；不要输出段号字段，顺序即分段顺序
-- 若用户给的是完整文稿，按语义与节奏拆分，不要擅自删改核心信息"""
+- 若用户给的是完整文稿，按语义与节奏拆分并口语化改写；保留核心信息，但允许为短句节奏调整标点与断句"""
 
 
 def _parse_segments(raw: Any) -> List[VoiceoverSegment]:
