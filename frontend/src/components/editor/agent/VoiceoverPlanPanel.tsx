@@ -104,6 +104,8 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
   const [brollBusySegmentId, setBrollBusySegmentId] = useState<string | null>(null)
   const [searchQueryDrafts, setSearchQueryDrafts] = useState<Record<string, string>>({})
   const [translatingSegmentId, setTranslatingSegmentId] = useState<string | null>(null)
+  const [translateTargetLanguage, setTranslateTargetLanguage] =
+    useState<VoiceoverSearchQueryLanguage>('en')
 
   const plan = draftPlan ?? sessionPlan
   const isEditable = plan?.status === 'draft'
@@ -733,23 +735,43 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
                   />
                   {canEditSearchQueries(segment) ? (
                     <div className="editor-agent-panel__voiceover-translate">
-                      <span className="editor-agent-panel__voiceover-translate-label">翻译为</span>
-                      {SEARCH_QUERY_LANGUAGES.map((lang) => (
-                        <button
-                          key={lang.id}
-                          type="button"
-                          className="editor-agent-panel__voiceover-btn editor-agent-panel__voiceover-btn--compact"
+                      <label className="editor-agent-panel__voiceover-translate-field">
+                        <span className="editor-agent-panel__voiceover-translate-label">翻译为</span>
+                        <select
+                          className="editor-agent-panel__voiceover-select editor-agent-panel__voiceover-select--compact"
+                          value={translateTargetLanguage}
+                          onChange={(event) =>
+                            setTranslateTargetLanguage(event.target.value as VoiceoverSearchQueryLanguage)
+                          }
                           disabled={
                             loading ||
                             saving ||
                             Boolean(brollBusySegmentId) ||
                             translatingSegmentId === segment.id
                           }
-                          onClick={() => void handleTranslateSearchQueries(segment, lang.id)}
                         >
-                          {translatingSegmentId === segment.id ? '翻译中…' : lang.label}
-                        </button>
-                      ))}
+                          {SEARCH_QUERY_LANGUAGES.map((lang) => (
+                            <option key={lang.id} value={lang.id}>
+                              {lang.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        className="editor-agent-panel__voiceover-btn editor-agent-panel__voiceover-btn--compact"
+                        disabled={
+                          loading ||
+                          saving ||
+                          Boolean(brollBusySegmentId) ||
+                          translatingSegmentId === segment.id
+                        }
+                        onClick={() =>
+                          void handleTranslateSearchQueries(segment, translateTargetLanguage)
+                        }
+                      >
+                        {translatingSegmentId === segment.id ? '翻译中…' : '翻译'}
+                      </button>
                     </div>
                   ) : null}
                 </div>

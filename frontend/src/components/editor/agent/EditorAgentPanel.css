@@ -1226,9 +1226,16 @@
 .editor-agent-panel__voiceover-translate {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
+  gap: 8px;
+  align-items: flex-end;
   margin-top: 8px;
+}
+
+.editor-agent-panel__voiceover-translate-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
 
 .editor-agent-panel__voiceover-translate-label {
