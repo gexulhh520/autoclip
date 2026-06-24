@@ -9,8 +9,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
 
 const HEALTH_CHECK_INTERVAL_SEC: u64 = 5;
-const HEALTH_CHECK_TIMEOUT_SEC: u64 = 12;
-const HEALTH_CHECK_FAILURES_BEFORE_RESTART: u32 = 6;
+const HEALTH_CHECK_TIMEOUT_SEC: u64 = 20;
+const HEALTH_CHECK_FAILURES_BEFORE_RESTART: u32 = 12;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackendStatus {
