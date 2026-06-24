@@ -6,7 +6,11 @@ import uuid
 from typing import List, Literal
 
 from backend.schemas.edit_session import EditOverlayElement, EditSession
-from backend.utils.edge_tts_service import SubtitleCueTiming
+from backend.services.voiceover_subtitle_regroup import (
+    SubtitleDisplayRules,
+    regroup_words_to_display_cues,
+)
+from backend.utils.edge_tts_service import SubtitleCueTiming, SynthesizedSpeech
 
 DEFAULT_TEXT_TRACK_ID = "default-text"
 TIMELINE_BLOCK_ID_PARAM = "timeline.blockId"
@@ -50,6 +54,19 @@ def _subtitle_font_size(text: str, session: EditSession) -> float:
     if char_count > 10:
         return max(5.0, base - 0.75)
     return base
+
+
+def build_display_cues_from_speech(
+    speech: SynthesizedSpeech,
+    session: EditSession,
+) -> List[SubtitleCueTiming]:
+    """词级 TTS 时间轴经编组规则生成屏幕显示字幕。"""
+    rules = SubtitleDisplayRules.from_session(session)
+    return regroup_words_to_display_cues(
+        speech.word_timings,
+        rules,
+        sentence_fallback=speech.cues,
+    )
 
 
 def build_voiceover_overlays(

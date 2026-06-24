@@ -329,10 +329,40 @@ async def synthesize_with_timings(
     if duration_sec <= 0:
         duration_sec = max(0.5, len(cleaned) * 0.12)
 
-    sentence_cues, word_timings = refine_subtitle_cues(boundaries, cleaned)
+    word_raw, sent_raw = _partition_tts_boundaries(boundaries)
+    if sent_raw:
+        sentence_cues, _ = refine_subtitle_cues(sent_raw, cleaned)
+    elif word_raw:
+        sentence_cues = [
+            SubtitleCueTiming(
+                text=cleaned,
+                start_sec=word_raw[0].start_sec,
+                end_sec=word_raw[-1].end_sec,
+                boundary_type="SentenceBoundary",
+            )
+        ]
+    else:
+        clauses = _split_clauses(cleaned)
+        sentence_cues = _allocate_clause_timings(clauses, 0.0, duration_sec)
+
+    if word_raw:
+        word_timings = sorted(word_raw, key=lambda item: item.start_sec)
+    else:
+        word_timings = _expand_word_timings(sentence_cues)
+
     return SynthesizedSpeech(
         voice=selected_voice,
         duration_sec=duration_sec,
         cues=sentence_cues,
         word_timings=word_timings,
     )
+
+
+def _partition_tts_boundaries(
+    boundaries: List[SubtitleCueTiming],
+) -> tuple[List[SubtitleCueTiming], List[SubtitleCueTiming]]:
+    words = [item for item in boundaries if item.boundary_type == "WordBoundary"]
+    sentences = [item for item in boundaries if item.boundary_type == "SentenceBoundary"]
+    if words or sentences:
+        return words, sentences
+    return [], boundaries

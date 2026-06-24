@@ -42,7 +42,7 @@ class VoiceoverTtsState(BaseModel):
 
 class VoiceoverSubtitleState(BaseModel):
     overlay_ids: List[str] = Field(default_factory=list)
-    alignment: Optional[str] = Field(default=None, description="sentence | word")
+    alignment: Optional[str] = Field(default=None, description="regrouped | sentence | word")
 
 
 class VoiceoverSearchResult(BaseModel):

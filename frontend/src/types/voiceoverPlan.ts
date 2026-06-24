@@ -28,7 +28,7 @@ export interface VoiceoverTtsState {
 
 export interface VoiceoverSubtitleState {
   overlay_ids?: string[]
-  alignment?: 'sentence' | 'word' | null
+  alignment?: 'regrouped' | 'sentence' | 'word' | null
 }
 
 export interface VoiceoverSearchResult {
