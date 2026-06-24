@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   DEFAULT_EDGE_TTS_VOICE,
-  EDGE_TTS_VOICES_ZH,
+  formatEdgeTtsVoiceLabel,
+  getEdgeTtsVoiceGroups,
+  resolveEdgeTtsVoiceId,
 } from '../../../editor/tts/edgeTtsVoices'
 import { voiceoverApi } from '../../../services/voiceoverApi'
 import libraryApi, { type LibraryAsset } from '../../../services/libraryApi'
@@ -398,6 +400,9 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     return VOICEOVER_PLAN_STATUS_LABEL[plan.status] ?? plan.status
   }, [plan])
 
+  const voiceGroups = useMemo(() => getEdgeTtsVoiceGroups(), [])
+  const resolvedVoiceId = resolveEdgeTtsVoiceId(voiceId)
+
   return (
     <div className="editor-agent-panel__voiceover">
       <p className="editor-agent-panel__voiceover-intro">
@@ -422,14 +427,18 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
           <span>音色</span>
           <select
             className="editor-agent-panel__voiceover-select"
-            value={voiceId}
+            value={resolvedVoiceId}
             onChange={(event) => setVoiceId(event.target.value)}
             disabled={loading || saving}
           >
-            {EDGE_TTS_VOICES_ZH.map((voice) => (
-              <option key={voice.id} value={voice.id}>
-                {voice.label}
-              </option>
+            {voiceGroups.map((group) => (
+              <optgroup key={group.id} label={group.label}>
+                {group.voices.map((voice) => (
+                  <option key={voice.id} value={voice.id}>
+                    {formatEdgeTtsVoiceLabel(voice)}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
         </label>
