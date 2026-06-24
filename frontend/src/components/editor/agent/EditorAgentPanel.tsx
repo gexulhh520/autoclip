@@ -831,7 +831,7 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
             ) : null}
           </div>
         </div>
-      ) : (
+      ) : mode === 'layout_reference' ? (
         <>
           <p className="editor-agent-panel__hint">
             参考图可选：上传后分析自定义排版；不上传则使用底部居中默认字幕样式（文案来自工程，不抄图上的字）。
@@ -906,7 +906,7 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
             <pre className="editor-agent-panel__json">{JSON.stringify(layout, null, 2)}</pre>
           ) : null}
         </>
-      )}
+      ) : null}
 
       {agentTaskPlan ? (
         <div className="editor-agent-panel__task-plan">
