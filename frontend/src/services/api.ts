@@ -113,6 +113,20 @@ api.interceptors.response.use(
       }
     }
 
+    if (
+      isTauriRuntime() &&
+      !error.response &&
+      error.config &&
+      !(error.config as { __retriedAfterRefresh?: boolean }).__retriedAfterRefresh
+    ) {
+      const refreshed = await apiConfigManager.refreshConnection()
+      if (refreshed) {
+        ;(error.config as { __retriedAfterRefresh?: boolean }).__retriedAfterRefresh = true
+        error.config.baseURL = apiConfigManager.getBaseUrl()
+        return api.request(error.config)
+      }
+    }
+
     // 使用统一的错误处理器
     errorHandler.handleError(error, 'API')
     

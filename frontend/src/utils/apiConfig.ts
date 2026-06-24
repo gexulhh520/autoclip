@@ -9,17 +9,34 @@ interface ApiConfig {
   isReady: boolean;
 }
 
+function isTauriRuntime(): boolean {
+  return Boolean(
+    typeof window !== 'undefined' &&
+      ((window as any).__TAURI__ || (window as any).__TAURI_INTERNALS__)
+  );
+}
+
+/** tauri:dev 从 Vite :3000 加载，应与浏览器一样走 /api 代理，避免后端换端口后桌面 axios 仍连旧端口 */
+export function isTauriViteDev(): boolean {
+  if (!isTauriRuntime() || typeof window === 'undefined') return false;
+  const host = window.location.hostname;
+  const port = window.location.port;
+  return (host === '127.0.0.1' || host === 'localhost') && port === '3000';
+}
+
 class ApiConfigManager {
   private static instance: ApiConfigManager;
   private config: ApiConfig = {
     baseUrl: '/api/v1',
     port: 0,
-    isReady: false
+    isReady: false,
   };
   private listeners: Array<(config: ApiConfig) => void> = [];
+  private pollTimer: ReturnType<typeof setTimeout> | null = null;
+  private tauriInvoke: ((cmd: string) => Promise<unknown>) | null = null;
 
   private constructor() {
-    this.initializeConfig();
+    void this.initializeConfig();
   }
 
   static getInstance(): ApiConfigManager {
@@ -30,82 +47,139 @@ class ApiConfigManager {
   }
 
   private async initializeConfig() {
-    // 检查是否在 Tauri 环境中
-    if (typeof window !== 'undefined' && ((window as any).__TAURI__ || (window as any).__TAURI_INTERNALS__)) {
-      try {
-        // 监听后端启动事件
-        const { listen } = await import('@tauri-apps/api/event');
-        const { invoke } = await import('@tauri-apps/api/core');
-        
-        await listen('backend-started', (event: any) => {
-          const backendStatus = event.payload;
-          if (backendStatus && backendStatus.port) {
-            this.updateFromPort(backendStatus.port);
-          }
-        });
+    if (!isTauriRuntime()) return;
 
-        const backendStatus = await invoke('get_service_status') as any;
-        if (backendStatus?.is_running && backendStatus?.port) {
-          this.updateFromPort(backendStatus.port);
-        } else {
-          this.pollBackendStatus(invoke);
+    try {
+      const { listen } = await import('@tauri-apps/api/event');
+      const { invoke } = await import('@tauri-apps/api/core');
+      this.tauriInvoke = invoke;
+
+      await listen('backend-started', (event: { payload?: { port?: number } }) => {
+        const port = event.payload?.port;
+        if (port) {
+          this.applyBackendPort(port);
         }
-      } catch (error) {
-        console.warn('无法初始化 Tauri 事件监听:', error);
+      });
+
+      await listen('backend-unhealthy', () => {
+        this.handleBackendUnhealthy();
+      });
+
+      const backendStatus = (await invoke('get_service_status')) as {
+        is_running?: boolean;
+        port?: number;
+      };
+      if (backendStatus?.is_running && backendStatus?.port) {
+        this.applyBackendPort(backendStatus.port);
+      } else {
+        this.startBackendPoll();
       }
+    } catch (error) {
+      console.warn('无法初始化 Tauri 事件监听:', error);
     }
   }
 
-  private updateFromPort(port: number) {
+  private applyBackendPort(port: number) {
+    if (isTauriViteDev()) {
+      // 与 Web 相同：相对路径经 Vite 读 data/backend.port，后端重启换端口时仍可用
+      this.updateConfig({
+        baseUrl: '/api/v1',
+        port,
+        isReady: true,
+      });
+      return;
+    }
     this.updateConfig({
       baseUrl: `http://127.0.0.1:${port}/api/v1`,
       port,
-      isReady: true
+      isReady: true,
     });
   }
 
-  /** 内嵌后端启动稍慢时轮询 Rust 状态与 Vite dev 端口文件 */
-  private pollBackendStatus(invoke?: (cmd: string) => Promise<unknown>) {
-    if (this.isReady()) return;
+  private handleBackendUnhealthy() {
+    console.warn('[apiConfig] 内嵌后端不健康或正在重启…');
+    this.updateConfig({ isReady: false });
+    this.startBackendPoll();
+  }
+
+  private startBackendPoll() {
+    if (this.pollTimer != null) return;
     const startedAt = Date.now();
     const tick = async () => {
-      if (this.isReady() || Date.now() - startedAt > 90000) return;
-      try {
-        const devPortRes = await fetch('/__autoclip/backend-port');
-        if (devPortRes.ok) {
-          const devPort = (await devPortRes.json()) as { port?: number | null };
-          if (devPort?.port) {
-            this.updateFromPort(devPort.port);
-            return;
-          }
-        }
-      } catch {
-        // ignore
+      this.pollTimer = null;
+      if (this.isReady() || Date.now() - startedAt > 120000) return;
+
+      const port = await this.readDevBackendPort();
+      if (port) {
+        this.applyBackendPort(port);
+        return;
       }
-      if (invoke) {
+
+      if (this.tauriInvoke) {
         try {
-          const backendStatus = (await invoke('get_service_status')) as {
+          const backendStatus = (await this.tauriInvoke('get_service_status')) as {
             is_running?: boolean;
             port?: number;
           };
           if (backendStatus?.is_running && backendStatus?.port) {
-            this.updateFromPort(backendStatus.port);
+            this.applyBackendPort(backendStatus.port);
             return;
           }
         } catch {
           // ignore
         }
       }
-      window.setTimeout(() => {
+
+      this.pollTimer = window.setTimeout(() => {
         void tick();
-      }, 400);
+      }, 500);
     };
     void tick();
   }
 
-  private extractPortFromUrl(url: string): number {
-    const match = url.match(/:(\d+)/);
-    return match ? parseInt(match[1], 10) : 0;
+  private async readDevBackendPort(): Promise<number | null> {
+    try {
+      const devPortRes = await fetch('/__autoclip/backend-port');
+      if (!devPortRes.ok) return null;
+      const devPort = (await devPortRes.json()) as { port?: number | null };
+      return devPort?.port && devPort.port > 0 ? devPort.port : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 网络错误后尝试重新对齐后端（tauri:dev 读 port 文件，正式包读 Rust 状态） */
+  async refreshConnection(): Promise<boolean> {
+    if (!isTauriRuntime()) return true;
+
+    if (isTauriViteDev()) {
+      const port = await this.readDevBackendPort();
+      if (port) {
+        this.applyBackendPort(port);
+        return true;
+      }
+      this.updateConfig({ isReady: false });
+      this.startBackendPoll();
+      return this.waitForReady(15000);
+    }
+
+    if (this.tauriInvoke) {
+      try {
+        const backendStatus = (await this.tauriInvoke('get_service_status')) as {
+          is_running?: boolean;
+          port?: number;
+        };
+        if (backendStatus?.is_running && backendStatus?.port) {
+          this.applyBackendPort(backendStatus.port);
+          return true;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    this.updateConfig({ isReady: false });
+    this.startBackendPoll();
+    return this.waitForReady(15000);
   }
 
   private updateConfig(newConfig: Partial<ApiConfig>) {
@@ -114,33 +188,21 @@ class ApiConfigManager {
   }
 
   private notifyListeners() {
-    this.listeners.forEach(listener => listener(this.config));
+    this.listeners.forEach((listener) => listener(this.config));
   }
 
-  /**
-   * 获取当前 API 配置
-   */
   getConfig(): ApiConfig {
     return { ...this.config };
   }
 
-  /**
-   * 获取 API 基础 URL
-   */
   getBaseUrl(): string {
     return this.config.baseUrl;
   }
 
-  /**
-   * 检查 API 是否就绪
-   */
   isReady(): boolean {
     return this.config.isReady;
   }
 
-  /**
-   * 添加配置变化监听器
-   */
   addListener(listener: (config: ApiConfig) => void): () => void {
     this.listeners.push(listener);
     return () => {
@@ -151,12 +213,13 @@ class ApiConfigManager {
     };
   }
 
-  /**
-   * 等待 API 就绪
-   */
   async waitForReady(timeout: number = 90000): Promise<boolean> {
     if (this.isReady()) {
       return true;
+    }
+
+    if (isTauriRuntime() && !this.pollTimer) {
+      this.startBackendPoll();
     }
 
     return new Promise((resolve) => {
@@ -174,24 +237,21 @@ class ApiConfigManager {
     });
   }
 
-  /**
-   * 构建完整的 API URL
-   */
   buildUrl(path: string): string {
     const normalizedPath = path.startsWith('/') ? path : `/${path}`;
     return `${this.config.baseUrl}${normalizedPath}`;
   }
 
-  /**
-   * 健康检查
-   */
   async healthCheck(): Promise<boolean> {
-    if (!this.config.isReady || this.config.port <= 0) {
+    if (!this.config.isReady) {
       return false;
     }
 
     try {
-      const response = await fetch(`http://127.0.0.1:${this.config.port}/health`, {
+      const url = isTauriViteDev()
+        ? '/health'
+        : `http://127.0.0.1:${this.config.port}/health`;
+      const response = await fetch(url, {
         method: 'GET',
         signal: AbortSignal.timeout(5000),
       });
@@ -203,12 +263,11 @@ class ApiConfigManager {
   }
 }
 
-// 导出单例实例
 export const apiConfigManager = ApiConfigManager.getInstance();
 
-// 导出便捷函数
 export const getApiBaseUrl = () => apiConfigManager.getBaseUrl();
 export const isApiReady = () => apiConfigManager.isReady();
 export const waitForApiReady = (timeout?: number) => apiConfigManager.waitForReady(timeout);
 export const buildApiUrl = (path: string) => apiConfigManager.buildUrl(path);
 export const checkApiHealth = () => apiConfigManager.healthCheck();
+export const refreshApiConnection = () => apiConfigManager.refreshConnection();
