@@ -36,6 +36,8 @@ from backend.utils.video_processor import VideoProcessor
 
 logger = logging.getLogger(__name__)
 
+BROLL_BLOCK_TITLE_PREFIX = "口播素材-"
+
 
 class VoiceoverBrollService:
     def __init__(self, session_service: Optional[EditSessionService] = None):
@@ -150,6 +152,10 @@ class VoiceoverBrollService:
         wait_download_timeout_sec: float = 180.0,
     ) -> Tuple[EditSession, VoiceoverPlan, str]:
         session, plan, segment = self._load_segment(project_id, session_id, segment_id)
+        plan, session, reconciled = self._reconcile_broll_block_ids(session, plan)
+        if reconciled:
+            session = self._save_plan(project_id, session_id, plan)
+        segment = next(item for item in plan.segments if item.id == segment_id)
         self._ensure_tts_ready(segment)
 
         selected = segment.broll.selected
@@ -574,13 +580,65 @@ class VoiceoverBrollService:
         )
 
     @staticmethod
+    def _reconcile_broll_block_ids(
+        session: EditSession,
+        plan: VoiceoverPlan,
+    ) -> Tuple[VoiceoverPlan, EditSession, bool]:
+        """将时间线上「口播素材-N」block 写回 plan，修复 plan 与 timeline 不同步。"""
+        blocks_by_index: dict[int, str] = {}
+        for block in session.sequence or []:
+            title = str(block.title or "")
+            if not title.startswith(BROLL_BLOCK_TITLE_PREFIX):
+                continue
+            suffix = title[len(BROLL_BLOCK_TITLE_PREFIX) :].strip()
+            if suffix.isdigit():
+                blocks_by_index[int(suffix)] = block.id
+
+        if not blocks_by_index:
+            return plan, session, False
+
+        changed = False
+        new_segments: List[VoiceoverSegment] = []
+        for seg in plan.segments:
+            if seg.broll.block_id:
+                new_segments.append(seg)
+                continue
+            block_id = blocks_by_index.get(seg.index)
+            if not block_id:
+                new_segments.append(seg)
+                continue
+            if seg.status not in (
+                VoiceoverSegmentStatus.TTS_DONE,
+                VoiceoverSegmentStatus.BROLL_DONE,
+            ):
+                new_segments.append(seg)
+                continue
+            updated = seg.model_copy(deep=True)
+            updated.broll.block_id = block_id
+            new_segments.append(updated)
+            changed = True
+
+        if not changed:
+            return plan, session, False
+
+        plan = plan.model_copy(deep=True)
+        plan.segments = new_segments
+        return plan, session, True
+
+    @staticmethod
     def _ensure_broll_insert_order(plan: VoiceoverPlan, segment: VoiceoverSegment) -> None:
         for item in sorted(plan.segments, key=lambda seg: seg.index):
             if item.index >= segment.index:
                 break
             if item.status == VoiceoverSegmentStatus.TTS_DONE and not item.broll.block_id:
+                if item.broll.selected:
+                    raise ValueError(
+                        f"第 {item.index} 段已选定素材但尚未应用到时间线，"
+                        f"请先对该段点击「下载并应用 B-roll」后再处理第 {segment.index} 段"
+                    )
                 raise ValueError(
-                    f"请先生成第 {item.index} 段视频素材，或按段序从前往后应用"
+                    f"第 {item.index} 段尚无时间线视频 block（仅有 TTS/字幕）。"
+                    f"请对该段完成「下载并应用 B-roll」，或按段序从前往后应用"
                 )
 
     def _save_plan(self, project_id: str, session_id: str, plan: VoiceoverPlan) -> EditSession:

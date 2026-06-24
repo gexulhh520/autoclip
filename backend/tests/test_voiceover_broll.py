@@ -5,8 +5,22 @@ from types import SimpleNamespace
 
 import pytest
 
+from backend.schemas.edit_session import (
+    EditBlock,
+    EditBlockMedia,
+    EditBlockOverlay,
+    EditBlockTrim,
+)
+from backend.schemas.voiceover_plan import (
+    VoiceoverBrollState,
+    VoiceoverPlan,
+    VoiceoverSearchResult,
+    VoiceoverSegment,
+    VoiceoverSegmentStatus,
+    VoiceoverTtsState,
+)
 from backend.services.material_download_service import format_material_download_error
-from backend.services.voiceover_broll_service import VoiceoverBrollService
+from backend.services.voiceover_broll_service import BROLL_BLOCK_TITLE_PREFIX, VoiceoverBrollService
 
 from backend.services.voiceover_broll_selection import (
     align_interval_to_target_duration,
@@ -225,3 +239,62 @@ def test_voiceover_broll_service_select_and_apply_mocked(tmp_path, monkeypatch):
     assert seg.broll.source_out_sec - seg.broll.source_in_sec == pytest.approx(5.0, abs=0.11)
     assert "语义检索命中" in note
     assert len(session.sequence) == 1
+
+
+def test_reconcile_broll_block_ids_from_timeline_titles():
+    block = EditBlock(
+        id="block-seg-4",
+        source_clip_id="import-4",
+        title=f"{BROLL_BLOCK_TITLE_PREFIX}4",
+        media=EditBlockMedia(type="imported_clip", path="seg4.mp4"),
+        trim=EditBlockTrim(in_sec=0.0, out_sec=6.0),
+        overlay=EditBlockOverlay(outline="", content=[], recommend_reason=""),
+        duration_sec=6.0,
+    )
+    plan = VoiceoverPlan(
+        id="vo-plan",
+        segments=[
+            VoiceoverSegment(
+                id="seg-4",
+                index=4,
+                narration_text="第四段",
+                status=VoiceoverSegmentStatus.TTS_DONE,
+                tts=VoiceoverTtsState(duration_sec=6.0),
+                broll=VoiceoverBrollState(selected=VoiceoverSearchResult(title="x", url="")),
+            )
+        ],
+    )
+    reconciled_plan, _, changed = VoiceoverBrollService._reconcile_broll_block_ids(
+        SimpleNamespace(sequence=[block]),
+        plan,
+    )
+    assert changed is True
+    assert reconciled_plan.segments[0].broll.block_id == "block-seg-4"
+
+
+def test_ensure_broll_insert_order_distinguishes_selected_vs_missing():
+    plan = VoiceoverPlan(
+        id="vo-plan",
+        segments=[
+            VoiceoverSegment(
+                id="seg-4",
+                index=4,
+                narration_text="第四段",
+                status=VoiceoverSegmentStatus.TTS_DONE,
+                tts=VoiceoverTtsState(duration_sec=6.0),
+                broll=VoiceoverBrollState(
+                    selected=VoiceoverSearchResult(title="已选素材", url="http://x")
+                ),
+            ),
+            VoiceoverSegment(
+                id="seg-5",
+                index=5,
+                narration_text="第五段",
+                status=VoiceoverSegmentStatus.TTS_DONE,
+                tts=VoiceoverTtsState(duration_sec=5.0),
+            ),
+        ],
+    )
+    seg5 = plan.segments[1]
+    with pytest.raises(ValueError, match="已选定素材但尚未应用到时间线"):
+        VoiceoverBrollService._ensure_broll_insert_order(plan, seg5)
