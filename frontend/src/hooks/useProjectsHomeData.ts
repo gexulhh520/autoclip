@@ -33,7 +33,17 @@ export function useProjectsHomeData() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      void loadProjects()
+      void (async () => {
+        if (isTauriApp()) {
+          const ready = await waitForApiReady()
+          if (!ready) {
+            message.warning('桌面端后端尚未就绪，请稍候或在托盘重启后端')
+            setLoading(false)
+            return
+          }
+        }
+        await loadProjects()
+      })()
     }, 500)
     return () => clearTimeout(timer)
   }, [])
