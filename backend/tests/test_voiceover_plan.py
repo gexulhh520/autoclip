@@ -155,3 +155,90 @@ def test_generate_plan_returns_existing_draft_without_replace(tmp_path, monkeypa
     assert returned.id == "vo-plan-draft"
     assert "已有口播草稿" in note
     assert session.voiceover_plan is not None
+
+
+def test_translate_search_queries_uses_llm():
+    from backend.services.voiceover_script_generator import translate_search_queries
+
+    class _FakeLlm:
+        def complete_messages(self, messages, **kwargs):
+            class _Resp:
+                content = '{"queries": ["城市夜景航拍", "办公室打字"]}'
+
+            return _Resp()
+
+        def parse_json_response(self, content):
+            import json
+
+            return json.loads(content)
+
+    translated = translate_search_queries(
+        _FakeLlm(),
+        ["city night drone", "office desk typing"],
+        "zh",
+    )
+    assert translated == ["城市夜景航拍", "办公室打字"]
+
+
+def test_update_segment_search_queries_after_confirm(tmp_path, monkeypatch):
+    from backend.schemas.voiceover_plan import (
+        VoiceoverGenerateRequest,
+        VoiceoverUpdateSegmentSearchQueriesRequest,
+    )
+    from backend.services.edit_session_service import EditSessionService
+    from backend.services.voiceover_plan_service import VoiceoverPlanService
+
+    project_id = "vo-search-query-edit"
+    project_dir = tmp_path / "projects" / project_id
+    project_dir.mkdir(parents=True)
+    (project_dir / "edit_sessions").mkdir(parents=True)
+
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+
+    session_service = EditSessionService(db=None)
+    created = session_service.create_blank_session(project_id, name="VO")
+    vo_service = VoiceoverPlanService(session_service)
+
+    class _FakeLlm:
+        def complete_messages(self, messages, **kwargs):
+            class _Resp:
+                content = (
+                    '{"segments": [{"narration_text": "测试口播", "visual_brief": "画面", '
+                    '"search_queries": ["city night"]}]}'
+                )
+
+            return _Resp()
+
+        def parse_json_response(self, content):
+            import json
+
+            return json.loads(content)
+
+    monkeypatch.setattr(
+        "backend.services.voiceover_plan_service.get_llm_manager",
+        lambda: _FakeLlm(),
+    )
+
+    vo_service.generate_plan(
+        project_id,
+        created.id,
+        VoiceoverGenerateRequest(user_brief="测试意图"),
+    )
+    vo_service.confirm_plan(project_id, created.id)
+
+    segment_id = vo_service.get_plan(project_id, created.id)[1].segments[0].id
+    updated = vo_service.update_segment_search_queries(
+        project_id,
+        created.id,
+        segment_id,
+        VoiceoverUpdateSegmentSearchQueriesRequest(
+            search_queries=["tokyo street night", "neon lights"]
+        ),
+    )
+    assert updated.voiceover_plan.segments[0].search_queries == [
+        "tokyo street night",
+        "neon lights",
+    ]

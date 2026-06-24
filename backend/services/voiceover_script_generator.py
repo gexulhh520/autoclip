@@ -170,3 +170,76 @@ def regenerate_voiceover_segment(
     updated.index = target.index
     updated.status = VoiceoverSegmentStatus.DRAFT
     return updated
+
+
+SEARCH_QUERY_LANGUAGE_LABELS = {
+    "zh": "简体中文",
+    "en": "英语",
+    "ja": "日语",
+    "ko": "韩语",
+}
+
+SEARCH_QUERY_TRANSLATE_SYSTEM = """你是短视频 B-roll 素材搜索词翻译助手。
+用户会提供若干条素材搜索关键词（每行一条），请逐条翻译为目标语言，保持简短、适合在 YouTube/Bilibili 搜索。
+
+只输出 JSON 对象（不要 markdown、不要解释）：
+{"queries": ["翻译后的搜索词1", "翻译后的搜索词2"]}
+
+规则：
+- 输出条数与输入一致，顺序不变
+- 每条 2–8 个词为宜，保留检索意图（景别、主体、场景）
+- 专有名词可音译或保留英文，以平台搜索习惯为准"""
+
+
+def translate_search_queries(
+    llm_manager: Any,
+    queries: List[str],
+    target_language: str,
+) -> List[str]:
+    cleaned = [str(item or "").strip() for item in queries if str(item or "").strip()]
+    if not cleaned:
+        raise ValueError("请先填写素材搜索词")
+
+    lang = (target_language or "").strip().lower()
+    label = SEARCH_QUERY_LANGUAGE_LABELS.get(lang)
+    if not label:
+        raise ValueError(f"不支持的目标语言: {target_language}")
+
+    messages = [
+        {"role": "system", "content": SEARCH_QUERY_TRANSLATE_SYSTEM},
+        {
+            "role": "user",
+            "content": (
+                f"目标语言：{label}\n"
+                f"搜索词列表：\n{json.dumps(cleaned, ensure_ascii=False)}\n\n"
+                "请翻译并输出 JSON。"
+            ),
+        },
+    ]
+    response = llm_manager.complete_messages(
+        messages,
+        think=False,
+        num_predict=1024,
+        timeout=90,
+        temperature=0.2,
+    )
+    content = (response.content or "").strip()
+    if not content:
+        raise ValueError("LLM 返回空内容，请检查模型/API 配置")
+    parsed = llm_manager.parse_json_response(content)
+    if not isinstance(parsed, dict):
+        raise ValueError("LLM 返回格式错误")
+    rows = parsed.get("queries")
+    if not isinstance(rows, list) or not rows:
+        raise ValueError("LLM 未返回有效 queries 列表")
+
+    translated: List[str] = []
+    for index, row in enumerate(rows):
+        text = str(row or "").strip()
+        if not text:
+            text = cleaned[index] if index < len(cleaned) else ""
+        if text and text not in translated:
+            translated.append(text)
+    if not translated:
+        raise ValueError("翻译结果为空")
+    return translated[:8]

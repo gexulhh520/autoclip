@@ -18,12 +18,15 @@ from backend.schemas.voiceover_plan import (
     VoiceoverSegment,
     VoiceoverSegmentStatus,
     VoiceoverSelectMaterialRequest,
+    VoiceoverTranslateSearchQueriesRequest,
     VoiceoverUpdatePlanRequest,
+    VoiceoverUpdateSegmentSearchQueriesRequest,
 )
 from backend.services.edit_session_service import EditSessionService
 from backend.services.voiceover_script_generator import (
     generate_voiceover_plan,
     regenerate_voiceover_segment,
+    translate_search_queries,
 )
 from backend.services.voiceover_broll_service import VoiceoverBrollService
 from backend.services.voiceover_orchestrator import VoiceoverOrchestrator
@@ -241,6 +244,68 @@ class VoiceoverPlanService:
             placeholder_library_asset_id=placeholder_library_asset_id,
         )
 
+    def _replace_segment_in_plan(
+        self, plan: VoiceoverPlan, segment_id: str, updated: VoiceoverSegment
+    ) -> VoiceoverPlan:
+        plan.segments = [
+            updated if seg.id == segment_id else seg for seg in plan.segments
+        ]
+        return plan
+
+    def update_segment_search_queries(
+        self,
+        project_id: str,
+        session_id: str,
+        segment_id: str,
+        payload: VoiceoverUpdateSegmentSearchQueriesRequest,
+    ) -> EditSession:
+        _, plan = self.get_plan(project_id, session_id)
+        if plan is None:
+            raise ValueError("尚无口播计划")
+        if plan.status == VoiceoverPlanStatus.DRAFT:
+            raise ValueError("草稿状态下请通过「保存修改」更新搜索词")
+
+        segment = next((seg for seg in plan.segments if seg.id == segment_id), None)
+        if segment is None:
+            raise ValueError(f"分段不存在: {segment_id}")
+
+        segment.search_queries = payload.search_queries
+        plan = self._replace_segment_in_plan(plan, segment_id, segment)
+        return self._save_plan(project_id, session_id, plan)
+
+    def translate_segment_search_queries(
+        self,
+        project_id: str,
+        session_id: str,
+        segment_id: str,
+        payload: VoiceoverTranslateSearchQueriesRequest,
+    ) -> EditSession:
+        _, plan = self.get_plan(project_id, session_id)
+        if plan is None:
+            raise ValueError("尚无口播计划")
+
+        segment = next((seg for seg in plan.segments if seg.id == segment_id), None)
+        if segment is None:
+            raise ValueError(f"分段不存在: {segment_id}")
+
+        source_queries = payload.search_queries
+        if source_queries is None:
+            source_queries = list(segment.search_queries or [])
+        elif plan.status == VoiceoverPlanStatus.DRAFT:
+            segment.search_queries = source_queries
+        elif source_queries != segment.search_queries:
+            segment.search_queries = source_queries
+
+        llm = get_llm_manager()
+        translated = translate_search_queries(
+            llm,
+            source_queries,
+            payload.target_language,
+        )
+        segment.search_queries = translated
+        plan = self._replace_segment_in_plan(plan, segment_id, segment)
+        return self._save_plan(project_id, session_id, plan)
+
     def search_segment_materials(
         self,
         project_id: str,
@@ -254,6 +319,7 @@ class VoiceoverPlanService:
             segment_id,
             platform=payload.platform,
             limit=payload.limit,
+            search_queries=payload.search_queries,
         )
 
     def select_segment_material(

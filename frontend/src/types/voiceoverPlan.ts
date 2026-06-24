@@ -106,6 +106,18 @@ export interface VoiceoverExecuteResponse {
 export interface VoiceoverSearchMaterialsRequest {
   platform?: string
   limit?: number
+  search_queries?: string[] | null
+}
+
+export interface VoiceoverUpdateSegmentSearchQueriesRequest {
+  search_queries: string[]
+}
+
+export type VoiceoverSearchQueryLanguage = 'zh' | 'en' | 'ja' | 'ko'
+
+export interface VoiceoverTranslateSearchQueriesRequest {
+  target_language: VoiceoverSearchQueryLanguage
+  search_queries?: string[] | null
 }
 
 export interface VoiceoverSelectMaterialRequest {

@@ -59,9 +59,18 @@ class VoiceoverBrollService:
         *,
         platform: str = "youtube",
         limit: int = 10,
+        search_queries: Optional[List[str]] = None,
     ) -> Tuple[EditSession, VoiceoverPlan, str]:
         session, plan, segment = self._load_segment(project_id, session_id, segment_id)
         self._ensure_tts_ready(segment)
+
+        if search_queries is not None:
+            normalized = [q.strip() for q in search_queries if q.strip()]
+            if normalized:
+                segment.search_queries = normalized[:8]
+                plan = self._replace_segment(plan, segment)
+                session = self._save_plan(project_id, session_id, plan)
+                _, plan, segment = self._load_segment(project_id, session_id, segment_id)
 
         queries = [q.strip() for q in (segment.search_queries or []) if q.strip()]
         if not queries and segment.visual_brief.strip():

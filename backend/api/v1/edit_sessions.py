@@ -76,7 +76,9 @@ from backend.schemas.voiceover_plan import (
     VoiceoverRegenerateSegmentRequest,
     VoiceoverSearchMaterialsRequest,
     VoiceoverSelectMaterialRequest,
+    VoiceoverTranslateSearchQueriesRequest,
     VoiceoverUpdatePlanRequest,
+    VoiceoverUpdateSegmentSearchQueriesRequest,
 )
 from backend.services.edit_session_service import EditSessionService, _edit_sessions_dir
 from backend.services.editor_agent_service import EditorAgentService
@@ -1756,6 +1758,64 @@ async def execute_voiceover_segment(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("口播分段执行失败: %s/%s segment=%s", project_id, session_id, segment_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.patch(
+    "/{project_id}/edit-sessions/{session_id}/voiceover/segments/{segment_id}/search-queries",
+    response_model=VoiceoverPlanResponse,
+)
+async def update_voiceover_segment_search_queries(
+    project_id: str,
+    session_id: str,
+    segment_id: str,
+    body: VoiceoverUpdateSegmentSearchQueriesRequest,
+    service: VoiceoverPlanService = Depends(get_voiceover_plan_service),
+):
+    try:
+        session = await asyncio.to_thread(
+            service.update_segment_search_queries,
+            project_id,
+            session_id,
+            segment_id,
+            body,
+        )
+        return VoiceoverPlanResponse(session=session, plan=session.voiceover_plan)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("更新素材搜索词失败: %s/%s segment=%s", project_id, session_id, segment_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/voiceover/segments/{segment_id}/translate-search-queries",
+    response_model=VoiceoverPlanResponse,
+)
+async def translate_voiceover_segment_search_queries(
+    project_id: str,
+    session_id: str,
+    segment_id: str,
+    body: VoiceoverTranslateSearchQueriesRequest,
+    service: VoiceoverPlanService = Depends(get_voiceover_plan_service),
+):
+    try:
+        session = await asyncio.to_thread(
+            service.translate_segment_search_queries,
+            project_id,
+            session_id,
+            segment_id,
+            body,
+        )
+        return VoiceoverPlanResponse(session=session, plan=session.voiceover_plan)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("翻译素材搜索词失败: %s/%s segment=%s", project_id, session_id, segment_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

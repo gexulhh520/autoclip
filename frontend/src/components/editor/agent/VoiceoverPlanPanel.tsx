@@ -7,7 +7,7 @@ import {
 } from '../../../editor/tts/edgeTtsVoices'
 import { voiceoverApi } from '../../../services/voiceoverApi'
 import libraryApi, { type LibraryAsset } from '../../../services/libraryApi'
-import type { VoiceoverPlan, VoiceoverSegment } from '../../../types/voiceoverPlan'
+import type { VoiceoverPlan, VoiceoverSegment, VoiceoverSearchQueryLanguage } from '../../../types/voiceoverPlan'
 import {
   MAX_VOICEOVER_SEGMENTS,
   VOICEOVER_PLAN_STATUS_LABEL,
@@ -37,6 +37,13 @@ function textToQueries(text: string): string[] {
     .filter(Boolean)
     .slice(0, 8)
 }
+
+const SEARCH_QUERY_LANGUAGES: Array<{ id: VoiceoverSearchQueryLanguage; label: string }> = [
+  { id: 'zh', label: '中文' },
+  { id: 'en', label: 'English' },
+  { id: 'ja', label: '日本語' },
+  { id: 'ko', label: '한국어' },
+]
 
 function readApiErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object') {
@@ -95,6 +102,8 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
   const [libraryPickBySegment, setLibraryPickBySegment] = useState<Record<string, string>>({})
   const [manualTrim, setManualTrim] = useState<Record<string, { inSec: string; outSec: string }>>({})
   const [brollBusySegmentId, setBrollBusySegmentId] = useState<string | null>(null)
+  const [searchQueryDrafts, setSearchQueryDrafts] = useState<Record<string, string>>({})
+  const [translatingSegmentId, setTranslatingSegmentId] = useState<string | null>(null)
 
   const plan = draftPlan ?? sessionPlan
   const isEditable = plan?.status === 'draft'
@@ -169,9 +178,77 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     (response: { session: Parameters<typeof syncSessionFromApi>[0] }) => {
       syncSessionFromApi(response.session)
       setDraftPlan(null)
+      setSearchQueryDrafts({})
     },
     [syncSessionFromApi]
   )
+
+  const canEditSearchQueries = (segment: VoiceoverSegment) =>
+    isEditable || (Boolean(plan) && plan.status !== 'draft')
+
+  const getSearchQueriesText = (segment: VoiceoverSegment) =>
+    searchQueryDrafts[segment.id] ?? queriesToText(segment.search_queries)
+
+  const resolveSearchQueriesForSegment = (segment: VoiceoverSegment) =>
+    textToQueries(getSearchQueriesText(segment))
+
+  const handleSearchQueriesChange = (segment: VoiceoverSegment, text: string) => {
+    if (isEditable) {
+      updateLocalSegment(segment.id, { search_queries: textToQueries(text) })
+      return
+    }
+    setSearchQueryDrafts((prev) => ({ ...prev, [segment.id]: text }))
+  }
+
+  const persistSegmentSearchQueries = async (segment: VoiceoverSegment) => {
+    const queries = resolveSearchQueriesForSegment(segment)
+    if (isEditable) {
+      if (draftPlan) {
+        await voiceoverApi.updatePlan(projectId, sessionId, draftPlan)
+      }
+      return queries
+    }
+    await voiceoverApi.updateSegmentSearchQueries(projectId, sessionId, segment.id, {
+      search_queries: queries,
+    })
+    const refreshed = await voiceoverApi.getPlan(projectId, sessionId)
+    syncSessionFromApi(refreshed.session)
+    setSearchQueryDrafts((prev) => {
+      const next = { ...prev }
+      delete next[segment.id]
+      return next
+    })
+    return queries
+  }
+
+  const handleTranslateSearchQueries = async (
+    segment: VoiceoverSegment,
+    targetLanguage: VoiceoverSearchQueryLanguage
+  ) => {
+    const queries = resolveSearchQueriesForSegment(segment)
+    if (queries.length === 0) {
+      onError('请先填写素材搜索词')
+      return
+    }
+    setTranslatingSegmentId(segment.id)
+    onError('')
+    try {
+      const response = await voiceoverApi.translateSegmentSearchQueries(
+        projectId,
+        sessionId,
+        segment.id,
+        {
+          target_language: targetLanguage,
+          search_queries: queries,
+        }
+      )
+      applyResponse(response)
+    } catch (err: unknown) {
+      onError(readApiErrorMessage(err, '搜索词翻译失败'))
+    } finally {
+      setTranslatingSegmentId(null)
+    }
+  }
 
   const handleGenerate = async () => {
     const brief = userBrief.trim()
@@ -340,15 +417,19 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     }
   }
 
-  const handleSearchBroll = async (segmentId: string) => {
-    setBrollBusySegmentId(segmentId)
+  const handleSearchBroll = async (segment: VoiceoverSegment) => {
+    setBrollBusySegmentId(segment.id)
     onError('')
     try {
+      let queries = resolveSearchQueriesForSegment(segment)
+      if (!isEditable) {
+        queries = await persistSegmentSearchQueries(segment)
+      }
       const response = await voiceoverApi.searchSegmentMaterials(
         projectId,
         sessionId,
-        segmentId,
-        { platform: brollPlatform, limit: 10 }
+        segment.id,
+        { platform: brollPlatform, limit: 10, search_queries: queries }
       )
       applyResponse(response)
     } catch (err: unknown) {
@@ -633,20 +714,45 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
                   />
                 </label>
 
-                <label className="editor-agent-panel__voiceover-field">
+                <div className="editor-agent-panel__voiceover-field">
                   <span>素材搜索词（每行一个）</span>
                   <textarea
                     className="editor-agent-panel__voiceover-textarea"
                     rows={2}
-                    value={queriesToText(segment.search_queries)}
-                    onChange={(event) =>
-                      updateLocalSegment(segment.id, {
-                        search_queries: textToQueries(event.target.value),
-                      })
-                    }
-                    disabled={!isEditable || saving}
+                    value={getSearchQueriesText(segment)}
+                    onChange={(event) => handleSearchQueriesChange(segment, event.target.value)}
+                    onBlur={() => {
+                      if (!isEditable && canEditSearchQueries(segment)) {
+                        void persistSegmentSearchQueries(segment).catch((err: unknown) => {
+                          onError(err instanceof Error ? err.message : '保存搜索词失败')
+                        })
+                      }
+                    }}
+                    disabled={!canEditSearchQueries(segment) || saving || translatingSegmentId === segment.id}
+                    placeholder="例如：city night drone&#10;office desk typing"
                   />
-                </label>
+                  {canEditSearchQueries(segment) ? (
+                    <div className="editor-agent-panel__voiceover-translate">
+                      <span className="editor-agent-panel__voiceover-translate-label">翻译为</span>
+                      {SEARCH_QUERY_LANGUAGES.map((lang) => (
+                        <button
+                          key={lang.id}
+                          type="button"
+                          className="editor-agent-panel__voiceover-btn editor-agent-panel__voiceover-btn--compact"
+                          disabled={
+                            loading ||
+                            saving ||
+                            Boolean(brollBusySegmentId) ||
+                            translatingSegmentId === segment.id
+                          }
+                          onClick={() => void handleTranslateSearchQueries(segment, lang.id)}
+                        >
+                          {translatingSegmentId === segment.id ? '翻译中…' : lang.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
 
                 {isEditable ? (
                   <div className="editor-agent-panel__voiceover-segment-regen">
@@ -718,7 +824,7 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
                       <button
                         type="button"
                         className="editor-agent-panel__voiceover-btn"
-                        onClick={() => void handleSearchBroll(segment.id)}
+                        onClick={() => void handleSearchBroll(segment)}
                         disabled={Boolean(brollBusySegmentId) || executing}
                       >
                         {brollBusySegmentId === segment.id ? '搜索中…' : '搜索素材'}

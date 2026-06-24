@@ -10,6 +10,8 @@ import type {
   VoiceoverPlanResponse,
   VoiceoverSearchMaterialsRequest,
   VoiceoverSelectMaterialRequest,
+  VoiceoverTranslateSearchQueriesRequest,
+  VoiceoverUpdateSegmentSearchQueriesRequest,
 } from '../types/voiceoverPlan'
 
 const VOICEOVER_TIMEOUT_MS = 300_000
@@ -125,6 +127,31 @@ export const voiceoverApi = {
       payload,
       { timeout: VOICEOVER_TIMEOUT_MS }
     )) as VoiceoverExecuteResponse
+  },
+
+  updateSegmentSearchQueries: async (
+    projectId: string,
+    sessionId: string,
+    segmentId: string,
+    payload: VoiceoverUpdateSegmentSearchQueriesRequest
+  ): Promise<VoiceoverPlanResponse> => {
+    return (await api.patch(
+      `${voiceoverBase(projectId, sessionId)}/segments/${encodeURIComponent(segmentId)}/search-queries`,
+      payload
+    )) as VoiceoverPlanResponse
+  },
+
+  translateSegmentSearchQueries: async (
+    projectId: string,
+    sessionId: string,
+    segmentId: string,
+    payload: VoiceoverTranslateSearchQueriesRequest
+  ): Promise<VoiceoverPlanResponse> => {
+    return (await api.post(
+      `${voiceoverBase(projectId, sessionId)}/segments/${encodeURIComponent(segmentId)}/translate-search-queries`,
+      payload,
+      { timeout: VOICEOVER_TIMEOUT_MS }
+    )) as VoiceoverPlanResponse
   },
 
   selectSegmentMaterial: async (

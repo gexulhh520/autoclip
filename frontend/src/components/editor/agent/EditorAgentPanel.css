@@ -1222,3 +1222,22 @@
   line-height: 1.45;
   color: var(--editor-sub);
 }
+
+.editor-agent-panel__voiceover-translate {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.editor-agent-panel__voiceover-translate-label {
+  font-size: 12px;
+  color: var(--editor-sub);
+}
+
+.editor-agent-panel__voiceover-btn--compact {
+  padding: 4px 10px;
+  font-size: 12px;
+  line-height: 1.3;
+}

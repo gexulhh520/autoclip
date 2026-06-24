@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -146,6 +146,34 @@ class VoiceoverExecuteResponse(BaseModel):
 class VoiceoverSearchMaterialsRequest(BaseModel):
     platform: str = Field(default="youtube", description="youtube | bilibili")
     limit: int = Field(default=10, ge=1, le=20)
+    search_queries: Optional[List[str]] = Field(
+        default=None,
+        max_length=8,
+        description="搜索前可传入编辑后的关键词；缺省使用分段已保存值",
+    )
+
+
+class VoiceoverUpdateSegmentSearchQueriesRequest(BaseModel):
+    search_queries: List[str] = Field(default_factory=list, max_length=8)
+
+    @field_validator("search_queries")
+    @classmethod
+    def normalize_search_queries(cls, value: List[str]) -> List[str]:
+        cleaned: List[str] = []
+        for item in value:
+            text = str(item or "").strip()
+            if text and text not in cleaned:
+                cleaned.append(text)
+        return cleaned[:8]
+
+
+class VoiceoverTranslateSearchQueriesRequest(BaseModel):
+    target_language: Literal["zh", "en", "ja", "ko"]
+    search_queries: Optional[List[str]] = Field(
+        default=None,
+        max_length=8,
+        description="待翻译关键词；缺省使用分段已保存值",
+    )
 
 
 class VoiceoverSelectMaterialRequest(BaseModel):
