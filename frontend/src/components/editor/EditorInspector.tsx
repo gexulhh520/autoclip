@@ -24,6 +24,10 @@ import TextAnimationPanel from './TextAnimationPanel'
 import TextToSpeechPanel, { DEFAULT_EDGE_TTS_VOICE } from './TextToSpeechPanel'
 import SpeedControlPanel from './SpeedControlPanel'
 import { resolveEdgeTtsVoiceId } from '../../editor/tts/edgeTtsVoices'
+import {
+  isVoiceoverSubtitleOverlay,
+  playVoiceoverSubtitlePreview,
+} from '../../editor/voiceover/voiceoverSubtitleInspector'
 import { readTextPresetId } from '../../editor/effects'
 import {
   blockHasMigratedTemplateOverlays,
@@ -217,6 +221,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
     const isBatch = overlayItems.length > 1
     const overlayIds = overlayItems.map((item) => item.id)
     const seed = overlayItems[0]!
+    const isVoiceoverSubtitle = !isBatch && isVoiceoverSubtitleOverlay(seed)
     const presetIds = overlayItems.map((item) => readTextPresetId(item.params ?? {}))
     const activePresetId = presetIds.every((id) => id === presetIds[0]) ? presetIds[0] : null
 
@@ -239,8 +244,19 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
           <TextToSpeechPanel
             text={readStringParam(seed.params, 'content', '')}
             previewLoading={ttsPreviewLoading}
-            synthesizeLoading={ttsLoading || saving}
-            voice={ttsVoice}
+            synthesizeLoading={ttsLoading}
+            voice={
+              isVoiceoverSubtitle && session?.voiceover_plan?.voice_id
+                ? session.voiceover_plan.voice_id
+                : ttsVoice
+            }
+            voiceDisabled={isVoiceoverSubtitle}
+            synthesizeDisabled={isVoiceoverSubtitle}
+            synthesizeDisabledReason={
+              isVoiceoverSubtitle
+                ? '口播字幕已绑定 TTS 音频；重新配音请在口播面板执行'
+                : undefined
+            }
             onVoiceChange={setTtsVoice}
             onPreview={async () => {
               const content = readStringParam(seed.params, 'content', '').trim()
@@ -250,6 +266,10 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
               }
               setTtsPreviewLoading(true)
               try {
+                if (isVoiceoverSubtitle && session) {
+                  await playVoiceoverSubtitlePreview(projectId, session, seed)
+                  return null
+                }
                 return await previewOverlaySpeech(projectId, {
                   text: content,
                   voice: resolveEdgeTtsVoiceId(ttsVoice),
@@ -262,6 +282,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
               }
             }}
             onSynthesize={async () => {
+              if (isVoiceoverSubtitle) return null
               const content = readStringParam(seed.params, 'content', '').trim()
               if (!content) {
                 message.warning('请先输入文本内容')

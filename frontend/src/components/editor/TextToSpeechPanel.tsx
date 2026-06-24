@@ -21,6 +21,10 @@ interface TextToSpeechPanelProps {
   onSynthesize: () => Promise<{ audioUrl: string } | null>
   disabled?: boolean
   disabledReason?: string
+  /** 仅禁用「朗读」按钮（口播字幕等已有 TTS 的场景） */
+  synthesizeDisabled?: boolean
+  synthesizeDisabledReason?: string
+  voiceDisabled?: boolean
 }
 
 const TextToSpeechPanel: React.FC<TextToSpeechPanelProps> = ({
@@ -33,12 +37,15 @@ const TextToSpeechPanel: React.FC<TextToSpeechPanelProps> = ({
   onSynthesize,
   disabled = false,
   disabledReason,
+  synthesizeDisabled = false,
+  synthesizeDisabledReason,
+  voiceDisabled = false,
 }) => {
   const previewRef = useRef<HTMLAudioElement | null>(null)
   const previewObjectUrlRef = useRef<string | null>(null)
   const trimmed = text.trim()
-  const busy = previewLoading || synthesizeLoading
-  const canSpeak = !disabled && trimmed.length > 0
+  const canPreview = !disabled && trimmed.length > 0
+  const canSynthesize = !disabled && !synthesizeDisabled && trimmed.length > 0
   const voiceGroups = useMemo(() => getEdgeTtsVoiceGroups(), [])
   const selectedVoice = useMemo(
     () => findEdgeTtsVoice(voice) ?? findEdgeTtsVoice(DEFAULT_EDGE_TTS_VOICE),
@@ -75,7 +82,7 @@ const TextToSpeechPanel: React.FC<TextToSpeechPanelProps> = ({
   }
 
   const handlePreview = async () => {
-    if (!canSpeak || busy) return
+    if (!canPreview || previewLoading || synthesizeLoading) return
     try {
       const blob = await onPreview()
       if (!blob) return
@@ -86,7 +93,7 @@ const TextToSpeechPanel: React.FC<TextToSpeechPanelProps> = ({
   }
 
   const handleSynthesize = async () => {
-    if (!canSpeak || busy) return
+    if (!canSynthesize || previewLoading || synthesizeLoading) return
     try {
       const result = await onSynthesize()
       if (!result?.audioUrl) return
@@ -100,12 +107,14 @@ const TextToSpeechPanel: React.FC<TextToSpeechPanelProps> = ({
     <div className="editor-inspector-section editor-tts-panel">
       <div className="editor-inspector-label">朗读</div>
       <p className="editor-inspector-muted" style={{ marginTop: 4, marginBottom: 10 }}>
-        预读仅试听；朗读会生成音频并加入时间线
+        {synthesizeDisabled
+          ? '预读播放本条口播音频；重新配音请在口播面板执行'
+          : '预读仅试听；朗读会生成音频并加入时间线'}
       </p>
       <select
         className="editor-select editor-tts-panel__voice"
         value={resolvedVoice}
-        disabled={busy || disabled}
+        disabled={voiceDisabled || previewLoading || synthesizeLoading || disabled}
         onChange={(event) => onVoiceChange(event.target.value)}
         aria-label="朗读音色"
       >
@@ -126,7 +135,7 @@ const TextToSpeechPanel: React.FC<TextToSpeechPanelProps> = ({
         <button
           type="button"
           className="editor-tts-panel__btn editor-tts-panel__btn--secondary"
-          disabled={!canSpeak || busy}
+          disabled={!canPreview || previewLoading || synthesizeLoading}
           onClick={() => void handlePreview()}
           title={disabledReason}
         >
@@ -136,9 +145,9 @@ const TextToSpeechPanel: React.FC<TextToSpeechPanelProps> = ({
         <button
           type="button"
           className="editor-tts-panel__btn"
-          disabled={!canSpeak || busy}
+          disabled={!canSynthesize || previewLoading || synthesizeLoading}
           onClick={() => void handleSynthesize()}
-          title={disabledReason}
+          title={synthesizeDisabledReason ?? disabledReason}
         >
           <Volume2 size={15} strokeWidth={1.75} />
           {synthesizeLoading ? '生成中…' : '朗读'}
@@ -149,7 +158,12 @@ const TextToSpeechPanel: React.FC<TextToSpeechPanelProps> = ({
           请先输入文本内容
         </p>
       ) : null}
-      {disabled && disabledReason ? (
+      {synthesizeDisabled && synthesizeDisabledReason ? (
+        <p className="editor-inspector-muted" style={{ marginTop: 8 }}>
+          {synthesizeDisabledReason}
+        </p>
+      ) : null}
+      {disabled && disabledReason && !synthesizeDisabled ? (
         <p className="editor-inspector-muted" style={{ marginTop: 8 }}>
           {disabledReason}
         </p>
