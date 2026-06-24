@@ -92,6 +92,8 @@ const DesktopHomePage: React.FC = () => {
     try {
       const session = await editApi.createEditorDraft()
       navigate(`/editor/draft/${session.id}`)
+    } catch (error: unknown) {
+      message.error(error instanceof Error ? error.message : '无法创建剪辑草稿，请重启应用后重试')
     } finally {
       setStarting(false)
     }

@@ -6,6 +6,7 @@ import logging
 import os
 import shutil
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,6 +50,44 @@ from backend.utils.link_audio_downloader import (
 from backend.utils.video_processor import VideoProcessor
 
 logger = logging.getLogger(__name__)
+
+_SESSION_SAVE_LOCKS: dict[str, threading.RLock] = {}
+_SESSION_SAVE_LOCKS_GUARD = threading.Lock()
+
+
+def _get_session_save_lock(path: Path) -> threading.RLock:
+    key = str(path.resolve()).lower()
+    with _SESSION_SAVE_LOCKS_GUARD:
+        lock = _SESSION_SAVE_LOCKS.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _SESSION_SAVE_LOCKS[key] = lock
+        return lock
+
+
+def _atomic_write_text(path: Path, content: str, *, retries: int = 8) -> None:
+    """原子写文本；Windows 上并发替换 session 文件时需重试与独立 tmp 名。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.stem}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(content, encoding="utf-8")
+        last_err: Optional[Exception] = None
+        for attempt in range(retries):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError as err:
+                last_err = err
+                time.sleep(0.04 * (attempt + 1))
+        if last_err is not None:
+            raise last_err
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
 
 
 def _utc_now_iso() -> str:
@@ -1503,6 +1542,6 @@ class EditSessionService:
     def _save_session(project_dir: Path, session: EditSession) -> None:
         path = _session_path(project_dir, session.id)
         payload = json.dumps(session.model_dump(), ensure_ascii=False, indent=2)
-        tmp = path.with_suffix(f"{path.suffix}.tmp")
-        tmp.write_text(payload, encoding="utf-8")
-        tmp.replace(path)
+        lock = _get_session_save_lock(path)
+        with lock:
+            _atomic_write_text(path, payload)

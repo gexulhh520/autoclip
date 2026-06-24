@@ -1,6 +1,7 @@
 """独立视频剪辑工作台 API。"""
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -62,7 +63,7 @@ async def create_blank_draft(
 ):
     try:
         project_id = workspace.ensure_workspace_project_id()
-        session = edit_service.create_blank_session(project_id)
+        session = await asyncio.to_thread(edit_service.create_blank_session, project_id)
         return EditSessionBlankCreateResponse(session=session)
     except Exception as exc:
         logger.exception("创建剪辑草稿失败")

@@ -191,7 +191,7 @@ async def update_edit_session(
     service: EditSessionService = Depends(get_edit_session_service),
 ):
     try:
-        return service.update_session(project_id, session_id, body)
+        return await asyncio.to_thread(service.update_session, project_id, session_id, body)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
     except Exception as exc:
@@ -1248,6 +1248,11 @@ async def _run_agent_sync(func: Callable[..., T], *args, **kwargs) -> T:
     return await asyncio.to_thread(func, *args, **kwargs)
 
 
+async def _run_voiceover_async(coro):
+    """口播 orchestrator 为 async；放入线程池执行，避免长时间占用主事件循环。"""
+    return await asyncio.to_thread(asyncio.run, coro)
+
+
 @router.post(
     "/{project_id}/edit-sessions/{session_id}/agent/analyze-layout",
     response_model=AnalyzeLayoutResponse,
@@ -1679,7 +1684,9 @@ async def execute_voiceover_plan(
     service: VoiceoverPlanService = Depends(get_voiceover_plan_service),
 ):
     try:
-        session, plan, note = await service.execute_plan(project_id, session_id, body)
+        session, plan, note = await _run_voiceover_async(
+            service.execute_plan(project_id, session_id, body)
+        )
         return VoiceoverExecuteResponse(session=session, plan=plan, note=note)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
@@ -1702,11 +1709,13 @@ async def execute_voiceover_segment(
     service: VoiceoverPlanService = Depends(get_voiceover_plan_service),
 ):
     try:
-        session, plan, note = await service.execute_segment(
-            project_id,
-            session_id,
-            segment_id,
-            placeholder_library_asset_id=body.placeholder_library_asset_id,
+        session, plan, note = await _run_voiceover_async(
+            service.execute_segment(
+                project_id,
+                session_id,
+                segment_id,
+                placeholder_library_asset_id=body.placeholder_library_asset_id,
+            )
         )
         return VoiceoverExecuteResponse(session=session, plan=plan, note=note)
     except FileNotFoundError as exc:
