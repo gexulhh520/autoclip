@@ -611,9 +611,12 @@ interface EditSessionState {
 
 function buildStateAfterImportMedia(
   result: import('../types/editSession').EditSessionImportMediaResponse,
-  insertIndex: number
+  insertIndex: number,
+  linkEnabled: boolean
 ) {
-  const shifted = shiftTimelineElementsAfterVideoInsert(result.session, insertIndex, 1)
+  const shifted = shiftTimelineElementsAfterVideoInsert(result.session, insertIndex, 1, {
+    linkEnabled,
+  })
   cleanupImportedClipCaptions(result.session)
   const templateMigrated = ensureTemplateCaptionOverlays(result.session)
   const transitionDur = transitionDurationSec(result.session)
@@ -1327,7 +1330,8 @@ export const useEditSessionStore = create<EditSessionState>()(
           const shifted = shiftTimelineElementsAfterVideoInsert(
             document.session,
             insertIndex,
-            result.added_count
+            result.added_count,
+            { linkEnabled: get().timelineBlockLinkEnabled }
           )
           const templateMigrated = ensureTemplateCaptionOverlays(document.session)
           if (templateMigrated) {
@@ -1376,7 +1380,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           })
           set({
             saving: false,
-            ...buildStateAfterImportMedia(result, insertIndex),
+            ...buildStateAfterImportMedia(result, insertIndex, get().timelineBlockLinkEnabled),
           })
           return result
         } catch (error: unknown) {
@@ -1401,7 +1405,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           })
           set({
             saving: false,
-            ...buildStateAfterImportMedia(result, insertIndex),
+            ...buildStateAfterImportMedia(result, insertIndex, get().timelineBlockLinkEnabled),
           })
           return result
         } catch (error: unknown) {
@@ -1426,7 +1430,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           })
           set({
             saving: false,
-            ...buildStateAfterImportMedia(result, insertIndex),
+            ...buildStateAfterImportMedia(result, insertIndex, get().timelineBlockLinkEnabled),
           })
           return result
         } catch (error: unknown) {

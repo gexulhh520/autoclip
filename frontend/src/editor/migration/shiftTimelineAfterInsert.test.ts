@@ -71,7 +71,7 @@ describe('shiftTimelineElementsAfterVideoInsert', () => {
     const inserted = block('v1', 10)
     editSession.sequence.splice(0, 0, inserted)
 
-    expect(shiftTimelineElementsAfterVideoInsert(editSession, 0, 1)).toBe(false)
+    expect(shiftTimelineElementsAfterVideoInsert(editSession, 0, 1, { linkEnabled: true })).toBe(false)
     expect(editSession.overlay_elements?.[0]?.start_sec).toBeCloseTo(5, 3)
     expect(editSession.audio_elements?.[0]?.start_sec).toBeCloseTo(2, 3)
   })
@@ -81,7 +81,7 @@ describe('shiftTimelineElementsAfterVideoInsert', () => {
     const inserted = block('x', 2)
     editSession.sequence.splice(1, 0, inserted)
 
-    expect(shiftTimelineElementsAfterVideoInsert(editSession, 1, 1)).toBe(true)
+    expect(shiftTimelineElementsAfterVideoInsert(editSession, 1, 1, { linkEnabled: true })).toBe(true)
     expect(editSession.overlay_elements?.[0]?.start_sec).toBeCloseTo(6, 3)
   })
 
@@ -91,7 +91,7 @@ describe('shiftTimelineElementsAfterVideoInsert', () => {
     const inserted = block('x', 2)
     editSession.sequence.splice(1, 0, inserted)
 
-    expect(shiftTimelineElementsAfterVideoInsert(editSession, 1, 1)).toBe(false)
+    expect(shiftTimelineElementsAfterVideoInsert(editSession, 1, 1, { linkEnabled: true })).toBe(false)
     expect(editSession.overlay_elements?.[0]?.start_sec).toBeCloseTo(1, 3)
   })
 
@@ -104,7 +104,7 @@ describe('shiftTimelineElementsAfterVideoInsert', () => {
     expect(before?.start_sec).toBeCloseTo(4, 3)
 
     editSession.sequence.splice(1, 0, block('x', 2))
-    shiftTimelineElementsAfterVideoInsert(editSession, 1, 1)
+    shiftTimelineElementsAfterVideoInsert(editSession, 1, 1, { linkEnabled: true })
     ensureTemplateCaptionOverlays(editSession)
 
     const after = editSession.overlay_elements?.find(
@@ -115,5 +115,36 @@ describe('shiftTimelineElementsAfterVideoInsert', () => {
     const segments = buildCompositionTimelineSegments(editSession.sequence, 24, 0.35)
     const bSegment = segments.find((segment) => segment.block.id === 'b')
     expect(after?.start_sec).toBeCloseTo(bSegment?.startSec ?? 0, 3)
+  })
+
+  it('does not shift when appending to end of main track', () => {
+    const editSession = session([block('a', 4), block('b', 3)])
+    editSession.overlay_elements![0]!.start_sec = 8
+    editSession.audio_elements = [
+      {
+        id: 'audio-1',
+        asset_id: 'asset-1',
+        start_sec: 9,
+        duration_sec: 4,
+      },
+    ]
+    editSession.sequence.push(block('c', 2))
+
+    expect(
+      shiftTimelineElementsAfterVideoInsert(editSession, 2, 1, { linkEnabled: true })
+    ).toBe(false)
+    expect(editSession.overlay_elements?.[0]?.start_sec).toBeCloseTo(8, 3)
+    expect(editSession.audio_elements?.[0]?.start_sec).toBeCloseTo(9, 3)
+  })
+
+  it('does not shift when fragment link is disabled', () => {
+    const editSession = session([block('a', 4), block('b', 3)])
+    editSession.overlay_elements![0]!.start_sec = 6
+    editSession.sequence.splice(1, 0, block('x', 2))
+
+    expect(shiftTimelineElementsAfterVideoInsert(editSession, 1, 1, { linkEnabled: false })).toBe(
+      false
+    )
+    expect(editSession.overlay_elements?.[0]?.start_sec).toBeCloseTo(6, 3)
   })
 })
