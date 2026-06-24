@@ -146,7 +146,7 @@
 | B2 | TTS 接入 | 复用 Edge TTS（`edit_sessions` `/tts`）；每段写入 `audio_assets` + `audio_elements`，`duration_sec` 真实 |
 | B3 | 时间轴布局 | 段 N 的 `timeline_start_sec = sum(前段 tts.duration)`；音频 clip 与（占位）视频 block **同起止** |
 | B4 | 词/句时间戳 | TTS 输出 **句级** 时间轴（最低）；若 provider 支持则 **词级** 写入 `word_timings` |
-| B5 | 字幕对齐 | Edge TTS **词级** `word_timings` → **编组引擎**（CPL/CPS/停顿/标点）→ 多条 display overlay |
+| B5 | 字幕对齐 | Edge TTS **句级** 边界 + 逗号/字数拆分 → 多条 display overlay |
 | B6 | 段状态机 | `script_confirmed → tts_done`；UI 展示每段进度（等待/进行中/完成/失败） |
 | B7 | Agent / API 暴露 | `POST .../voiceover/execute`（或等价）触发 B 阶段；Agent 仅调 orchestrator，不逐步拼 tool |
 | B8 | 占位画面 | 用户可为全局或每段指定占位 video（工程内 block 或素材库）；trim 到 **音频等长**（机械 trim 仅用于占位，不称为智能选段） |
@@ -427,7 +427,7 @@ python -m pytest backend/tests/test_voiceover_plan.py \
 
 ### 15.8 已知限制（验收时不算缺陷）
 
-- 里程碑 B 字幕：**词级 TTS 边界 + CPL/CPS 编组**（`voiceover_subtitle_regroup.py`）；`alignment=regrouped`。
+- 里程碑 B 字幕：**句级** TTS 边界 + 逗号/字数拆分（`refine_subtitle_cues`）；`alignment=sentence`。
 - B/C 依赖素材库与 yt-dlp 下载公开链接；**无需配置 Cookie**。失败常见原因为网络、平台限流或链接失效，可改用手动入库 + 素材库指定。
 - 语义选段耗时与 LLM/抽帧有关，长素材单段可能需 1–3 分钟。
 - Agent 对话 **尚未** 默认挂载口播 orchestrator tools；当前以 **口播 Tab 专用 UI** 为验收入口。

@@ -24,10 +24,7 @@ from backend.schemas.voiceover_plan import (
 )
 from backend.services.edit_session_service import EditSessionService
 from backend.services.material_library_service import resolve_library_video_path
-from backend.services.voiceover_subtitle_builder import (
-    build_display_cues_from_speech,
-    build_voiceover_overlays,
-)
+from backend.services.voiceover_subtitle_builder import build_voiceover_overlays
 from backend.utils.edge_tts_service import SynthesizedSpeech, synthesize_with_timings
 
 logger = logging.getLogger(__name__)
@@ -188,9 +185,8 @@ class VoiceoverOrchestrator:
             session, saved_block_id, fallback=timeline_start
         )
 
-        display_cues = build_display_cues_from_speech(speech, session)
         overlays = build_voiceover_overlays(
-            display_cues,
+            speech.cues,
             session=session,
             block_id=saved_block_id,
             block_timeline_start_sec=block_timeline_start,
@@ -551,7 +547,7 @@ class VoiceoverOrchestrator:
             for item in speech.word_timings
         ]
         segment.subtitles.overlay_ids = overlay_ids
-        segment.subtitles.alignment = "regrouped"
+        segment.subtitles.alignment = "sentence"
         segment.broll.block_id = block_id
         segment.broll.library_asset_id = library_asset_id
         segment.broll.source_in_sec = 0.0
