@@ -9,7 +9,13 @@ from typing import List, Optional, Tuple
 
 from backend.core.llm_manager import get_llm_manager
 from backend.core.path_utils import get_project_directory
-from backend.schemas.edit_session import EditBlockTrim, EditSession, EditSessionUpdateRequest
+from backend.schemas.edit_session import (
+    EditBlock,
+    EditBlockTrim,
+    EditSession,
+    EditSessionUpdateRequest,
+    VideoTrackMeta,
+)
 from backend.schemas.voiceover_plan import (
     VoiceoverPlan,
     VoiceoverPlanStatus,
@@ -37,6 +43,8 @@ from backend.utils.video_processor import VideoProcessor
 logger = logging.getLogger(__name__)
 
 BROLL_BLOCK_TITLE_PREFIX = "口播素材-"
+DEFAULT_VIDEO_TRACK_ID = "default-video"
+VOICEOVER_BROLL_TRACK_ID = "voiceover-broll"
 
 
 class VoiceoverBrollService:
@@ -218,6 +226,16 @@ class VoiceoverBrollService:
             selection.source_out_sec,
             target_duration,
         )
+        session = self._sync_broll_block_audio_alignment(
+            project_id,
+            session_id,
+            plan,
+            segment,
+            block_id,
+            trim_in_sec=selection.source_in_sec,
+            trim_out_sec=selection.source_out_sec,
+            duration_sec=target_duration,
+        )
 
         segment.broll.library_asset_id = library_asset_id
         segment.broll.source_in_sec = selection.source_in_sec
@@ -242,19 +260,18 @@ class VoiceoverBrollService:
         *,
         target_duration_sec: float,
     ) -> Tuple[EditSession, str]:
-        self._ensure_broll_insert_order(plan, segment)
-
         video_path = resolve_library_video_path(library_asset_id)
         if video_path is None:
             raise ValueError(f"素材库视频不存在: {library_asset_id}")
 
-        insert_index = self._resolve_broll_insert_index(plan, segment)
+        timeline_start_sec = self._resolve_segment_timeline_start(plan, segment)
+
         session, block, _import_method = self.session_service.import_media_from_path(
             project_id,
             session_id,
             str(video_path.resolve()),
-            insert_index=insert_index,
-            title=f"口播素材-{segment.index}",
+            insert_index=None,
+            title=f"{BROLL_BLOCK_TITLE_PREFIX}{segment.index}",
         )
         source_duration = self.session_service.probe_imported_block_duration(
             project_id,
@@ -265,22 +282,16 @@ class VoiceoverBrollService:
             raise ValueError("素材视频时长探测失败")
 
         trim_out = min(source_duration, target_duration_sec)
-        updated_sequence = []
-        for item in session.sequence:
-            if item.id != block.id:
-                updated_sequence.append(item)
-                continue
-            data = item.model_dump()
-            data["trim"] = EditBlockTrim(in_sec=0.0, out_sec=trim_out).model_dump()
-            data["duration_sec"] = trim_out
-            from backend.schemas.edit_session import EditBlock
-
-            updated_sequence.append(EditBlock.model_validate(data))
-
-        session = self.session_service.update_session(
+        session = self._ensure_voiceover_broll_video_track(project_id, session_id, session)
+        session = self._update_broll_block_fields(
             project_id,
             session_id,
-            EditSessionUpdateRequest(sequence=updated_sequence),
+            block.id,
+            trim_in_sec=0.0,
+            trim_out_sec=trim_out,
+            duration_sec=trim_out,
+            track_id=VOICEOVER_BROLL_TRACK_ID,
+            timeline_start_sec=timeline_start_sec,
         )
         return session, block.id
 
@@ -420,25 +431,137 @@ class VoiceoverBrollService:
         trim_out_sec: float,
         timeline_duration_sec: float,
     ) -> EditSession:
+        return self._update_broll_block_fields(
+            project_id,
+            session_id,
+            block_id,
+            trim_in_sec=trim_in_sec,
+            trim_out_sec=trim_out_sec,
+            duration_sec=timeline_duration_sec,
+        )
+
+    def _update_broll_block_fields(
+        self,
+        project_id: str,
+        session_id: str,
+        block_id: str,
+        *,
+        trim_in_sec: float,
+        trim_out_sec: float,
+        duration_sec: float,
+        track_id: Optional[str] = None,
+        timeline_start_sec: Optional[float] = None,
+    ) -> EditSession:
         session = self.session_service.get_session(project_id, session_id)
-        updated_blocks = []
+        updated_blocks: List[EditBlock] = []
+        found = False
         for item in session.sequence:
             if item.id != block_id:
                 updated_blocks.append(item)
                 continue
+            found = True
             data = item.model_dump()
             data["trim"] = EditBlockTrim(
                 in_sec=trim_in_sec,
                 out_sec=trim_out_sec,
             ).model_dump()
-            data["duration_sec"] = timeline_duration_sec
-            from backend.schemas.edit_session import EditBlock
-
+            data["duration_sec"] = duration_sec
+            if track_id is not None:
+                data["track_id"] = track_id
+            if timeline_start_sec is not None:
+                data["timeline_start_sec"] = round(float(timeline_start_sec), 3)
             updated_blocks.append(EditBlock.model_validate(data))
+        if not found:
+            raise ValueError(f"视频 block 不存在: {block_id}")
         return self.session_service.update_session(
             project_id,
             session_id,
             EditSessionUpdateRequest(sequence=updated_blocks),
+        )
+
+    def _ensure_voiceover_broll_video_track(
+        self,
+        project_id: str,
+        session_id: str,
+        session: EditSession,
+    ) -> EditSession:
+        tracks = list(session.video_tracks or [])
+        changed = False
+        if not any(item.id == DEFAULT_VIDEO_TRACK_ID for item in tracks):
+            tracks.insert(0, VideoTrackMeta(id=DEFAULT_VIDEO_TRACK_ID, name="Video", order=0))
+            changed = True
+        if not any(item.id == VOICEOVER_BROLL_TRACK_ID for item in tracks):
+            next_order = max((item.order for item in tracks), default=-1) + 1
+            tracks.append(
+                VideoTrackMeta(
+                    id=VOICEOVER_BROLL_TRACK_ID,
+                    name="口播画面",
+                    order=next_order,
+                )
+            )
+            changed = True
+        if not changed:
+            return session
+        tracks = [
+            item.model_copy(update={"order": index})
+            for index, item in enumerate(sorted(tracks, key=lambda row: row.order))
+        ]
+        return self.session_service.update_session(
+            project_id,
+            session_id,
+            EditSessionUpdateRequest(video_tracks=tracks),
+        )
+
+    @staticmethod
+    def _resolve_segment_timeline_start(
+        plan: VoiceoverPlan,
+        segment: VoiceoverSegment,
+    ) -> float:
+        if segment.tts.timeline_start_sec is not None and segment.tts.timeline_start_sec >= 0:
+            return float(segment.tts.timeline_start_sec)
+        cursor = 0.0
+        for item in sorted(plan.segments, key=lambda row: row.index):
+            if item.id == segment.id:
+                break
+            if item.status in (
+                VoiceoverSegmentStatus.TTS_DONE,
+                VoiceoverSegmentStatus.BROLL_DONE,
+            ) and item.tts.duration_sec:
+                cursor += float(item.tts.duration_sec)
+        return cursor
+
+    def _sync_broll_block_audio_alignment(
+        self,
+        project_id: str,
+        session_id: str,
+        plan: VoiceoverPlan,
+        segment: VoiceoverSegment,
+        block_id: str,
+        *,
+        trim_in_sec: float,
+        trim_out_sec: float,
+        duration_sec: float,
+    ) -> EditSession:
+        session = self.session_service.get_session(project_id, session_id)
+        block = next((item for item in session.sequence if item.id == block_id), None)
+        if block is None:
+            raise ValueError(f"视频 block 不存在: {block_id}")
+        uses_audio_timeline = (
+            block.track_id == VOICEOVER_BROLL_TRACK_ID or block.timeline_start_sec is not None
+        )
+        if not uses_audio_timeline:
+            return session
+        timeline_start_sec = self._resolve_segment_timeline_start(plan, segment)
+        session = self._ensure_voiceover_broll_video_track(project_id, session_id, session)
+        return self._update_broll_block_fields(
+            project_id,
+            session_id,
+            block_id,
+            trim_in_sec=trim_in_sec,
+            trim_out_sec=trim_out_sec,
+            duration_sec=duration_sec,
+            track_id=VOICEOVER_BROLL_TRACK_ID,
+            timeline_start_sec=timeline_start_sec,
         )
 
     def _resolve_library_asset_id(
@@ -572,14 +695,6 @@ class VoiceoverBrollService:
             raise ValueError("请先完成该段 TTS")
 
     @staticmethod
-    def _resolve_broll_insert_index(plan: VoiceoverPlan, segment: VoiceoverSegment) -> int:
-        return sum(
-            1
-            for item in plan.segments
-            if item.index < segment.index and item.broll.block_id
-        )
-
-    @staticmethod
     def _reconcile_broll_block_ids(
         session: EditSession,
         plan: VoiceoverPlan,
@@ -624,22 +739,6 @@ class VoiceoverBrollService:
         plan = plan.model_copy(deep=True)
         plan.segments = new_segments
         return plan, session, True
-
-    @staticmethod
-    def _ensure_broll_insert_order(plan: VoiceoverPlan, segment: VoiceoverSegment) -> None:
-        for item in sorted(plan.segments, key=lambda seg: seg.index):
-            if item.index >= segment.index:
-                break
-            if item.status == VoiceoverSegmentStatus.TTS_DONE and not item.broll.block_id:
-                if item.broll.selected:
-                    raise ValueError(
-                        f"第 {item.index} 段已选定素材但尚未应用到时间线，"
-                        f"请先对该段点击「下载并应用 B-roll」后再处理第 {segment.index} 段"
-                    )
-                raise ValueError(
-                    f"第 {item.index} 段尚无时间线视频 block（仅有 TTS/字幕）。"
-                    f"请对该段完成「下载并应用 B-roll」，或按段序从前往后应用"
-                )
 
     def _save_plan(self, project_id: str, session_id: str, plan: VoiceoverPlan) -> EditSession:
         return self.session_service.update_session(

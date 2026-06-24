@@ -10,6 +10,7 @@ from backend.schemas.edit_session import (
     EditBlockMedia,
     EditBlockOverlay,
     EditBlockTrim,
+    EditSessionUpdateRequest,
 )
 from backend.schemas.voiceover_plan import (
     VoiceoverBrollState,
@@ -20,6 +21,7 @@ from backend.schemas.voiceover_plan import (
     VoiceoverTtsState,
 )
 from backend.services.material_download_service import format_material_download_error
+from backend.services.edit_session_service import EditSessionService
 from backend.services.voiceover_broll_service import BROLL_BLOCK_TITLE_PREFIX, VoiceoverBrollService
 
 from backend.services.voiceover_broll_selection import (
@@ -272,7 +274,64 @@ def test_reconcile_broll_block_ids_from_timeline_titles():
     assert reconciled_plan.segments[0].broll.block_id == "block-seg-4"
 
 
-def test_ensure_broll_insert_order_distinguishes_selected_vs_missing():
+def test_resolve_segment_timeline_start_from_plan():
+    plan = VoiceoverPlan(
+        id="vo-plan",
+        segments=[
+            VoiceoverSegment(
+                id="seg-1",
+                index=1,
+                narration_text="一",
+                status=VoiceoverSegmentStatus.TTS_DONE,
+                tts=VoiceoverTtsState(duration_sec=4.0, timeline_start_sec=0.0),
+            ),
+            VoiceoverSegment(
+                id="seg-2",
+                index=2,
+                narration_text="二",
+                status=VoiceoverSegmentStatus.TTS_DONE,
+                tts=VoiceoverTtsState(duration_sec=3.5),
+            ),
+            VoiceoverSegment(
+                id="seg-5",
+                index=5,
+                narration_text="五",
+                status=VoiceoverSegmentStatus.TTS_DONE,
+                tts=VoiceoverTtsState(duration_sec=6.0, timeline_start_sec=18.0),
+            ),
+        ],
+    )
+    seg2 = plan.segments[1]
+    seg5 = plan.segments[2]
+    assert VoiceoverBrollService._resolve_segment_timeline_start(plan, seg5) == pytest.approx(18.0)
+    assert VoiceoverBrollService._resolve_segment_timeline_start(plan, seg2) == pytest.approx(4.0)
+
+
+def test_create_segment_video_block_sets_audio_aligned_timeline(monkeypatch, tmp_path):
+    from backend.services.voiceover_broll_service import VOICEOVER_BROLL_TRACK_ID
+
+    project_id = "proj_vo_align"
+    project_dir = tmp_path / "data" / "projects" / project_id
+    project_dir.mkdir(parents=True)
+    (project_dir / "edit_sessions").mkdir()
+    library_video = tmp_path / "broll.mp4"
+    library_video.write_bytes(b"fake-video")
+
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.resolve_library_video_path",
+        lambda asset_id: library_video if asset_id == "lib-broll" else None,
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.VideoProcessor.probe_video_duration_sec",
+        lambda _path: 30.0,
+    )
+
+    session_service = EditSessionService(db=None)
+    created = session_service.create_blank_session(project_id, name="align test")
     plan = VoiceoverPlan(
         id="vo-plan",
         segments=[
@@ -281,20 +340,34 @@ def test_ensure_broll_insert_order_distinguishes_selected_vs_missing():
                 index=4,
                 narration_text="第四段",
                 status=VoiceoverSegmentStatus.TTS_DONE,
-                tts=VoiceoverTtsState(duration_sec=6.0),
-                broll=VoiceoverBrollState(
-                    selected=VoiceoverSearchResult(title="已选素材", url="http://x")
-                ),
+                tts=VoiceoverTtsState(duration_sec=5.0, timeline_start_sec=12.0),
             ),
             VoiceoverSegment(
                 id="seg-5",
                 index=5,
                 narration_text="第五段",
                 status=VoiceoverSegmentStatus.TTS_DONE,
-                tts=VoiceoverTtsState(duration_sec=5.0),
+                tts=VoiceoverTtsState(duration_sec=6.0, timeline_start_sec=17.0),
             ),
         ],
     )
+    session_service.update_session(
+        project_id,
+        created.id,
+        EditSessionUpdateRequest(voiceover_plan=plan),
+    )
+
+    vo_service = VoiceoverBrollService(session_service=session_service)
     seg5 = plan.segments[1]
-    with pytest.raises(ValueError, match="已选定素材但尚未应用到时间线"):
-        VoiceoverBrollService._ensure_broll_insert_order(plan, seg5)
+    session, block_id = vo_service._create_segment_video_block(
+        project_id,
+        created.id,
+        plan,
+        seg5,
+        "lib-broll",
+        target_duration_sec=6.0,
+    )
+    block = next(item for item in session.sequence if item.id == block_id)
+    assert block.track_id == VOICEOVER_BROLL_TRACK_ID
+    assert block.timeline_start_sec == pytest.approx(17.0)
+    assert any(track.id == VOICEOVER_BROLL_TRACK_ID for track in (session.video_tracks or []))
