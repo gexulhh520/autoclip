@@ -180,6 +180,7 @@ export interface EditSession {
   bookmarks?: TimelineBookmark[]
   export_settings: EditExportSettings
   audio_settings: EditSessionAudioSettings
+  voiceover_plan?: import('./voiceoverPlan').VoiceoverPlan | null
   project_v3?: EditProjectV3 | null
   created_at: string
   updated_at: string

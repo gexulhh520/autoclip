@@ -11,7 +11,7 @@ import {
 } from '../../../editor/agent/applyMomentExport'
 import { formatToolCallSummary, isDangerousAgentTool } from '../../../editor/agent/toolRegistry'
 import { editorAgentApi } from '../../../services/editorAgentApi'
-import AgentChatBubbleContent from './AgentChatBubbleContent'
+import VoiceoverPlanPanel from './VoiceoverPlanPanel'
 import type {
   AgentChatTurn,
   AgentDebugTrace,
@@ -604,7 +604,22 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
         >
           参考图排版
         </button>
+        <button
+          type="button"
+          className={mode === 'voiceover' ? 'is-active' : ''}
+          onClick={() => setMode('voiceover')}
+        >
+          口播
+        </button>
       </div>
+
+      {mode === 'voiceover' ? (
+        <VoiceoverPlanPanel
+          projectId={projectId}
+          sessionId={sessionId}
+          onError={setError}
+        />
+      ) : null}
 
       {mode === 'assistant' ? (
         <div className="editor-agent-panel__assistant">

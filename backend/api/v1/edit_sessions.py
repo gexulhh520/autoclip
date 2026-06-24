@@ -9,7 +9,7 @@ from pathlib import Path
 from collections.abc import Callable
 from typing import TypeVar
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from starlette.concurrency import iterate_in_threadpool
 from sqlalchemy.orm import Session
@@ -65,8 +65,16 @@ from backend.schemas.editor_agent import (
     AgentChatResponse,
 )
 from backend.core.path_utils import get_project_directory
+from backend.schemas.voiceover_plan import (
+    VoiceoverGenerateRequest,
+    VoiceoverGenerateResponse,
+    VoiceoverPlanResponse,
+    VoiceoverRegenerateSegmentRequest,
+    VoiceoverUpdatePlanRequest,
+)
 from backend.services.edit_session_service import EditSessionService, _edit_sessions_dir
 from backend.services.editor_agent_service import EditorAgentService
+from backend.services.voiceover_plan_service import VoiceoverPlanService
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +83,10 @@ router = APIRouter()
 
 def get_edit_session_service(db: Session = Depends(get_db)) -> EditSessionService:
     return EditSessionService(db=db)
+
+
+def get_voiceover_plan_service(db: Session = Depends(get_db)) -> VoiceoverPlanService:
+    return VoiceoverPlanService(session_service=EditSessionService(db=db))
 
 
 @router.get("/{project_id}/edit-sessions", response_model=EditSessionListResponse)
@@ -1453,3 +1465,199 @@ async def agent_edit_session_chat(
     except Exception as exc:
         logger.exception("Agent 对话失败: %s/%s", project_id, session_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get(
+    "/{project_id}/edit-sessions/{session_id}/voiceover/plan",
+    response_model=VoiceoverPlanResponse,
+)
+async def get_voiceover_plan(
+    project_id: str,
+    session_id: str,
+    service: VoiceoverPlanService = Depends(get_voiceover_plan_service),
+):
+    try:
+        session, plan = service.get_plan(project_id, session_id)
+        return VoiceoverPlanResponse(session=session, plan=plan)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/voiceover/generate",
+    response_model=VoiceoverGenerateResponse,
+)
+async def generate_voiceover_plan_endpoint(
+    project_id: str,
+    session_id: str,
+    body: VoiceoverGenerateRequest,
+    service: VoiceoverPlanService = Depends(get_voiceover_plan_service),
+):
+    try:
+        session, plan, note = await asyncio.to_thread(
+            service.generate_plan,
+            project_id,
+            session_id,
+            body,
+        )
+        return VoiceoverGenerateResponse(session=session, plan=plan, note=note)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("口播脚本生成失败: %s/%s", project_id, session_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.put(
+    "/{project_id}/edit-sessions/{session_id}/voiceover/plan",
+    response_model=VoiceoverPlanResponse,
+)
+async def update_voiceover_plan(
+    project_id: str,
+    session_id: str,
+    body: VoiceoverUpdatePlanRequest,
+    service: VoiceoverPlanService = Depends(get_voiceover_plan_service),
+):
+    try:
+        session = await asyncio.to_thread(
+            service.update_plan,
+            project_id,
+            session_id,
+            body,
+        )
+        return VoiceoverPlanResponse(session=session, plan=session.voiceover_plan)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/voiceover/confirm",
+    response_model=VoiceoverPlanResponse,
+)
+async def confirm_voiceover_plan(
+    project_id: str,
+    session_id: str,
+    service: VoiceoverPlanService = Depends(get_voiceover_plan_service),
+):
+    try:
+        session = await asyncio.to_thread(service.confirm_plan, project_id, session_id)
+        return VoiceoverPlanResponse(session=session, plan=session.voiceover_plan)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/voiceover/reset-draft",
+    response_model=VoiceoverPlanResponse,
+)
+async def reset_voiceover_plan_draft(
+    project_id: str,
+    session_id: str,
+    service: VoiceoverPlanService = Depends(get_voiceover_plan_service),
+):
+    try:
+        session = await asyncio.to_thread(service.reset_plan_to_draft, project_id, session_id)
+        return VoiceoverPlanResponse(session=session, plan=session.voiceover_plan)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete(
+    "/{project_id}/edit-sessions/{session_id}/voiceover/plan",
+    response_model=VoiceoverPlanResponse,
+)
+async def delete_voiceover_plan(
+    project_id: str,
+    session_id: str,
+    service: VoiceoverPlanService = Depends(get_voiceover_plan_service),
+):
+    try:
+        session = await asyncio.to_thread(service.delete_plan, project_id, session_id)
+        return VoiceoverPlanResponse(session=session, plan=None)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/voiceover/regenerate-segment",
+    response_model=VoiceoverPlanResponse,
+)
+async def regenerate_voiceover_segment_endpoint(
+    project_id: str,
+    session_id: str,
+    body: VoiceoverRegenerateSegmentRequest,
+    service: VoiceoverPlanService = Depends(get_voiceover_plan_service),
+):
+    try:
+        session = await asyncio.to_thread(
+            service.regenerate_segment,
+            project_id,
+            session_id,
+            body,
+        )
+        return VoiceoverPlanResponse(session=session, plan=session.voiceover_plan)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("口播分段重写失败: %s/%s", project_id, session_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/voiceover/segments",
+    response_model=VoiceoverPlanResponse,
+)
+async def add_voiceover_segment(
+    project_id: str,
+    session_id: str,
+    after_segment_id: str | None = Query(default=None),
+    service: VoiceoverPlanService = Depends(get_voiceover_plan_service),
+):
+    try:
+        session = await asyncio.to_thread(
+            service.add_segment,
+            project_id,
+            session_id,
+            after_segment_id=after_segment_id,
+        )
+        return VoiceoverPlanResponse(session=session, plan=session.voiceover_plan)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete(
+    "/{project_id}/edit-sessions/{session_id}/voiceover/segments/{segment_id}",
+    response_model=VoiceoverPlanResponse,
+)
+async def remove_voiceover_segment(
+    project_id: str,
+    session_id: str,
+    segment_id: str,
+    service: VoiceoverPlanService = Depends(get_voiceover_plan_service),
+):
+    try:
+        session = await asyncio.to_thread(
+            service.remove_segment,
+            project_id,
+            session_id,
+            segment_id,
+        )
+        return VoiceoverPlanResponse(session=session, plan=session.voiceover_plan)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

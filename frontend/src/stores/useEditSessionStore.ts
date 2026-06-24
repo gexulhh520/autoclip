@@ -608,6 +608,7 @@ interface EditSessionState {
   canUndo: () => boolean
   canRedo: () => boolean
   markDirty: () => void
+  syncSessionFromApi: (session: EditSession) => void
   executeAgentToolCalls: (
     calls: Array<{ name: string; arguments: Record<string, unknown> }>,
     options?: { projectId?: string }
@@ -3402,6 +3403,12 @@ export const useEditSessionStore = create<EditSessionState>()(
       canUndo: () => get().historyPast.length > 0,
       canRedo: () => get().historyFuture.length > 0,
       markDirty: () => set({ dirty: true }),
+      syncSessionFromApi: (session) => {
+        set((state) => {
+          state.session = cloneSessionFromApi(session)
+          state.dirty = false
+        })
+      },
 
       executeAgentToolCalls: async (calls, options) => {
         const writeCalls = calls.filter((call) => !isReadOnlyAgentTool(call.name))

@@ -5,6 +5,8 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
+from backend.schemas.voiceover_plan import VoiceoverPlan
+
 
 class EditBlockMedia(BaseModel):
     type: Literal["step6_clip", "source_range", "imported_clip"] = "step6_clip"
@@ -321,6 +323,7 @@ class EditSession(BaseModel):
     bookmarks: List[TimelineBookmark] = Field(default_factory=list)
     export_settings: EditExportSettings = Field(default_factory=EditExportSettings)
     audio_settings: EditSessionAudioSettings = Field(default_factory=EditSessionAudioSettings)
+    voiceover_plan: Optional[VoiceoverPlan] = None
     project_v3: Optional[EditProjectV3Payload] = None
     created_at: str
     updated_at: str
@@ -391,6 +394,7 @@ class EditSessionUpdateRequest(BaseModel):
     audio_settings: Optional[EditSessionAudioSettings] = None
     schema_version: Optional[int] = None
     project_v3: Optional[EditProjectV3Payload] = None
+    voiceover_plan: Optional[VoiceoverPlan] = None
 
 
 class EditSessionListResponse(BaseModel):

@@ -633,6 +633,11 @@ class EditSessionService:
         if payload.project_v3 is not None:
             data["project_v3"] = payload.project_v3.model_dump()
             data["schema_version"] = max(int(data.get("schema_version") or 1), 3)
+        if "voiceover_plan" in payload.model_fields_set:
+            if payload.voiceover_plan is None:
+                data["voiceover_plan"] = None
+            else:
+                data["voiceover_plan"] = payload.voiceover_plan.model_dump(mode="json")
         data["updated_at"] = _utc_now_iso()
         updated = EditSession.model_validate(data)
         self._save_session(get_project_directory(project_id), updated)

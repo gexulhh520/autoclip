@@ -280,3 +280,18 @@
 | 日期 | 说明 |
 |------|------|
 | 2026-06-24 | 初版：三里程碑完整切片规划；明确「无简化缺口」原则 |
+| 2026-06-24 | **里程碑 A 实现中**：schema、`voiceover_plan` 持久化、API、Agent「口播」面板与分段编辑器 |
+
+## 12. 里程碑 A 实现清单（代码）
+
+| 项 | 路径 |
+|----|------|
+| 数据模型 | `backend/schemas/voiceover_plan.py` |
+| Session 字段 | `EditSession.voiceover_plan` |
+| LLM 脚本生成 | `backend/services/voiceover_script_generator.py` |
+| 业务逻辑 | `backend/services/voiceover_plan_service.py` |
+| REST API | `POST/GET/PUT/DELETE .../voiceover/*` in `backend/api/v1/edit_sessions.py` |
+| 前端类型 | `frontend/src/types/voiceoverPlan.ts` |
+| API 客户端 | `frontend/src/services/voiceoverApi.ts` |
+| UI | `frontend/src/components/editor/agent/VoiceoverPlanPanel.tsx`（Agent 面板「口播」Tab） |
+| 测试 | `backend/tests/test_voiceover_plan.py` |
