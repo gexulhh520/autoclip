@@ -48,6 +48,7 @@ def test_get_compositor_plan_and_headless_job(tmp_path, monkeypatch):
 
     service = EditSessionService(db=None)
     session = service.create_session(project_id, ["1"])
+    session, _ = service.append_blocks(project_id, session.id, ["1"])
 
     from backend.pipeline.scene_builder import compile_export_plan, serialize_export_plan
 

@@ -234,6 +234,10 @@ export interface EditSessionAppendResponse {
   added_count: number
 }
 
+export interface EditSessionImportClipsToPoolResponse {
+  added_count: number
+}
+
 export interface EditSessionImportMediaResponse {
   session: EditSession
   block_id: string

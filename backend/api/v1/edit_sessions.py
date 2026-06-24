@@ -21,6 +21,7 @@ from backend.schemas.edit_session import (
     EditSessionBlankCreateResponse,
     EditSessionAppendRequest,
     EditSessionAppendResponse,
+    EditSessionImportClipsToPoolResponse,
     EditSessionBatchExportRequest,
     EditSessionBatchExportResponse,
     EditSessionBatchExportItem,
@@ -169,6 +170,34 @@ async def append_edit_session_clips(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("追加剪辑片段失败: %s/%s", project_id, session_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/import-clips-to-pool",
+    response_model=EditSessionImportClipsToPoolResponse,
+)
+async def import_edit_session_clips_to_pool(
+    project_id: str,
+    session_id: str,
+    body: EditSessionAppendRequest,
+    service: EditSessionService = Depends(get_edit_session_service),
+):
+    try:
+        added = await asyncio.to_thread(
+            service.import_clips_to_pool,
+            project_id,
+            session_id,
+            body.clip_ids,
+            source_id=body.source_id,
+        )
+        return EditSessionImportClipsToPoolResponse(added_count=added)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("导入切片到素材池失败: %s/%s", project_id, session_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

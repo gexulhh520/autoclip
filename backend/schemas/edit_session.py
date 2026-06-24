@@ -343,6 +343,10 @@ class EditSessionAppendResponse(BaseModel):
     added_count: int
 
 
+class EditSessionImportClipsToPoolResponse(BaseModel):
+    added_count: int
+
+
 class EditSessionImportMediaResponse(BaseModel):
     session: EditSession
     block_id: str

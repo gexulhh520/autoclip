@@ -88,14 +88,14 @@ const EditSessionsPanel: React.FC<EditSessionsPanelProps> = ({
     }
     setAppendingTo(sessionId)
     try {
-      const result = await editApi.appendClips(projectId, sessionId, {
+      const result = await editApi.importClipsToPool(projectId, sessionId, {
         clip_ids: selectedClipIds,
         source_id: selectedSourceId,
       })
       if (result.added_count === 0) {
-        message.info('所选片段已在工程中，未追加新内容')
+        message.info('所选片段已在草稿素材池中')
       } else {
-        message.success(`已追加 ${result.added_count} 个片段`)
+        message.success(`已导入 ${result.added_count} 个片段到草稿素材池`)
         onClearSelection?.()
       }
       await loadSessions()
@@ -170,7 +170,7 @@ const EditSessionsPanel: React.FC<EditSessionsPanelProps> = ({
               </Button>
               {sessions.length > 0 ? (
                 <Select
-                  placeholder="追加到已有工程"
+                  placeholder="导入到已有工程"
                   style={{ minWidth: 200 }}
                   value={appendTarget}
                   onChange={setAppendTarget}
@@ -186,7 +186,7 @@ const EditSessionsPanel: React.FC<EditSessionsPanelProps> = ({
                   loading={appendingTo === appendTarget}
                   onClick={() => void handleAppend(appendTarget)}
                 >
-                  追加片段
+                  导入片段
                 </Button>
               ) : null}
             </>

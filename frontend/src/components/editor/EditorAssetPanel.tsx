@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { message, Modal } from 'antd'
 import { PlusOutlined, StarFilled, StarOutlined, DeleteOutlined } from '@ant-design/icons'
-import { projectApi } from '../../services/api'
 import { blockDuration, useEditSessionStore } from '../../stores/useEditSessionStore'
 import { getBlockVideoUrl } from '../../utils/editBlockMedia'
 import { FIT_MODE_OPTIONS } from '../../utils/editExportPresets'
@@ -27,12 +26,6 @@ import { formatVideoImportSuccessMessage } from '../../utils/videoImportMessage'
 import GlobalLibraryAssetsSection from './GlobalLibraryAssetsSection'
 
 const VIDEO_IMPORT_EXTENSIONS = ['mp4', 'mov', 'mkv', 'webm', 'm4v', 'avi']
-
-interface ProjectClip {
-  id: string
-  title?: string
-  generated_title?: string
-}
 
 interface SessionPoolClip {
   id: string
@@ -68,7 +61,6 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
   const assetPreviewClip = useEditSessionStore((state) => state.assetPreviewClip)
   const setAssetPreviewClip = useEditSessionStore((state) => state.setAssetPreviewClip)
 
-  const [projectClips, setProjectClips] = useState<ProjectClip[]>([])
   const [sessionPoolClips, setSessionPoolClips] = useState<SessionPoolClip[]>([])
   const [loadingClips, setLoadingClips] = useState(false)
   const [promotingClipId, setPromotingClipId] = useState<string | null>(null)
@@ -85,44 +77,33 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
 
   useEffect(() => {
     let cancelled = false
-    setLoadingClips(true)
-    const loaders: Promise<void>[] = [
-      projectApi
-        .getClips(projectId)
-        .then((clips) => {
-          if (!cancelled) setProjectClips(Array.isArray(clips) ? clips : [])
-        })
-        .catch(() => {
-          if (!cancelled) setProjectClips([])
-        }),
-    ]
-    if (sessionId) {
-      loaders.push(
-        editApi
-          .listSessionPoolClips(projectId, sessionId)
-          .then((response) => {
-            if (cancelled) return
-            const items = Array.isArray(response.items) ? response.items : []
-            setSessionPoolClips(
-              items.map((item) => ({
-                id: String(item.id ?? ''),
-                title: String(item.generated_title || item.outline || item.id || ''),
-                generated_title: String(item.generated_title || item.outline || ''),
-                in_library: Boolean(item.in_library),
-                library_asset_id: item.library_asset_id as string | null | undefined,
-              }))
-            )
-          })
-          .catch(() => {
-            if (!cancelled) setSessionPoolClips([])
-          })
-      )
-    } else if (!cancelled) {
+    if (!sessionId) {
       setSessionPoolClips([])
+      setLoadingClips(false)
+      return
     }
-    void Promise.all(loaders).finally(() => {
-      if (!cancelled) setLoadingClips(false)
-    })
+    setLoadingClips(true)
+    editApi
+      .listSessionPoolClips(projectId, sessionId)
+      .then((response) => {
+        if (cancelled) return
+        const items = Array.isArray(response.items) ? response.items : []
+        setSessionPoolClips(
+          items.map((item) => ({
+            id: String(item.id ?? ''),
+            title: String(item.generated_title || item.outline || item.id || ''),
+            generated_title: String(item.generated_title || item.outline || ''),
+            in_library: Boolean(item.in_library),
+            library_asset_id: item.library_asset_id as string | null | undefined,
+          }))
+        )
+      })
+      .catch(() => {
+        if (!cancelled) setSessionPoolClips([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingClips(false)
+      })
     return () => {
       cancelled = true
     }
@@ -169,7 +150,7 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
     }
   }
 
-  const confirmDeleteClip = (clip: ProjectClip | SessionPoolClip, onDelete: () => Promise<void>) => {
+  const confirmDeleteClip = (clip: SessionPoolClip, onDelete: () => Promise<void>) => {
     const title = clip.generated_title || clip.title || clip.id
     const onTimeline = addedClipIds.has(clip.id)
     Modal.confirm({
@@ -209,18 +190,8 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
     })
   }
 
-  const handleDeleteProjectClip = (clipId: string, event?: React.MouseEvent) => {
-    event?.stopPropagation()
-    const clip = projectClips.find((item) => item.id === clipId)
-    if (!clip) return
-    confirmDeleteClip(clip, async () => {
-      await projectApi.deleteClip(clipId)
-      setProjectClips((prev) => prev.filter((item) => item.id !== clipId))
-    })
-  }
-
   const renderClipCard = (
-    clip: ProjectClip | SessionPoolClip,
+    clip: SessionPoolClip,
     options: {
       videoUrl: string
       showPromote?: boolean
@@ -431,7 +402,7 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
         <div className="editor-empty-hint">加载素材…</div>
       ) : sessionPoolClips.length === 0 ? (
         <div className="editor-empty-hint">
-          Agent 检索导出会写入<strong>本草稿素材池</strong>。可点 ★ 收藏、删除按钮移除不需要的片段。
+          流水线切片、Agent 检索导出会写入<strong>本草稿 AI 素材</strong>。可点 ★ 收藏、删除按钮移除不需要的片段；点 + 添加到时间线。
         </div>
       ) : (
         <div className="editor-media-grid">
@@ -440,26 +411,6 @@ const EditorAssetPanel: React.FC<{ projectId: string }> = ({ projectId }) => {
               videoUrl: editApi.getSessionPoolClipVideoUrl(projectId, sessionId, clip.id),
               showPromote: true,
               onDelete: handleDeleteSessionPoolClip,
-            })
-          )}
-        </div>
-      )}
-
-      <div className="editor-inspector-label" style={{ marginTop: 16 }}>
-        项目 AI 切片
-      </div>
-      {loadingClips ? (
-        <div className="editor-empty-hint">加载切片…</div>
-      ) : projectClips.length === 0 ? (
-        <div className="editor-empty-hint">
-          暂无流水线切片。「导入」会把视频<strong>直接加入时间线</strong>。
-        </div>
-      ) : (
-        <div className="editor-media-grid">
-          {projectClips.map((clip) =>
-            renderClipCard(clip, {
-              videoUrl: projectApi.getClipVideoUrl(projectId, clip.id, clip.title || clip.generated_title),
-              onDelete: handleDeleteProjectClip,
             })
           )}
         </div>

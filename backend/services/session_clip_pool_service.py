@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 POOL_SCOPE = "session"
 POOL_SOURCE = "moment_search"
+POOL_SOURCE_PIPELINE = "pipeline"
 
 
 def session_pool_dir(project_dir: Path, session_id: str) -> Path:

@@ -56,6 +56,7 @@ def test_regenerate_block_content_updates_session(tmp_path, monkeypatch):
 
     service = EditSessionService(db=None)
     session = service.create_session(project_id, ["1"])
+    session, _ = service.append_blocks(project_id, session.id, ["1"])
     block_id = session.sequence[0].id
     updated = service.regenerate_block_content(project_id, session.id, block_id, mode="both")
     block = updated.sequence[0]
@@ -75,6 +76,7 @@ def test_regenerate_requires_source_timecodes(tmp_path, monkeypatch):
 
     service = EditSessionService(db=None)
     session = service.create_session(project_id, ["1"])
+    session, _ = service.append_blocks(project_id, session.id, ["1"])
     block = session.sequence[0]
     block.media.source_start_sec = None
     block.media.source_end_sec = None

@@ -18,6 +18,8 @@ from backend.core.path_utils import get_project_directory
 from backend.services.session_clip_pool_service import (
     POOL_SCOPE,
     POOL_SOURCE,
+    POOL_SOURCE_PIPELINE,
+    append_session_pool_clip,
     delete_session_pool_assets,
     list_session_pool_clips,
     session_pool_dir,
@@ -205,7 +207,7 @@ def _build_block_from_metadata(
     source_video = _find_source_video(project_dir)
     is_session_pool = (
         clip_row.get("scope") == POOL_SCOPE
-        or clip_row.get("source") == POOL_SOURCE
+        or clip_row.get("source") in (POOL_SOURCE, POOL_SOURCE_PIPELINE)
         or ("/pool/" in rel_video.replace("\\", "/") and "edit_sessions/" in rel_video)
     )
     source_start_sec = _srt_timestamp_to_seconds(clip_row.get("start_time"))
@@ -266,6 +268,41 @@ def _build_block_from_metadata(
         ),
         duration_sec=duration_sec,
     )
+
+
+def _build_session_pool_entry_from_clip_row(
+    project_dir: Path,
+    session_id: str,
+    clip_row: Dict[str, Any],
+    *,
+    db_clip_id: str,
+) -> Dict[str, Any]:
+    block = _build_block_from_metadata(project_dir, clip_row, db_clip_id=db_clip_id)
+    video_path = str(block.media.path or "").strip()
+    if not video_path:
+        raise ValueError(f"切片无可用视频: {db_clip_id}")
+
+    outline = clip_row.get("outline") or ""
+    if isinstance(outline, dict):
+        outline = str(outline.get("title") or outline.get("outline") or "")
+
+    content = _normalize_content_list(clip_row.get("content"))
+
+    return {
+        "id": db_clip_id,
+        "generated_title": block.title,
+        "outline": str(outline or block.title),
+        "content": content or block.overlay.content,
+        "recommend_reason": str(clip_row.get("recommend_reason") or ""),
+        "start_time": clip_row.get("start_time"),
+        "end_time": clip_row.get("end_time"),
+        "video_path": video_path,
+        "source": POOL_SOURCE_PIPELINE,
+        "scope": POOL_SCOPE,
+        "edit_session_id": session_id,
+        "in_library": False,
+        "library_asset_id": None,
+    }
 
 
 def _normalize_content_list(value: Any) -> List[str]:
@@ -461,43 +498,7 @@ class EditSessionService:
             raise ValueError("clip_ids 不能为空")
 
         project_dir = get_project_directory(project_id)
-        metadata_rows = _load_clip_metadata_rows(project_dir, source_id)
-        metadata_map = _load_clip_metadata_map(project_dir, source_id)
         template_ctx = _load_template_context(project_dir)
-
-        blocks: List[EditBlock] = []
-        if self.db is not None:
-            from backend.models.clip import Clip
-
-            clips = (
-                self.db.query(Clip)
-                .filter(Clip.project_id == project_id, Clip.id.in_(clip_ids))
-                .all()
-            )
-            clip_by_id = {str(clip.id): clip for clip in clips}
-            for clip_id in clip_ids:
-                clip = clip_by_id.get(str(clip_id))
-                if clip is None:
-                    raise ValueError(f"切片不存在: {clip_id}")
-                clip_row = _resolve_clip_metadata(clip, metadata_map, metadata_rows)
-                block = _build_block_from_metadata(project_dir, clip_row, db_clip_id=str(clip.id))
-                video_file = resolve_clip_video_path(project_id, clip, project_dir)
-                if video_file and video_file.exists():
-                    block.media.path = _relative_project_path(project_dir, video_file)
-                    block.media.type = "step6_clip"
-                blocks.append(block)
-        else:
-            for clip_id in clip_ids:
-                clip_row = metadata_map.get(str(clip_id))
-                if clip_row is None:
-                    raise ValueError(f"切片不存在: {clip_id}")
-                blocks.append(
-                    _build_block_from_metadata(project_dir, clip_row, db_clip_id=str(clip_id))
-                )
-
-        if not blocks:
-            raise ValueError("未能构建任何剪辑片段")
-
         now = _utc_now_iso()
         session = EditSession(
             id=str(uuid.uuid4()),
@@ -506,12 +507,94 @@ class EditSessionService:
             template_id=template_ctx.get("template_id"),
             template_version=template_ctx.get("template_version"),
             overlay_snapshot=template_ctx.get("overlay_snapshot") or {},
-            sequence=blocks,
+            sequence=[],
             created_at=now,
             updated_at=now,
         )
         self._save_session(project_dir, session)
+        self.import_clips_to_pool(
+            project_id,
+            session.id,
+            clip_ids,
+            source_id=source_id,
+        )
         return session
+
+    def import_clips_to_pool(
+        self,
+        project_id: str,
+        session_id: str,
+        clip_ids: List[str],
+        *,
+        source_id: Optional[str] = None,
+    ) -> int:
+        """将流水线切片写入本草稿 AI 素材池（不入时间线）。"""
+        if not clip_ids:
+            raise ValueError("clip_ids 不能为空")
+
+        self.get_session(project_id, session_id)
+        project_dir = get_project_directory(project_id)
+        metadata_rows = _load_clip_metadata_rows(project_dir, source_id)
+        metadata_map = _load_clip_metadata_map(project_dir, source_id)
+        existing_pool = session_pool_metadata_map(project_id, session_id)
+        pending_ids = [
+            clip_id for clip_id in clip_ids if str(clip_id) not in existing_pool
+        ]
+        if not pending_ids:
+            return 0
+
+        added = 0
+        if self.db is not None:
+            from backend.models.clip import Clip
+
+            clips = (
+                self.db.query(Clip)
+                .filter(Clip.project_id == project_id, Clip.id.in_(pending_ids))
+                .all()
+            )
+            clip_by_id = {str(clip.id): clip for clip in clips}
+            for clip_id in pending_ids:
+                clip = clip_by_id.get(str(clip_id))
+                if clip is not None:
+                    clip_row = _resolve_clip_metadata(clip, metadata_map, metadata_rows)
+                    video_file = resolve_clip_video_path(project_id, clip, project_dir)
+                    if video_file and video_file.exists():
+                        clip_row = {
+                            **clip_row,
+                            "video_path": _relative_project_path(project_dir, video_file),
+                        }
+                    entry = _build_session_pool_entry_from_clip_row(
+                        project_dir,
+                        session_id,
+                        clip_row,
+                        db_clip_id=str(clip.id),
+                    )
+                else:
+                    clip_row = metadata_map.get(str(clip_id))
+                    if clip_row is None:
+                        raise ValueError(f"切片不存在: {clip_id}")
+                    entry = _build_session_pool_entry_from_clip_row(
+                        project_dir,
+                        session_id,
+                        clip_row,
+                        db_clip_id=str(clip_id),
+                    )
+                append_session_pool_clip(project_id, session_id, entry)
+                added += 1
+        else:
+            for clip_id in pending_ids:
+                clip_row = metadata_map.get(str(clip_id))
+                if clip_row is None:
+                    raise ValueError(f"切片不存在: {clip_id}")
+                entry = _build_session_pool_entry_from_clip_row(
+                    project_dir,
+                    session_id,
+                    clip_row,
+                    db_clip_id=str(clip_id),
+                )
+                append_session_pool_clip(project_id, session_id, entry)
+                added += 1
+        return added
 
     def create_blank_session(
         self,

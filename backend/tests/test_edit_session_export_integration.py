@@ -135,6 +135,7 @@ def test_export_session_produces_playable_mp4(tmp_path, monkeypatch, ffmpeg_avai
 
     service = EditSessionService(db=None)
     session = service.create_session(project_id, ["1", "2"])
+    session, _ = service.append_blocks(project_id, session.id, ["1", "2"])
     assert len(session.sequence) == 2
     assert session.sequence[0].trim.out_sec > 0
 

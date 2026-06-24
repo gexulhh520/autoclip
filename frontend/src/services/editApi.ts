@@ -15,6 +15,7 @@ import type {
   EditSessionUpdateRequest,
   EditSessionAppendRequest,
   EditSessionAppendResponse,
+  EditSessionImportClipsToPoolResponse,
   EditSessionImportMediaResponse,
 } from '../types/editSession'
 import type {
@@ -123,6 +124,17 @@ export const editApi = {
       `/projects/${projectId}/edit-sessions/${sessionId}/append-clips`,
       payload
     )) as EditSessionAppendResponse
+  },
+
+  importClipsToPool: async (
+    projectId: string,
+    sessionId: string,
+    payload: EditSessionAppendRequest
+  ): Promise<EditSessionImportClipsToPoolResponse> => {
+    return (await api.post(
+      `/projects/${projectId}/edit-sessions/${sessionId}/import-clips-to-pool`,
+      payload
+    )) as EditSessionImportClipsToPoolResponse
   },
 
   exportMomentClips: async (

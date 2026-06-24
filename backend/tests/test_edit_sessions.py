@@ -6,6 +6,7 @@ import pytest
 
 from backend.pipeline.edit_renderer import preview_block_overlay
 from backend.services.edit_session_service import EditSessionService
+from backend.services.session_clip_pool_service import list_session_pool_clips
 
 
 def _write_project_clips(project_dir: Path) -> None:
@@ -61,6 +62,12 @@ def _write_project_clips(project_dir: Path) -> None:
     )
 
 
+def _session_with_timeline_clips(service: EditSessionService, project_id: str, clip_ids: list[str]):
+    session = service.create_session(project_id, clip_ids)
+    session, _ = service.append_blocks(project_id, session.id, clip_ids)
+    return session
+
+
 def test_create_edit_session_from_metadata(tmp_path, monkeypatch):
     project_id = "edit-session-test"
     project_dir = tmp_path / "projects" / project_id
@@ -75,14 +82,34 @@ def test_create_edit_session_from_metadata(tmp_path, monkeypatch):
     session = service.create_session(project_id, ["1", "2"])
 
     assert session.project_id == project_id
-    assert len(session.sequence) == 2
+    assert len(session.sequence) == 0
     assert session.template_id == "golden_quote_cinema"
     assert session.overlay_snapshot.get("composer") == "quote_cinema"
-    assert session.sequence[0].media.path.startswith("output/clips/")
-    assert session.sequence[0].overlay.content[0] == "天生我才必有用"
+    pool = list_session_pool_clips(project_id, session.id)
+    assert len(pool) == 2
+    assert pool[0]["video_path"].startswith("output/clips/")
+    assert pool[0]["content"][0] == "天生我才必有用"
+    assert pool[0]["source"] == "pipeline"
 
     saved = json.loads((project_dir / "edit_sessions" / f"{session.id}.json").read_text(encoding="utf-8"))
     assert saved["schema_version"] == 1
+
+
+def test_import_clips_to_pool_skips_duplicates(tmp_path, monkeypatch):
+    project_id = "edit-session-pool-import"
+    project_dir = tmp_path / "projects" / project_id
+    _write_project_clips(project_dir)
+
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+
+    service = EditSessionService(db=None)
+    session = service.create_session(project_id, ["1"])
+    assert service.import_clips_to_pool(project_id, session.id, ["1", "2"]) == 1
+    pool = list_session_pool_clips(project_id, session.id)
+    assert len(pool) == 2
 
 
 def test_resolve_clip_metadata_prefers_disk_overlay_with_original_id():
@@ -198,8 +225,9 @@ def test_create_edit_session_prefers_step4_overlay(tmp_path, monkeypatch):
     service = EditSessionService(db=_FakeDb())
     session = service.create_session(project_id, ["uuid-db-clip"])
 
-    assert session.sequence[0].overlay.content[0] == "真正的成长"
-    assert session.sequence[0].overlay.content[1] == "是学会与自己和解"
+    pool = list_session_pool_clips(project_id, session.id)
+    assert pool[0]["content"][0] == "真正的成长"
+    assert pool[0]["content"][1] == "是学会与自己和解"
 
 
 def test_resolve_clip_metadata_by_time_window():
@@ -241,7 +269,7 @@ def test_preview_block_overlay_from_session(tmp_path, monkeypatch):
     )
 
     service = EditSessionService(db=None)
-    session = service.create_session(project_id, ["1"])
+    session = _session_with_timeline_clips(service, project_id, ["1"])
     preview = preview_block_overlay(session, session.sequence[0].id)
     assert preview["layout"] == "cinema"
     assert preview["applicable"] is True
@@ -258,7 +286,7 @@ def test_update_edit_session_sequence(tmp_path, monkeypatch):
     )
 
     service = EditSessionService(db=None)
-    session = service.create_session(project_id, ["1", "2"])
+    session = _session_with_timeline_clips(service, project_id, ["1", "2"])
     sequence = list(reversed(session.sequence))
     from backend.schemas.edit_session import EditSessionUpdateRequest
 
@@ -282,7 +310,7 @@ def test_update_edit_session_persists_project_v3(tmp_path, monkeypatch):
     )
 
     service = EditSessionService(db=None)
-    session = service.create_session(project_id, ["1"])
+    session = _session_with_timeline_clips(service, project_id, ["1"])
     from backend.schemas.edit_session import EditProjectV3Payload, EditSessionUpdateRequest
 
     project_v3 = EditProjectV3Payload(
@@ -316,7 +344,7 @@ def test_update_edit_session_persists_audio_assets(tmp_path, monkeypatch):
     )
 
     service = EditSessionService(db=None)
-    session = service.create_session(project_id, ["1"])
+    session = _session_with_timeline_clips(service, project_id, ["1"])
     from backend.schemas.edit_session import AudioAssetMeta, EditSessionUpdateRequest
 
     asset = AudioAssetMeta(
@@ -349,7 +377,7 @@ def test_import_bgm_from_url_persists_asset(tmp_path, monkeypatch):
     )
 
     service = EditSessionService(db=None)
-    session = service.create_session(project_id, ["1"])
+    session = _session_with_timeline_clips(service, project_id, ["1"])
 
     def _fake_download(url: str, output_dir, platform_id=None):
         output_dir.mkdir(parents=True, exist_ok=True)
