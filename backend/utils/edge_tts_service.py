@@ -14,7 +14,7 @@ _TICKS_TO_SEC = 1 / 10_000_000
 _MAJOR_SPLIT_RE = re.compile(r"(?<=[。！？；.!?;])\s*")
 _COMMA_SPLIT_RE = re.compile(r"(?<=[，,、])\s*")
 # 竖屏口播字幕单行上限（不含空格）；超出则再按字数切分
-MAX_SUBTITLE_DISPLAY_CHARS = 14
+MAX_SUBTITLE_DISPLAY_CHARS = 18
 
 # 与 frontend/src/editor/tts/edgeTtsVoices.ts 保持同步
 EDGE_TTS_VOICE_ALIASES: dict[str, str] = {

@@ -6,7 +6,7 @@ import uuid
 from typing import List, Literal
 
 from backend.schemas.edit_session import EditOverlayElement, EditSession
-from backend.utils.edge_tts_service import SubtitleCueTiming
+from backend.utils.edge_tts_service import MAX_SUBTITLE_DISPLAY_CHARS, SubtitleCueTiming
 
 DEFAULT_TEXT_TRACK_ID = "default-text"
 TIMELINE_BLOCK_ID_PARAM = "timeline.blockId"
@@ -45,7 +45,7 @@ def _subtitle_font_size(text: str, session: EditSession) -> float:
     aspect = str(getattr(settings, "aspect", None) or "9:16")
     char_count = len(re.sub(r"\s+", "", text))
     base = 6.5 if aspect == "16:9" else 6.0
-    if char_count > 14:
+    if char_count > MAX_SUBTITLE_DISPLAY_CHARS:
         return max(5.0, base - 1.5)
     if char_count > 10:
         return max(5.0, base - 0.75)
