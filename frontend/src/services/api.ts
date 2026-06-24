@@ -116,6 +116,14 @@ api.interceptors.response.use(
       const message = error.response?.data?.detail || '系统正在处理其他项目，请稍后再试'
       error.userMessage = message
     }
+    else if (error.response?.status === 400) {
+      const detail = error.response?.data?.detail
+      if (typeof detail === 'string') {
+        error.userMessage = detail
+      } else if (Array.isArray(detail) && detail.length > 0) {
+        error.userMessage = detail.map((item: { msg?: string }) => item.msg).filter(Boolean).join('；') || '请求无效'
+      }
+    }
     else if (error.response?.status === 422) {
       const detail = error.response?.data?.detail
       if (typeof detail === 'string') {

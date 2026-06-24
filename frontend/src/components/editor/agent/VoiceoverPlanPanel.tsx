@@ -37,6 +37,34 @@ function textToQueries(text: string): string[] {
     .slice(0, 8)
 }
 
+function readApiErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object') {
+    const axiosErr = err as {
+      userMessage?: string
+      message?: string
+      response?: { data?: { detail?: unknown } }
+    }
+    if (axiosErr.userMessage?.trim()) {
+      return axiosErr.userMessage
+    }
+    const detail = axiosErr.response?.data?.detail
+    if (typeof detail === 'string' && detail.trim()) {
+      return detail
+    }
+    if (Array.isArray(detail) && detail.length > 0) {
+      const joined = detail
+        .map((item) => (item && typeof item === 'object' && 'msg' in item ? String(item.msg ?? '') : ''))
+        .filter(Boolean)
+        .join('；')
+      if (joined) return joined
+    }
+    if (axiosErr.message?.trim() && !axiosErr.message.includes('status code')) {
+      return axiosErr.message
+    }
+  }
+  return fallback
+}
+
 const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
   projectId,
   sessionId,
@@ -108,6 +136,23 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
   }, [canExecute, needsMaterialLibrary, projectId, sessionId])
 
   useEffect(() => {
+    let cancelled = false
+    void voiceoverApi
+      .getPlan(projectId, sessionId)
+      .then((response) => {
+        if (!cancelled && response.session) {
+          syncSessionFromApi(response.session)
+        }
+      })
+      .catch(() => {
+        // 尚无 plan 时 GET 可能为空，忽略
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [projectId, sessionId, syncSessionFromApi])
+
+  useEffect(() => {
     if (sessionPlan && !draftPlan) {
       setDraftPlan(null)
     }
@@ -127,8 +172,8 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
       onError('请先输入口播意图或原文')
       return
     }
-    if (sessionPlan && !replaceExisting) {
-      onError('已有口播计划：请勾选「重新生成（覆盖现有草稿）」，或直接在下方编辑后保存')
+    if (sessionPlan && sessionPlan.status !== 'draft' && !replaceExisting) {
+      onError('口播脚本已确认或执行中：请勾选「重新生成（覆盖现有草稿）」或先「改回草稿」')
       return
     }
     setLoading(true)
@@ -137,12 +182,15 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
       const response = await voiceoverApi.generate(projectId, sessionId, {
         user_brief: brief,
         voice_id: voiceId,
-        replace_existing: Boolean(sessionPlan && replaceExisting),
+        replace_existing: Boolean(replaceExisting),
       })
       applyResponse(response)
       setUserBrief(response.plan.user_brief)
+      if (response.note.includes('已有口播草稿')) {
+        onError('')
+      }
     } catch (err: unknown) {
-      onError(err instanceof Error ? err.message : '口播脚本生成失败')
+      onError(readApiErrorMessage(err, '口播脚本生成失败'))
     } finally {
       setLoading(false)
     }

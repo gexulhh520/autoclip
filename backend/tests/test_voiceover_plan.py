@@ -104,3 +104,54 @@ def test_voiceover_plan_service_confirm_requires_text(tmp_path, monkeypatch):
     assert updated.voiceover_plan is not None
     assert updated.voiceover_plan.status == VoiceoverPlanStatus.CONFIRMED
     assert updated.voiceover_plan.segments[0].status == VoiceoverSegmentStatus.SCRIPT_CONFIRMED
+
+
+def test_generate_plan_returns_existing_draft_without_replace(tmp_path, monkeypatch):
+    from backend.services.edit_session_service import EditSessionService
+    from backend.services.voiceover_plan_service import VoiceoverPlanService
+    from backend.schemas.voiceover_plan import VoiceoverGenerateRequest
+
+    project_id = "proj_vo_draft"
+    project_dir = tmp_path / "data" / "projects" / project_id
+    project_dir.mkdir(parents=True)
+    (project_dir / "edit_sessions").mkdir()
+
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+
+    session_service = EditSessionService(db=None)
+    created = session_service.create_blank_session(project_id, name="VO Draft")
+    vo_service = VoiceoverPlanService(session_service=session_service)
+
+    plan = VoiceoverPlan(
+        id="vo-plan-draft",
+        status=VoiceoverPlanStatus.DRAFT,
+        user_brief="已有草稿",
+        segments=[
+            VoiceoverSegment(
+                id="seg-1",
+                index=1,
+                narration_text="已有口播",
+                visual_brief="画面",
+                search_queries=["test"],
+            )
+        ],
+    )
+    from backend.schemas.edit_session import EditSessionUpdateRequest
+
+    session_service.update_session(
+        project_id,
+        created.id,
+        EditSessionUpdateRequest(voiceover_plan=plan),
+    )
+
+    session, returned, note = vo_service.generate_plan(
+        project_id,
+        created.id,
+        VoiceoverGenerateRequest(user_brief="新意图", replace_existing=False),
+    )
+    assert returned.id == "vo-plan-draft"
+    assert "已有口播草稿" in note
+    assert session.voiceover_plan is not None

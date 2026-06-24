@@ -73,7 +73,7 @@ class VoiceoverPlanService:
         if existing and not payload.replace_existing:
             if existing.status != VoiceoverPlanStatus.DRAFT:
                 raise ValueError("已有口播计划且非草稿；请勾选 replace_existing 或先重置")
-            raise ValueError("已有口播草稿；请继续编辑或勾选 replace_existing 重新生成")
+            return session, existing, "已有口播草稿，可直接编辑；勾选「重新生成」可覆盖"
 
         llm = get_llm_manager()
         plan = generate_voiceover_plan(
