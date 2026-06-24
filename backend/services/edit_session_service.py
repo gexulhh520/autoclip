@@ -75,7 +75,13 @@ def _relative_project_path(project_dir: Path, file_path: Path) -> str:
 def _load_json(path: Path) -> Any:
     if not path.exists():
         return None
-    return json.loads(path.read_text(encoding="utf-8"))
+    text = path.read_text(encoding="utf-8").strip()
+    if not text:
+        raise ValueError(f"工程文件损坏（空文件）: {path.name}")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"工程文件损坏（JSON 无效）: {path.name}") from exc
 
 
 def _load_template_context(project_dir: Path) -> Dict[str, Any]:
@@ -1496,7 +1502,7 @@ class EditSessionService:
     @staticmethod
     def _save_session(project_dir: Path, session: EditSession) -> None:
         path = _session_path(project_dir, session.id)
-        path.write_text(
-            json.dumps(session.model_dump(), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        payload = json.dumps(session.model_dump(), ensure_ascii=False, indent=2)
+        tmp = path.with_suffix(f"{path.suffix}.tmp")
+        tmp.write_text(payload, encoding="utf-8")
+        tmp.replace(path)

@@ -211,6 +211,11 @@ class LLMClient:
 
         response = response.strip()
         
+        if not response:
+            raise ValueError(
+                "LLM 返回空内容，请检查模型是否可用、Ollama 是否运行或 API 密钥是否有效"
+            )
+        
         # 0. 预处理响应，移除非JSON内容
         response = self._preprocess_llm_response(response)
         logger.debug(f"预处理后的响应: {response[:200]}...")

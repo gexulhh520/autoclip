@@ -591,7 +591,19 @@ class OllamaProvider(LLMProvider):
             except Exception:
                 err = {"message": resp.text}
             raise Exception(f"Ollama API调用失败 - Status: {resp.status_code}, Message: {err}")
-        return resp.json()
+        body = (resp.text or "").strip()
+        if not body:
+            raise Exception(
+                f"Ollama 返回空响应（HTTP {resp.status_code}）。"
+                f"请确认 Ollama 已启动且模型「{self.model_name}」已下载。"
+            )
+        try:
+            return resp.json()
+        except ValueError as exc:
+            preview = body[:240].replace("\n", " ")
+            raise Exception(
+                f"Ollama 返回非 JSON 响应（HTTP {resp.status_code}）: {preview}"
+            ) from exc
 
     def _post_chat(
         self,

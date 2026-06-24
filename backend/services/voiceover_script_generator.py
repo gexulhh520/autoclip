@@ -101,14 +101,17 @@ def generate_voiceover_plan(
             ),
         },
     ]
-    response = llm_manager.chat_completion(
+    response = llm_manager.complete_messages(
         messages,
         think=False,
         num_predict=4096,
         timeout=180,
         temperature=0.35,
     )
-    parsed = llm_manager.parse_json_response(response.content or "")
+    content = (response.content or "").strip()
+    if not content:
+        raise ValueError("LLM 返回空内容，请检查模型/API 配置或 Ollama 是否运行")
+    parsed = llm_manager.parse_json_response(content)
     segments = _parse_segments(parsed)
 
     plan_id = existing_plan.id if existing_plan else f"vo-plan-{uuid.uuid4().hex[:12]}"
@@ -150,14 +153,17 @@ def regenerate_voiceover_segment(
             ),
         },
     ]
-    response = llm_manager.chat_completion(
+    response = llm_manager.complete_messages(
         messages,
         think=False,
         num_predict=1536,
         timeout=120,
         temperature=0.35,
     )
-    parsed = llm_manager.parse_json_response(response.content or "")
+    content = (response.content or "").strip()
+    if not content:
+        raise ValueError("LLM 返回空内容，请检查模型/API 配置或 Ollama 是否运行")
+    parsed = llm_manager.parse_json_response(content)
     new_segments = _parse_segments(parsed)
     updated = new_segments[0]
     updated.id = target.id

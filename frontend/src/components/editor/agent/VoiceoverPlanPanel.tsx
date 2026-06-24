@@ -50,6 +50,11 @@ function readApiErrorMessage(err: unknown, fallback: string): string {
     }
     const detail = axiosErr.response?.data?.detail
     if (typeof detail === 'string' && detail.trim()) {
+      if (/Expecting value|JSON 无效|工程文件损坏|Ollama 返回空响应|LLM 返回空内容/i.test(detail)) {
+        return detail.includes('Expecting value')
+          ? '服务返回了无效数据。若在执行口播 TTS，请确认已选占位视频且 edge-tts 可用；若在生成脚本，请检查 Ollama/API 是否正常运行。'
+          : detail
+      }
       return detail
     }
     if (Array.isArray(detail) && detail.length > 0) {

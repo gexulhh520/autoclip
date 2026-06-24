@@ -214,6 +214,34 @@ class LLMManager:
             logger.error(f"LLM chat_completion 失败: {e}")
             raise
 
+    def complete_messages(self, messages: List[Dict[str, Any]], **kwargs) -> LLMResponse:
+        """多轮对话（口播脚本等结构化 JSON 任务；兼容 Ollama 与云端提供商）。"""
+        if not self.current_provider:
+            raise ValueError("未配置LLM提供商，请在设置页面配置API密钥")
+        if isinstance(self.current_provider, OllamaProvider):
+            return self.chat_completion(messages, **kwargs)
+
+        parts: List[str] = []
+        for msg in messages:
+            role = str(msg.get("role") or "user").strip().lower()
+            content = str(msg.get("content") or "").strip()
+            if not content:
+                continue
+            if role == "system":
+                parts.append(content)
+            elif role == "user":
+                parts.append(content)
+            elif role == "assistant":
+                parts.append(f"Assistant:\n{content}")
+        prompt = "\n\n".join(parts).strip()
+        if not prompt:
+            raise ValueError("LLM 请求内容为空")
+        try:
+            return self.current_provider.call(prompt, **kwargs)
+        except Exception as e:
+            logger.error(f"LLM complete_messages 失败: {e}")
+            raise
+
     def call(self, prompt: str, input_data: Any = None, **kwargs) -> str:
         """调用LLM"""
         if not self.current_provider:
