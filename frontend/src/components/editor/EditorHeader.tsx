@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { exitEditorToDesktop } from '../../editor/navigation/exitEditorToDesktop'
 import { useEditSessionStore } from '../../stores/useEditSessionStore'
 import EditorExportModal from './EditorExportModal'
 
@@ -41,7 +42,7 @@ const EditorHeader: React.FC<EditorHeaderProps> = ({ projectId }) => {
             className="editor-header__back"
             onClick={() => {
               stopPlayback()
-              void flushSaveSession(projectId).finally(() => navigate('/'))
+              exitEditorToDesktop(navigate, flushSaveSession, projectId)
             }}
           >
             ← 返回桌面

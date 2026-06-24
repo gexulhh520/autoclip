@@ -3,6 +3,7 @@ import { Spin, Alert } from 'antd'
 import { useMatch, useNavigate, useParams } from 'react-router-dom'
 import EditorLayout from '../components/editor/EditorLayout'
 import editApi from '../services/editApi'
+import { exitEditorToDesktop } from '../editor/navigation/exitEditorToDesktop'
 import { useEditSessionStore } from '../stores/useEditSessionStore'
 
 const EditSessionPage: React.FC = () => {
@@ -115,7 +116,18 @@ const EditSessionPage: React.FC = () => {
           action={
             <button
               type="button"
-              onClick={() => navigate(isDraftRoute ? '/' : `/project/${routeProjectId}`)}
+              onClick={() => {
+                if (isDraftRoute) {
+                  const pid = projectId ?? routeProjectId
+                  if (pid) {
+                    exitEditorToDesktop(navigate, flushSaveSession, pid)
+                  } else {
+                    navigate('/')
+                  }
+                  return
+                }
+                navigate(`/project/${routeProjectId}`)
+              }}
             >
               {isDraftRoute ? '返回桌面' : '返回项目'}
             </button>
