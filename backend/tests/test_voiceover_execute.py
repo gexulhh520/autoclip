@@ -151,7 +151,31 @@ def test_synthesize_with_timings_writes_file(tmp_path: Path):
     assert len(result.cues) >= 1
 
 
-def test_voiceover_orchestrator_execute_segment_mocked(tmp_path, monkeypatch):
+def test_build_voiceover_overlays_without_block_link():
+    from backend.schemas.edit_session import EditSession
+    from backend.services.voiceover_subtitle_builder import (
+        TIMELINE_BLOCK_ID_PARAM,
+        build_voiceover_overlays,
+    )
+
+    session = EditSession(
+        id="sess",
+        project_id="proj",
+        created_at="",
+        updated_at="",
+    )
+    cues = [SubtitleCueTiming(text="你好。", start_sec=0.0, end_sec=1.0)]
+    overlays = build_voiceover_overlays(
+        cues,
+        session=session,
+        block_timeline_start_sec=3.0,
+    )
+    assert len(overlays) == 1
+    assert overlays[0].start_sec == pytest.approx(3.0)
+    assert TIMELINE_BLOCK_ID_PARAM not in overlays[0].params
+
+
+def test_voiceover_orchestrator_execute_audio_only_mocked(tmp_path, monkeypatch):
     from backend.services.edit_session_service import EditSessionService
     from backend.services.voiceover_plan_service import VoiceoverPlanService
     from backend.schemas.edit_session import EditSessionUpdateRequest
@@ -199,7 +223,6 @@ def test_voiceover_orchestrator_execute_segment_mocked(tmp_path, monkeypatch):
         id="vo-plan-b",
         status=VoiceoverPlanStatus.CONFIRMED,
         user_brief="测试",
-        placeholder_library_asset_id="lib-test",
         segments=[
             VoiceoverSegment(
                 id="seg-1",
@@ -271,6 +294,140 @@ def test_voiceover_orchestrator_execute_segment_mocked(tmp_path, monkeypatch):
         vo_service.execute_plan(
             project_id,
             created.id,
+            VoiceoverExecuteRequest(),
+        )
+    )
+
+    assert "已执行" in note
+    assert updated_plan.status == VoiceoverPlanStatus.COMPLETED
+    seg = updated_plan.segments[0]
+    assert seg.status == VoiceoverSegmentStatus.TTS_DONE
+    assert seg.tts.duration_sec == pytest.approx(2.5)
+    assert len(session.overlay_elements or []) >= 1
+    assert len(session.audio_elements or []) == 1
+    assert len(session.sequence) == 0
+    assert not seg.broll.block_id
+
+
+def test_voiceover_orchestrator_execute_segment_mocked(tmp_path, monkeypatch):
+    from backend.services.edit_session_service import EditSessionService
+    from backend.services.voiceover_plan_service import VoiceoverPlanService
+    from backend.schemas.edit_session import EditSessionUpdateRequest
+    from backend.utils.edge_tts_service import SynthesizedSpeech
+
+    project_id = "proj_vo_b_placeholder"
+    project_dir = tmp_path / "data" / "projects" / project_id
+    project_dir.mkdir(parents=True)
+    (project_dir / "edit_sessions").mkdir()
+    library_video = tmp_path / "placeholder.mp4"
+    library_video.write_bytes(b"not-a-real-video")
+
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_orchestrator.resolve_library_video_path",
+        lambda _asset_id: library_video,
+    )
+
+    async def fake_synthesize(*_args, **_kwargs):
+        return SynthesizedSpeech(
+            voice="zh-CN-XiaoxiaoNeural",
+            duration_sec=2.5,
+            cues=[
+                SubtitleCueTiming(text="测试口播。", start_sec=0.0, end_sec=2.5),
+            ],
+            word_timings=[
+                SubtitleCueTiming(text="测", start_sec=0.0, end_sec=0.5, boundary_type="WordEstimate"),
+                SubtitleCueTiming(text="试", start_sec=0.5, end_sec=1.0, boundary_type="WordEstimate"),
+            ],
+        )
+
+    monkeypatch.setattr(
+        "backend.services.voiceover_orchestrator.synthesize_with_timings",
+        fake_synthesize,
+    )
+
+    session_service = EditSessionService(db=None)
+    created = session_service.create_blank_session(project_id, name="VO B Placeholder Test")
+    vo_service = VoiceoverPlanService(session_service=session_service)
+
+    plan = VoiceoverPlan(
+        id="vo-plan-b",
+        status=VoiceoverPlanStatus.CONFIRMED,
+        user_brief="测试",
+        placeholder_library_asset_id="lib-test",
+        segments=[
+            VoiceoverSegment(
+                id="seg-1",
+                index=1,
+                narration_text="测试口播。",
+                visual_brief="画面",
+                search_queries=["test"],
+                status=VoiceoverSegmentStatus.SCRIPT_CONFIRMED,
+            )
+        ],
+    )
+    session_service.update_session(
+        project_id,
+        created.id,
+        EditSessionUpdateRequest(voiceover_plan=plan),
+    )
+
+    session_service._import_bgm_from_local_file = lambda *args, **kwargs: kwargs[2]  # noqa: SLF001
+
+    def fake_import_media(project_id, session_id, source_path, **kwargs):
+        from backend.schemas.edit_session import EditBlock, EditBlockMedia, EditBlockTrim, EditBlockOverlay
+
+        session = session_service.get_session(project_id, session_id)
+        block = EditBlock(
+            id="block-vo-1",
+            source_clip_id="import-test",
+            title="占位",
+            media=EditBlockMedia(type="imported_clip", path="placeholder.mp4"),
+            trim=EditBlockTrim(in_sec=0.0, out_sec=30.0),
+            overlay=EditBlockOverlay(outline="", content=[], recommend_reason=""),
+            duration_sec=30.0,
+        )
+        updated = session_service.update_session(
+            project_id,
+            session_id,
+            EditSessionUpdateRequest(sequence=[*session.sequence, block]),
+        )
+        return updated, block, "reference"
+
+    monkeypatch.setattr(session_service, "import_media_from_path", fake_import_media)
+    monkeypatch.setattr(session_service, "probe_imported_block_duration", lambda *_args, **_kwargs: 30.0)
+
+    def fake_import_tts(project_id, session_id, session, source_path, display_name, **kwargs):
+        from backend.schemas.edit_session import AudioAssetMeta, EditSessionUpdateRequest
+
+        asset_id = "audio-asset-1"
+        return session_service.update_session(
+            project_id,
+            session_id,
+            EditSessionUpdateRequest(
+                audio_assets=[
+                    *(session.audio_assets or []),
+                    AudioAssetMeta(
+                        id=asset_id,
+                        name=display_name,
+                        path="tts.mp3",
+                        duration_sec=2.5,
+                        category="sfx",
+                    ),
+                ]
+            ),
+        )
+
+    orchestrator = vo_service.orchestrator
+    monkeypatch.setattr(orchestrator, "_import_tts_asset", fake_import_tts)
+
+    session, updated_plan, note = asyncio.run(
+        vo_service.execute_plan(
+            project_id,
+            created.id,
             VoiceoverExecuteRequest(placeholder_library_asset_id="lib-test"),
         )
     )
@@ -283,3 +440,4 @@ def test_voiceover_orchestrator_execute_segment_mocked(tmp_path, monkeypatch):
     assert len(session.overlay_elements or []) >= 1
     assert len(session.audio_elements or []) == 1
     assert len(session.sequence) == 1
+    assert seg.broll.block_id

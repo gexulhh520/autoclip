@@ -52,7 +52,7 @@ function readApiErrorMessage(err: unknown, fallback: string): string {
     if (typeof detail === 'string' && detail.trim()) {
       if (/Expecting value|JSON 无效|工程文件损坏|Ollama 返回空响应|LLM 返回空内容/i.test(detail)) {
         return detail.includes('Expecting value')
-          ? '服务返回了无效数据。若在执行口播 TTS，请确认已选占位视频且 edge-tts 可用；若在生成脚本，请检查 Ollama/API 是否正常运行。'
+          ? '服务返回了无效数据。若在执行口播 TTS，请确认 edge-tts 可用；若在生成脚本，请检查 Ollama/API 是否正常运行。'
           : detail
       }
       return detail
@@ -312,16 +312,12 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
   }
 
   const handleExecuteAll = async () => {
-    if (!plan || !placeholderAssetId.trim()) {
-      onError('请先选择占位视频素材（素材库）')
-      return
-    }
+    if (!plan) return
     setExecuting(true)
     onError('')
     try {
-      const response = await voiceoverApi.execute(projectId, sessionId, {
-        placeholder_library_asset_id: placeholderAssetId.trim(),
-      })
+      const payload = { placeholder_library_asset_id: placeholderAssetId.trim() || null }
+      const response = await voiceoverApi.execute(projectId, sessionId, payload)
       applyResponse(response)
     } catch (err: unknown) {
       onError(err instanceof Error ? err.message : '口播 TTS 执行失败')
@@ -331,16 +327,11 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
   }
 
   const handleExecuteSegment = async (segmentId: string) => {
-    if (!placeholderAssetId.trim()) {
-      onError('请先选择占位视频素材（素材库）')
-      return
-    }
     setExecuting(true)
     onError('')
     try {
-      const response = await voiceoverApi.executeSegment(projectId, sessionId, segmentId, {
-        placeholder_library_asset_id: placeholderAssetId.trim(),
-      })
+      const payload = { placeholder_library_asset_id: placeholderAssetId.trim() || null }
+      const response = await voiceoverApi.executeSegment(projectId, sessionId, segmentId, payload)
       applyResponse(response)
     } catch (err: unknown) {
       onError(err instanceof Error ? err.message : '分段 TTS 执行失败')
@@ -473,7 +464,7 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
   return (
     <div className="editor-agent-panel__voiceover">
       <p className="editor-agent-panel__voiceover-intro">
-        输入口播意图或完整文稿，生成分段脚本；确认后在本页执行 TTS + 字幕并替换占位画面。
+        输入口播意图或完整文稿，生成分段脚本；确认后执行 TTS + 字幕上轨，可在时间线先试听；段落视频素材可后续再生成。
       </p>
 
       <label className="editor-agent-panel__voiceover-field">
@@ -546,8 +537,8 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
             <div className="editor-agent-panel__voiceover-next-step" role="status">
               <strong>脚本已确认</strong>
               <p>
-                无需上传参考图。字幕将默认显示在视频底部居中。请先选择占位视频，再点击「执行 TTS +
-                字幕」。
+                无需上传参考图。字幕将默认显示在视频底部居中。点击「执行 TTS +
+                字幕」即可将音频与字幕插入时间线试听；如需占位画面，可在下方可选设置。
               </p>
             </div>
           ) : null}
@@ -555,14 +546,14 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
           {canExecute ? (
             <div className="editor-agent-panel__voiceover-execute">
               <label className="editor-agent-panel__voiceover-field">
-                <span>占位视频（素材库）</span>
+                <span>占位视频（可选，素材库）</span>
                 <select
                   className="editor-agent-panel__voiceover-select"
                   value={placeholderAssetId}
                   onChange={(event) => setPlaceholderAssetId(event.target.value)}
                   disabled={executing || saving}
                 >
-                  <option value="">请选择素材库视频…</option>
+                  <option value="">不插入占位视频，仅音频 + 字幕</option>
                   {libraryAssets.map((asset) => (
                     <option key={asset.id} value={asset.id}>
                       {asset.title}
@@ -575,7 +566,7 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
                 type="button"
                 className="editor-agent-panel__voiceover-btn editor-agent-panel__voiceover-btn--primary"
                 onClick={() => void handleExecuteAll()}
-                disabled={executing || saving || !placeholderAssetId}
+                disabled={executing || saving}
               >
                 {executing ? '执行中…' : '执行 TTS + 字幕（全部待处理段）'}
               </button>

@@ -1,4 +1,4 @@
-"""口播里程碑 B：TTS 上轨、句/词级字幕、占位画面。"""
+"""口播里程碑 B：TTS 上轨、句/词级字幕；占位画面可选。"""
 from __future__ import annotations
 
 import logging
@@ -41,17 +41,15 @@ class VoiceoverOrchestrator:
         project_id: str,
         session_id: str,
         *,
-        placeholder_library_asset_id: str,
+        placeholder_library_asset_id: Optional[str] = None,
         segment_ids: Optional[List[str]] = None,
     ) -> Tuple[EditSession, VoiceoverPlan, str]:
         session, plan = self._load_executable_plan(project_id, session_id)
-        asset_id = (placeholder_library_asset_id or plan.placeholder_library_asset_id or "").strip()
-        if not asset_id:
-            raise ValueError("请选择占位视频素材（素材库）")
-        if resolve_library_video_path(asset_id) is None:
-            raise ValueError(f"占位素材不存在或文件缺失: {asset_id}")
-
-        plan.placeholder_library_asset_id = asset_id
+        asset_id = (placeholder_library_asset_id or "").strip()
+        if asset_id:
+            if resolve_library_video_path(asset_id) is None:
+                raise ValueError(f"占位素材不存在或文件缺失: {asset_id}")
+            plan.placeholder_library_asset_id = asset_id
         plan.status = VoiceoverPlanStatus.EXECUTING
         session = self._save_plan(project_id, session_id, plan)
 
@@ -118,12 +116,11 @@ class VoiceoverOrchestrator:
         placeholder_library_asset_id: Optional[str] = None,
     ) -> Tuple[EditSession, VoiceoverPlan, str]:
         session, plan = self._load_executable_plan(project_id, session_id)
-        asset_id = (
-            (placeholder_library_asset_id or plan.placeholder_library_asset_id or "").strip()
-        )
-        if not asset_id:
-            raise ValueError("请选择占位视频素材（素材库）")
-        plan.placeholder_library_asset_id = asset_id
+        asset_id = (placeholder_library_asset_id or "").strip()
+        if asset_id:
+            if resolve_library_video_path(asset_id) is None:
+                raise ValueError(f"占位素材不存在或文件缺失: {asset_id}")
+            plan.placeholder_library_asset_id = asset_id
         plan.status = VoiceoverPlanStatus.EXECUTING
         self._save_plan(project_id, session_id, plan)
 
@@ -151,7 +148,7 @@ class VoiceoverOrchestrator:
         session_id: str,
         plan: VoiceoverPlan,
         segment_id: str,
-        placeholder_library_asset_id: str,
+        placeholder_library_asset_id: Optional[str] = None,
     ) -> Tuple[EditSession, VoiceoverPlan]:
         segment = next((item for item in plan.segments if item.id == segment_id), None)
         if segment is None:
@@ -173,30 +170,35 @@ class VoiceoverOrchestrator:
         )
         session = self._cleanup_segment_artifacts(project_id, session_id, segment)
 
-        session, block = self._import_placeholder_block(
-            project_id,
-            session_id,
-            placeholder_library_asset_id,
-            insert_index=insert_index,
-            audio_duration_sec=speech.duration_sec,
-        )
-        saved_block_id = block.id
-        block_timeline_start = self._block_timeline_start(
-            session, saved_block_id, fallback=timeline_start
-        )
+        placeholder_id = (placeholder_library_asset_id or "").strip()
+        saved_block_id = ""
+        element_timeline_start = timeline_start
+
+        if placeholder_id:
+            session, block = self._import_placeholder_block(
+                project_id,
+                session_id,
+                placeholder_id,
+                insert_index=insert_index,
+                audio_duration_sec=speech.duration_sec,
+            )
+            saved_block_id = block.id
+            element_timeline_start = self._block_timeline_start(
+                session, saved_block_id, fallback=timeline_start
+            )
 
         overlays = build_voiceover_overlays(
             speech.cues,
             session=session,
-            block_id=saved_block_id,
-            block_timeline_start_sec=block_timeline_start,
+            block_id=saved_block_id or None,
+            block_timeline_start_sec=element_timeline_start,
             alignment="sentence",
         )
         audio_clip = self._build_audio_clip(
             speech,
             asset_id=asset_id,
-            timeline_start_sec=block_timeline_start,
-            block_id=saved_block_id,
+            timeline_start_sec=element_timeline_start,
+            block_id=saved_block_id or None,
         )
 
         session = self._append_session_elements(
@@ -212,9 +214,9 @@ class VoiceoverOrchestrator:
             asset_id=asset_id,
             block_id=saved_block_id,
             audio_clip_id=audio_clip.id,
-            timeline_start_sec=block_timeline_start,
+            timeline_start_sec=element_timeline_start,
             overlay_ids=[item.id for item in overlays],
-            library_asset_id=placeholder_library_asset_id,
+            library_asset_id=placeholder_id,
         )
         plan = self._replace_segment(plan, segment)
         session = self._save_plan(project_id, session_id, plan)
@@ -479,7 +481,7 @@ class VoiceoverOrchestrator:
         *,
         asset_id: str,
         timeline_start_sec: float,
-        block_id: str,
+        block_id: Optional[str] = None,
     ) -> AudioClipElement:
         duration = max(float(speech.duration_sec), 0.1)
         return AudioClipElement(
@@ -492,7 +494,7 @@ class VoiceoverOrchestrator:
             trim_end_sec=duration,
             volume=1.0,
             block_id=block_id,
-            block_offset_sec=0.0,
+            block_offset_sec=0.0 if block_id else None,
         )
 
     def _append_session_elements(
@@ -526,11 +528,11 @@ class VoiceoverOrchestrator:
         speech: SynthesizedSpeech,
         *,
         asset_id: str,
-        block_id: str,
+        block_id: str = "",
         audio_clip_id: str,
         timeline_start_sec: float,
         overlay_ids: List[str],
-        library_asset_id: str,
+        library_asset_id: str = "",
     ) -> VoiceoverSegment:
         segment.status = VoiceoverSegmentStatus.TTS_DONE
         segment.error = None

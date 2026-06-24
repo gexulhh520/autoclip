@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from typing import List, Literal
+from typing import List, Literal, Optional
 
 from backend.schemas.edit_session import EditOverlayElement, EditSession
 from backend.utils.edge_tts_service import MAX_SUBTITLE_DISPLAY_CHARS, SubtitleCueTiming
@@ -56,8 +56,8 @@ def build_voiceover_overlays(
     cues: List[SubtitleCueTiming],
     *,
     session: EditSession,
-    block_id: str,
-    block_timeline_start_sec: float,
+    block_id: Optional[str] = None,
+    block_timeline_start_sec: float = 0.0,
     alignment: Literal["sentence", "word"] = "sentence",
 ) -> List[EditOverlayElement]:
     if not cues:
@@ -80,6 +80,35 @@ def build_voiceover_overlays(
         duration_sec = max(0.08, cue.end_sec - cue.start_sec)
         overlay_id = f"vo-sub-{uuid.uuid4().hex[:12]}"
         font_size = _subtitle_font_size(text, session)
+        params: dict = {
+            "content": text,
+            "fontSize": font_size,
+            "fontFamily": "Noto Sans SC",
+            "color": "#ffffff",
+            "textAlign": "center",
+            "fontWeight": "normal",
+            "fontStyle": "normal",
+            "textDecoration": "none",
+            "letterSpacing": 0,
+            "lineHeight": 1.2,
+            "background.enabled": False,
+            "background.color": "#000000",
+            "background.cornerRadius": 0,
+            "background.paddingX": 30,
+            "background.paddingY": 42,
+            "background.offsetX": 0,
+            "background.offsetY": 0,
+            "transform.positionX": position_x,
+            "transform.positionY": position_y,
+            "transform.scaleX": 1,
+            "transform.scaleY": 1,
+            "transform.rotate": 0,
+            "opacity": 1,
+            "blendMode": "normal",
+        }
+        if block_id:
+            params[TIMELINE_BLOCK_ID_PARAM] = block_id
+            params[TIMELINE_BLOCK_OFFSET_PARAM] = offset_sec
         overlays.append(
             EditOverlayElement(
                 id=overlay_id,
@@ -87,34 +116,7 @@ def build_voiceover_overlays(
                 start_sec=block_timeline_start_sec + offset_sec,
                 duration_sec=duration_sec,
                 track_id=DEFAULT_TEXT_TRACK_ID,
-                params={
-                    "content": text,
-                    "fontSize": font_size,
-                    "fontFamily": "Noto Sans SC",
-                    "color": "#ffffff",
-                    "textAlign": "center",
-                    "fontWeight": "normal",
-                    "fontStyle": "normal",
-                    "textDecoration": "none",
-                    "letterSpacing": 0,
-                    "lineHeight": 1.2,
-                    "background.enabled": False,
-                    "background.color": "#000000",
-                    "background.cornerRadius": 0,
-                    "background.paddingX": 30,
-                    "background.paddingY": 42,
-                    "background.offsetX": 0,
-                    "background.offsetY": 0,
-                    "transform.positionX": position_x,
-                    "transform.positionY": position_y,
-                    "transform.scaleX": 1,
-                    "transform.scaleY": 1,
-                    "transform.rotate": 0,
-                    "opacity": 1,
-                    "blendMode": "normal",
-                    TIMELINE_BLOCK_ID_PARAM: block_id,
-                    TIMELINE_BLOCK_OFFSET_PARAM: offset_sec,
-                },
+                params=params,
             )
         )
     return overlays

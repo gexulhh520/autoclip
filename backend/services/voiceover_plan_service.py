@@ -222,7 +222,7 @@ class VoiceoverPlanService:
         return await self.orchestrator.execute_plan(
             project_id,
             session_id,
-            placeholder_library_asset_id=payload.placeholder_library_asset_id or "",
+            placeholder_library_asset_id=payload.placeholder_library_asset_id,
             segment_ids=payload.segment_ids,
         )
 

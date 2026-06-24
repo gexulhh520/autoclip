@@ -154,23 +154,32 @@ class VoiceoverBrollService:
 
         target_duration = float(segment.tts.duration_sec or 0)
         if target_duration <= 0:
-            raise ValueError("该段 TTS 时长无效，请先完成里程碑 B")
-
-        block_id = segment.broll.block_id
-        if not block_id:
-            raise ValueError("该段尚未有占位视频 block，请先完成里程碑 B")
+            raise ValueError("该段 TTS 时长无效，请先完成 TTS")
 
         library_asset_id = self._resolve_library_asset_id(
             selected,
             wait_download_timeout_sec=wait_download_timeout_sec,
         )
 
-        session = self.replace_block_with_library_asset(
-            project_id,
-            session_id,
-            block_id,
-            library_asset_id,
-        )
+        block_id = segment.broll.block_id
+        if not block_id:
+            session, block_id = self._create_segment_video_block(
+                project_id,
+                session_id,
+                plan,
+                segment,
+                library_asset_id,
+                target_duration_sec=target_duration,
+            )
+            segment.broll.block_id = block_id
+            session = self.session_service.get_session(project_id, session_id)
+        else:
+            session = self.replace_block_with_library_asset(
+                project_id,
+                session_id,
+                block_id,
+                library_asset_id,
+            )
         source_duration = self._probe_block_source_duration(project_id, session_id, block_id)
 
         if source_in_sec is not None and source_out_sec is not None:
@@ -212,6 +221,58 @@ class VoiceoverBrollService:
             plan.status = VoiceoverPlanStatus.COMPLETED
         session = self._save_plan(project_id, session_id, plan)
         return session, plan, selection.selection_reason
+
+    def _create_segment_video_block(
+        self,
+        project_id: str,
+        session_id: str,
+        plan: VoiceoverPlan,
+        segment: VoiceoverSegment,
+        library_asset_id: str,
+        *,
+        target_duration_sec: float,
+    ) -> Tuple[EditSession, str]:
+        self._ensure_broll_insert_order(plan, segment)
+
+        video_path = resolve_library_video_path(library_asset_id)
+        if video_path is None:
+            raise ValueError(f"素材库视频不存在: {library_asset_id}")
+
+        insert_index = self._resolve_broll_insert_index(plan, segment)
+        session, block, _import_method = self.session_service.import_media_from_path(
+            project_id,
+            session_id,
+            str(video_path.resolve()),
+            insert_index=insert_index,
+            title=f"口播素材-{segment.index}",
+        )
+        source_duration = self.session_service.probe_imported_block_duration(
+            project_id,
+            session_id,
+            block.id,
+        )
+        if source_duration <= 0:
+            raise ValueError("素材视频时长探测失败")
+
+        trim_out = min(source_duration, target_duration_sec)
+        updated_sequence = []
+        for item in session.sequence:
+            if item.id != block.id:
+                updated_sequence.append(item)
+                continue
+            data = item.model_dump()
+            data["trim"] = EditBlockTrim(in_sec=0.0, out_sec=trim_out).model_dump()
+            data["duration_sec"] = trim_out
+            from backend.schemas.edit_session import EditBlock
+
+            updated_sequence.append(EditBlock.model_validate(data))
+
+        session = self.session_service.update_session(
+            project_id,
+            session_id,
+            EditSessionUpdateRequest(sequence=updated_sequence),
+        )
+        return session, block.id
 
     def replace_block_with_library_asset(
         self,
@@ -493,9 +554,25 @@ class VoiceoverBrollService:
             VoiceoverSegmentStatus.BROLL_DONE,
             VoiceoverSegmentStatus.FAILED,
         ):
-            raise ValueError("请先完成该段 TTS（里程碑 B）")
-        if not segment.broll.block_id:
-            raise ValueError("该段缺少占位视频 block")
+            raise ValueError("请先完成该段 TTS")
+
+    @staticmethod
+    def _resolve_broll_insert_index(plan: VoiceoverPlan, segment: VoiceoverSegment) -> int:
+        return sum(
+            1
+            for item in plan.segments
+            if item.index < segment.index and item.broll.block_id
+        )
+
+    @staticmethod
+    def _ensure_broll_insert_order(plan: VoiceoverPlan, segment: VoiceoverSegment) -> None:
+        for item in sorted(plan.segments, key=lambda seg: seg.index):
+            if item.index >= segment.index:
+                break
+            if item.status == VoiceoverSegmentStatus.TTS_DONE and not item.broll.block_id:
+                raise ValueError(
+                    f"请先生成第 {item.index} 段视频素材，或按段序从前往后应用"
+                )
 
     def _save_plan(self, project_id: str, session_id: str, plan: VoiceoverPlan) -> EditSession:
         return self.session_service.update_session(
