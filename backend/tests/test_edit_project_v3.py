@@ -46,3 +46,40 @@ def test_migrate_session_to_v3_builds_tracks():
     assert len(project.media_pool) == 2
     assert len(project.scenes[0].tracks.main) == 2
     assert project.scenes[0].tracks.main[1].start_time == 4.0
+
+
+def test_migrate_session_to_v3_includes_audio_elements():
+    from backend.schemas.edit_session import AudioAssetMeta, AudioClipElement
+
+    session = EditSession(
+        id="s1",
+        project_id="p1",
+        name="test",
+        sequence=[_block("a", 4)],
+        audio_assets=[
+            AudioAssetMeta(
+                id="asset-1",
+                name="vo.mp3",
+                path="edit_sessions/s1/asset-1.m4a",
+                duration_sec=4.0,
+            )
+        ],
+        audio_elements=[
+            AudioClipElement(
+                id="clip-1",
+                asset_id="asset-1",
+                track_id="default-audio",
+                start_sec=0.5,
+                duration_sec=3.5,
+            )
+        ],
+        export_settings=EditExportSettings(),
+        audio_settings=EditSessionAudioSettings(),
+        created_at="",
+        updated_at="",
+    )
+    project = migrate_session_to_v3(session)
+    audio = project.scenes[0].tracks.audio
+    assert len(audio) == 1
+    assert audio[0].id == "clip-1"
+    assert audio[0].start_time == 0.5

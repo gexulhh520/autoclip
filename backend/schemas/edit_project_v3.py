@@ -155,13 +155,44 @@ def migrate_session_to_v3(session: EditSession) -> EditProjectV3:
                 type=element.type,
                 start_time=element.start_sec,
                 duration=element.duration_sec,
-                properties={"params": element.params},
+                trim_start=0.0,
+                trim_end=element.duration_sec,
+                properties={
+                    "params": element.params,
+                    **({"track_id": element.track_id} if element.track_id else {}),
+                },
                 hidden=element.hidden,
             )
         )
 
     audio_track: List[TrackElement] = []
-    if session.audio_settings.bgm_path:
+    asset_by_id = {item.id: item for item in (session.audio_assets or [])}
+    for clip in session.audio_elements or []:
+        asset = asset_by_id.get(clip.asset_id)
+        if asset is None:
+            continue
+        audio_track.append(
+            TrackElement(
+                id=clip.id,
+                type="audio",
+                asset_id=clip.asset_id,
+                start_time=clip.start_sec,
+                duration=clip.duration_sec,
+                trim_start=float(clip.trim_start_sec or 0.0),
+                trim_end=float(clip.trim_end_sec or clip.duration_sec),
+                properties={
+                    "path": asset.path,
+                    "track_id": clip.track_id,
+                    "volume": clip.volume if clip.volume is not None else session.audio_settings.bgm_volume,
+                    "fade_in_sec": clip.fade_in_sec if clip.fade_in_sec is not None else session.audio_settings.fade_in_sec,
+                    "fade_out_sec": clip.fade_out_sec if clip.fade_out_sec is not None else session.audio_settings.fade_out_sec,
+                    "duck_enabled": session.audio_settings.bgm_duck_enabled,
+                    "playback_rate": clip.playback_rate if clip.playback_rate is not None else 1.0,
+                },
+                hidden=clip.hidden,
+            )
+        )
+    if not audio_track and session.audio_settings.bgm_path:
         audio_track.append(
             TrackElement(
                 id="bgm_main",

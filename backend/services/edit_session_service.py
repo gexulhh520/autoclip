@@ -53,6 +53,19 @@ logger = logging.getLogger(__name__)
 
 _SESSION_SAVE_LOCKS: dict[str, threading.RLock] = {}
 _SESSION_SAVE_LOCKS_GUARD = threading.Lock()
+_SESSION_READ_CACHE: dict[str, tuple[float, EditSession]] = {}
+_SESSION_READ_CACHE_GUARD = threading.Lock()
+_SESSION_READ_CACHE_MAX = 32
+
+
+def _session_cache_key(path: Path) -> str:
+    return str(path.resolve()).lower()
+
+
+def _invalidate_session_read_cache(path: Path) -> None:
+    key = _session_cache_key(path)
+    with _SESSION_READ_CACHE_GUARD:
+        _SESSION_READ_CACHE.pop(key, None)
 
 
 def _get_session_save_lock(path: Path) -> threading.RLock:
@@ -416,12 +429,25 @@ class EditSessionService:
         path = _session_path(project_dir, session_id)
         if not path.exists():
             raise FileNotFoundError(session_id)
+        cache_key = _session_cache_key(path)
+        mtime = path.stat().st_mtime
+        with _SESSION_READ_CACHE_GUARD:
+            cached = _SESSION_READ_CACHE.get(cache_key)
+            if cached is not None and cached[0] == mtime:
+                return cached[1]
+
         raw = _load_json(path)
         if not isinstance(raw, dict):
             raise FileNotFoundError(session_id)
         from backend.schemas.edit_project_v3 import normalize_session
 
-        return normalize_session(raw)
+        session = normalize_session(raw)
+        with _SESSION_READ_CACHE_GUARD:
+            if len(_SESSION_READ_CACHE) >= _SESSION_READ_CACHE_MAX:
+                oldest_key = next(iter(_SESSION_READ_CACHE))
+                _SESSION_READ_CACHE.pop(oldest_key, None)
+            _SESSION_READ_CACHE[cache_key] = (mtime, session)
+        return session
 
     def create_session(
         self,
@@ -675,9 +701,6 @@ class EditSessionService:
             data["audio_settings"] = payload.audio_settings.model_dump()
         if payload.schema_version is not None:
             data["schema_version"] = payload.schema_version
-        if payload.project_v3 is not None:
-            data["project_v3"] = payload.project_v3.model_dump()
-            data["schema_version"] = max(int(data.get("schema_version") or 1), 3)
         if "voiceover_plan" in payload.model_fields_set:
             if payload.voiceover_plan is None:
                 data["voiceover_plan"] = None
@@ -685,6 +708,10 @@ class EditSessionService:
                 data["voiceover_plan"] = payload.voiceover_plan.model_dump(mode="json")
         data["updated_at"] = _utc_now_iso()
         updated = EditSession.model_validate(data)
+        from backend.schemas.edit_project_v3 import migrate_session_to_v3
+
+        updated.project_v3 = migrate_session_to_v3(updated)
+        updated.schema_version = 3
         self._save_session(get_project_directory(project_id), updated)
         return updated
 
@@ -1541,7 +1568,8 @@ class EditSessionService:
     @staticmethod
     def _save_session(project_dir: Path, session: EditSession) -> None:
         path = _session_path(project_dir, session.id)
-        payload = json.dumps(session.model_dump(), ensure_ascii=False, indent=2)
+        payload = json.dumps(session.model_dump(), ensure_ascii=False, separators=(",", ":"))
         lock = _get_session_save_lock(path)
         with lock:
+            _invalidate_session_read_cache(path)
             _atomic_write_text(path, payload)

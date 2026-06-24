@@ -105,7 +105,8 @@ export const editApi = {
   ): Promise<EditSession> => {
     return (await api.patch(
       `/projects/${projectId}/edit-sessions/${sessionId}`,
-      payload
+      payload,
+      { timeout: 60_000 }
     )) as EditSession
   },
 

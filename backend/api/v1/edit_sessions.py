@@ -100,7 +100,8 @@ async def list_edit_sessions(
     service: EditSessionService = Depends(get_edit_session_service),
 ):
     try:
-        return EditSessionListResponse(sessions=service.list_sessions(project_id))
+        sessions = await asyncio.to_thread(service.list_sessions, project_id)
+        return EditSessionListResponse(sessions=sessions)
     except Exception as exc:
         logger.exception("列出剪辑工程失败: %s", project_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -178,7 +179,7 @@ async def get_edit_session(
     service: EditSessionService = Depends(get_edit_session_service),
 ):
     try:
-        return service.get_session(project_id, session_id)
+        return await asyncio.to_thread(service.get_session, project_id, session_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
 
@@ -1068,7 +1069,7 @@ async def stream_edit_session_block_media(
     from backend.pipeline.edit_renderer import _resolve_input_video
 
     try:
-        session = service.get_session(project_id, session_id)
+        session = await asyncio.to_thread(service.get_session, project_id, session_id)
         block = next((item for item in session.sequence if item.id == block_id), None)
         if block is None:
             raise HTTPException(status_code=404, detail="片段不存在")
@@ -1126,7 +1127,7 @@ async def stream_edit_session_bgm(
     from backend.utils.bgm_audio import bgm_media_type, ensure_browser_playable_bgm
 
     try:
-        session = service.get_session(project_id, session_id)
+        session = await asyncio.to_thread(service.get_session, project_id, session_id)
         bgm_rel = session.audio_settings.bgm_path
         if not bgm_rel:
             raise HTTPException(status_code=404, detail="未设置 BGM")

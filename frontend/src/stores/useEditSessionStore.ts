@@ -13,6 +13,7 @@ import type {
   EditOverlayElement,
   EditSession,
   EditSessionAudioSettings,
+  EditSessionUpdateRequest,
   EditExportSettings,
   TimelineBookmark,
   AudioClipElement,
@@ -171,6 +172,24 @@ import {
 
 const MAX_HISTORY = 50
 const EXPORT_POLL_MS = 800
+
+let saveInFlight: Promise<void> | null = null
+let saveReschedule = false
+
+const buildSessionSavePayload = (session: EditSession): EditSessionUpdateRequest => ({
+  name: session.name,
+  sequence: session.sequence,
+  overlay_elements: session.overlay_elements,
+  text_tracks: session.text_tracks,
+  video_tracks: session.video_tracks,
+  audio_assets: session.audio_assets,
+  audio_tracks: session.audio_tracks,
+  audio_elements: session.audio_elements,
+  bookmarks: session.bookmarks,
+  export_settings: session.export_settings,
+  audio_settings: session.audio_settings,
+  schema_version: 3,
+})
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -890,43 +909,45 @@ export const useEditSessionStore = create<EditSessionState>()(
       },
 
       saveSession: async (projectId) => {
-        const session = get().session
-        if (!session) return
-        set({ saving: true })
-        try {
-          const project = migrateSessionToV3(session)
-          const sessionPayload = { ...session, project_v3: project, schema_version: 3 as const }
-          const updated = await editApi.updateSession(projectId, session.id, {
-            name: sessionPayload.name,
-            sequence: sessionPayload.sequence,
-            overlay_elements: sessionPayload.overlay_elements,
-            text_tracks: sessionPayload.text_tracks,
-            video_tracks: sessionPayload.video_tracks,
-            audio_assets: sessionPayload.audio_assets,
-            audio_tracks: sessionPayload.audio_tracks,
-            audio_elements: sessionPayload.audio_elements,
-            bookmarks: sessionPayload.bookmarks,
-            export_settings: sessionPayload.export_settings,
-            audio_settings: sessionPayload.audio_settings,
-            schema_version: 3,
-            project_v3: project,
-          })
-          const document = hydrateEditDocument({
-            ...updated,
-            schema_version: 3,
-          })
-          set((state) => {
-            state.session = cloneSessionFromApi(document.session)
-            state.editProject = document.project
-            state.saving = false
-            state.dirty = false
-          })
-        } catch (error: unknown) {
-          set({
-            saving: false,
-            error: error instanceof Error ? error.message : '保存失败',
-          })
+        if (saveInFlight) {
+          saveReschedule = true
+          return saveInFlight
         }
+
+        saveInFlight = (async () => {
+          set({ saving: true })
+          try {
+            do {
+              saveReschedule = false
+              const session = get().session
+              if (!session || !get().dirty) break
+
+              const updated = await editApi.updateSession(
+                projectId,
+                session.id,
+                buildSessionSavePayload(session)
+              )
+              const document = hydrateEditDocument({
+                ...updated,
+                schema_version: 3,
+              })
+              set((state) => {
+                state.session = cloneSessionFromApi(document.session)
+                state.editProject = document.project
+                state.dirty = false
+              })
+            } while (saveReschedule || get().dirty)
+          } catch (error: unknown) {
+            set({
+              error: error instanceof Error ? error.message : '保存失败',
+            })
+          } finally {
+            set({ saving: false })
+            saveInFlight = null
+          }
+        })()
+
+        return saveInFlight
       },
 
       flushSaveSession: async (projectId) => {
