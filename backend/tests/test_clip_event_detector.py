@@ -8,6 +8,8 @@ from backend.services.clip_event_detector import (
     build_coarse_tiles,
     build_sliding_windows,
     coarse_candidates_to_hotspots,
+    coarse_score_records_to_moments,
+    emergency_hotspots_from_coarse_records,
     inject_coarse_safety_tiles,
     merge_clip_scores,
     select_coarse_candidates,
@@ -107,3 +109,33 @@ def test_merge_clip_scores_overlapping_windows():
     assert start == 64.0
     assert end == 88.0
     assert 0.9 <= score <= 0.92
+
+
+def test_emergency_hotspots_from_coarse_records():
+    records = [
+        ClipScoreRecord(0.0, 100.0, 0.12, False, "low"),
+        ClipScoreRecord(500.0, 600.0, 0.35, False, "rain scene"),
+        ClipScoreRecord(1200.0, 1300.0, 0.22, False, "mid"),
+    ]
+    hotspots = emergency_hotspots_from_coarse_records(records, 0.0, 3600.0)
+    assert len(hotspots) >= 1
+    assert any(start <= 500.0 and end >= 600.0 for start, end in hotspots)
+
+
+def test_coarse_score_records_to_moments_fallback():
+    block = {"id": "b1", "trim": {"in_sec": 0.0, "out_sec": 3600.0}}
+    records = [
+        ClipScoreRecord(500.0, 600.0, 0.35, False, "雨中梅西"),
+        ClipScoreRecord(0.0, 100.0, 0.05, False, "too low"),
+    ]
+    moments = coarse_score_records_to_moments(
+        block,
+        timeline_start_sec=0.0,
+        duration_sec=3600.0,
+        coarse_records=records,
+    )
+    assert len(moments) == 1
+    assert moments[0].timeline_start_sec == 500.0
+    assert moments[0].timeline_end_sec == 600.0
+    assert "回退宫格粗筛" in moments[0].match_reason
+    assert moments[0].transcript_source == "visual_clip_coarse_fallback"

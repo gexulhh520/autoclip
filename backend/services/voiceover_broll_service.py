@@ -386,6 +386,7 @@ class VoiceoverBrollService:
             max_results=8,
             recall_mode="high",
             include_audio=False,
+            purpose="voiceover_broll",
         )
         best = pick_best_semantic_match(matches)
         if best is None:

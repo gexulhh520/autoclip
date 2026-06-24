@@ -58,6 +58,14 @@ SCORE_THRESHOLD_BALANCED = 0.7
 SCORE_THRESHOLD_HIGH = 0.6
 MERGE_GAP_SEC = 8.0
 
+# 口播 B-roll：粗筛更激进，短镜头（如雨中几帧）不易被 100s 宫格稀释漏掉
+VO_BROLL_COARSE_THRESHOLD = 0.10
+VO_BROLL_COARSE_TOP_K_RATIO = 0.55
+VO_BROLL_COARSE_TILE_STRIDE = 25.0
+VO_BROLL_COARSE_SAFETY_EVERY_N = 2
+VO_BROLL_COARSE_FALLBACK_MIN_SCORE = 0.08
+VO_BROLL_EMERGENCY_HOTSPOT_TOP_K = 4
+
 COARSE_SALIENCY_SYSTEM = """你是视频宫格稀疏评分助手。用户会提供按时间顺序分组的六宫格画面。"""
 
 CLIP_CLASSIFIER_SYSTEM = """你是视频 clip 精筛确认器。用户会提供按时间顺序分组的六宫格画面（仅视觉，无音频）。"""
@@ -145,6 +153,7 @@ def select_coarse_candidates(
     top_k_ratio: float = COARSE_TOP_K_RATIO,
     max_tiles: int = COARSE_MAX_TILES,
     min_tiles: int = COARSE_MIN_TILES,
+    safety_every_n: int = COARSE_SAFETY_TILE_EVERY_N,
 ) -> List[ClipScoreRecord]:
     """阈值或 Top-K（取并集）+ 均匀安全网：粗筛只做筛选，不做语义确认。"""
     if not records:
@@ -164,7 +173,7 @@ def select_coarse_candidates(
         for row in by_score[: min(min_tiles, max_tiles)]:
             selected[(row.start_sec, row.end_sec)] = row
 
-    safety_keys = inject_coarse_safety_tiles(records, selected)
+    safety_keys = inject_coarse_safety_tiles(records, selected, every_n=safety_every_n)
 
     if len(selected) <= max_tiles:
         return sorted(selected.values(), key=lambda item: item.start_sec)
@@ -379,6 +388,69 @@ def _run_fine_window(
         clip_meta={"start_sec": win_start, "end_sec": win_end},
     )
     return index, record, False
+
+
+def emergency_hotspots_from_coarse_records(
+    coarse_records: List[ClipScoreRecord],
+    timeline_start_sec: float,
+    timeline_end_sec: float,
+    *,
+    top_k: int = VO_BROLL_EMERGENCY_HOTSPOT_TOP_K,
+    min_score: float = VO_BROLL_COARSE_FALLBACK_MIN_SCORE,
+    pad_sec: float = HOTSPOT_PAD_SEC,
+) -> List[Tuple[float, float]]:
+    """粗筛未形成热点时，用最高分宫格强行开精扫区（口播 B-roll 兜底）。"""
+    ranked = sorted(
+        [row for row in coarse_records if float(row.score) >= min_score],
+        key=lambda item: item.score,
+        reverse=True,
+    )[:top_k]
+    if not ranked:
+        return []
+    return coarse_candidates_to_hotspots(
+        ranked,
+        timeline_start_sec,
+        timeline_end_sec,
+        pad_sec=pad_sec,
+    )
+
+
+def coarse_score_records_to_moments(
+    block: Dict[str, Any],
+    timeline_start_sec: float,
+    duration_sec: float,
+    coarse_records: List[ClipScoreRecord],
+    *,
+    max_results: int = 1,
+    min_score: float = VO_BROLL_COARSE_FALLBACK_MIN_SCORE,
+) -> List[MatchedMoment]:
+    """精扫无命中时，回退到宫格粗筛最高分区间（非静默乱切，需达到最低粗筛分）。"""
+    candidates = [row for row in coarse_records if float(row.score) >= min_score]
+    if not candidates:
+        return []
+    best = max(candidates, key=lambda item: item.score)
+    ranges = [
+        (
+            best.start_sec,
+            best.end_sec,
+            float(best.score),
+            best.summary or "宫格粗筛可能相关",
+        )
+    ]
+    moments = build_matched_moments_from_timeline_ranges(
+        block,
+        timeline_start_sec,
+        duration_sec,
+        ranges,
+        "visual_clip_coarse_fallback",
+    )
+    for moment in moments:
+        summary = (best.summary or "").strip()
+        moment.match_reason = (
+            f"精扫未确认，回退宫格粗筛（得分 {best.score:.2f}）"
+            + (f"：{summary}" if summary else "")
+        )
+    return moments[:max_results]
 
 
 def merge_clip_scores(
@@ -799,19 +871,29 @@ def iter_clip_event_search(
     recall_mode: str = "balanced",
     include_audio: bool = False,
     search_spec: Optional[ClipSearchSpec] = None,
+    purpose: str = "default",
 ) -> Iterator[Dict[str, Any]]:
     """Planner → 粗扫 → 精扫；渐进 NDJSON。"""
     user_query = (search_criteria or "").strip()
     duration = max(0.1, float(duration_sec))
     timeline_end = timeline_start_sec + duration
     high_recall = str(recall_mode or "balanced") == "high"
+    voiceover_broll = purpose == "voiceover_broll"
     fine_stride = FINE_STRIDE_HIGH_RECALL_SEC if high_recall else FINE_STRIDE_SEC
     fine_threshold = SCORE_THRESHOLD_HIGH if high_recall else SCORE_THRESHOLD_BALANCED
     coarse_tile_size = COARSE_TILE_SIZE_SEC
-    coarse_tile_stride = COARSE_TILE_STRIDE_HIGH_RECALL_SEC if high_recall else COARSE_TILE_STRIDE_SEC
-    coarse_threshold = (
-        COARSE_SALIENCY_THRESHOLD_HIGH if high_recall else COARSE_SALIENCY_THRESHOLD_BALANCED
+    coarse_tile_stride = (
+        VO_BROLL_COARSE_TILE_STRIDE
+        if voiceover_broll
+        else (COARSE_TILE_STRIDE_HIGH_RECALL_SEC if high_recall else COARSE_TILE_STRIDE_SEC)
     )
+    coarse_threshold = (
+        VO_BROLL_COARSE_THRESHOLD
+        if voiceover_broll
+        else (COARSE_SALIENCY_THRESHOLD_HIGH if high_recall else COARSE_SALIENCY_THRESHOLD_BALANCED)
+    )
+    coarse_top_k = VO_BROLL_COARSE_TOP_K_RATIO if voiceover_broll else COARSE_TOP_K_RATIO
+    coarse_safety_every_n = VO_BROLL_COARSE_SAFETY_EVERY_N if voiceover_broll else COARSE_SAFETY_TILE_EVERY_N
     coarse_enabled = duration > SKIP_COARSE_DURATION_SEC
 
     video_path = resolve_block_video_path(project_dir, block)
@@ -865,7 +947,7 @@ def iter_clip_event_search(
         coarse_collage_count = max(1, COARSE_TILE_FRAMES // 6)
         meta.note_parts.append(
             f"宫格粗筛 {len(coarse_tiles)} 格（{coarse_tile_size:.0f}s/{coarse_tile_stride:.0f}s，"
-            f"{COARSE_TILE_FRAMES}帧→{coarse_collage_count}×3×2六宫格，Top-{int(COARSE_TOP_K_RATIO * 100)}%+均匀安全网，"
+            f"{COARSE_TILE_FRAMES}帧→{coarse_collage_count}×3×2六宫格，Top-{int(coarse_top_k * 100)}%+均匀安全网，"
             f"并行×{COARSE_PARALLEL_WORKERS}）"
         )
 
@@ -938,8 +1020,9 @@ def iter_clip_event_search(
         coarse_candidates = select_coarse_candidates(
             coarse_records,
             score_threshold=coarse_threshold,
-            top_k_ratio=COARSE_TOP_K_RATIO,
+            top_k_ratio=coarse_top_k,
             max_tiles=COARSE_MAX_TILES,
+            safety_every_n=coarse_safety_every_n,
         )
         coarse_hits = coarse_candidates
 
@@ -960,9 +1043,33 @@ def iter_clip_event_search(
             "hit_count": len(coarse_hits),
         }
 
+        if not hotspots and voiceover_broll and coarse_records:
+            hotspots = emergency_hotspots_from_coarse_records(
+                coarse_records,
+                timeline_start_sec,
+                timeline_end,
+            )
+            if hotspots:
+                meta.note_parts.append(
+                    f"宫格未达阈值，口播兜底精扫 top-{VO_BROLL_EMERGENCY_HOTSPOT_TOP_K} 粗筛格"
+                )
+
         if not hotspots:
             meta.note_parts.append("宫格粗筛无热点")
-            yield {"type": "matches", "matches": [], "scan_phase": "fine"}
+            fallback_matches: List[MatchedMoment] = []
+            if voiceover_broll and coarse_records:
+                fallback_matches = coarse_score_records_to_moments(
+                    block,
+                    timeline_start_sec,
+                    duration,
+                    coarse_records,
+                    max_results=max_results,
+                )
+            yield {
+                "type": "matches",
+                "matches": [moment_to_dict(m) for m in fallback_matches],
+                "scan_phase": "coarse_fallback" if fallback_matches else "fine",
+            }
             yield {
                 "type": "done",
                 "block_id": str(block.get("id") or ""),
@@ -970,8 +1077,13 @@ def iter_clip_event_search(
                 "transcript_source": "none",
                 "transcript_segment_count": 0,
                 "visual_frame_count": total_frames,
-                "matches": [],
-                "note": "；".join(meta.note_parts) + "；未找到符合检索条件的事件",
+                "matches": [moment_to_dict(m) for m in fallback_matches],
+                "note": "；".join(meta.note_parts)
+                + (
+                    "；已回退至宫格粗筛最高分"
+                    if fallback_matches
+                    else "；未找到符合检索条件的事件"
+                ),
                 "engine": meta.engine,
                 "search_spec": spec.to_dict(),
                 "coarse_hits": [],
@@ -1106,6 +1218,16 @@ def iter_clip_event_search(
         score_threshold=fine_threshold,
         max_results=max_results,
     )
+    if not matches and voiceover_broll and coarse_records:
+        matches = coarse_score_records_to_moments(
+            block,
+            timeline_start_sec,
+            duration,
+            coarse_records,
+            max_results=max_results,
+        )
+        if matches:
+            meta.note_parts.append("精扫无确认，已回退宫格粗筛最高分区间")
     note = "；".join(meta.note_parts)
     if matches:
         note += "；matches 含 timeline/trim 时间，可 export_moment_clips_to_pool"
@@ -1157,6 +1279,7 @@ def search_clip_events(
     recall_mode: str = "balanced",
     include_audio: bool = False,
     search_spec: Optional[ClipSearchSpec] = None,
+    purpose: str = "default",
 ) -> Tuple[List[MatchedMoment], Dict[str, Any]]:
     final_matches: List[MatchedMoment] = []
     meta: Dict[str, Any] = {}
@@ -1171,6 +1294,7 @@ def search_clip_events(
         recall_mode=recall_mode,
         include_audio=include_audio,
         search_spec=search_spec,
+        purpose=purpose,
     ):
         if event.get("type") == "matches":
             raw = event.get("matches") or []
