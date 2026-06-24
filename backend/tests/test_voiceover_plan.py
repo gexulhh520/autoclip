@@ -30,6 +30,36 @@ def test_parse_segments_from_llm_json():
     assert segments[0].search_queries[0] == "product b-roll"
 
 
+def test_voiceover_generate_response_model_rebuilt():
+    from backend.schemas.edit_session import EditSession
+    from backend.schemas.voiceover_plan import (
+        VoiceoverGenerateResponse,
+        VoiceoverPlan,
+        VoiceoverSegment,
+    )
+
+    session = EditSession(
+        id="sess",
+        project_id="proj",
+        created_at="",
+        updated_at="",
+    )
+    plan = VoiceoverPlan(
+        id="plan-1",
+        user_brief="测试",
+        segments=[
+            VoiceoverSegment(
+                id="seg-1",
+                index=1,
+                narration_text="口播文案",
+            )
+        ],
+    )
+    response = VoiceoverGenerateResponse(session=session, plan=plan, note="ok")
+    assert response.note == "ok"
+    assert response.session.id == "sess"
+
+
 def test_voiceover_plan_service_confirm_requires_text(tmp_path, monkeypatch):
     from backend.services.edit_session_service import EditSessionService
     from backend.services.voiceover_plan_service import VoiceoverPlanService

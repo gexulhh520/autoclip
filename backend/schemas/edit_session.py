@@ -626,3 +626,20 @@ class EditSessionTtsResponse(BaseModel):
     asset_id: str
     duration_sec: float
     voice: str
+
+
+def _rebuild_forward_ref_models() -> None:
+    """解析跨模块 forward ref（Voiceover*Response → EditSession）。"""
+    from backend.schemas.voiceover_plan import (
+        VoiceoverExecuteResponse,
+        VoiceoverGenerateResponse,
+        VoiceoverPlanResponse,
+    )
+
+    types_namespace = {"EditSession": EditSession}
+    VoiceoverPlanResponse.model_rebuild(_types_namespace=types_namespace)
+    VoiceoverGenerateResponse.model_rebuild(_types_namespace=types_namespace)
+    VoiceoverExecuteResponse.model_rebuild(_types_namespace=types_namespace)
+
+
+_rebuild_forward_ref_models()
