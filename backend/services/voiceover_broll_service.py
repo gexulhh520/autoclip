@@ -474,7 +474,7 @@ class VoiceoverBrollService:
         if not task_id:
             raise ValueError("下载任务创建失败")
 
-        return wait_for_material_download(task_id, timeout_sec=wait_download_timeout_sec)
+        return self.wait_for_material_download(task_id, timeout_sec=wait_download_timeout_sec)
 
     def _probe_block_source_duration(
         self,
