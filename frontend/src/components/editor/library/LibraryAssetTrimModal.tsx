@@ -7,7 +7,7 @@ import {
   StepForwardOutlined,
 } from '@ant-design/icons'
 import type { LibraryAsset } from '../../services/libraryApi'
-import { clampTrimRange, formatTimecode } from '../../utils/timecodeFormat'
+import { clampTrimRange, formatTimecode } from '../../../utils/timecodeFormat'
 import './LibraryAssetTrimModal.css'
 
 const MIN_TRIM_SPAN = 0.1
