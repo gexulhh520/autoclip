@@ -1,6 +1,26 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import fs from 'node:fs'
+import path from 'node:path'
 import { fileURLToPath, URL } from 'node:url'
+
+const repoRoot = path.resolve(fileURLToPath(new URL('.', import.meta.url)), '..')
+
+/** tauri:dev 内嵌后端写 data/backend.port；Web dev 无此文件则回退 8000 */
+function readEmbeddedBackendOrigin(): string {
+  try {
+    const portFile = path.join(repoRoot, 'data', 'backend.port')
+    if (fs.existsSync(portFile)) {
+      const port = Number.parseInt(fs.readFileSync(portFile, 'utf8').trim(), 10)
+      if (port > 0) {
+        return `http://127.0.0.1:${port}`
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return 'http://127.0.0.1:8000'
+}
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
@@ -44,9 +64,15 @@ export default defineConfig(({ mode }) => {
       },
       proxy: {
         '/api': {
-          target: 'http://localhost:8000',
-          changeOrigin: true
-        }
+          target: 'http://127.0.0.1:8000',
+          changeOrigin: true,
+          router: () => readEmbeddedBackendOrigin(),
+        },
+        '/health': {
+          target: 'http://127.0.0.1:8000',
+          changeOrigin: true,
+          router: () => readEmbeddedBackendOrigin(),
+        },
       }
     },
     test: {

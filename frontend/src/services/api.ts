@@ -58,7 +58,12 @@ const isTauriRuntime = () => (
 api.interceptors.request.use(
   async (config) => {
     if (isTauriRuntime() && !apiConfigManager.isReady()) {
-      await apiConfigManager.waitForReady()
+      const ready = await apiConfigManager.waitForReady()
+      if (!ready) {
+        return Promise.reject(
+          new Error('桌面端后端尚未就绪，请稍候或在托盘菜单中重启后端服务')
+        )
+      }
     }
 
     config.baseURL = apiConfigManager.getBaseUrl()

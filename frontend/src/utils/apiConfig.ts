@@ -47,6 +47,8 @@ class ApiConfigManager {
         const backendStatus = await invoke('get_service_status') as any;
         if (backendStatus?.is_running && backendStatus?.port) {
           this.updateFromPort(backendStatus.port);
+        } else {
+          this.pollBackendStatus(invoke);
         }
 
         // 尝试从全局变量获取配置
@@ -69,6 +71,31 @@ class ApiConfigManager {
       port,
       isReady: true
     });
+  }
+
+  /** 内嵌后端启动稍慢时轮询 Rust 侧状态，避免请求落到 Vite 代理的 8000 */
+  private pollBackendStatus(invoke: (cmd: string) => Promise<unknown>) {
+    if (this.isReady()) return;
+    const startedAt = Date.now();
+    const tick = async () => {
+      if (this.isReady() || Date.now() - startedAt > 60000) return;
+      try {
+        const backendStatus = (await invoke('get_service_status')) as {
+          is_running?: boolean;
+          port?: number;
+        };
+        if (backendStatus?.is_running && backendStatus?.port) {
+          this.updateFromPort(backendStatus.port);
+          return;
+        }
+      } catch {
+        // ignore
+      }
+      window.setTimeout(() => {
+        void tick();
+      }, 400);
+    };
+    void tick();
   }
 
   private extractPortFromUrl(url: string): number {
