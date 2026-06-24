@@ -82,7 +82,7 @@ AutoClip 是一款 AI 视频切片工具：输入 B站/YouTube 链接或本地�
 4. **构建提速**：缓存 PBS python + 已装依赖，避免每次重装。
 5. **自动 UI 冒烟**：在 CI 里加一步，验证打包后的前端能挂载（而不仅是后端接口通）。
 6. 产品向：B站上传、字幕编辑、批量处理、云端同步（见 RELEASE_CHECKLIST.md 后续计划）。
-7. **剪辑口播生产线**（`feature/ai-editor`）：里程碑 A→B→C，完整切片、无简化缺口，见 [`docs/VOICEOVER_PIPELINE.md`](docs/VOICEOVER_PIPELINE.md)。
+7. **剪辑口播生产线**（`feature/ai-editor`）：里程碑 A→B→C 已落地；端到端验收见 [`docs/VOICEOVER_PIPELINE.md` §15](docs/VOICEOVER_PIPELINE.md#15-端到端验收清单)。
 
 ---
 

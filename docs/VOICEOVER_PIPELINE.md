@@ -283,6 +283,7 @@
 | 2026-06-24 | **里程碑 A 已完成**：schema、`voiceover_plan` 持久化、API、Agent「口播」面板与分段编辑器 |
 | 2026-06-24 | **里程碑 B 已完成**：TTS 上轨、句级字幕、占位视频、段级 orchestrator |
 | 2026-06-24 | **里程碑 C 已完成**：段级素材搜索/确认、下载入库、语义选段、替换占位画面 |
+| 2026-06-24 | 新增 **§15 端到端验收清单**（A/B/C 人工 + API + CI 参考） |
 
 ## 12. 里程碑 A 实现清单（代码）
 
@@ -322,3 +323,121 @@
 | 语义检索 | 复用 `clip_event_detector.search_clip_events`（visual_primary） |
 | 前端 UI | `VoiceoverPlanPanel` 段内搜索/确认/应用 + 手动 in/out |
 | 测试 | `backend/tests/test_voiceover_broll.py` |
+
+---
+
+## 15. 端到端验收清单
+
+> **用途**：在真实剪辑工程中走通 A→B→C 全链；人工勾选即可判定是否达到各里程碑出口标准。  
+> **建议工程**：新建空白剪辑 session，3–5 段口播脚本，总 TTS 时长 30s–3min。  
+> **入口**：剪辑模块 → AI 助手面板 → **口播** Tab。
+
+### 15.1 环境与前置
+
+| # | 项 | 通过 |
+|---|----|:----:|
+| E0.1 | 后端 `/health` 正常；Edge TTS 可用（`edge-tts` 已安装） | ☐ |
+| E0.2 | LLM 已配置（脚本生成、语义选段依赖） | ☐ |
+| E0.3 | 素材库中至少有 **1 条占位视频**，单段时长 ≥ 最长口播段 TTS（建议 ≥ 60s） | ☐ |
+| E0.4 | （C 阶段）YouTube 或 Bilibili 搜索/下载可用；或素材库中已有可用手动指定视频 | ☐ |
+| E0.5 | 关闭并重开工程后，`voiceover_plan` 仍可恢复（持久化 smoke） | ☐ |
+
+### 15.2 里程碑 A · 脚本闭环
+
+| # | 操作 | 预期 | 通过 |
+|---|------|------|:----:|
+| A1 | 输入 ≥300 字口播意图，点击「生成分段脚本」 | 得到 ≥3 段，含口播文案、画面描述、搜索词 | ☐ |
+| A2 | 编辑第 2 段文案、删除 1 段、后插 1 段，保存 | 变更持久化；段序 index 连续 | ☐ |
+| A3 | 点击「确认脚本」 | plan 状态 **已确认**；各段 **脚本已确认** | ☐ |
+| A4 | 确认后刷新/重开工程 | 脚本仍在；**时间线无变化**（无 audio/block/overlay 写入） | ☐ |
+| A5 | 「改回草稿」后可再编辑；「LLM 重写本段」可用 | 回到 draft，重写后须再次确认 | ☐ |
+
+### 15.3 里程碑 B · 声画字幕
+
+| # | 操作 | 预期 | 通过 |
+|---|------|------|:----:|
+| B1 | 素材库选占位视频 →「执行 TTS + 字幕（全部待处理段）」 | 各段进入执行；完成后段状态 **TTS 完成** | ☐ |
+| B2 | 检查时间线 **音频轨** | 各段 clip 首尾相接、无重叠；总时长 ≈ 各段 TTS 之和 | ☐ |
+| B3 | 检查 **字幕 overlay** | 每段 **多条**句级字幕（非整段一条）；起止与朗读大致一致（句级误差体感 ≤200ms） | ☐ |
+| B4 | 检查 **视频轨占位 block** | 每段 block 与对应音频 **等长**（可视宽度/时长一致） | ☐ |
+| B5 | 故意让第 3 段失败（如断网后重试 TTS）或单段重跑 | 前段保留；可 **重试本段 / 重新生成本段 TTS** 而不影响已完成段 | ☐ |
+| B6 | plan 状态 | 全部 TTS 完成后 plan 为 **已完成** 或 **执行中**（允许尚未做 C） | ☐ |
+
+### 15.4 里程碑 C · 素材智能（逐段）
+
+对 **每一段** 重复以下步骤（至少验收 2 段，建议全段走一遍）：
+
+| # | 操作 | 预期 | 通过 |
+|---|------|------|:----:|
+| C1 | 选择平台 →「搜索素材」 | 展示 Top-N：标题、平台、时长、是否已在库 | ☐ |
+| C2 | 单选一条候选（或素材库下拉）→「确认候选」 | 显示「已选：xxx」；**未**自动下载 | ☐ |
+| C3 | 「下载并应用 B-roll」 | 下载完成后占位 block **替换**为真实素材；段状态 **素材完成** | ☐ |
+| C4 | 查看 **选段说明**（`selection_reason`） | 含语义命中区间或扩展说明，非空且可读 | ☐ |
+| C5 | 检查 block **trim 时长** | 与段 TTS 时长一致（误差 ≤100ms，预览体感对齐即可） | ☐ |
+| C6 | 画面与 `visual_brief` | 人工抽检：内容与画面描述 ** visibly 相关** | ☐ |
+| C7 | 手动改 in/out →「应用手动 trim」 | trim 更新；时长仍与 TTS 对齐；说明文案更新 | ☐ |
+| C8 | 单段 **重搜 + 重选 + 重应用** | 其他已完成段 **不变** | ☐ |
+
+全段 `broll_done` 后：
+
+| # | 预期 | 通过 |
+|---|------|:----:|
+| C9 | plan 状态 **已完成** | ☐ |
+| C10 | 预览播放：声画字幕 **同步**，段间 **无黑场错位**（允许占位转场设置影响） | ☐ |
+
+### 15.5 失败与边界（建议至少抽测 2 项）
+
+| # | 场景 | 预期 | 通过 |
+|---|------|------|:----:|
+| F1 | 占位视频 **短于** 口播 TTS | B 阶段报错，提示更换更长占位素材 | ☐ |
+| F2 | 未「确认候选」直接「应用 B-roll」 | 前端按钮禁用或 API 400 | ☐ |
+| F3 | 语义选段 **无匹配**（素材与 brief 完全无关） | 报错提示换素材/手动 in/out；**不**静默取前 N 秒 | ☐ |
+| F4 | 下载超时或失败 | 段状态失败 + 错误信息；可重试，不影响其他段 | ☐ |
+| F5 | 脚本 **draft** 时尝试执行 B | 不可执行或明确提示须先确认脚本 | ☐ |
+
+### 15.6 API 冒烟（可选，供调试）
+
+替换 `{project_id}`、`{session_id}`、`{segment_id}`：
+
+```http
+# A
+POST /api/v1/projects/{project_id}/edit-sessions/{session_id}/voiceover/generate
+POST /api/v1/projects/{project_id}/edit-sessions/{session_id}/voiceover/confirm
+
+# B
+POST /api/v1/projects/{project_id}/edit-sessions/{session_id}/voiceover/execute
+Body: { "placeholder_library_asset_id": "lib-..." }
+
+# C
+POST .../voiceover/segments/{segment_id}/search-materials
+Body: { "platform": "youtube", "limit": 10 }
+POST .../voiceover/segments/{segment_id}/select-material
+Body: { "search_result_index": 0 }
+POST .../voiceover/segments/{segment_id}/apply-broll
+Body: { "wait_download_timeout_sec": 300 }
+```
+
+### 15.7 自动化测试（CI 参考）
+
+```bash
+python -m pytest backend/tests/test_voiceover_plan.py \
+  backend/tests/test_voiceover_execute.py \
+  backend/tests/test_voiceover_broll.py -q
+```
+
+### 15.8 已知限制（验收时不算缺陷）
+
+- 句级字幕为主；词级为句内字符权重估算，非 TTS 原生 WordBoundary。
+- B/C 依赖素材库与 yt-dlp；B 站需现有下载环境，失败时改用手动入库 + 素材库指定。
+- 语义选段耗时与 LLM/抽帧有关，长素材单段可能需 1–3 分钟。
+- Agent 对话 **尚未** 默认挂载口播 orchestrator tools；当前以 **口播 Tab 专用 UI** 为验收入口。
+
+### 15.9 签收标准（全链）
+
+以下 **全部勾选** 视为口播生产线 v1 可交付：
+
+- [ ] §15.2 里程碑 A 全部通过  
+- [ ] §15.3 里程碑 B 全部通过  
+- [ ] §15.4 里程碑 C 至少 2 段完整通过 + C9/C10  
+- [ ] §15.5 至少 2 项边界通过  
+- [ ] §15.7 自动化测试 green  
