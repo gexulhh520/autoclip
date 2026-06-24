@@ -98,6 +98,32 @@
   overflow-y: auto;
 }
 
+.editor-agent-panel__body--voiceover {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.editor-agent-panel__body--voiceover .editor-agent-panel__segmented {
+  flex-shrink: 0;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--editor-border-light);
+  background: var(--editor-panel);
+}
+
+.editor-agent-panel__body--voiceover .editor-agent-panel__voiceover {
+  flex: 1;
+  min-height: 0;
+}
+
+.editor-agent-panel__body--voiceover .editor-agent-panel__error {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--editor-border-light);
+  background: var(--editor-panel-2);
+}
+
 .editor-agent-panel__assistant {
   display: flex;
   flex-direction: column;
@@ -906,23 +932,24 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 12px 14px 14px;
+  padding: 20px 16px 28px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
 }
 
 .editor-agent-panel__voiceover-intro {
   margin: 0;
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.6;
   color: var(--editor-sub);
+  max-width: 42em;
 }
 
 .editor-agent-panel__voiceover-field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   font-size: 12px;
   color: var(--editor-sub);
 }
@@ -941,7 +968,7 @@
   background: var(--editor-panel);
   color: var(--editor-text);
   font-size: 12px;
-  padding: 8px 10px;
+  padding: 10px 12px;
   font-family: inherit;
   resize: vertical;
 }
@@ -950,7 +977,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: 10px;
+  gap: 14px;
+  margin-top: 2px;
 }
 
 .editor-agent-panel__voiceover-check {
@@ -965,7 +993,8 @@
 .editor-agent-panel__voiceover-footer {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
+  margin-top: 4px;
 }
 
 .editor-agent-panel__voiceover-meta {
@@ -983,17 +1012,18 @@
 .editor-agent-panel__voiceover-segments {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+  margin-top: 4px;
 }
 
 .editor-agent-panel__voiceover-segment {
   border: 1px solid var(--editor-border-light);
   border-radius: 10px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   background: var(--editor-panel);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .editor-agent-panel__voiceover-segment-head {
@@ -1077,8 +1107,8 @@
 .editor-agent-panel__voiceover-execute {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: 12px;
+  padding: 12px 14px;
   border: 1px solid var(--editor-border-light);
   border-radius: 10px;
   background: var(--editor-panel);
@@ -1087,8 +1117,8 @@
 .editor-agent-panel__voiceover-next-step {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
+  gap: 6px;
+  padding: 12px 14px;
   border: 1px solid var(--editor-border-light);
   border-radius: 10px;
   background: var(--editor-panel);

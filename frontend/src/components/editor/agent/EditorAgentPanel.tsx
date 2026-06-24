@@ -1048,7 +1048,13 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
           </div>
         </div>
 
-      <div className="editor-agent-panel__body">{panelBody}</div>
+      <div
+        className={`editor-agent-panel__body${
+          mode === 'voiceover' ? ' editor-agent-panel__body--voiceover' : ''
+        }`}
+      >
+        {panelBody}
+      </div>
     </aside>
   )
 }

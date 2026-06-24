@@ -473,8 +473,7 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
   return (
     <div className="editor-agent-panel__voiceover">
       <p className="editor-agent-panel__voiceover-intro">
-        输入口播意图或完整文稿，生成分段脚本。确认后在本页执行 TTS + 字幕（默认底部居中，无需参考图），
-        再按段搜索素材并替换占位画面。
+        输入口播意图或完整文稿，生成分段脚本；确认后在本页执行 TTS + 字幕并替换占位画面。
       </p>
 
       <label className="editor-agent-panel__voiceover-field">
