@@ -282,6 +282,7 @@
 | 2026-06-24 | 初版：三里程碑完整切片规划；明确「无简化缺口」原则 |
 | 2026-06-24 | **里程碑 A 已完成**：schema、`voiceover_plan` 持久化、API、Agent「口播」面板与分段编辑器 |
 | 2026-06-24 | **里程碑 B 已完成**：TTS 上轨、句级字幕、占位视频、段级 orchestrator |
+| 2026-06-24 | **里程碑 C 已完成**：段级素材搜索/确认、下载入库、语义选段、替换占位画面 |
 
 ## 12. 里程碑 A 实现清单（代码）
 
@@ -308,3 +309,16 @@
 | Plan 字段 | `placeholder_library_asset_id`、`tts.audio_clip_id` |
 | 前端执行 UI | `VoiceoverPlanPanel` 占位素材选择 + 一键执行 + 分段状态/重试 |
 | 测试 | `backend/tests/test_voiceover_execute.py` |
+
+## 14. 里程碑 C 实现清单（代码）
+
+| 项 | 路径 |
+|----|------|
+| 语义选段算法 | `backend/services/voiceover_broll_selection.py` |
+| B-roll orchestrator | `backend/services/voiceover_broll_service.py` |
+| 搜索 API | `POST .../voiceover/segments/{id}/search-materials` |
+| 确认候选 API | `POST .../voiceover/segments/{id}/select-material` |
+| 应用 B-roll API | `POST .../voiceover/segments/{id}/apply-broll` |
+| 语义检索 | 复用 `clip_event_detector.search_clip_events`（visual_primary） |
+| 前端 UI | `VoiceoverPlanPanel` 段内搜索/确认/应用 + 手动 in/out |
+| 测试 | `backend/tests/test_voiceover_broll.py` |

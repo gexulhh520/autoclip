@@ -103,6 +103,23 @@ export interface VoiceoverExecuteResponse {
   note: string
 }
 
+export interface VoiceoverSearchMaterialsRequest {
+  platform?: string
+  limit?: number
+}
+
+export interface VoiceoverSelectMaterialRequest {
+  library_asset_id?: string | null
+  search_result?: VoiceoverSearchResult | null
+  search_result_index?: number | null
+}
+
+export interface VoiceoverApplyBrollRequest {
+  source_in_sec?: number | null
+  source_out_sec?: number | null
+  wait_download_timeout_sec?: number
+}
+
 export const MAX_VOICEOVER_SEGMENTS = 24
 
 export const VOICEOVER_PLAN_STATUS_LABEL: Record<VoiceoverPlanStatus, string> = {

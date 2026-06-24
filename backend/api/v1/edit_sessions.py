@@ -66,12 +66,15 @@ from backend.schemas.editor_agent import (
 )
 from backend.core.path_utils import get_project_directory
 from backend.schemas.voiceover_plan import (
+    VoiceoverApplyBrollRequest,
     VoiceoverExecuteRequest,
     VoiceoverExecuteResponse,
     VoiceoverGenerateRequest,
     VoiceoverGenerateResponse,
     VoiceoverPlanResponse,
     VoiceoverRegenerateSegmentRequest,
+    VoiceoverSearchMaterialsRequest,
+    VoiceoverSelectMaterialRequest,
     VoiceoverUpdatePlanRequest,
 )
 from backend.services.edit_session_service import EditSessionService, _edit_sessions_dir
@@ -1712,4 +1715,91 @@ async def execute_voiceover_segment(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("口播分段执行失败: %s/%s segment=%s", project_id, session_id, segment_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/voiceover/segments/{segment_id}/search-materials",
+    response_model=VoiceoverExecuteResponse,
+)
+async def search_voiceover_segment_materials(
+    project_id: str,
+    session_id: str,
+    segment_id: str,
+    body: VoiceoverSearchMaterialsRequest,
+    service: VoiceoverPlanService = Depends(get_voiceover_plan_service),
+):
+    try:
+        session, plan, note = await asyncio.to_thread(
+            service.search_segment_materials,
+            project_id,
+            session_id,
+            segment_id,
+            body,
+        )
+        return VoiceoverExecuteResponse(session=session, plan=plan, note=note)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("口播素材搜索失败: %s/%s segment=%s", project_id, session_id, segment_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/voiceover/segments/{segment_id}/select-material",
+    response_model=VoiceoverExecuteResponse,
+)
+async def select_voiceover_segment_material(
+    project_id: str,
+    session_id: str,
+    segment_id: str,
+    body: VoiceoverSelectMaterialRequest,
+    service: VoiceoverPlanService = Depends(get_voiceover_plan_service),
+):
+    try:
+        session, plan, note = await asyncio.to_thread(
+            service.select_segment_material,
+            project_id,
+            session_id,
+            segment_id,
+            body,
+        )
+        return VoiceoverExecuteResponse(session=session, plan=plan, note=note)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("口播素材选定失败: %s/%s segment=%s", project_id, session_id, segment_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{project_id}/edit-sessions/{session_id}/voiceover/segments/{segment_id}/apply-broll",
+    response_model=VoiceoverExecuteResponse,
+)
+async def apply_voiceover_segment_broll(
+    project_id: str,
+    session_id: str,
+    segment_id: str,
+    body: VoiceoverApplyBrollRequest,
+    service: VoiceoverPlanService = Depends(get_voiceover_plan_service),
+):
+    try:
+        session, plan, note = await asyncio.to_thread(
+            service.apply_segment_broll,
+            project_id,
+            session_id,
+            segment_id,
+            body,
+        )
+        return VoiceoverExecuteResponse(session=session, plan=plan, note=note)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("口播 B-roll 应用失败: %s/%s segment=%s", project_id, session_id, segment_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc

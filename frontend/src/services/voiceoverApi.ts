@@ -1,12 +1,15 @@
 import api from './api'
 import type { EditSession } from '../types/editSession'
 import type {
+  VoiceoverApplyBrollRequest,
   VoiceoverExecuteRequest,
   VoiceoverExecuteResponse,
   VoiceoverGenerateRequest,
   VoiceoverGenerateResponse,
   VoiceoverPlan,
   VoiceoverPlanResponse,
+  VoiceoverSearchMaterialsRequest,
+  VoiceoverSelectMaterialRequest,
 } from '../types/voiceoverPlan'
 
 const VOICEOVER_TIMEOUT_MS = 300_000
@@ -106,6 +109,44 @@ export const voiceoverApi = {
   ): Promise<VoiceoverExecuteResponse> => {
     return (await api.post(
       `${voiceoverBase(projectId, sessionId)}/execute-segment/${encodeURIComponent(segmentId)}`,
+      payload,
+      { timeout: VOICEOVER_TIMEOUT_MS }
+    )) as VoiceoverExecuteResponse
+  },
+
+  searchSegmentMaterials: async (
+    projectId: string,
+    sessionId: string,
+    segmentId: string,
+    payload: VoiceoverSearchMaterialsRequest = {}
+  ): Promise<VoiceoverExecuteResponse> => {
+    return (await api.post(
+      `${voiceoverBase(projectId, sessionId)}/segments/${encodeURIComponent(segmentId)}/search-materials`,
+      payload,
+      { timeout: VOICEOVER_TIMEOUT_MS }
+    )) as VoiceoverExecuteResponse
+  },
+
+  selectSegmentMaterial: async (
+    projectId: string,
+    sessionId: string,
+    segmentId: string,
+    payload: VoiceoverSelectMaterialRequest
+  ): Promise<VoiceoverExecuteResponse> => {
+    return (await api.post(
+      `${voiceoverBase(projectId, sessionId)}/segments/${encodeURIComponent(segmentId)}/select-material`,
+      payload
+    )) as VoiceoverExecuteResponse
+  },
+
+  applySegmentBroll: async (
+    projectId: string,
+    sessionId: string,
+    segmentId: string,
+    payload: VoiceoverApplyBrollRequest = {}
+  ): Promise<VoiceoverExecuteResponse> => {
+    return (await api.post(
+      `${voiceoverBase(projectId, sessionId)}/segments/${encodeURIComponent(segmentId)}/apply-broll`,
       payload,
       { timeout: VOICEOVER_TIMEOUT_MS }
     )) as VoiceoverExecuteResponse

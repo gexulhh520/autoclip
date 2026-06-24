@@ -143,5 +143,22 @@ class VoiceoverExecuteResponse(BaseModel):
     note: str = ""
 
 
+class VoiceoverSearchMaterialsRequest(BaseModel):
+    platform: str = Field(default="youtube", description="youtube | bilibili")
+    limit: int = Field(default=10, ge=1, le=20)
+
+
+class VoiceoverSelectMaterialRequest(BaseModel):
+    library_asset_id: Optional[str] = None
+    search_result: Optional[VoiceoverSearchResult] = None
+    search_result_index: Optional[int] = Field(default=None, ge=0, le=19)
+
+
+class VoiceoverApplyBrollRequest(BaseModel):
+    source_in_sec: Optional[float] = Field(default=None, ge=0)
+    source_out_sec: Optional[float] = Field(default=None, ge=0)
+    wait_download_timeout_sec: float = Field(default=180.0, ge=10.0, le=600.0)
+
+
 if TYPE_CHECKING:
     from backend.schemas.edit_session import EditSession

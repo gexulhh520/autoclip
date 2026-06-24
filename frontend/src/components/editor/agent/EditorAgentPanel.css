@@ -1099,3 +1099,66 @@
   font-size: 12px;
   color: var(--editor-sub);
 }
+
+.editor-agent-panel__voiceover-broll {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--editor-border-light);
+}
+
+.editor-agent-panel__voiceover-broll-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--editor-text);
+}
+
+.editor-agent-panel__voiceover-select--compact {
+  width: auto;
+  min-width: 108px;
+}
+
+.editor-agent-panel__voiceover-broll-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.editor-agent-panel__voiceover-broll-result {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 12px;
+  color: var(--editor-text);
+  cursor: pointer;
+}
+
+.editor-agent-panel__voiceover-broll-result-meta {
+  display: block;
+  color: var(--editor-sub);
+  font-weight: 400;
+}
+
+.editor-agent-panel__voiceover-broll-actions,
+.editor-agent-panel__voiceover-broll-trim {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.editor-agent-panel__voiceover-broll-reason {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--editor-sub);
+}

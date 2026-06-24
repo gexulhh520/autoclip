@@ -8,13 +8,16 @@ from backend.core.llm_manager import get_llm_manager
 from backend.schemas.edit_session import EditSession, EditSessionUpdateRequest
 from backend.schemas.voiceover_plan import (
     MAX_VOICEOVER_SEGMENTS,
+    VoiceoverApplyBrollRequest,
     VoiceoverExecuteRequest,
     VoiceoverGenerateRequest,
     VoiceoverPlan,
     VoiceoverPlanStatus,
     VoiceoverRegenerateSegmentRequest,
+    VoiceoverSearchMaterialsRequest,
     VoiceoverSegment,
     VoiceoverSegmentStatus,
+    VoiceoverSelectMaterialRequest,
     VoiceoverUpdatePlanRequest,
 )
 from backend.services.edit_session_service import EditSessionService
@@ -22,6 +25,7 @@ from backend.services.voiceover_script_generator import (
     generate_voiceover_plan,
     regenerate_voiceover_segment,
 )
+from backend.services.voiceover_broll_service import VoiceoverBrollService
 from backend.services.voiceover_orchestrator import VoiceoverOrchestrator
 
 
@@ -30,9 +34,11 @@ class VoiceoverPlanService:
         self,
         session_service: Optional[EditSessionService] = None,
         orchestrator: Optional[VoiceoverOrchestrator] = None,
+        broll_service: Optional[VoiceoverBrollService] = None,
     ):
         self.session_service = session_service or EditSessionService()
         self.orchestrator = orchestrator or VoiceoverOrchestrator(self.session_service)
+        self.broll_service = broll_service or VoiceoverBrollService(self.session_service)
 
     def get_plan(self, project_id: str, session_id: str) -> tuple[EditSession, Optional[VoiceoverPlan]]:
         session = self.session_service.get_session(project_id, session_id)
@@ -233,4 +239,51 @@ class VoiceoverPlanService:
             session_id,
             segment_id,
             placeholder_library_asset_id=placeholder_library_asset_id,
+        )
+
+    def search_segment_materials(
+        self,
+        project_id: str,
+        session_id: str,
+        segment_id: str,
+        payload: VoiceoverSearchMaterialsRequest,
+    ) -> tuple[EditSession, VoiceoverPlan, str]:
+        return self.broll_service.search_segment_materials(
+            project_id,
+            session_id,
+            segment_id,
+            platform=payload.platform,
+            limit=payload.limit,
+        )
+
+    def select_segment_material(
+        self,
+        project_id: str,
+        session_id: str,
+        segment_id: str,
+        payload: VoiceoverSelectMaterialRequest,
+    ) -> tuple[EditSession, VoiceoverPlan, str]:
+        return self.broll_service.select_segment_material(
+            project_id,
+            session_id,
+            segment_id,
+            library_asset_id=payload.library_asset_id,
+            search_result=payload.search_result,
+            search_result_index=payload.search_result_index,
+        )
+
+    def apply_segment_broll(
+        self,
+        project_id: str,
+        session_id: str,
+        segment_id: str,
+        payload: VoiceoverApplyBrollRequest,
+    ) -> tuple[EditSession, VoiceoverPlan, str]:
+        return self.broll_service.apply_segment_broll(
+            project_id,
+            session_id,
+            segment_id,
+            source_in_sec=payload.source_in_sec,
+            source_out_sec=payload.source_out_sec,
+            wait_download_timeout_sec=payload.wait_download_timeout_sec,
         )

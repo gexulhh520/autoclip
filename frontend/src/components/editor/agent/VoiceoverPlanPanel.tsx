@@ -53,12 +53,24 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
   const [segmentInstructions, setSegmentInstructions] = useState<Record<string, string>>({})
   const [libraryAssets, setLibraryAssets] = useState<LibraryAsset[]>([])
   const [placeholderAssetId, setPlaceholderAssetId] = useState('')
+  const [brollPlatform, setBrollPlatform] = useState<'youtube' | 'bilibili'>('youtube')
+  const [selectedSearchIndex, setSelectedSearchIndex] = useState<Record<string, number>>({})
+  const [libraryPickBySegment, setLibraryPickBySegment] = useState<Record<string, string>>({})
+  const [manualTrim, setManualTrim] = useState<Record<string, { inSec: string; outSec: string }>>({})
+  const [brollBusySegmentId, setBrollBusySegmentId] = useState<string | null>(null)
 
   const plan = draftPlan ?? sessionPlan
   const isEditable = plan?.status === 'draft'
   const canExecute = Boolean(
     plan &&
       ['confirmed', 'executing', 'failed', 'completed'].includes(plan.status)
+  )
+  const needsMaterialLibrary = Boolean(
+    plan &&
+      !isEditable &&
+      plan.segments.some((seg) =>
+        ['tts_done', 'broll_done', 'failed'].includes(seg.status)
+      )
   )
 
   useEffect(() => {
@@ -74,7 +86,7 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
   }, [sessionPlan, userBrief])
 
   useEffect(() => {
-    if (!canExecute) return
+    if (!canExecute && !needsMaterialLibrary) return
     let cancelled = false
     void libraryApi
       .listAssets({ page: 1, page_size: 48, sort: 'created_at_desc' })
@@ -91,7 +103,7 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     return () => {
       cancelled = true
     }
-  }, [canExecute, projectId, sessionId])
+  }, [canExecute, needsMaterialLibrary, projectId, sessionId])
 
   useEffect(() => {
     if (sessionPlan && !draftPlan) {
@@ -278,6 +290,95 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     }
   }
 
+  const handleSearchBroll = async (segmentId: string) => {
+    setBrollBusySegmentId(segmentId)
+    onError('')
+    try {
+      const response = await voiceoverApi.searchSegmentMaterials(
+        projectId,
+        sessionId,
+        segmentId,
+        { platform: brollPlatform, limit: 10 }
+      )
+      applyResponse(response)
+    } catch (err: unknown) {
+      onError(err instanceof Error ? err.message : '素材搜索失败')
+    } finally {
+      setBrollBusySegmentId(null)
+    }
+  }
+
+  const handleSelectBroll = async (segmentId: string) => {
+    const libraryAssetId = libraryPickBySegment[segmentId]?.trim()
+    const searchIndex = selectedSearchIndex[segmentId]
+    if (libraryAssetId) {
+      setBrollBusySegmentId(segmentId)
+      onError('')
+      try {
+        const response = await voiceoverApi.selectSegmentMaterial(projectId, sessionId, segmentId, {
+          library_asset_id: libraryAssetId,
+        })
+        applyResponse(response)
+      } catch (err: unknown) {
+        onError(err instanceof Error ? err.message : '素材选定失败')
+      } finally {
+        setBrollBusySegmentId(null)
+      }
+      return
+    }
+    if (searchIndex === undefined || Number.isNaN(searchIndex)) {
+      onError('请从搜索结果或素材库中选择一条素材')
+      return
+    }
+    setBrollBusySegmentId(segmentId)
+    onError('')
+    try {
+      const response = await voiceoverApi.selectSegmentMaterial(projectId, sessionId, segmentId, {
+        search_result_index: searchIndex,
+      })
+      applyResponse(response)
+    } catch (err: unknown) {
+      onError(err instanceof Error ? err.message : '素材选定失败')
+    } finally {
+      setBrollBusySegmentId(null)
+    }
+  }
+
+  const handleApplyBroll = async (segmentId: string, useManualTrim: boolean) => {
+    setBrollBusySegmentId(segmentId)
+    onError('')
+    try {
+      const manual = manualTrim[segmentId]
+      const payload =
+        useManualTrim && manual?.inSec && manual?.outSec
+          ? {
+              source_in_sec: Number.parseFloat(manual.inSec),
+              source_out_sec: Number.parseFloat(manual.outSec),
+              wait_download_timeout_sec: 300,
+            }
+          : { wait_download_timeout_sec: 300 }
+      const response = await voiceoverApi.applySegmentBroll(
+        projectId,
+        sessionId,
+        segmentId,
+        payload
+      )
+      applyResponse(response)
+    } catch (err: unknown) {
+      onError(err instanceof Error ? err.message : 'B-roll 应用失败')
+    } finally {
+      setBrollBusySegmentId(null)
+    }
+  }
+
+  const segmentHasTts = (segment: VoiceoverSegment) =>
+    Boolean(segment.tts?.duration_sec && segment.tts.duration_sec > 0)
+
+  const canManageBroll = (segment: VoiceoverSegment) =>
+    !isEditable &&
+    segmentHasTts(segment) &&
+    ['tts_done', 'broll_done', 'failed'].includes(segment.status)
+
   const handleRemoveSegment = async (segmentId: string) => {
     if (!window.confirm('确定删除该分段？')) return
     setSaving(true)
@@ -300,8 +401,8 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
   return (
     <div className="editor-agent-panel__voiceover">
       <p className="editor-agent-panel__voiceover-intro">
-        输入口播意图或完整文稿，生成分段脚本（口播文案 + 画面描述 + 素材关键词）。确认后可执行里程碑
-        B：TTS 上轨、句级字幕对齐、占位视频与音频等长。
+        输入口播意图或完整文稿，生成分段脚本。确认后执行里程碑 B（TTS + 字幕 + 占位画面），再按段搜索素材、
+        确认候选并应用里程碑 C（语义选段替换画面）。
       </p>
 
       <label className="editor-agent-panel__voiceover-field">
@@ -510,16 +611,186 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
                           : ''}
                       </p>
                     ) : null}
-                    {segment.status === 'failed' || segment.status === 'tts_done' ? (
+                    {!segmentHasTts(segment) ? (
                       <button
                         type="button"
                         className="editor-agent-panel__voiceover-btn"
                         onClick={() => void handleExecuteSegment(segment.id)}
                         disabled={executing || saving}
                       >
-                        {segment.status === 'failed' ? '重试本段' : '重新生成本段'}
+                        {segment.status === 'failed' ? '重试 TTS' : '重新生成本段 TTS'}
                       </button>
                     ) : null}
+                  </div>
+                ) : null}
+
+                {canManageBroll(segment) ? (
+                  <div className="editor-agent-panel__voiceover-broll">
+                    <div className="editor-agent-panel__voiceover-broll-head">
+                      <span>里程碑 C · 素材</span>
+                      <select
+                        className="editor-agent-panel__voiceover-select editor-agent-panel__voiceover-select--compact"
+                        value={brollPlatform}
+                        onChange={(event) =>
+                          setBrollPlatform(event.target.value as 'youtube' | 'bilibili')
+                        }
+                        disabled={Boolean(brollBusySegmentId)}
+                      >
+                        <option value="youtube">YouTube</option>
+                        <option value="bilibili">Bilibili</option>
+                      </select>
+                      <button
+                        type="button"
+                        className="editor-agent-panel__voiceover-btn"
+                        onClick={() => void handleSearchBroll(segment.id)}
+                        disabled={Boolean(brollBusySegmentId) || executing}
+                      >
+                        {brollBusySegmentId === segment.id ? '搜索中…' : '搜索素材'}
+                      </button>
+                    </div>
+
+                    {(segment.broll?.search_results?.length ?? 0) > 0 ? (
+                      <ul className="editor-agent-panel__voiceover-broll-results">
+                        {segment.broll!.search_results!.map((item, index) => (
+                          <li key={`${item.url}-${index}`}>
+                            <label className="editor-agent-panel__voiceover-broll-result">
+                              <input
+                                type="radio"
+                                name={`broll-search-${segment.id}`}
+                                checked={selectedSearchIndex[segment.id] === index}
+                                onChange={() =>
+                                  setSelectedSearchIndex((prev) => ({
+                                    ...prev,
+                                    [segment.id]: index,
+                                  }))
+                                }
+                              />
+                              <span>
+                                <strong>{item.title || '未命名'}</strong>
+                                <span className="editor-agent-panel__voiceover-broll-result-meta">
+                                  {item.platform}
+                                  {item.duration_sec ? ` · ${Math.round(item.duration_sec)}s` : ''}
+                                  {item.in_library ? ' · 已在库' : ''}
+                                </span>
+                              </span>
+                            </label>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+
+                    <label className="editor-agent-panel__voiceover-field">
+                      <span>或从素材库指定</span>
+                      <select
+                        className="editor-agent-panel__voiceover-select"
+                        value={libraryPickBySegment[segment.id] ?? ''}
+                        onChange={(event) =>
+                          setLibraryPickBySegment((prev) => ({
+                            ...prev,
+                            [segment.id]: event.target.value,
+                          }))
+                        }
+                        disabled={Boolean(brollBusySegmentId)}
+                      >
+                        <option value="">（可选）素材库视频…</option>
+                        {libraryAssets.map((asset) => (
+                          <option key={asset.id} value={asset.id}>
+                            {asset.title}
+                            {asset.duration_sec ? ` · ${Math.round(asset.duration_sec)}s` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <div className="editor-agent-panel__voiceover-broll-actions">
+                      <button
+                        type="button"
+                        className="editor-agent-panel__voiceover-btn"
+                        onClick={() => void handleSelectBroll(segment.id)}
+                        disabled={Boolean(brollBusySegmentId) || executing}
+                      >
+                        确认候选
+                      </button>
+                      <button
+                        type="button"
+                        className="editor-agent-panel__voiceover-btn editor-agent-panel__voiceover-btn--primary"
+                        onClick={() => void handleApplyBroll(segment.id, false)}
+                        disabled={Boolean(brollBusySegmentId) || executing || !segment.broll?.selected}
+                      >
+                        {brollBusySegmentId === segment.id ? '应用中…' : '下载并应用 B-roll'}
+                      </button>
+                    </div>
+
+                    {segment.broll?.selected ? (
+                      <p className="editor-agent-panel__voiceover-segment-meta">
+                        已选：{segment.broll.selected.title}
+                      </p>
+                    ) : null}
+
+                    {segment.broll?.selection_reason ? (
+                      <p className="editor-agent-panel__voiceover-broll-reason">
+                        {segment.broll.selection_reason}
+                      </p>
+                    ) : null}
+
+                    <div className="editor-agent-panel__voiceover-broll-trim">
+                      <label className="editor-agent-panel__voiceover-field editor-agent-panel__voiceover-field--inline">
+                        <span>手动 in (s)</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.1}
+                          className="editor-agent-panel__voiceover-input"
+                          value={
+                            manualTrim[segment.id]?.inSec ??
+                            (segment.broll?.source_in_sec != null
+                              ? String(segment.broll.source_in_sec)
+                              : '')
+                          }
+                          onChange={(event) =>
+                            setManualTrim((prev) => ({
+                              ...prev,
+                              [segment.id]: {
+                                inSec: event.target.value,
+                                outSec: prev[segment.id]?.outSec ?? '',
+                              },
+                            }))
+                          }
+                        />
+                      </label>
+                      <label className="editor-agent-panel__voiceover-field editor-agent-panel__voiceover-field--inline">
+                        <span>手动 out (s)</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.1}
+                          className="editor-agent-panel__voiceover-input"
+                          value={
+                            manualTrim[segment.id]?.outSec ??
+                            (segment.broll?.source_out_sec != null
+                              ? String(segment.broll.source_out_sec)
+                              : '')
+                          }
+                          onChange={(event) =>
+                            setManualTrim((prev) => ({
+                              ...prev,
+                              [segment.id]: {
+                                inSec: prev[segment.id]?.inSec ?? '',
+                                outSec: event.target.value,
+                              },
+                            }))
+                          }
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="editor-agent-panel__voiceover-btn"
+                        onClick={() => void handleApplyBroll(segment.id, true)}
+                        disabled={Boolean(brollBusySegmentId) || executing || !segment.broll?.selected}
+                      >
+                        应用手动 trim
+                      </button>
+                    </div>
                   </div>
                 ) : null}
               </article>
