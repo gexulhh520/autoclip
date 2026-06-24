@@ -19,6 +19,7 @@ interface VoiceoverPlanPanelProps {
   projectId: string
   sessionId: string
   onError: (message: string) => void
+  onPlanConfirmed?: () => void
 }
 
 function clonePlan(plan: VoiceoverPlan): VoiceoverPlan {
@@ -69,6 +70,7 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
   projectId,
   sessionId,
   onError,
+  onPlanConfirmed,
 }) => {
   const sessionPlan = useEditSessionStore((state) => state.session?.voiceover_plan ?? null)
   const syncSessionFromApi = useEditSessionStore((state) => state.syncSessionFromApi)
@@ -229,6 +231,8 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
       }
       const response = await voiceoverApi.confirm(projectId, sessionId)
       applyResponse(response)
+      onPlanConfirmed?.()
+      onError('')
     } catch (err: unknown) {
       onError(err instanceof Error ? err.message : '确认口播脚本失败')
     } finally {
@@ -448,14 +452,24 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     return VOICEOVER_PLAN_STATUS_LABEL[plan.status] ?? plan.status
   }, [plan])
 
+  const hasPendingTts = Boolean(
+    plan &&
+      canExecute &&
+      plan.segments.some(
+        (segment) =>
+          segment.status === 'script_confirmed' ||
+          (segment.status === 'failed' && !segmentHasTts(segment))
+      )
+  )
+
   const voiceGroups = useMemo(() => getEdgeTtsVoiceGroups(), [])
   const resolvedVoiceId = resolveEdgeTtsVoiceId(voiceId)
 
   return (
     <div className="editor-agent-panel__voiceover">
       <p className="editor-agent-panel__voiceover-intro">
-        输入口播意图或完整文稿，生成分段脚本。确认后执行里程碑 B（TTS + 字幕 + 占位画面），再按段搜索素材、
-        确认候选并应用里程碑 C（语义选段替换画面）。
+        输入口播意图或完整文稿，生成分段脚本。确认后在本页执行 TTS + 字幕（默认底部居中，无需参考图），
+        再按段搜索素材并替换占位画面。
       </p>
 
       <label className="editor-agent-panel__voiceover-field">
@@ -523,6 +537,16 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
             <span>{plan.segments.length} 段</span>
             {draftPlan ? <span className="editor-agent-panel__voiceover-unsaved">未保存</span> : null}
           </div>
+
+          {hasPendingTts ? (
+            <div className="editor-agent-panel__voiceover-next-step" role="status">
+              <strong>脚本已确认</strong>
+              <p>
+                无需上传参考图。字幕将默认显示在视频底部居中。请先选择占位视频，再点击「执行 TTS +
+                字幕」。
+              </p>
+            </div>
+          ) : null}
 
           {canExecute ? (
             <div className="editor-agent-panel__voiceover-execute">

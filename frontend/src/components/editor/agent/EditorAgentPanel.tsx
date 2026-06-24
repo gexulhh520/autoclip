@@ -10,7 +10,9 @@ import {
   formatMomentExportChoiceHint,
 } from '../../../editor/agent/applyMomentExport'
 import { formatToolCallSummary, isDangerousAgentTool } from '../../../editor/agent/toolRegistry'
+import { buildDefaultBottomCenterLayoutAnalysis } from '../../../editor/agent/defaultLayoutAnalysis'
 import { editorAgentApi } from '../../../services/editorAgentApi'
+import type { VoiceoverPlan } from '../../../types/voiceoverPlan'
 import VoiceoverPlanPanel from './VoiceoverPlanPanel'
 import type {
   AgentChatTurn,
@@ -71,6 +73,17 @@ const blockVisibleDurationSec = (block: {
 }): number => {
   const rate = blockPlaybackRate(block)
   return Math.max(0, block.trim.out_sec - block.trim.in_sec) / rate
+}
+
+function voiceoverPlanHasPendingTts(plan: VoiceoverPlan | null | undefined): boolean {
+  if (!plan || !['confirmed', 'executing', 'failed'].includes(plan.status)) {
+    return false
+  }
+  return plan.segments.some(
+    (segment) =>
+      segment.status === 'script_confirmed' ||
+      (segment.status === 'failed' && !(segment.tts?.duration_sec && segment.tts.duration_sec > 0))
+  )
 }
 
 const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionId }) => {
@@ -355,8 +368,11 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
 
   const runAnalyze = async (): Promise<LayoutAnalysis | null> => {
     if (!imageDataUrl) {
-      setError('请先上传参考图')
-      return null
+      const defaultLayout = buildDefaultBottomCenterLayoutAnalysis(session)
+      setLayout(defaultLayout)
+      setSummary('未上传参考图，使用底部居中默认字幕样式')
+      persistReference(defaultLayout, '默认底部居中字幕', '', layoutPrompt.trim())
+      return defaultLayout
     }
     const response = await editorAgentApi.analyzeLayout(projectId, sessionId, {
       image_base64: imageDataUrl,
@@ -382,6 +398,14 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
   }
 
   const handleLayoutApply = async () => {
+    if (voiceoverPlanHasPendingTts(session?.voiceover_plan)) {
+      setMode('voiceover')
+      setError(
+        '口播脚本已确认：请在本页选择占位视频后点击「执行 TTS + 字幕」。无需参考图，字幕默认显示在视频底部居中。'
+      )
+      return
+    }
+
     setLoading(true)
     setError('')
     setPendingPlan(null)
@@ -618,6 +642,7 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
           projectId={projectId}
           sessionId={sessionId}
           onError={setError}
+          onPlanConfirmed={() => setMode('voiceover')}
         />
       ) : null}
 
@@ -809,8 +834,15 @@ const EditorAgentPanel: React.FC<EditorAgentPanelProps> = ({ projectId, sessionI
       ) : (
         <>
           <p className="editor-agent-panel__hint">
-            上传参考图分析排版样式，再一键套用到当前草稿（文案来自工程，不抄图上的字）。
+            参考图可选：上传后分析自定义排版；不上传则使用底部居中默认字幕样式（文案来自工程，不抄图上的字）。
+            口播脚本请用「口播」标签执行 TTS + 字幕，无需参考图。
           </p>
+
+          {voiceoverPlanHasPendingTts(session?.voiceover_plan) ? (
+            <p className="editor-agent-panel__hint editor-agent-panel__hint--info">
+              你已有待执行的口播脚本。请切换到「口播」标签，选择占位视频后点击「执行 TTS + 字幕」。
+            </p>
+          ) : null}
 
           <input
             ref={fileInputRef}
