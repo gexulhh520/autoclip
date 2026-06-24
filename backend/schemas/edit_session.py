@@ -367,6 +367,8 @@ class EditSessionImportMediaPathRequest(BaseModel):
 class EditSessionImportLibraryAssetRequest(BaseModel):
     asset_id: str = Field(min_length=1, description="全局素材库 asset id")
     insert_index: Optional[int] = None
+    trim_in_sec: Optional[float] = Field(default=None, ge=0)
+    trim_out_sec: Optional[float] = Field(default=None, ge=0)
 
 
 class EditSessionImportBgmUrlRequest(BaseModel):

@@ -211,13 +211,15 @@ export const editApi = {
     projectId: string,
     sessionId: string,
     assetId: string,
-    options?: { insertIndex?: number }
+    options?: { insertIndex?: number; trimInSec?: number; trimOutSec?: number }
   ): Promise<EditSessionImportMediaResponse> => {
     return (await api.post(
       `/projects/${projectId}/edit-sessions/${sessionId}/import-library-asset`,
       {
         asset_id: assetId,
         insert_index: options?.insertIndex ?? null,
+        trim_in_sec: options?.trimInSec,
+        trim_out_sec: options?.trimOutSec,
       }
     )) as EditSessionImportMediaResponse
   },

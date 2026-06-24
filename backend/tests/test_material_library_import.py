@@ -138,3 +138,20 @@ def test_import_library_asset_endpoint(import_layout):
     assert payload["title"] == "库内素材"
     assert len(payload["session"]["sequence"]) == 1
     assert payload["session"]["sequence"][0]["media"]["type"] == "imported_clip"
+
+
+def test_import_library_asset_with_trim(import_layout):
+    client = TestClient(app)
+    response = client.post(
+        f"/api/v1/projects/{import_layout['project_id']}/edit-sessions/{import_layout['session_id']}/import-library-asset",
+        json={
+            "asset_id": import_layout["asset_id"],
+            "trim_in_sec": 1.0,
+            "trim_out_sec": 4.0,
+        },
+    )
+    assert response.status_code == 200, response.text
+    block = response.json()["session"]["sequence"][0]
+    assert block["trim"]["in_sec"] == pytest.approx(1.0)
+    assert block["trim"]["out_sec"] == pytest.approx(4.0)
+    assert block["duration_sec"] == pytest.approx(3.0)

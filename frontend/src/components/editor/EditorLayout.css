@@ -2619,6 +2619,116 @@
   margin-top: 10px;
 }
 
+.editor-global-library__toolbar {
+  margin-top: 10px;
+}
+
+.editor-global-library__search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--editor-line, var(--ac-line));
+  background: var(--editor-panel, var(--ac-card));
+  color: var(--editor-muted, var(--ac-muted));
+}
+
+.editor-global-library__search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--editor-text, var(--ac-ink));
+  outline: none;
+}
+
+.editor-global-library__search input::placeholder {
+  color: var(--editor-muted, var(--ac-muted));
+}
+
+.editor-global-library__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.editor-global-library__tag {
+  appearance: none;
+  border: 1px solid var(--editor-line, var(--ac-line));
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  background: transparent;
+  color: var(--editor-sub, var(--ac-sub));
+  cursor: pointer;
+  transition: border-color 150ms ease, color 150ms ease, background 150ms ease;
+}
+
+.editor-global-library__tag:hover {
+  border-color: var(--editor-text, var(--ac-ink));
+  color: var(--editor-text, var(--ac-ink));
+}
+
+.editor-global-library__tag.is-active {
+  border-color: var(--editor-accent, var(--ac-accent));
+  color: var(--editor-accent, var(--ac-accent));
+  background: color-mix(in srgb, var(--editor-accent, #2d6bff) 8%, transparent);
+}
+
+.editor-global-library__card-tags {
+  position: absolute;
+  left: 6px;
+  bottom: 28px;
+  display: flex;
+  gap: 4px;
+  z-index: 2;
+}
+
+.editor-global-library__card-tags span {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.editor-global-library__load-more,
+.editor-global-library__count {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--editor-sub, var(--ac-sub));
+}
+
+.editor-global-library__load-more {
+  appearance: none;
+  border: 1px solid var(--editor-line, var(--ac-line));
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.editor-global-library__load-more:hover:not(:disabled) {
+  border-color: var(--editor-accent, var(--ac-accent));
+  color: var(--editor-accent, var(--ac-accent));
+}
+
+.editor-global-library__load-more:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.editor-global-library__count {
+  margin-bottom: 0;
+}
+
 .editor-asset-empty {
   padding: 10px 0;
   font-size: 13px;

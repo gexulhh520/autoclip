@@ -244,7 +244,10 @@ def import_library_asset_to_session(
     asset_id: str,
     *,
     insert_index: Optional[int] = None,
+    trim_in_sec: Optional[float] = None,
+    trim_out_sec: Optional[float] = None,
 ):
+    from backend.schemas.edit_session import EditBlock, EditBlockTrim, EditSessionUpdateRequest
     from backend.services.edit_session_service import EditSessionService
 
     path = resolve_library_video_path(asset_id)
@@ -263,6 +266,34 @@ def import_library_asset_to_session(
             insert_index=insert_index,
             title=str(asset_meta["title"]) if asset_meta and asset_meta.get("title") else None,
         )
+        if trim_in_sec is not None and trim_out_sec is not None:
+            source_duration = service.probe_imported_block_duration(
+                project_id,
+                session_id,
+                block.id,
+            )
+            if source_duration <= 0:
+                raise ValueError("素材视频时长探测失败")
+            trim_in = max(0.0, float(trim_in_sec))
+            trim_out = min(float(source_duration), float(trim_out_sec))
+            if trim_out <= trim_in + 0.09:
+                raise ValueError("裁剪区间无效（出点须大于入点）")
+            span = trim_out - trim_in
+            updated_blocks = []
+            for item in session.sequence:
+                if item.id != block.id:
+                    updated_blocks.append(item)
+                    continue
+                data = item.model_dump()
+                data["trim"] = EditBlockTrim(in_sec=trim_in, out_sec=trim_out).model_dump()
+                data["duration_sec"] = span
+                updated_blocks.append(EditBlock.model_validate(data))
+            session = service.update_session(
+                project_id,
+                session_id,
+                EditSessionUpdateRequest(sequence=updated_blocks),
+            )
+            block = next(item for item in session.sequence if item.id == block.id)
         return session, block, import_method
     finally:
         db.close()

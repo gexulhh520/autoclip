@@ -348,7 +348,11 @@ interface EditSessionState {
   ) => Promise<number>
   importMedia: (projectId: string, file: File) => Promise<import('../types/editSession').EditSessionImportMediaResponse>
   importMediaFromPath: (projectId: string, sourcePath: string) => Promise<import('../types/editSession').EditSessionImportMediaResponse>
-  importLibraryAsset: (projectId: string, assetId: string) => Promise<import('../types/editSession').EditSessionImportMediaResponse>
+  importLibraryAsset: (
+    projectId: string,
+    assetId: string,
+    options?: { insertIndex?: number; trimInSec?: number; trimOutSec?: number }
+  ) => Promise<import('../types/editSession').EditSessionImportMediaResponse>
   applyImportedBlockNaturalDuration: (blockId: string, durationSec: number) => void
   copySelection: () => void
   pasteSelection: (options?: { startSec?: number; insertAfterBlockId?: string }) => void
@@ -1409,14 +1413,16 @@ export const useEditSessionStore = create<EditSessionState>()(
         }
       },
 
-      importLibraryAsset: async (projectId, assetId) => {
+      importLibraryAsset: async (projectId, assetId, options) => {
         const { session, sequencePlayheadSec } = get()
         if (!session) throw new Error('无剪辑工程')
-        const insertIndex = resolvePlayheadInsertIndex(session, sequencePlayheadSec)
+        const insertIndex = options?.insertIndex ?? resolvePlayheadInsertIndex(session, sequencePlayheadSec)
         set({ saving: true, error: null })
         try {
           const result = await editApi.importLibraryAsset(projectId, session.id, assetId, {
             insertIndex,
+            trimInSec: options?.trimInSec,
+            trimOutSec: options?.trimOutSec,
           })
           set({
             saving: false,

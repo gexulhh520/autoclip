@@ -1006,6 +1006,8 @@ async def import_edit_session_library_asset(
             session_id,
             body.asset_id,
             insert_index=body.insert_index,
+            trim_in_sec=body.trim_in_sec,
+            trim_out_sec=body.trim_out_sec,
         )
         return EditSessionImportMediaResponse(
             session=session,
