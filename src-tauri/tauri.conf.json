@@ -4,7 +4,7 @@
   "version": "1.2.0",
   "identifier": "com.autoclip.desktop",
   "build": {
-    "beforeDevCommand": "npm --prefix ../frontend run dev",
+    "beforeDevCommand": "npm --prefix ../frontend run dev:tauri",
     "devUrl": "http://127.0.0.1:3000",
     "beforeBuildCommand": "",
     "frontendDist": "../frontend/dist"

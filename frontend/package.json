@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:tauri": "vite --mode tauri",
     "build": "vite build",
     "build:wasm": "powershell -ExecutionPolicy Bypass -File ../scripts/build_compositor_wasm.ps1",
     "typecheck": "tsc --noEmit",

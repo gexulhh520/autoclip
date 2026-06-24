@@ -50,15 +50,6 @@ class ApiConfigManager {
         } else {
           this.pollBackendStatus(invoke);
         }
-
-        // 尝试从全局变量获取配置
-        if ((window as any).__BACKEND_BASE__) {
-          this.updateConfig({
-            baseUrl: (window as any).__BACKEND_BASE__,
-            port: this.extractPortFromUrl((window as any).__BACKEND_BASE__),
-            isReady: true
-          });
-        }
       } catch (error) {
         console.warn('无法初始化 Tauri 事件监听:', error);
       }
@@ -73,23 +64,37 @@ class ApiConfigManager {
     });
   }
 
-  /** 内嵌后端启动稍慢时轮询 Rust 侧状态，避免请求落到 Vite 代理的 8000 */
-  private pollBackendStatus(invoke: (cmd: string) => Promise<unknown>) {
+  /** 内嵌后端启动稍慢时轮询 Rust 状态与 Vite dev 端口文件 */
+  private pollBackendStatus(invoke?: (cmd: string) => Promise<unknown>) {
     if (this.isReady()) return;
     const startedAt = Date.now();
     const tick = async () => {
-      if (this.isReady() || Date.now() - startedAt > 60000) return;
+      if (this.isReady() || Date.now() - startedAt > 90000) return;
       try {
-        const backendStatus = (await invoke('get_service_status')) as {
-          is_running?: boolean;
-          port?: number;
-        };
-        if (backendStatus?.is_running && backendStatus?.port) {
-          this.updateFromPort(backendStatus.port);
-          return;
+        const devPortRes = await fetch('/__autoclip/backend-port');
+        if (devPortRes.ok) {
+          const devPort = (await devPortRes.json()) as { port?: number | null };
+          if (devPort?.port) {
+            this.updateFromPort(devPort.port);
+            return;
+          }
         }
       } catch {
         // ignore
+      }
+      if (invoke) {
+        try {
+          const backendStatus = (await invoke('get_service_status')) as {
+            is_running?: boolean;
+            port?: number;
+          };
+          if (backendStatus?.is_running && backendStatus?.port) {
+            this.updateFromPort(backendStatus.port);
+            return;
+          }
+        } catch {
+          // ignore
+        }
       }
       window.setTimeout(() => {
         void tick();
@@ -149,7 +154,7 @@ class ApiConfigManager {
   /**
    * 等待 API 就绪
    */
-  async waitForReady(timeout: number = 30000): Promise<boolean> {
+  async waitForReady(timeout: number = 90000): Promise<boolean> {
     if (this.isReady()) {
       return true;
     }

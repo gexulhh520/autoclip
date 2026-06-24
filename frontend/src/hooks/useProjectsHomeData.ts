@@ -4,6 +4,8 @@ import { projectApi } from '../services/api'
 import { useProjectStore } from '../store/useProjectStore'
 import { useProjectPolling } from '../hooks/useProjectPolling'
 import { useSimpleProgressStore } from '../stores/useSimpleProgressStore'
+import { isTauriApp } from '../utils/desktopMode'
+import { waitForApiReady } from '../utils/apiConfig'
 
 export function useProjectsHomeData() {
   const { projects, setProjects, loading, setLoading } = useProjectStore()
