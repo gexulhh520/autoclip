@@ -1021,6 +1021,11 @@ export const useEditSessionStore = create<EditSessionState>()(
               position_offset_x_pct: update.position_offset_x_pct,
               position_offset_y_pct: update.position_offset_y_pct,
             }
+            if (blockHasTemplateCaption(block)) {
+              syncTemplateOverlaysForBlock(state.session, update.blockId, {
+                preserveUserEdits: false,
+              })
+            }
           }
           state.dirty = true
         })

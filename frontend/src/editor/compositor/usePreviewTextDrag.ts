@@ -11,6 +11,10 @@ import {
   parseTextElementId,
   resolveBoxSelectionItems,
 } from './hitTest'
+import {
+  captionOffsetDriftFromOverlays,
+  resolveCaptionOffsetFromOverlays,
+} from '../migration/captionOffsetSync'
 
 const DRAG_THRESHOLD_PX = 4
 
@@ -65,6 +69,7 @@ export interface PreviewSelectionBoxStyle {
 export interface UsePreviewTextDragOptions {
   canvasRef: React.RefObject<HTMLCanvasElement | null>
   descriptor: FrameDescriptor | null
+  liveDescriptorRef?: React.RefObject<FrameDescriptor | null>
   session: EditSession | null
   selectedOverlayIds: string[]
   selectedCaptionBlockIds: string[]
@@ -114,6 +119,7 @@ const canvasRectToOverlayStyle = (
 export function usePreviewTextDrag({
   canvasRef,
   descriptor,
+  liveDescriptorRef,
   session,
   selectedOverlayIds,
   selectedCaptionBlockIds,
@@ -130,6 +136,10 @@ export function usePreviewTextDrag({
 }: UsePreviewTextDragOptions) {
   const dragRef = useRef<InteractionState | null>(null)
   const [selectionBoxStyle, setSelectionBoxStyle] = useState<PreviewSelectionBoxStyle | null>(null)
+
+  const resolveDescriptor = useCallback((): FrameDescriptor | null => {
+    return liveDescriptorRef?.current ?? descriptor
+  }, [descriptor, liveDescriptorRef])
 
   const readOverlayPosition = useCallback(
     (elementId: string): { positionX: number; positionY: number } | null => {
@@ -200,12 +210,13 @@ export function usePreviewTextDrag({
 
   const handlePointerDown = useCallback(
     (event: React.PointerEvent<HTMLCanvasElement>) => {
-      if (!descriptor || !session || event.button !== 0) return
+      const frame = resolveDescriptor()
+      if (!frame || !session || event.button !== 0) return
       const canvas = canvasRef.current
       if (!canvas) return
 
       const { x, y } = canvasPointFromEvent(canvas, event)
-      const hit = hitTestFrameDescriptor(descriptor, x, y)
+      const hit = hitTestFrameDescriptor(frame, x, y)
       const additive = event.shiftKey || event.metaKey || event.ctrlKey
 
       if (!hit) {
@@ -267,22 +278,35 @@ export function usePreviewTextDrag({
 
       const parsed = parseTextElementId(hit.elementId)
 
-      const persistedTemplateOverlay = session.overlay_elements?.some(
-        (item) => item.id === hit.elementId
-      )
-
-      if (parsed.textKind === 'template' && parsed.blockId && !persistedTemplateOverlay) {
-        const blockIds = resolveCaptionDragTargets(parsed.blockId)
+      if (parsed.textKind === 'template' && parsed.blockId) {
+        const blockId = parsed.blockId
+        const blockIds = resolveCaptionDragTargets(blockId)
         const startOffsets = new Map<string, { xPct: number; yPct: number }>()
-        for (const blockId of blockIds) {
-          const offset = readCaptionOffset(blockId)
-          if (offset) startOffsets.set(blockId, offset)
+
+        for (const id of blockIds) {
+          let offset = readCaptionOffset(id)
+          if (offset && captionOffsetDriftFromOverlays(session, id)) {
+            const reconciled = resolveCaptionOffsetFromOverlays(session, id)
+            if (reconciled) {
+              moveCaptionOffsets(
+                [
+                  {
+                    blockId: id,
+                    position_offset_x_pct: reconciled.position_offset_x_pct,
+                    position_offset_y_pct: reconciled.position_offset_y_pct,
+                  },
+                ],
+                { recordHistory: false }
+              )
+              offset = {
+                xPct: reconciled.position_offset_x_pct,
+                yPct: reconciled.position_offset_y_pct,
+              }
+            }
+          }
+          if (offset) startOffsets.set(id, offset)
         }
         if (startOffsets.size === 0) return
-
-        if (!selectedCaptionBlockIds.includes(parsed.blockId)) {
-          onSelectCaption?.(parsed.blockId, { additive })
-        }
 
         dragRef.current = {
           mode: 'caption',
@@ -323,15 +347,15 @@ export function usePreviewTextDrag({
     },
     [
       canvasRef,
-      descriptor,
       moveBlockVideoPositions,
-      onSelectCaption,
+      moveCaptionOffsets,
       onSelectOverlay,
       onSelectVideoBlock,
       readCaptionOffset,
       readOverlayPosition,
       readVideoBlockPosition,
       resolveCaptionDragTargets,
+      resolveDescriptor,
       resolveOverlayDragTargets,
       resolveVideoDragTargets,
       selectedCaptionBlockIds,
@@ -344,7 +368,8 @@ export function usePreviewTextDrag({
   const handlePointerMove = useCallback(
     (event: React.PointerEvent<HTMLCanvasElement>) => {
       const drag = dragRef.current
-      if (!drag || drag.pointerId !== event.pointerId || !descriptor) return
+      const frame = resolveDescriptor()
+      if (!drag || drag.pointerId !== event.pointerId || !frame) return
 
       const canvas = canvasRef.current
       if (!canvas) return
@@ -364,7 +389,7 @@ export function usePreviewTextDrag({
           { x, y }
         )
         setSelectionBoxStyle(canvasRectToOverlayStyle(canvas, box))
-        setBoxSelection?.(resolveBoxSelectionItems(descriptor, box, session), {
+        setBoxSelection?.(resolveBoxSelectionItems(frame, box, session), {
           additive: drag.additive,
         })
         return
@@ -414,8 +439,8 @@ export function usePreviewTextDrag({
         return [
           {
             blockId,
-            position_offset_x_pct: start.xPct + (dx / descriptor.width) * 100,
-            position_offset_y_pct: start.yPct - (dy / descriptor.height) * 100,
+            position_offset_x_pct: start.xPct + (dx / frame.width) * 100,
+            position_offset_y_pct: start.yPct - (dy / frame.height) * 100,
           },
         ]
       })
@@ -424,11 +449,12 @@ export function usePreviewTextDrag({
     [
       beginOverlayDragHistory,
       canvasRef,
-      descriptor,
       moveBlockVideoPositions,
       moveCaptionOffsets,
       moveOverlayPositions,
+      resolveDescriptor,
       setBoxSelection,
+      session,
     ]
   )
 

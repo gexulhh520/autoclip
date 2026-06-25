@@ -6,6 +6,7 @@ import {
   createCompositionPlaybackClock,
   type CompositionPlan,
 } from '../../../editor/compositor'
+import type { FrameDescriptor } from '../../../editor/compositor/types'
 import { findUpcomingCrossIncomingBlock } from '../../../editor/compositor/previewCrossTransitionWarmup'
 import { findPlayheadWarmupTargets } from '../../../editor/compositor/previewPlayheadWarmup'
 import type { PreviewLocalMediaContext } from '../../../editor/compositor/previewDecoderBinding'
@@ -278,6 +279,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   )
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const liveDescriptorRef = useRef<FrameDescriptor | null>(null)
   const decoderHostRef = useRef<HTMLDivElement>(null)
   const decoderPoolRef = useRef<PreviewDecoderPool | null>(null)
   const warmupBlockIdRef = useRef<string | null>(null)
@@ -748,6 +750,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
         const descriptor = buildDescriptorAt(compositionSec, vm.videoLayers)
         if (!descriptor) return
+        liveDescriptorRef.current = descriptor
 
         const videos = collectVideosForLayers(vm.videoLayers)
         const needsFrameCacheFallback =
@@ -929,7 +932,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
   const { selectionBoxStyle, ...dragHandlers } = usePreviewTextDrag({
     canvasRef,
-    descriptor: idleDescriptor,
+    descriptor: liveDescriptorRef.current ?? idleDescriptor,
+    liveDescriptorRef,
     session,
     selectedOverlayIds,
     selectedCaptionBlockIds,

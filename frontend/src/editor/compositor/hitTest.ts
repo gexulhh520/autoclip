@@ -114,16 +114,18 @@ export function collectTextBounds(descriptor: FrameDescriptor): TextBoundTarget[
     if (!item.elementId) continue
     const transform = measureTextItemBounds(descriptor, item, ctx)
     if (!transform) continue
+    const animX = item.animationOffsetX ?? 0
+    const animY = item.animationOffsetY ?? 0
     const parsed = parseTextElementId(item.elementId)
     targets.push({
       elementId: item.elementId,
       textKind: parsed.textKind,
       blockId: parsed.blockId,
       rect: {
-        left: transform.x,
-        top: transform.y,
-        right: transform.x + transform.width,
-        bottom: transform.y + transform.height,
+        left: transform.x + animX,
+        top: transform.y + animY,
+        right: transform.x + animX + transform.width,
+        bottom: transform.y + animY + transform.height,
       },
     })
   }
@@ -185,9 +187,19 @@ export function hitTestFrameDescriptor(
 
   for (const item of collectTextItems(descriptor)) {
     if (!item.elementId) continue
-    const transform = measureTextItemBounds(descriptor, item, ctx)
-    if (!transform) continue
-    if (containsPoint(transform, x, y)) {
+  const transform = measureTextItemBounds(descriptor, item, ctx)
+  if (!transform) continue
+  const animX = item.animationOffsetX ?? 0
+  const animY = item.animationOffsetY ?? 0
+  const hitTransform =
+    animX === 0 && animY === 0
+      ? transform
+      : {
+          ...transform,
+          x: transform.x + animX,
+          y: transform.y + animY,
+        }
+  if (containsPoint(hitTransform, x, y)) {
       const parsed = parseTextElementId(item.elementId)
       return {
         kind: 'text',
