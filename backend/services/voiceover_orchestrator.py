@@ -161,6 +161,7 @@ class VoiceoverOrchestrator:
         if segment.status not in (
             VoiceoverSegmentStatus.SCRIPT_CONFIRMED,
             VoiceoverSegmentStatus.TTS_DONE,
+            VoiceoverSegmentStatus.BROLL_DONE,
             VoiceoverSegmentStatus.FAILED,
         ):
             raise ValueError(f"第 {segment.index} 段状态不可执行: {segment.status}")
@@ -295,6 +296,7 @@ class VoiceoverOrchestrator:
                     VoiceoverSegmentStatus.SCRIPT_CONFIRMED,
                     VoiceoverSegmentStatus.FAILED,
                     VoiceoverSegmentStatus.TTS_DONE,
+                    VoiceoverSegmentStatus.BROLL_DONE,
                 )
             ]
         return [

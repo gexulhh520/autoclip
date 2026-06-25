@@ -393,7 +393,7 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
   const handleExecuteAll = async () => {
     if (!plan) return
     if (!hasPendingTts) {
-      onError('全部段落已完成 TTS；如需重跑请使用各段下方的「重新生成本段 TTS + 字幕」。')
+      onError('全部段落已完成 TTS；如需重跑请使用下方「重跑全部」或各段的「重新生成本段 TTS + 字幕」。')
       return
     }
     setExecuting(true)
@@ -404,6 +404,29 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
       applyResponse(response)
     } catch (err: unknown) {
       onError(readApiErrorMessage(err, '口播 TTS 执行失败'))
+    } finally {
+      setExecuting(false)
+    }
+  }
+
+  const handleRerunAll = async () => {
+    if (!plan || rerunnableSegmentIds.length === 0) return
+    const keepVideo = plan.segments.some((segment) => Boolean(segment.broll?.block_id))
+    const message = keepVideo
+      ? `将重跑 ${rerunnableSegmentIds.length} 段口播 TTS + 字幕，保留各段时间线上的画面。若某段新口播更长，需确保素材时长足够。继续？`
+      : `将重跑 ${rerunnableSegmentIds.length} 段口播 TTS + 字幕。继续？`
+    if (!window.confirm(message)) return
+    setExecuting(true)
+    onError('')
+    try {
+      const payload = {
+        placeholder_library_asset_id: placeholderAssetId.trim() || null,
+        segment_ids: rerunnableSegmentIds,
+      }
+      const response = await voiceoverApi.execute(projectId, sessionId, payload)
+      applyResponse(response)
+    } catch (err: unknown) {
+      onError(readApiErrorMessage(err, '口播 TTS 重跑失败'))
     } finally {
       setExecuting(false)
     }
@@ -518,6 +541,26 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
 
   const segmentHasTts = (segment: VoiceoverSegment) =>
     Boolean(segment.tts?.duration_sec && segment.tts.duration_sec > 0)
+
+  const canRerunSegmentTts = (segment: VoiceoverSegment) =>
+    !isEditable &&
+    (segment.status === 'failed' ||
+      ((segment.status === 'tts_done' || segment.status === 'broll_done') && segmentHasTts(segment)))
+
+  const rerunnableSegmentIds = useMemo(
+    () =>
+      plan?.segments
+        .filter(
+          (segment) =>
+            segment.status === 'tts_done' ||
+            segment.status === 'broll_done' ||
+            (segment.status === 'failed' && segmentHasTts(segment))
+        )
+        .map((segment) => segment.id) ?? [],
+    [plan]
+  )
+
+  const hasRerunnableTts = Boolean(canExecute && rerunnableSegmentIds.length > 0)
 
   const canManageBroll = (segment: VoiceoverSegment) =>
     !isEditable &&
@@ -666,9 +709,18 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
                 >
                   {executing ? '执行中…' : '执行 TTS + 字幕（全部待处理段）'}
                 </button>
+              ) : hasRerunnableTts ? (
+                <button
+                  type="button"
+                  className="editor-agent-panel__voiceover-btn editor-agent-panel__voiceover-btn--primary"
+                  onClick={() => void handleRerunAll()}
+                  disabled={executing || saving}
+                >
+                  {executing ? '重跑中…' : `重跑全部 TTS + 字幕（${rerunnableSegmentIds.length} 段）`}
+                </button>
               ) : (
                 <p className="editor-agent-panel__voiceover-segment-meta" role="status">
-                  全部段落已完成 TTS。如需重跑，请使用各段下方的「重新生成本段 TTS + 字幕」。
+                  暂无可重跑段落。请先确认脚本后执行，或对失败段点击「重试 TTS」。
                 </p>
               )}
             </div>
@@ -820,7 +872,7 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
                   </div>
                 ) : null}
 
-                {!isEditable && (segment.status === 'failed' || segment.status === 'tts_done') ? (
+                {canRerunSegmentTts(segment) ? (
                   <div className="editor-agent-panel__voiceover-segment-actions">
                     {segment.error ? (
                       <p className="editor-agent-panel__voiceover-segment-error">{segment.error}</p>
@@ -833,18 +885,16 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
                           : ''}
                       </p>
                     ) : null}
-                    {segmentHasTts(segment) || segment.status === 'failed' ? (
-                      <button
-                        type="button"
-                        className="editor-agent-panel__voiceover-btn"
-                        onClick={() => void handleExecuteSegment(segment.id)}
-                        disabled={executing || saving}
-                      >
-                        {segmentHasTts(segment)
-                          ? '重新生成本段 TTS + 字幕'
-                          : '重试 TTS'}
-                      </button>
-                    ) : null}
+                    <button
+                      type="button"
+                      className="editor-agent-panel__voiceover-btn"
+                      onClick={() => void handleExecuteSegment(segment.id)}
+                      disabled={executing || saving}
+                    >
+                      {segmentHasTts(segment)
+                        ? '重新生成本段 TTS + 字幕'
+                        : '重试 TTS'}
+                    </button>
                   </div>
                 ) : null}
 
