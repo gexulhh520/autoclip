@@ -392,6 +392,10 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
 
   const handleExecuteAll = async () => {
     if (!plan) return
+    if (!hasPendingTts) {
+      onError('全部段落已完成 TTS；如需重跑请使用各段下方的「重新生成本段 TTS + 字幕」。')
+      return
+    }
     setExecuting(true)
     onError('')
     try {
@@ -399,7 +403,7 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
       const response = await voiceoverApi.execute(projectId, sessionId, payload)
       applyResponse(response)
     } catch (err: unknown) {
-      onError(err instanceof Error ? err.message : '口播 TTS 执行失败')
+      onError(readApiErrorMessage(err, '口播 TTS 执行失败'))
     } finally {
       setExecuting(false)
     }
@@ -421,7 +425,7 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
       const response = await voiceoverApi.executeSegment(projectId, sessionId, segmentId, payload)
       applyResponse(response)
     } catch (err: unknown) {
-      onError(err instanceof Error ? err.message : '分段 TTS 执行失败')
+      onError(readApiErrorMessage(err, '分段 TTS 执行失败'))
     } finally {
       setExecuting(false)
     }
@@ -653,14 +657,20 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
                   ))}
                 </select>
               </label>
-              <button
-                type="button"
-                className="editor-agent-panel__voiceover-btn editor-agent-panel__voiceover-btn--primary"
-                onClick={() => void handleExecuteAll()}
-                disabled={executing || saving}
-              >
-                {executing ? '执行中…' : '执行 TTS + 字幕（全部待处理段）'}
-              </button>
+              {hasPendingTts ? (
+                <button
+                  type="button"
+                  className="editor-agent-panel__voiceover-btn editor-agent-panel__voiceover-btn--primary"
+                  onClick={() => void handleExecuteAll()}
+                  disabled={executing || saving}
+                >
+                  {executing ? '执行中…' : '执行 TTS + 字幕（全部待处理段）'}
+                </button>
+              ) : (
+                <p className="editor-agent-panel__voiceover-segment-meta" role="status">
+                  全部段落已完成 TTS。如需重跑，请使用各段下方的「重新生成本段 TTS + 字幕」。
+                </p>
+              )}
             </div>
           ) : null}
 

@@ -57,7 +57,11 @@ class VoiceoverOrchestrator:
         ordered = sorted(plan.segments, key=lambda item: item.index)
         targets = self._resolve_target_segments(ordered, segment_ids)
         if not targets:
-            raise ValueError("没有可执行的分段（需 script_confirmed 或 failed）")
+            raise ValueError(
+                "没有待执行的口播分段。"
+                "请先确认脚本（分段状态需为 script_confirmed），"
+                "或对各已完成段使用「重新生成本段 TTS + 字幕」。"
+            )
 
         executed = 0
         last_error: Optional[str] = None
