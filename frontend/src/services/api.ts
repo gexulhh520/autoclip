@@ -1149,10 +1149,26 @@ export const projectApi = {
     return `${api.defaults.baseURL}/projects/${projectId}/clips/${clipId}`
   },
 
+  getClipLocalPath: async (projectId: string, clipId: string): Promise<{ path: string }> => {
+    return (await api.get(`/projects/${projectId}/clips/${clipId}/local-path`)) as {
+      path: string
+    }
+  },
+
   // 获取项目原片 URL（剪辑预览/重切）
   getSourceVideoUrl: (projectId: string, sourceId?: string | null): string => {
     const params = sourceId ? `?source_id=${encodeURIComponent(sourceId)}` : ''
     return `${api.defaults.baseURL}/projects/${projectId}/source-video${params}`
+  },
+
+  getSourceVideoLocalPath: async (
+    projectId: string,
+    sourceId?: string | null
+  ): Promise<{ path: string }> => {
+    const params = sourceId ? { source_id: sourceId } : undefined
+    return (await api.get(`/projects/${projectId}/source-video/local-path`, {
+      params,
+    })) as { path: string }
   },
 
   // 获取合集视频URL

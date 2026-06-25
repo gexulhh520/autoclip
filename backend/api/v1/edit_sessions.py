@@ -49,6 +49,11 @@ from backend.schemas.edit_session import (
     EditSessionTtsResponse,
     EditSessionUpdateRequest,
 )
+from backend.schemas.preview_media import LocalMediaPathResponse
+from backend.services.preview_media_path_service import (
+    PreviewMediaPathError,
+    resolve_edit_block_media_path,
+)
 from backend.schemas.editor_agent import (
     AnalyzeLayoutRequest,
     AnalyzeLayoutResponse,
@@ -1054,6 +1059,37 @@ async def import_edit_session_library_asset(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("从素材库导入失败: %s/%s asset=%s", project_id, session_id, body.asset_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get(
+    "/{project_id}/edit-sessions/{session_id}/blocks/{block_id}/media-local-path",
+    response_model=LocalMediaPathResponse,
+)
+async def get_edit_session_block_media_local_path(
+    project_id: str,
+    session_id: str,
+    block_id: str,
+    service: EditSessionService = Depends(get_edit_session_service),
+):
+    """桌面端：返回片段媒体本地绝对路径，供 WebView convertFileSrc 直连读盘。"""
+    try:
+        path = await asyncio.to_thread(
+            resolve_edit_block_media_path,
+            service,
+            project_id,
+            session_id,
+            block_id,
+        )
+        return LocalMediaPathResponse(path=str(path))
+    except PreviewMediaPathError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
+    except Exception as exc:
+        logger.exception(
+            "解析片段本地路径失败: %s/%s/%s", project_id, session_id, block_id
+        )
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

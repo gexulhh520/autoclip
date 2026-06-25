@@ -21,6 +21,8 @@ from backend.schemas.project import (
 )
 from backend.schemas.base import PaginationParams
 from backend.schemas.project_source import ProjectSourcesResponse
+from backend.schemas.preview_media import LocalMediaPathResponse
+from backend.services.preview_media_path_service import PreviewMediaPathError
 from pathlib import Path
 import os
 import shutil
@@ -1429,6 +1431,35 @@ async def update_project_pipeline_score_item(
         raise HTTPException(status_code=500, detail="更新评分条目失败")
 
 
+@router.get("/{project_id}/source-video/local-path", response_model=LocalMediaPathResponse)
+async def get_project_source_video_local_path(
+    project_id: str,
+    source_id: Optional[str] = Query(None, description="多源项目：指定源视频 ID"),
+    project_service: ProjectService = Depends(get_project_service),
+):
+    """桌面端：返回原片本地绝对路径。"""
+    from backend.services.preview_media_path_service import resolve_project_source_video_path
+
+    try:
+        project = project_service.get(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        path = await asyncio.to_thread(
+            resolve_project_source_video_path,
+            project_id,
+            source_id,
+            project_video_path=project.video_path,
+        )
+        return LocalMediaPathResponse(path=str(path))
+    except PreviewMediaPathError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("解析原片本地路径失败: %s", project_id)
+        raise HTTPException(status_code=500, detail="解析原片本地路径失败") from exc
+
+
 @router.get("/{project_id}/source-video")
 async def get_project_source_video(
     project_id: str,
@@ -1753,6 +1784,32 @@ async def get_project_file(
     except Exception as e:
         logger.exception("获取项目文件失败: %s/%s", project_id, filename)
         raise HTTPException(status_code=500, detail="获取项目文件失败，请稍后重试")
+
+
+@router.get("/{project_id}/clips/{clip_id}/local-path", response_model=LocalMediaPathResponse)
+async def get_project_clip_local_path(
+    project_id: str,
+    clip_id: str,
+    project_service: ProjectService = Depends(get_project_service),
+):
+    """桌面端：返回切片视频本地绝对路径。"""
+    from backend.services.preview_media_path_service import resolve_project_clip_path
+
+    try:
+        path = await asyncio.to_thread(
+            resolve_project_clip_path,
+            project_id,
+            clip_id,
+            db=project_service.db,
+        )
+        return LocalMediaPathResponse(path=str(path))
+    except PreviewMediaPathError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("解析切片本地路径失败: %s/%s", project_id, clip_id)
+        raise HTTPException(status_code=500, detail="解析切片本地路径失败") from exc
 
 
 @router.get("/{project_id}/clips/{clip_id}")

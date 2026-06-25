@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { EditBlock, EditSession } from '../../../types/editSession'
 import {
   buildFrameDescriptor,
@@ -8,7 +8,12 @@ import {
 } from '../../../editor/compositor'
 import { findUpcomingCrossIncomingBlock } from '../../../editor/compositor/previewCrossTransitionWarmup'
 import { findPlayheadWarmupTargets } from '../../../editor/compositor/previewPlayheadWarmup'
-import { ensureDecoderBound, ensureDecoderPreloadForTargetTime } from '../../../editor/compositor/previewDecoderBinding'
+import type { PreviewLocalMediaContext } from '../../../editor/compositor/previewDecoderBinding'
+import {
+  ensureDecoderBound,
+  ensureDecoderPreloadForTargetTime,
+} from '../../../editor/compositor/previewDecoderBinding'
+import { subscribePreviewMediaCache } from '../../../utils/previewLocalMedia'
 import {
   capturePreviewVideoFrame,
   hasPreviewVideoFrameCache,
@@ -126,6 +131,7 @@ export interface CompositorPreviewProps {
     updates: Array<{ blockId: string; position_x: number; position_y: number }>,
     options?: { recordHistory?: boolean }
   ) => void
+  previewLocalMedia?: PreviewLocalMediaContext | null
 }
 
 const PLAYBACK_END_EPSILON_SEC = 0.02
@@ -219,7 +225,9 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   moveOverlayPositions,
   moveCaptionOffsets,
   moveBlockVideoPositions,
+  previewLocalMedia = null,
 }) => {
+  const [localMediaEpoch, setLocalMediaEpoch] = useState(0)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const decoderHostRef = useRef<HTMLDivElement>(null)
   const decoderPoolRef = useRef<PreviewDecoderPool | null>(null)
@@ -338,7 +346,13 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     (warmupBlock: EditBlock | null, pool: PreviewDecoderPool | null) => {
       if (!warmupBlock || !pool) return [] as PreviewVideoLayerProps[]
 
-      const video = bindPreviewDecoder(pool, warmupBlock, getVideoUrlForBlock, session)
+      const video = bindPreviewDecoder(
+        pool,
+        warmupBlock,
+        getVideoUrlForBlock,
+        session,
+        previewLocalMedia
+      )
       const warmupLayer: PreviewVideoLayerProps = {
         block: warmupBlock,
         relativeSourceSec: 0,
@@ -366,7 +380,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
       return [warmupLayer]
     },
-    [getVideoUrlForBlock, getSourceTimeForBlock, session]
+    [getVideoUrlForBlock, getSourceTimeForBlock, previewLocalMedia, session]
   )
 
   const prewarmDecodersAtPlayhead = useCallback(
@@ -380,7 +394,13 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       prewarmBlockIdsRef.current = new Set(targets.map((target) => target.block.id))
 
       for (const { block, relativeSourceSec } of targets) {
-        const video = bindPreviewDecoder(pool, block, getVideoUrlForBlock, session)
+        const video = bindPreviewDecoder(
+          pool,
+          block,
+          getVideoUrlForBlock,
+          session,
+          previewLocalMedia
+        )
         video.muted = true
         video.volume = 0
         const target = getSourceTimeForBlock(block, relativeSourceSec)
@@ -405,7 +425,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         ...(warmupBlockIdRef.current ? [warmupBlockIdRef.current] : []),
       ])
     },
-    [getDecoderPool, getSourceTimeForBlock, getVideoUrlForBlock, session]
+    [getDecoderPool, getSourceTimeForBlock, getVideoUrlForBlock, previewLocalMedia, session]
   )
 
   const collectVideosForLayers = useCallback(
@@ -465,7 +485,13 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       }
 
       const target = getSourceTimeForBlock(layer.block, layer.relativeSourceSec)
-      const rebinding = ensureDecoderBound(video, layer.block, getVideoUrlForBlock, session)
+      const rebinding = ensureDecoderBound(
+        video,
+        layer.block,
+        getVideoUrlForBlock,
+        session,
+        previewLocalMedia
+      )
       ensureDecoderPreloadForTargetTime(video, target)
 
       video.muted = audioMuted
@@ -499,7 +525,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       video.pause()
       return didSeek
     },
-    [getSourceTimeForBlock, getVideoUrlForBlock, isPlaying, session]
+    [getSourceTimeForBlock, getVideoUrlForBlock, isPlaying, previewLocalMedia, session]
   )
 
   const syncVideosFromVm = useCallback(
@@ -529,7 +555,13 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       const warmupId = warmupBlock?.id ?? null
 
       for (const layer of vmLayers) {
-        const video = bindPreviewDecoder(pool, layer.block, getVideoUrlForBlock, session)
+        const video = bindPreviewDecoder(
+          pool,
+          layer.block,
+          getVideoUrlForBlock,
+          session,
+          previewLocalMedia
+        )
         const audioMuted =
           clipAudioMuted || layer.block.id !== audioBlockId || layer.block.id === warmupId
         if (
@@ -549,7 +581,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
       return anySeek
     },
-    [clipAudioMuted, getDecoderPool, getVideoUrlForBlock, session, syncVideoElement, syncWarmupDecoder]
+    [clipAudioMuted, getDecoderPool, getVideoUrlForBlock, localMediaEpoch, previewLocalMedia, session, syncVideoElement, syncWarmupDecoder]
   )
 
   const refreshBlockFrameCaches = useCallback(
@@ -800,6 +832,17 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     reportPlayhead,
     onPlaybackComplete,
   ])
+
+  useEffect(() => {
+    return subscribePreviewMediaCache(() => {
+      setLocalMediaEpoch((epoch) => epoch + 1)
+    })
+  }, [])
+
+  useEffect(() => {
+    if (localMediaEpoch === 0) return
+    paintAt(sequencePlayheadSec, true)
+  }, [localMediaEpoch, paintAt, sequencePlayheadSec])
 
   useEffect(() => {
     return () => {

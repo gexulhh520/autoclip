@@ -1,5 +1,6 @@
 import type { EditBlock, EditSession } from '../../types/editSession'
 import { ensureDecoderBound, resolvePreviewDecoderKey } from './previewDecoderBinding'
+import type { PreviewLocalMediaContext } from '../../utils/previewLocalMedia'
 import { ensurePreviewVideoFrameCache } from './previewVideoFrameCache'
 
 const MAX_RETAINED_DECODERS = 8
@@ -144,9 +145,10 @@ export function bindPreviewDecoder(
   pool: PreviewDecoderPool,
   block: EditBlock,
   getVideoUrlForBlock: (block: EditBlock) => string,
-  session?: EditSession | null
+  session?: EditSession | null,
+  localMedia?: PreviewLocalMediaContext | null
 ): HTMLVideoElement {
   const video = pool.ensureForBlock(block, session)
-  ensureDecoderBound(video, block, getVideoUrlForBlock, session)
+  ensureDecoderBound(video, block, getVideoUrlForBlock, session, localMedia)
   return video
 }

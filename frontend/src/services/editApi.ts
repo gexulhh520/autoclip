@@ -252,6 +252,16 @@ export const editApi = {
     return `${base}/projects/${projectId}/edit-sessions/${sessionId}/blocks/${blockId}/media`
   },
 
+  getBlockMediaLocalPath: async (
+    projectId: string,
+    sessionId: string,
+    blockId: string
+  ): Promise<{ path: string }> => {
+    return (await api.get(
+      `/projects/${projectId}/edit-sessions/${sessionId}/blocks/${blockId}/media-local-path`
+    )) as { path: string }
+  },
+
   probeBlockMediaDuration: async (
     projectId: string,
     sessionId: string,
