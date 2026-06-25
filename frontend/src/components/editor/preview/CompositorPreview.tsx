@@ -44,6 +44,7 @@ import { stopEditorPlayback } from '../../../editor/stopEditorPlayback'
 import { applyMediaPlaybackRate } from '../../../editor/mediaPlaybackRate'
 import { isImportedBlock } from '../../../utils/editBlockMedia'
 import { isMainTrackBlock, resolveOverlayVideoBlocks } from '../../../editor/videoTracks'
+import { isVoiceoverBrollBlock } from '../../../editor/voiceover/voiceoverBroll'
 
 const PAUSED_SEEK_THRESHOLD_SEC = 0.03
 
@@ -564,12 +565,14 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       applyMediaPlaybackRate(video, layer.playbackRate || 1)
 
       const drift = Math.abs(video.currentTime - target)
+      const isVoiceoverMainBroll =
+        isMainTrackBlock(layer.block) && isVoiceoverBrollBlock(layer.block, session)
       const isOverlayImported =
         !isMainTrackBlock(layer.block) && isImportedBlock(layer.block)
       const driftThreshold =
         inDissolve && isPlaying
           ? CROSS_PLAYBACK_SEEK_DRIFT_SEC
-          : isPlaying && isOverlayImported
+          : isPlaying && (isOverlayImported || isVoiceoverMainBroll)
             ? OVERLAY_PLAYBACK_DRIFT_SEC
             : PLAYBACK_SEEK_DRIFT_SEC
 
@@ -577,8 +580,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       if (!mustSeek) {
         if (!isPlaying) {
           mustSeek = drift > driftThreshold
-        } else if (isOverlayImported) {
-          // 叠画 B-roll：段内跟 video 自然播放，仅在段首一次性对齐
+        } else if (isOverlayImported || isVoiceoverMainBroll) {
+          // 口播 B-roll / 叠画：段内跟 video 自然播放，仅在段首一次性对齐
           mustSeek = layer.relativeSourceSec < 0.25 && drift > 0.08
         } else {
           mustSeek = drift > driftThreshold

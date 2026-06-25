@@ -10,6 +10,7 @@ import {
 } from '../../utils/previewLocalMedia'
 import type { PreviewLocalMediaContext } from '../../utils/previewLocalMedia'
 import { isMainTrackBlock, resolveMainTrackBlocks } from '../videoTracks'
+import { isVoiceoverBrollBlock } from '../voiceover/voiceoverBroll'
 
 export type { PreviewLocalMediaContext } from '../../utils/previewLocalMedia'
 
@@ -42,6 +43,7 @@ export function shouldShareImportedPreviewDecoder(
   session?: EditSession | null
 ): boolean {
   if (!isMainTrackBlock(block)) return false
+  if (isVoiceoverBrollBlock(block, session)) return false
   if (blockNeedsDedicatedPreviewDecoder(block, session)) return false
   return true
 }

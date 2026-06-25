@@ -41,6 +41,7 @@ from backend.services.voiceover_broll_selection import (
     fallback_broll_trim_selection,
     pick_best_semantic_match,
 )
+from backend.services.voiceover_timeline_sync import VoiceoverTimelineSyncService
 from backend.services.voiceover_track_placement import (
     BROLL_BLOCK_TITLE_PREFIX,
     DEFAULT_VIDEO_TRACK_ID,
@@ -59,6 +60,7 @@ logger = logging.getLogger(__name__)
 class VoiceoverBrollService:
     def __init__(self, session_service: Optional[EditSessionService] = None):
         self.session_service = session_service or EditSessionService()
+        self._timeline_sync = VoiceoverTimelineSyncService(self.session_service)
 
     def search_segment_materials(
         self,
@@ -303,7 +305,14 @@ class VoiceoverBrollService:
         plan = self._replace_segment(plan, segment)
         if all(item.status == VoiceoverSegmentStatus.BROLL_DONE for item in plan.segments):
             plan.status = VoiceoverPlanStatus.COMPLETED
-        session = self._save_plan(project_id, session_id, plan)
+        session = self.session_service.get_session(project_id, session_id)
+        session, plan = self._timeline_sync.sync_after_broll_apply(
+            project_id,
+            session_id,
+            session,
+            plan,
+        )
+        segment = next(item for item in plan.segments if item.id == segment_id)
         report(
             "completed",
             100.0,

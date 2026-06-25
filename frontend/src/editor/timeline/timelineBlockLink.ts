@@ -14,6 +14,7 @@ import {
   resolveOverlayVideoBlocks,
   blockTimelineStartSec,
 } from '../videoTracks'
+import { isVoiceoverBrollBlock } from '../voiceover/voiceoverBroll'
 
 export const TIMELINE_BLOCK_ID_PARAM = 'timeline.blockId'
 export const TIMELINE_BLOCK_OFFSET_PARAM = 'timeline.blockOffsetSec'
@@ -50,6 +51,9 @@ export function resolveBlockLinkAnchorSec(
   const timeline = buildSessionCompositionTimeline(session)
   const segment = timeline.segments.find((item) => item.block.id === blockId)
   if (!segment) return null
+  if (isVoiceoverBrollBlock(block, session)) {
+    return segment.compositionStartSec
+  }
   return blockLinkAnchorSec(segment)
 }
 

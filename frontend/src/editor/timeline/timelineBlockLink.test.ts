@@ -8,6 +8,7 @@ import {
   clearAudioClipBlockLink,
   findSegmentAtCompositionTime,
   reconcileTimelineBlockLinks,
+  resolveBlockLinkAnchorSec,
   segmentVisualEndSec,
   TIMELINE_BLOCK_ID_PARAM,
   TIMELINE_BLOCK_OFFSET_PARAM,
@@ -306,5 +307,42 @@ describe('voiceover overlay block links', () => {
     expect(element.params[TIMELINE_BLOCK_OFFSET_PARAM]).toBeCloseTo(2, 3)
     expect(reconcileTimelineBlockLinks(session)).toBe(false)
     expect(element.start_sec).toBeCloseTo(22, 3)
+  })
+})
+
+describe('resolveBlockLinkAnchorSec voiceover main track', () => {
+  it('uses composition slot start instead of trim.in visual offset', () => {
+    const session = baseSession()
+    session.sequence = [
+      {
+        id: 'vo-b1',
+        source_clip_id: 'vo-b1',
+        title: '口播素材-1',
+        media: { type: 'imported_clip', path: 'vo.mp4' },
+        trim: { in_sec: 1.5, out_sec: 19.21 },
+        overlay: { outline: '', content: [], recommend_reason: '' },
+        audio: { volume: 1 },
+        transition_out: 'cut',
+        duration_sec: 17.71,
+        track_id: 'default-video',
+      },
+    ]
+    session.voiceover_plan = {
+      id: 'plan',
+      status: 'completed',
+      user_brief: '',
+      segments: [
+        {
+          id: 'seg-1',
+          index: 1,
+          narration_text: '测试',
+          status: 'broll_done',
+          tts: { duration_sec: 17.71, timeline_start_sec: 0 },
+          broll: { block_id: 'vo-b1' },
+          subtitles: { overlay_ids: [] },
+        },
+      ],
+    }
+    expect(resolveBlockLinkAnchorSec(session, 'vo-b1')).toBeCloseTo(0, 3)
   })
 })
