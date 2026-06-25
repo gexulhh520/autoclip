@@ -778,8 +778,6 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       paintGenerationRef.current = generation
       const isCurrentGeneration = () => paintGenerationRef.current === generation
 
-      renderCanvas()
-
       if (anySeek || (forceTransitionSeek && isPlaying)) {
         paintAfterVideoSync(
           [...collectVideosForLayers(vm.videoLayers).values()],
@@ -789,6 +787,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
           },
           isCurrentGeneration
         )
+      } else {
+        renderCanvas()
       }
 
       return compositionSec

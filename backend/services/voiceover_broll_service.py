@@ -5,7 +5,9 @@ import logging
 import time
 import uuid
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
+
+from backend.services.voiceover_broll_apply_job import update_broll_apply_job
 
 from backend.core.llm_manager import get_llm_manager
 from backend.core.path_utils import get_project_directory
@@ -167,7 +169,25 @@ class VoiceoverBrollService:
         source_in_sec: Optional[float] = None,
         source_out_sec: Optional[float] = None,
         wait_download_timeout_sec: float = 180.0,
+        operation_id: Optional[str] = None,
     ) -> Tuple[EditSession, VoiceoverPlan, str]:
+        def report(
+            stage: str,
+            progress: float,
+            message: str,
+            **extra: object,
+        ) -> None:
+            if not operation_id:
+                return
+            update_broll_apply_job(
+                operation_id,
+                stage=stage,
+                progress=progress,
+                message=message,
+                **extra,
+            )
+
+        report("starting", 2.0, "准备应用 B-roll…")
         session, plan, segment = self._load_segment(project_id, session_id, segment_id)
         plan, session, reconciled = self._reconcile_broll_block_ids(session, plan)
         if reconciled:
@@ -186,7 +206,16 @@ class VoiceoverBrollService:
         library_asset_id = self._resolve_library_asset_id(
             selected,
             wait_download_timeout_sec=wait_download_timeout_sec,
+            on_download_progress=lambda task_id, progress: report(
+                "downloading",
+                5.0 + 0.35 * progress,
+                f"正在下载素材… {progress:.0f}%",
+                download_task_id=task_id,
+                download_progress=progress,
+            ),
         )
+
+        report("analyzing", 42.0, "素材已就绪，正在分析画面选段…")
 
         block_id = segment.broll.block_id
         if not block_id:
@@ -227,6 +256,8 @@ class VoiceoverBrollService:
                 target_duration_sec=target_duration,
             )
 
+        report("timeline", 82.0, "正在写入时间线并对齐音频…")
+
         session = self._apply_block_trim(
             project_id,
             session_id,
@@ -257,6 +288,16 @@ class VoiceoverBrollService:
         if all(item.status == VoiceoverSegmentStatus.BROLL_DONE for item in plan.segments):
             plan.status = VoiceoverPlanStatus.COMPLETED
         session = self._save_plan(project_id, session_id, plan)
+        report(
+            "completed",
+            100.0,
+            "B-roll 应用完成",
+            done=True,
+            failed=False,
+            session=session,
+            plan=plan,
+            note=selection.selection_reason,
+        )
         return session, plan, selection.selection_reason
 
     def _create_segment_video_block(
@@ -578,6 +619,7 @@ class VoiceoverBrollService:
         selected: VoiceoverSearchResult,
         *,
         wait_download_timeout_sec: float,
+        on_download_progress: Optional[Callable[[str, float], None]] = None,
     ) -> str:
         if selected.library_asset_id and resolve_library_video_path(selected.library_asset_id):
             return selected.library_asset_id
@@ -617,7 +659,11 @@ class VoiceoverBrollService:
         if not task_id:
             raise ValueError("下载任务创建失败")
 
-        return self.wait_for_material_download(task_id, timeout_sec=wait_download_timeout_sec)
+        return self.wait_for_material_download(
+            task_id,
+            timeout_sec=wait_download_timeout_sec,
+            on_progress=on_download_progress,
+        )
 
     def _probe_block_source_duration(
         self,
@@ -635,12 +681,23 @@ class VoiceoverBrollService:
         return float(duration)
 
     @staticmethod
-    def wait_for_material_download(task_id: str, *, timeout_sec: float = 180.0) -> str:
+    def wait_for_material_download(
+        task_id: str,
+        *,
+        timeout_sec: float = 180.0,
+        on_progress: Optional[Callable[[str, float], None]] = None,
+    ) -> str:
         deadline = time.time() + max(10.0, float(timeout_sec))
+        last_reported = -1.0
         while time.time() < deadline:
             task = get_download_task(task_id)
             if task is None:
                 raise ValueError(f"下载任务不存在: {task_id}")
+            if on_progress:
+                progress = float(task.get("progress") or 0.0)
+                if progress != last_reported:
+                    last_reported = progress
+                    on_progress(task_id, progress)
             status = str(task.get("status") or "")
             if status == "completed":
                 asset_id = task.get("asset_id")

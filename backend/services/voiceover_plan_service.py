@@ -1,6 +1,8 @@
 """口播 plan 持久化与里程碑 A 业务逻辑。"""
 from __future__ import annotations
 
+import logging
+import threading
 import uuid
 from typing import List, Optional
 
@@ -9,6 +11,7 @@ from backend.schemas.edit_session import EditSession, EditSessionUpdateRequest
 from backend.schemas.voiceover_plan import (
     MAX_VOICEOVER_SEGMENTS,
     VoiceoverApplyBrollRequest,
+    VoiceoverBrollApplyStatusResponse,
     VoiceoverExecuteRequest,
     VoiceoverGenerateRequest,
     VoiceoverPlan,
@@ -23,6 +26,11 @@ from backend.schemas.voiceover_plan import (
     VoiceoverUpdateSegmentSearchQueriesRequest,
 )
 from backend.services.edit_session_service import EditSessionService
+from backend.services.voiceover_broll_apply_job import (
+    create_broll_apply_job,
+    get_broll_apply_job,
+    update_broll_apply_job,
+)
 from backend.services.voiceover_script_generator import (
     generate_voiceover_plan,
     regenerate_voiceover_segment,
@@ -30,6 +38,8 @@ from backend.services.voiceover_script_generator import (
 )
 from backend.services.voiceover_broll_service import VoiceoverBrollService
 from backend.services.voiceover_orchestrator import VoiceoverOrchestrator
+
+logger = logging.getLogger(__name__)
 
 
 class VoiceoverPlanService:
@@ -352,4 +362,73 @@ class VoiceoverPlanService:
             source_in_sec=payload.source_in_sec,
             source_out_sec=payload.source_out_sec,
             wait_download_timeout_sec=payload.wait_download_timeout_sec,
+        )
+
+    def start_apply_segment_broll(
+        self,
+        project_id: str,
+        session_id: str,
+        segment_id: str,
+        payload: VoiceoverApplyBrollRequest,
+    ) -> str:
+        job = create_broll_apply_job(project_id, session_id, segment_id)
+
+        def run() -> None:
+            try:
+                session, plan, note = self.broll_service.apply_segment_broll(
+                    project_id,
+                    session_id,
+                    segment_id,
+                    source_in_sec=payload.source_in_sec,
+                    source_out_sec=payload.source_out_sec,
+                    wait_download_timeout_sec=payload.wait_download_timeout_sec,
+                    operation_id=job.operation_id,
+                )
+                update_broll_apply_job(
+                    job.operation_id,
+                    done=True,
+                    failed=False,
+                    session=session,
+                    plan=plan,
+                    note=note,
+                )
+            except Exception as exc:
+                logger.exception(
+                    "口播 B-roll 应用失败: %s/%s segment=%s",
+                    project_id,
+                    session_id,
+                    segment_id,
+                )
+                update_broll_apply_job(
+                    job.operation_id,
+                    done=True,
+                    failed=True,
+                    error=str(exc),
+                    stage="failed",
+                    message=str(exc),
+                )
+
+        threading.Thread(target=run, daemon=True, name=f"broll-apply-{segment_id}").start()
+        return job.operation_id
+
+    def get_apply_segment_broll_status(
+        self, operation_id: str
+    ) -> VoiceoverBrollApplyStatusResponse:
+        job = get_broll_apply_job(operation_id)
+        if job is None:
+            raise ValueError("B-roll 应用任务不存在或已过期")
+        return VoiceoverBrollApplyStatusResponse(
+            operation_id=job.operation_id,
+            segment_id=job.segment_id,
+            stage=job.stage,
+            progress=job.progress,
+            message=job.message,
+            download_task_id=job.download_task_id,
+            download_progress=job.download_progress,
+            done=job.done,
+            failed=job.failed,
+            error=job.error,
+            session=job.session,
+            plan=job.plan,
+            note=job.note,
         )

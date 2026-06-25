@@ -10,6 +10,7 @@ import libraryApi, { type LibraryAsset } from '../../../services/libraryApi'
 import type { VoiceoverPlan, VoiceoverSegment, VoiceoverSearchQueryLanguage } from '../../../types/voiceoverPlan'
 import {
   MAX_VOICEOVER_SEGMENTS,
+  VOICEOVER_BROLL_APPLY_STAGE_LABEL,
   VOICEOVER_PLAN_STATUS_LABEL,
   VOICEOVER_SEGMENT_STATUS_LABEL,
 } from '../../../types/voiceoverPlan'
@@ -37,6 +38,11 @@ function textToQueries(text: string): string[] {
     .filter(Boolean)
     .slice(0, 8)
 }
+
+const BROLL_APPLY_POLL_MS = 1500
+const BROLL_APPLY_MAX_WAIT_MS = 600_000
+
+const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms))
 
 const SEARCH_QUERY_LANGUAGES: Array<{ id: VoiceoverSearchQueryLanguage; label: string }> = [
   { id: 'zh', label: '中文' },
@@ -103,6 +109,13 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
   const [libraryPickBySegment, setLibraryPickBySegment] = useState<Record<string, string>>({})
   const [manualTrim, setManualTrim] = useState<Record<string, { inSec: string; outSec: string }>>({})
   const [brollBusySegmentId, setBrollBusySegmentId] = useState<string | null>(null)
+  const [brollApplyProgress, setBrollApplyProgress] = useState<{
+    segmentId: string
+    stage: string
+    progress: number
+    message: string
+    downloadProgress?: number
+  } | null>(null)
   const [searchQueryDrafts, setSearchQueryDrafts] = useState<Record<string, string>>({})
   const [translatingSegmentId, setTranslatingSegmentId] = useState<string | null>(null)
   const [translateTargetLanguage, setTranslateTargetLanguage] =
@@ -195,6 +208,38 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
       return response
     },
     [applyResponse, withServerMutation]
+  )
+
+  const pollBrollApply = useCallback(
+    async (segmentId: string, operationId: string) => {
+      const deadline = Date.now() + BROLL_APPLY_MAX_WAIT_MS
+      while (Date.now() < deadline) {
+        const status = await voiceoverApi.getBrollApplyStatus(projectId, sessionId, operationId)
+        setBrollApplyProgress({
+          segmentId,
+          stage: status.stage,
+          progress: status.progress,
+          message: status.message,
+          downloadProgress: status.download_progress ?? undefined,
+        })
+        if (status.done) {
+          if (status.failed) {
+            throw new Error(status.error || status.message || 'B-roll 应用失败')
+          }
+          if (status.session) {
+            syncSessionFromApi(status.session)
+            setDraftPlan(null)
+            setSearchQueryDrafts({})
+          }
+          return status
+        }
+        await sleep(BROLL_APPLY_POLL_MS)
+      }
+      throw new Error(
+        'B-roll 应用等待超时，任务可能仍在后台进行。请稍后重新打开草稿查看，勿重复点击。'
+      )
+    },
+    [projectId, sessionId, syncSessionFromApi]
   )
 
   const canEditSearchQueries = (segment: VoiceoverSegment) =>
@@ -487,8 +532,14 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
           { platform: brollPlatform, limit: 10, search_queries: queries }
         )
       )
+      const resultCount =
+        response.plan.segments.find((item) => item.id === segment.id)?.broll?.search_results
+          ?.length ?? 0
+      if (resultCount === 0) {
+        onError('未找到可用素材，请尝试修改搜索词、切换平台，或从素材库直接选择')
+      }
     } catch (err: unknown) {
-      onError(err instanceof Error ? err.message : '素材搜索失败')
+      onError(readApiErrorMessage(err, '素材搜索失败'))
     } finally {
       setBrollBusySegmentId(null)
     }
@@ -507,7 +558,7 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
           })
         )
       } catch (err: unknown) {
-        onError(err instanceof Error ? err.message : '素材选定失败')
+        onError(readApiErrorMessage(err, '素材选定失败'))
       } finally {
         setBrollBusySegmentId(null)
       }
@@ -526,7 +577,7 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
         })
       )
     } catch (err: unknown) {
-      onError(err instanceof Error ? err.message : '素材选定失败')
+      onError(readApiErrorMessage(err, '素材选定失败'))
     } finally {
       setBrollBusySegmentId(null)
     }
@@ -534,6 +585,12 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
 
   const handleApplyBroll = async (segmentId: string, useManualTrim: boolean) => {
     setBrollBusySegmentId(segmentId)
+    setBrollApplyProgress({
+      segmentId,
+      stage: 'starting',
+      progress: 0,
+      message: '准备应用 B-roll…',
+    })
     onError('')
     try {
       const manual = manualTrim[segmentId]
@@ -542,21 +599,23 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
           ? {
               source_in_sec: Number.parseFloat(manual.inSec),
               source_out_sec: Number.parseFloat(manual.outSec),
-              wait_download_timeout_sec: 300,
+              wait_download_timeout_sec: 600,
             }
-          : { wait_download_timeout_sec: 300 }
-      const response = await applyVoiceoverApi(() =>
-        voiceoverApi.applySegmentBroll(
+          : { wait_download_timeout_sec: 600 }
+      await withServerMutation(async () => {
+        const { operation_id } = await voiceoverApi.applySegmentBroll(
           projectId,
           sessionId,
           segmentId,
           payload
         )
-      )
+        await pollBrollApply(segmentId, operation_id)
+      })
     } catch (err: unknown) {
       onError(readApiErrorMessage(err, 'B-roll 应用失败'))
     } finally {
       setBrollBusySegmentId(null)
+      setBrollApplyProgress(null)
     }
   }
 
@@ -1005,7 +1064,9 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
                         onClick={() => void handleSelectBroll(segment.id)}
                         disabled={Boolean(brollBusySegmentId) || executing}
                       >
-                        确认候选
+                        {brollBusySegmentId === segment.id && !brollApplyProgress
+                          ? '确认中…'
+                          : '确认候选'}
                       </button>
                       <button
                         type="button"
@@ -1013,9 +1074,41 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
                         onClick={() => void handleApplyBroll(segment.id, false)}
                         disabled={Boolean(brollBusySegmentId) || executing || !segment.broll?.selected}
                       >
-                        {brollBusySegmentId === segment.id ? '应用中…' : '下载并应用 B-roll'}
+                        {brollBusySegmentId === segment.id && brollApplyProgress
+                          ? `${VOICEOVER_BROLL_APPLY_STAGE_LABEL[brollApplyProgress.stage] ?? '处理中'}…`
+                          : '下载并应用 B-roll'}
                       </button>
                     </div>
+
+                    {brollApplyProgress?.segmentId === segment.id ? (
+                      <div className="editor-agent-panel__voiceover-broll-progress">
+                        <div className="editor-agent-panel__voiceover-broll-progress-head">
+                          <span>
+                            {VOICEOVER_BROLL_APPLY_STAGE_LABEL[brollApplyProgress.stage] ??
+                              brollApplyProgress.stage}
+                          </span>
+                          <span>{Math.round(brollApplyProgress.progress)}%</span>
+                        </div>
+                        <div
+                          className="editor-agent-panel__voiceover-broll-progress-bar"
+                          role="progressbar"
+                          aria-valuenow={Math.round(brollApplyProgress.progress)}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                        >
+                          <div
+                            className="editor-agent-panel__voiceover-broll-progress-fill"
+                            style={{ width: `${Math.min(100, Math.max(0, brollApplyProgress.progress))}%` }}
+                          />
+                        </div>
+                        <p className="editor-agent-panel__voiceover-segment-meta">
+                          {brollApplyProgress.message}
+                          {brollApplyProgress.stage === 'analyzing'
+                            ? '（画面分析可能需 1–3 分钟，请耐心等待）'
+                            : null}
+                        </p>
+                      </div>
+                    ) : null}
 
                     {segment.broll?.selected ? (
                       <p className="editor-agent-panel__voiceover-segment-meta">

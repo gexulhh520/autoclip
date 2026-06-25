@@ -74,6 +74,8 @@ from backend.schemas.editor_agent import (
 from backend.core.path_utils import get_project_directory
 from backend.schemas.voiceover_plan import (
     VoiceoverApplyBrollRequest,
+    VoiceoverBrollApplyStartResponse,
+    VoiceoverBrollApplyStatusResponse,
     VoiceoverExecuteRequest,
     VoiceoverExecuteResponse,
     VoiceoverGenerateRequest,
@@ -1947,7 +1949,7 @@ async def select_voiceover_segment_material(
 
 @router.post(
     "/{project_id}/edit-sessions/{session_id}/voiceover/segments/{segment_id}/apply-broll",
-    response_model=VoiceoverExecuteResponse,
+    response_model=VoiceoverBrollApplyStartResponse,
 )
 async def apply_voiceover_segment_broll(
     project_id: str,
@@ -1957,18 +1959,37 @@ async def apply_voiceover_segment_broll(
     service: VoiceoverPlanService = Depends(get_voiceover_plan_service),
 ):
     try:
-        session, plan, note = await asyncio.to_thread(
-            service.apply_segment_broll,
+        operation_id = await asyncio.to_thread(
+            service.start_apply_segment_broll,
             project_id,
             session_id,
             segment_id,
             body,
         )
-        return VoiceoverExecuteResponse(session=session, plan=plan, note=note)
+        return VoiceoverBrollApplyStartResponse(operation_id=operation_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="剪辑工程不存在") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        logger.exception("口播 B-roll 应用失败: %s/%s segment=%s", project_id, session_id, segment_id)
+        logger.exception("口播 B-roll 应用启动失败: %s/%s segment=%s", project_id, session_id, segment_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get(
+    "/{project_id}/edit-sessions/{session_id}/voiceover/broll-apply/{operation_id}",
+    response_model=VoiceoverBrollApplyStatusResponse,
+)
+async def get_voiceover_broll_apply_status(
+    project_id: str,
+    session_id: str,
+    operation_id: str,
+    service: VoiceoverPlanService = Depends(get_voiceover_plan_service),
+):
+    try:
+        return await asyncio.to_thread(service.get_apply_segment_broll_status, operation_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("查询 B-roll 应用进度失败: %s", operation_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc

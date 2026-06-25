@@ -132,6 +132,44 @@ export interface VoiceoverApplyBrollRequest {
   wait_download_timeout_sec?: number
 }
 
+export type VoiceoverBrollApplyStage =
+  | 'starting'
+  | 'downloading'
+  | 'analyzing'
+  | 'timeline'
+  | 'completed'
+  | 'failed'
+
+export interface VoiceoverBrollApplyStartResponse {
+  operation_id: string
+  message?: string
+}
+
+export interface VoiceoverBrollApplyStatusResponse {
+  operation_id: string
+  segment_id: string
+  stage: VoiceoverBrollApplyStage | string
+  progress: number
+  message: string
+  download_task_id?: string | null
+  download_progress?: number | null
+  done: boolean
+  failed: boolean
+  error?: string | null
+  session?: import('./editSession').EditSession
+  plan?: VoiceoverPlan
+  note?: string | null
+}
+
+export const VOICEOVER_BROLL_APPLY_STAGE_LABEL: Record<string, string> = {
+  starting: '准备中',
+  downloading: '下载素材',
+  analyzing: '分析画面',
+  timeline: '写入时间线',
+  completed: '完成',
+  failed: '失败',
+}
+
 export const MAX_VOICEOVER_SEGMENTS = 24
 
 export const VOICEOVER_PLAN_STATUS_LABEL: Record<VoiceoverPlanStatus, string> = {

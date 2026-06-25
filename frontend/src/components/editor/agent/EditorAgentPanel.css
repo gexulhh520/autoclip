@@ -1223,6 +1223,38 @@
   color: var(--editor-sub);
 }
 
+.editor-agent-panel__voiceover-broll-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--editor-surface-raised, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--editor-border-light);
+}
+
+.editor-agent-panel__voiceover-broll-progress-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--editor-text);
+}
+
+.editor-agent-panel__voiceover-broll-progress-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--editor-border-light);
+  overflow: hidden;
+}
+
+.editor-agent-panel__voiceover-broll-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--editor-accent, #4a7fd7);
+  transition: width 0.35s ease;
+}
+
 .editor-agent-panel__voiceover-translate {
   display: flex;
   flex-wrap: wrap;

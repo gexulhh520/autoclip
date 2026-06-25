@@ -188,5 +188,26 @@ class VoiceoverApplyBrollRequest(BaseModel):
     wait_download_timeout_sec: float = Field(default=180.0, ge=10.0, le=600.0)
 
 
+class VoiceoverBrollApplyStartResponse(BaseModel):
+    operation_id: str
+    message: str = "B-roll 应用已开始"
+
+
+class VoiceoverBrollApplyStatusResponse(BaseModel):
+    operation_id: str
+    segment_id: str
+    stage: str
+    progress: float = Field(ge=0.0, le=100.0)
+    message: str = ""
+    download_task_id: Optional[str] = None
+    download_progress: Optional[float] = None
+    done: bool = False
+    failed: bool = False
+    error: Optional[str] = None
+    session: Optional["EditSession"] = None
+    plan: Optional[VoiceoverPlan] = None
+    note: Optional[str] = None
+
+
 if TYPE_CHECKING:
     from backend.schemas.edit_session import EditSession

@@ -2,6 +2,8 @@ import api from './api'
 import type { EditSession } from '../types/editSession'
 import type {
   VoiceoverApplyBrollRequest,
+  VoiceoverBrollApplyStartResponse,
+  VoiceoverBrollApplyStatusResponse,
   VoiceoverExecuteRequest,
   VoiceoverExecuteResponse,
   VoiceoverGenerateRequest,
@@ -171,12 +173,23 @@ export const voiceoverApi = {
     sessionId: string,
     segmentId: string,
     payload: VoiceoverApplyBrollRequest = {}
-  ): Promise<VoiceoverExecuteResponse> => {
+  ): Promise<VoiceoverBrollApplyStartResponse> => {
     return (await api.post(
       `${voiceoverBase(projectId, sessionId)}/segments/${encodeURIComponent(segmentId)}/apply-broll`,
       payload,
-      { timeout: VOICEOVER_TIMEOUT_MS }
-    )) as VoiceoverExecuteResponse
+      { timeout: 30_000 }
+    )) as VoiceoverBrollApplyStartResponse
+  },
+
+  getBrollApplyStatus: async (
+    projectId: string,
+    sessionId: string,
+    operationId: string
+  ): Promise<VoiceoverBrollApplyStatusResponse> => {
+    return (await api.get(
+      `${voiceoverBase(projectId, sessionId)}/broll-apply/${encodeURIComponent(operationId)}`,
+      { timeout: 15_000 }
+    )) as VoiceoverBrollApplyStatusResponse
   },
 
   applyResponse: (response: VoiceoverPlanResponse): EditSession => response.session,
