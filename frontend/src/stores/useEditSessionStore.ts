@@ -89,6 +89,7 @@ import {
   applyTailTrimLinkedElements,
   buildSessionCompositionTimeline,
   shouldLinkAudioClip,
+  updateOverlayBlockLinkFromStart,
 } from '../editor/timeline/timelineBlockLink'
 import {
   blockTimelineVisualEndSec,
@@ -1314,7 +1315,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (!state.session?.overlay_elements || !state.timelineBlockLinkEnabled) return
           const element = state.session.overlay_elements.find((item) => item.id === elementId)
           if (!element) return
-          if (attachOverlayBlockLink(state.session, element)) state.dirty = true
+          if (updateOverlayBlockLinkFromStart(state.session, element)) state.dirty = true
         })
       },
       syncTimelineBlockLinkForAudioClip: (clipId) => {

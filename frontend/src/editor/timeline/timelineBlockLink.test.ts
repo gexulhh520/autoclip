@@ -11,6 +11,7 @@ import {
   segmentVisualEndSec,
   TIMELINE_BLOCK_ID_PARAM,
   TIMELINE_BLOCK_OFFSET_PARAM,
+  updateOverlayBlockLinkFromStart,
 } from './timelineBlockLink'
 
 const baseSession = (): EditSession => ({
@@ -264,5 +265,46 @@ describe('clearAudioClipBlockLink', () => {
     expect(clearAudioClipBlockLink(clip)).toBe(true)
     expect(clip.block_id).toBeUndefined()
     expect(clip.block_offset_sec).toBeUndefined()
+  })
+})
+
+describe('voiceover overlay block links', () => {
+  it('keeps subtitle at absolute time when linked to overlay video block', () => {
+    const session = baseSession()
+    session.sequence.push({
+      id: 'vo-b4',
+      source_clip_id: 'vo-b4',
+      title: '口播素材-4',
+      media: { type: 'imported_clip', path: 'vo.mp4' },
+      trim: { in_sec: 0, out_sec: 5 },
+      overlay: { outline: '', content: [], recommend_reason: '' },
+      audio: { volume: 1 },
+      transition_out: 'cut',
+      duration_sec: 5,
+      track_id: 'voiceover-broll',
+      timeline_start_sec: 20,
+    })
+    const element = {
+      id: 'vo-sub-4',
+      type: 'text' as const,
+      start_sec: 21.5,
+      duration_sec: 2,
+      hidden: false,
+      params: writeParam(
+        writeParam({}, TIMELINE_BLOCK_ID_PARAM, 'vo-b4'),
+        TIMELINE_BLOCK_OFFSET_PARAM,
+        1.5
+      ),
+    }
+    session.overlay_elements = [element]
+
+    expect(reconcileTimelineBlockLinks(session)).toBe(false)
+    expect(element.start_sec).toBeCloseTo(21.5, 3)
+
+    element.start_sec = 22
+    expect(updateOverlayBlockLinkFromStart(session, element)).toBe(true)
+    expect(element.params[TIMELINE_BLOCK_OFFSET_PARAM]).toBeCloseTo(2, 3)
+    expect(reconcileTimelineBlockLinks(session)).toBe(false)
+    expect(element.start_sec).toBeCloseTo(22, 3)
   })
 })

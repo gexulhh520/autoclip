@@ -1,10 +1,19 @@
-import type { AudioClipElement, EditOverlayElement, EditSession } from '../../types/editSession'
-import { blockTimelineVisualEndSec, blockTimelineVisualStartSec } from '../../utils/editTimeline'
+import type { AudioClipElement, EditBlock, EditOverlayElement, EditSession } from '../../types/editSession'
+import {
+  blockTimelineVisualEndSec,
+  blockTimelineVisualStartSec,
+} from '../../utils/editTimeline'
 import { readNumberParam, readStringParam, writeParam } from '../opencut-text/params'
 import { buildCompositionTimeline } from '../scene/timelineLayout'
 import type { CompositionSegment } from '../scene/types'
 import { getTemplateBlockId, isTemplateLinkedOverlay } from '../migration/templateCaptionOverlays'
 import { resolveAudioAssetCategory } from '../audioTracks'
+import {
+  isMainTrackBlock,
+  resolveMainTrackBlocks,
+  resolveOverlayVideoBlocks,
+  blockTimelineStartSec,
+} from '../videoTracks'
 
 export const TIMELINE_BLOCK_ID_PARAM = 'timeline.blockId'
 export const TIMELINE_BLOCK_OFFSET_PARAM = 'timeline.blockOffsetSec'
@@ -14,7 +23,7 @@ const transitionDurationSec = (session: EditSession): number =>
 
 export function buildSessionCompositionTimeline(session: EditSession) {
   return buildCompositionTimeline(
-    session.sequence,
+    resolveMainTrackBlocks(session),
     transitionDurationSec(session),
     session.sequence_block_gaps
   )
@@ -29,7 +38,36 @@ export function segmentVisualEndSec(segment: CompositionSegment): number {
   return blockTimelineVisualEndSec(segment.compositionStartSec, segment.block)
 }
 
-export function findSegmentAtCompositionTime(
+export function resolveBlockLinkAnchorSec(
+  session: EditSession,
+  blockId: string
+): number | null {
+  const block = session.sequence.find((item) => item.id === blockId)
+  if (!block) return null
+  if (!isMainTrackBlock(block)) {
+    return blockTimelineVisualStartSec(blockTimelineStartSec(block), block)
+  }
+  const timeline = buildSessionCompositionTimeline(session)
+  const segment = timeline.segments.find((item) => item.block.id === blockId)
+  if (!segment) return null
+  return blockLinkAnchorSec(segment)
+}
+
+function findOverlayVideoBlockAtTime(
+  session: EditSession,
+  timeSec: number
+): EditBlock | null {
+  for (const block of resolveOverlayVideoBlocks(session)) {
+    const start = blockTimelineVisualStartSec(blockTimelineStartSec(block), block)
+    const end = blockTimelineVisualEndSec(blockTimelineStartSec(block), block)
+    if (timeSec >= start - 0.001 && timeSec < end + 0.001) {
+      return block
+    }
+  }
+  return null
+}
+
+function findMainSegmentAtCompositionTime(
   session: EditSession,
   timeSec: number
 ): CompositionSegment | null {
@@ -47,10 +85,60 @@ export function findSegmentAtCompositionTime(
   return timeline.segments[timeline.segments.length - 1] ?? null
 }
 
+export function findSegmentAtCompositionTime(
+  session: EditSession,
+  timeSec: number
+): CompositionSegment | null {
+  const overlayBlock = findOverlayVideoBlockAtTime(session, timeSec)
+  if (overlayBlock) {
+    return {
+      block: overlayBlock,
+      index: -1,
+      compositionStartSec: blockTimelineStartSec(overlayBlock),
+      sourceDurationSec: 0,
+      transitionOut: 'cut',
+      dissolveOutSec: 0,
+    }
+  }
+  return findMainSegmentAtCompositionTime(session, timeSec)
+}
+
+function resolveBlockLinkTarget(
+  session: EditSession,
+  timeSec: number,
+  preferredBlockId?: string
+): { blockId: string; anchorSec: number } | null {
+  if (preferredBlockId) {
+    const anchorSec = resolveBlockLinkAnchorSec(session, preferredBlockId)
+    if (anchorSec != null) {
+      return { blockId: preferredBlockId, anchorSec }
+    }
+  }
+
+  const overlayBlock = findOverlayVideoBlockAtTime(session, timeSec)
+  if (overlayBlock) {
+    return {
+      blockId: overlayBlock.id,
+      anchorSec: blockTimelineVisualStartSec(blockTimelineStartSec(overlayBlock), overlayBlock),
+    }
+  }
+
+  const segment = findMainSegmentAtCompositionTime(session, timeSec)
+  if (!segment) return null
+  return { blockId: segment.block.id, anchorSec: blockLinkAnchorSec(segment) }
+}
+
 export function resolveBlockOverlayWindow(
   session: EditSession,
   blockId: string
 ): { anchorSec: number; endSec: number; durationSec: number } | null {
+  const block = session.sequence.find((item) => item.id === blockId)
+  if (!block) return null
+  if (!isMainTrackBlock(block)) {
+    const anchorSec = blockTimelineVisualStartSec(blockTimelineStartSec(block), block)
+    const endSec = blockTimelineVisualEndSec(blockTimelineStartSec(block), block)
+    return { anchorSec, endSec, durationSec: Math.max(0, endSec - anchorSec) }
+  }
   const timeline = buildSessionCompositionTimeline(session)
   const segment = timeline.segments.find((item) => item.block.id === blockId)
   if (!segment) return null
@@ -87,11 +175,25 @@ export function attachOverlayBlockLink(
 ): boolean {
   if (isTemplateLinkedOverlay(element)) return false
   const anchor = startSec ?? element.start_sec
-  const segment = findSegmentAtCompositionTime(session, anchor + 0.001)
-  if (!segment) return false
-  const offsetSec = Math.max(0, anchor - blockLinkAnchorSec(segment))
-  element.params = writeParam(element.params, TIMELINE_BLOCK_ID_PARAM, segment.block.id)
-  element.params = writeParam(element.params, TIMELINE_BLOCK_OFFSET_PARAM, offsetSec)
+  const existing = getOverlayBlockLink(element)
+  const target = resolveBlockLinkTarget(session, anchor + 0.001, existing?.blockId)
+  if (!target) return false
+  const offsetSec = Math.max(0, anchor - target.anchorSec)
+  writeOverlayBlockLink(element, target.blockId, offsetSec)
+  return true
+}
+
+/** 用户拖动字幕后，仅更新联动偏移，避免按错误合成时间轴重新绑到主轨前段 */
+export function updateOverlayBlockLinkFromStart(
+  session: EditSession,
+  element: EditOverlayElement
+): boolean {
+  if (isTemplateLinkedOverlay(element)) return false
+  const link = getOverlayBlockLink(element)
+  if (!link) return attachOverlayBlockLink(session, element)
+  const blockAnchor = resolveBlockLinkAnchorSec(session, link.blockId)
+  if (blockAnchor == null) return clearOverlayBlockLink(element)
+  writeOverlayBlockLink(element, link.blockId, Math.max(0, element.start_sec - blockAnchor))
   return true
 }
 
@@ -113,10 +215,10 @@ export function attachAudioClipBlockLink(
   startSec?: number
 ): boolean {
   const anchor = startSec ?? clip.start_sec
-  const segment = findSegmentAtCompositionTime(session, anchor + 0.001)
-  if (!segment) return false
-  clip.block_id = segment.block.id
-  clip.block_offset_sec = Math.max(0, anchor - blockLinkAnchorSec(segment))
+  const target = resolveBlockLinkTarget(session, anchor + 0.001, clip.block_id ?? undefined)
+  if (!target) return false
+  clip.block_id = target.blockId
+  clip.block_offset_sec = Math.max(0, anchor - target.anchorSec)
   return true
 }
 
@@ -153,16 +255,15 @@ export function ensureBlockLinksForUnlinkedElements(session: EditSession): boole
 
 /** 转场 / 叠化时长变化后，按 block 偏移重算已联动文本与音效的起始时间 */
 export function reconcileTimelineBlockLinks(session: EditSession): boolean {
-  const timeline = buildSessionCompositionTimeline(session)
   let changed = false
 
   for (const element of session.overlay_elements ?? []) {
     if (isTemplateLinkedOverlay(element)) continue
     const link = getOverlayBlockLink(element)
     if (!link) continue
-    const segment = timeline.segments.find((item) => item.block.id === link.blockId)
-    if (!segment) continue
-    const nextStart = blockLinkAnchorSec(segment) + link.offsetSec
+    const anchorSec = resolveBlockLinkAnchorSec(session, link.blockId)
+    if (anchorSec == null) continue
+    const nextStart = anchorSec + link.offsetSec
     if (Math.abs(element.start_sec - nextStart) > 0.001) {
       element.start_sec = nextStart
       changed = true
@@ -172,9 +273,9 @@ export function reconcileTimelineBlockLinks(session: EditSession): boolean {
   for (const clip of session.audio_elements ?? []) {
     if (!clip.block_id || clip.block_offset_sec == null) continue
     if (!shouldLinkAudioClip(session, clip)) continue
-    const segment = timeline.segments.find((item) => item.block.id === clip.block_id)
-    if (!segment) continue
-    const nextStart = blockLinkAnchorSec(segment) + clip.block_offset_sec
+    const anchorSec = resolveBlockLinkAnchorSec(session, clip.block_id)
+    if (anchorSec == null) continue
+    const nextStart = anchorSec + clip.block_offset_sec
     if (Math.abs(clip.start_sec - nextStart) > 0.001) {
       clip.start_sec = nextStart
       changed = true
