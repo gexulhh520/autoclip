@@ -100,8 +100,18 @@ export function ensureDecoderBound(
     if (nextUrl === boundUrl) return false
     const boundIsLocal = isLocalPreviewMediaUrl(boundUrl)
     const nextIsLocal = isLocalPreviewMediaUrl(nextUrl)
-    // 已绑定后禁止 asset↔HTTP 换源（播放/暂停不再切换）
-    if (boundIsLocal !== nextIsLocal) return false
+    // 播放切 HTTP（连续解码）；暂停切 asset（本地 scrub）。禁止反向与同协议重复换源。
+    if (boundIsLocal !== nextIsLocal) {
+      if (boundIsLocal && !nextIsLocal && !preferLocal) {
+        applyPreviewVideoSrc(video, nextUrl, httpUrl, cacheKey)
+        return true
+      }
+      if (!boundIsLocal && nextIsLocal && preferLocal) {
+        applyPreviewVideoSrc(video, nextUrl, httpUrl, cacheKey)
+        return true
+      }
+      return false
+    }
     if (!boundIsLocal && !nextIsLocal) return false
     applyPreviewVideoSrc(video, nextUrl, httpUrl, cacheKey)
     return true

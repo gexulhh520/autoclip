@@ -115,7 +115,7 @@ describe('previewDecoderBinding', () => {
     expect(video.src).toBe(httpUrl)
   })
 
-  it('does not switch decoder between asset and HTTP once bound', () => {
+  it('switches asset to HTTP when playback prefers streaming', () => {
     const path = 'edit_sessions/s1/media/clip.mp4'
     const block = importedBlock('main-1', path)
     const assetUrl = 'asset://localhost/clip.mp4'
@@ -135,6 +135,31 @@ describe('previewDecoderBinding', () => {
         sessionId: 's1',
         useSourceVideo: false,
         preferLocal: false,
+      })
+    ).toBe(true)
+    expect(video.src).toBe(httpUrl)
+  })
+
+  it('does not switch asset to HTTP while paused scrub prefers local', () => {
+    const path = 'edit_sessions/s1/media/clip.mp4'
+    const block = importedBlock('main-1', path)
+    const assetUrl = 'asset://localhost/clip.mp4'
+    const httpUrl = 'http://test/blocks/main-1/media'
+    const video = {
+      src: assetUrl,
+      dataset: {
+        decoderKey: `media:${path}`,
+        effectiveUrl: assetUrl,
+        boundBlockId: block.id,
+      } as DOMStringMap,
+    } as HTMLVideoElement
+
+    expect(
+      ensureDecoderBound(video, block, () => httpUrl, sessionWith([block]), {
+        projectId: 'p1',
+        sessionId: 's1',
+        useSourceVideo: false,
+        preferLocal: true,
       })
     ).toBe(false)
     expect(video.src).toBe(assetUrl)
