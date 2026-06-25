@@ -1,6 +1,5 @@
 import type { EditBlock, EditSession } from '../../types/editSession'
 import { ensureDecoderBound, resolvePreviewDecoderKey } from './previewDecoderBinding'
-import type { PreviewLocalMediaContext } from '../../utils/previewLocalMedia'
 import { ensurePreviewVideoFrameCache } from './previewVideoFrameCache'
 
 const MAX_RETAINED_DECODERS = 8
@@ -9,6 +8,8 @@ export interface PreviewDecoderPool {
   ensureForBlock(block: EditBlock, session?: EditSession | null): HTMLVideoElement
   get(blockId: string): HTMLVideoElement | null
   getFrameCache(blockId: string): HTMLCanvasElement
+  getLastStableFrame(blockId: string): HTMLCanvasElement | undefined
+  setLastStableFrame(blockId: string, canvas: HTMLCanvasElement): void
   touch(blockId: string): void
   prune(activeBlockIds: Iterable<string>): void
   dispose(): void
@@ -24,6 +25,7 @@ export function createPreviewDecoderPool(
   const decoders = new Map<string, HTMLVideoElement>()
   const blockToStorageKey = new Map<string, string>()
   const frameCaches = new Map<string, HTMLCanvasElement>()
+  const lastStableFrames = new Map<string, HTMLCanvasElement>()
   const lastUsedAt = new Map<string, number>()
   let touchCounter = 0
 
@@ -54,7 +56,6 @@ export function createPreviewDecoderPool(
     video.dataset.blockId = blockId
     video.playsInline = true
     video.preload = 'metadata'
-    // crossOrigin 在 applyPreviewVideoSrc 按 HTTP / asset 协议分别设置
     video.addEventListener('loadedmetadata', () => {
       options.onMetadata?.(video, blockId)
     })
@@ -90,6 +91,10 @@ export function createPreviewDecoderPool(
       if (!existing) frameCaches.set(blockId, cache)
       return cache
     },
+    getLastStableFrame: (blockId) => lastStableFrames.get(blockId),
+    setLastStableFrame: (blockId, canvas) => {
+      lastStableFrames.set(blockId, canvas)
+    },
     prune: (activeBlockIds) => {
       const active = new Set(activeBlockIds)
       const activeStorage = new Set<string>()
@@ -114,6 +119,7 @@ export function createPreviewDecoderPool(
           }
           blockToStorageKey.delete(blockId)
           frameCaches.delete(blockId)
+          lastStableFrames.delete(blockId)
         }
       }
 
@@ -137,6 +143,7 @@ export function createPreviewDecoderPool(
       }
       blockToStorageKey.clear()
       frameCaches.clear()
+      lastStableFrames.clear()
     },
   }
 }
@@ -145,10 +152,9 @@ export function bindPreviewDecoder(
   pool: PreviewDecoderPool,
   block: EditBlock,
   getVideoUrlForBlock: (block: EditBlock) => string,
-  session?: EditSession | null,
-  localMedia?: PreviewLocalMediaContext | null
+  session?: EditSession | null
 ): HTMLVideoElement {
   const video = pool.ensureForBlock(block, session)
-  ensureDecoderBound(video, block, getVideoUrlForBlock, session, localMedia)
+  ensureDecoderBound(video, block, getVideoUrlForBlock, session)
   return video
 }

@@ -1,6 +1,10 @@
-import editApi from '../services/editApi'
-import { projectApi } from '../services/api'
 import type { EditBlock } from '../types/editSession'
+import {
+  audioAssetPreviewPlaybackUrl,
+  blockPreviewPlaybackUrl,
+  clipPreviewPlaybackUrl,
+  sourcePreviewPlaybackUrl,
+} from './previewMediaUrl'
 
 export function isImportedBlock(block: EditBlock): boolean {
   return (
@@ -52,9 +56,9 @@ export function getBlockVideoUrl(
   block: EditBlock
 ): string {
   if (isImportedBlock(block)) {
-    return editApi.getBlockMediaUrl(projectId, sessionId, block.id)
+    return blockPreviewPlaybackUrl(projectId, sessionId, block.id)
   }
-  return projectApi.getClipVideoUrl(projectId, block.source_clip_id, block.title)
+  return clipPreviewPlaybackUrl(projectId, block.source_clip_id, block.title)
 }
 
 export function getBlockVideoUrlForPreview(
@@ -64,13 +68,20 @@ export function getBlockVideoUrlForPreview(
   useSourceVideo: boolean
 ): string {
   if (blockUsesSourceVideoPreview(block, useSourceVideo)) {
-    const sourceId = block.media.source_video_path!.includes('sources/')
+    const sourceId = block.media.source_video_path?.includes('sources/')
       ? block.media.source_video_path!
           .split('/')
           .find((_, index, parts) => parts[index - 1] === 'sources')
       : null
-    return projectApi.getSourceVideoUrl(projectId, sourceId)
+    return sourcePreviewPlaybackUrl(projectId, sourceId)
   }
-  // 剪辑预览统一走 block media 端点，与后端 _resolve_input_video 一致
-  return editApi.getBlockMediaUrl(projectId, sessionId, block.id)
+  return blockPreviewPlaybackUrl(projectId, sessionId, block.id)
+}
+
+export function getAudioAssetPlaybackUrl(
+  projectId: string,
+  sessionId: string,
+  assetId: string
+): string {
+  return audioAssetPreviewPlaybackUrl(projectId, sessionId, assetId)
 }

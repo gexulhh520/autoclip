@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { EditBlock, EditSession } from '../../../types/editSession'
 import {
   buildFrameDescriptor,
@@ -9,12 +9,12 @@ import {
 import type { FrameDescriptor } from '../../../editor/compositor/types'
 import { findUpcomingCrossIncomingBlock } from '../../../editor/compositor/previewCrossTransitionWarmup'
 import { findPlayheadWarmupTargets } from '../../../editor/compositor/previewPlayheadWarmup'
-import type { PreviewLocalMediaContext } from '../../../editor/compositor/previewDecoderBinding'
 import {
   ensureDecoderBound,
   ensureDecoderPreloadForTargetTime,
 } from '../../../editor/compositor/previewDecoderBinding'
-import { subscribePreviewMediaCache } from '../../../utils/previewLocalMedia'
+import { compositionTimeFromVideo } from '../../../editor/compositor/previewPlayhead'
+import { buildCompositionTimeline } from '../../../editor/scene/timelineLayout'
 import {
   buildCanvasOverlaySyncKey,
   buildSequenceVideoSyncKey,
@@ -43,7 +43,7 @@ import type { PreviewVideoLayerProps } from '../../../editor/scene/adapters/prev
 import { stopEditorPlayback } from '../../../editor/stopEditorPlayback'
 import { applyMediaPlaybackRate } from '../../../editor/mediaPlaybackRate'
 import { isImportedBlock } from '../../../utils/editBlockMedia'
-import { isMainTrackBlock, resolveOverlayVideoBlocks } from '../../../editor/videoTracks'
+import { isMainTrackBlock, resolveMainTrackBlocks, resolveOverlayVideoBlocks } from '../../../editor/videoTracks'
 import { isVoiceoverBrollBlock } from '../../../editor/voiceover/voiceoverBroll'
 
 const PAUSED_SEEK_THRESHOLD_SEC = 0.03
@@ -154,12 +154,11 @@ export interface CompositorPreviewProps {
     updates: Array<{ blockId: string; position_x: number; position_y: number }>,
     options?: { recordHistory?: boolean }
   ) => void
-  previewLocalMedia?: PreviewLocalMediaContext | null
 }
 
 const PLAYBACK_END_EPSILON_SEC = 0.02
 
-const PLAYBACK_SEEK_DRIFT_SEC = 0.35
+const PLAYBACK_SEEK_DRIFT_SEC = 1.0
 /** 叠画轨（口播 B-roll）播放时放宽漂移校正，避免周期性 seek 造成顿挫 */
 const OVERLAY_PLAYBACK_DRIFT_SEC = 1.25
 /** 转场播放时略收紧 drift，但勿每帧 seek（会导致解码器无法出帧 → 灰屏） */
@@ -250,9 +249,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   moveOverlayPositions,
   moveCaptionOffsets,
   moveBlockVideoPositions,
-  previewLocalMedia = null,
 }) => {
-  const [localMediaEpoch, setLocalMediaEpoch] = useState(0)
   const sequenceVideoSyncKey = useMemo(
     () => buildSequenceVideoSyncKey(session),
     [session]
@@ -365,14 +362,62 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     [getDecoderPool]
   )
 
+  const compositionTimeline = useMemo(() => {
+    const mainBlocks = resolveMainTrackBlocks(session)
+    const transitionDurationSec = session.audio_settings?.transition_duration_sec ?? 0.35
+    return buildCompositionTimeline(
+      mainBlocks,
+      transitionDurationSec,
+      session.sequence_block_gaps
+    )
+  }, [session])
+
+  const useSourceVideo = session.audio_settings.use_source_video ?? false
+
   const resolveCompositionSec = useCallback((): number => {
     if (!plan) return sequencePlayheadSec
-    const clock = playbackClockRef.current
-    if (isPlaying && clock.isRunning()) {
-      return clock.read(plan.totalDurationSec)
+    if (!isPlaying) {
+      return Math.max(0, Math.min(plan.totalDurationSec, sequencePlayheadSec))
     }
-    return Math.max(0, Math.min(plan.totalDurationSec, sequencePlayheadSec))
-  }, [isPlaying, plan, sequencePlayheadSec])
+
+    const clockSec = playbackClockRef.current.read(plan.totalDurationSec)
+    const { vm: probeVm } = resolveSceneVm(clockSec)
+
+    if (!probeVm.inDissolve) {
+      const mainLayer =
+        probeVm.videoLayers.find((layer) => isMainTrackBlock(layer.block)) ??
+        probeVm.videoLayers[0]
+      if (mainLayer) {
+        const video = getDecoderPool()?.get(mainLayer.block.id)
+        if (video && video.readyState >= 2 && !video.seeking) {
+          const segmentIndex = compositionTimeline.segments.findIndex(
+            (segment) => segment.block.id === mainLayer.block.id
+          )
+          if (segmentIndex >= 0) {
+            const segment = compositionTimeline.segments[segmentIndex]!
+            const liveSec = compositionTimeFromVideo(
+              video,
+              mainLayer.block,
+              segment.startSec,
+              useSourceVideo,
+              { timeline: compositionTimeline, segmentIndex }
+            )
+            return Math.max(0, Math.min(plan.totalDurationSec, liveSec))
+          }
+        }
+      }
+    }
+
+    return clockSec
+  }, [
+    compositionTimeline,
+    getDecoderPool,
+    isPlaying,
+    plan,
+    resolveSceneVm,
+    sequencePlayheadSec,
+    useSourceVideo,
+  ])
 
   resolveCompositionSecRef.current = resolveCompositionSec
 
@@ -407,8 +452,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         pool,
         warmupBlock,
         getVideoUrlForBlock,
-        session,
-        previewLocalMedia
+        session
       )
       const warmupLayer: PreviewVideoLayerProps = {
         block: warmupBlock,
@@ -437,7 +481,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
       return [warmupLayer]
     },
-    [getVideoUrlForBlock, getSourceTimeForBlock, previewLocalMedia, session]
+    [getVideoUrlForBlock, getSourceTimeForBlock, session]
   )
 
   const prewarmDecodersAtPlayhead = useCallback(
@@ -455,8 +499,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
           pool,
           block,
           getVideoUrlForBlock,
-          session,
-          previewLocalMedia
+          session
         )
         video.muted = true
         video.volume = 0
@@ -482,7 +525,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         ...(warmupBlockIdRef.current ? [warmupBlockIdRef.current] : []),
       ])
     },
-    [getDecoderPool, getSourceTimeForBlock, getVideoUrlForBlock, previewLocalMedia, session]
+    [getDecoderPool, getSourceTimeForBlock, getVideoUrlForBlock, session]
   )
 
   const collectVideosForLayers = useCallback(
@@ -546,8 +589,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         video,
         layer.block,
         getVideoUrlForBlock,
-        session,
-        previewLocalMedia
+        session
       )
       if (rebinding) {
         const pool = getDecoderPool()
@@ -599,8 +641,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
             ? seekVideoWhenReady(video, target, seekOpts)
             : seekVideoToTarget(video, target, seekOpts)
         } else {
-          // 解码器需静音才能稳定通过 play()；片段原声走独立 audio 轨
-          video.muted = true
+          video.muted = audioMuted
           void video.play().catch(() => undefined)
         }
         return didSeek
@@ -615,7 +656,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       video.pause()
       return didSeek
     },
-    [getDecoderPool, getSourceTimeForBlock, getVideoUrlForBlock, isPlaying, previewLocalMedia, session]
+    [getDecoderPool, getSourceTimeForBlock, getVideoUrlForBlock, isPlaying, session]
   )
 
   const syncVideosFromVm = useCallback(
@@ -649,8 +690,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
           pool,
           layer.block,
           getVideoUrlForBlock,
-          session,
-          previewLocalMedia
+          session
         )
         const audioMuted =
           clipAudioMuted || layer.block.id !== audioBlockId || layer.block.id === warmupId
@@ -671,7 +711,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
       return anySeek
     },
-    [clipAudioMuted, getDecoderPool, getVideoUrlForBlock, localMediaEpoch, previewLocalMedia, session, syncVideoElement, syncWarmupDecoder]
+    [clipAudioMuted, getDecoderPool, getVideoUrlForBlock, session, syncVideoElement, syncWarmupDecoder]
   )
 
   const refreshBlockFrameCaches = useCallback(
@@ -784,10 +824,20 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         liveDescriptorRef.current = descriptor
 
         const videos = collectVideosForLayers(vm.videoLayers)
+        const pool = getDecoderPool()
+        const stableCaches = new Map<string, HTMLCanvasElement>()
+        if (pool) {
+          for (const layer of vm.videoLayers) {
+            const stable = pool.getLastStableFrame(layer.block.id)
+            if (stable) stableCaches.set(layer.block.id, stable)
+          }
+        }
         const videoFrameCaches = isPlaying
           ? vm.inDissolve || exitingCross
-            ? buildCrossFrameCaches(vm.videoLayers)
-            : undefined
+            ? buildCrossFrameCaches(vm.videoLayers) ?? stableCaches
+            : stableCaches.size > 0
+              ? stableCaches
+              : undefined
           : buildPausedFrameCaches(vm.videoLayers)
 
         renderFrameDescriptorToCanvas(ctx, descriptor, {
@@ -797,6 +847,18 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
           showFreeText: true,
           preferGpuEffects: !vm.inDissolve,
         })
+
+        if (pool) {
+          for (const layer of vm.videoLayers) {
+            const video = pool.get(layer.block.id)
+            if (!video || video.readyState < 2 || video.seeking) continue
+            const cache = pool.getFrameCache(layer.block.id)
+            capturePreviewVideoFrame(video, cache)
+            if (hasPreviewVideoFrameCache(cache)) {
+              pool.setLastStableFrame(layer.block.id, cache)
+            }
+          }
+        }
       }
 
       const generation = paintGenerationRef.current + 1
@@ -933,18 +995,6 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     reportPlayhead,
     onPlaybackComplete,
   ])
-
-  useEffect(() => {
-    return subscribePreviewMediaCache(() => {
-      setLocalMediaEpoch((epoch) => epoch + 1)
-    })
-  }, [])
-
-  useEffect(() => {
-    if (localMediaEpoch === 0) return
-    if (isPlayingRef.current) return
-    paintAtRef.current(sequencePlayheadSec, true)
-  }, [localMediaEpoch, sequencePlayheadSec])
 
   useEffect(() => {
     return () => {

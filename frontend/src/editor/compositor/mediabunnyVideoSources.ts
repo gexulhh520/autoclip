@@ -4,6 +4,7 @@ import { apiConfigManager } from '../../utils/apiConfig'
 import type { EditBlock } from '../../types/editSession'
 import type { CompositionPlan } from './types'
 import type { CompositorExportRuntimeParams } from './runCompositorExport'
+import { isPreviewProtocolUrl } from '../../utils/previewMediaUrl'
 
 export interface MediabunnyBlockVideoSource {
   blockId: string
@@ -19,6 +20,7 @@ export interface MediabunnyVideoSources {
 }
 
 function toAbsoluteMediaUrl(url: string): string {
+  if (isPreviewProtocolUrl(url)) return url
   if (/^https?:\/\//i.test(url)) return url
   const base = apiConfigManager.getBaseUrl().replace(/\/api\/v1\/?$/, '')
   const path = url.startsWith('/') ? url : `/${url}`

@@ -6,18 +6,12 @@ import {
   buildCompositionTimelineSegments,
   getCompositionTotalDuration,
 } from '../../../editor/scene'
-import { getBlockVideoUrl } from '../../../utils/editBlockMedia'
+import { getBlockVideoUrl, getAudioAssetPlaybackUrl } from '../../../utils/editBlockMedia'
 import { extractWaveformPeaks } from '../../../utils/audioWaveform'
 import {
   buildWaveformCacheKey,
   getOrExtractWaveformPeaks,
 } from '../../../utils/waveformPeakCache'
-import {
-  ensureHttpMediaLocalPrefetch,
-  resolveEffectivePreviewUrl,
-  resolveHttpMediaLocalUrl,
-  subscribePreviewMediaCache,
-} from '../../../utils/previewLocalMedia'
 import editApi from '../../../services/editApi'
 import { buildAdaptedTracks, findAudioTrackAtY, findElementInTracks, findTextTrackAtY, findVideoTrackAtY, isUserAudioAdaptedTrack, isUserTextAdaptedTrack, isUserVideoAdaptedTrack, mapTrackIdToStoreKey, resolveMainTrackBlocks, resolveTimelinePointerY, ADAPTED_TRACK_IDS } from './adapter'
 import { DEFAULT_VIDEO_TRACK_ID, isMainTrackBlock, resolveVideoTracks } from '../../../editor/videoTracks'
@@ -429,13 +423,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     const load = async () => {
       const next: Record<string, number> = {}
       for (const asset of assets) {
-        const httpUrl = editApi.getAudioAssetUrl(projectId, sessionId, asset.id)
-        ensureHttpMediaLocalPrefetch(httpUrl, () =>
-          editApi.getAudioAssetLocalPath(projectId, sessionId, asset.id)
-        )
-        const playbackUrl = await resolveHttpMediaLocalUrl(httpUrl, () =>
-          editApi.getAudioAssetLocalPath(projectId, sessionId, asset.id)
-        )
+        const playbackUrl = getAudioAssetPlaybackUrl(projectId, sessionId, asset.id)
         const audio = document.createElement('audio')
         audio.preload = 'metadata'
         audio.src = playbackUrl

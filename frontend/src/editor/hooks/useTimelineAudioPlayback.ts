@@ -1,10 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
-import editApi from '../../services/editApi'
-import {
-  ensureHttpMediaLocalPrefetch,
-  resolveEffectivePreviewUrl,
-  subscribePreviewMediaCache,
-} from '../../utils/previewLocalMedia'
+import { getAudioAssetPlaybackUrl } from '../../utils/editBlockMedia'
 import { clampHtmlMediaVolume } from '../audioVolume'
 import { applyMediaPlaybackRate } from '../mediaPlaybackRate'
 import { findAudioAsset, getAudioClipTrackId } from '../audioTracks'
@@ -61,16 +56,11 @@ export function useTimelineAudioPlayback({
         const asset = findAudioAsset(session, clip.asset_id)
         if (!asset) return null
         const trackId = getAudioClipTrackId(clip)
-        const httpUrl = editApi.getAudioAssetUrl(projectId, sessionId, asset.id)
-        ensureHttpMediaLocalPrefetch(httpUrl, () =>
-          editApi.getAudioAssetLocalPath(projectId, sessionId, asset.id)
-        )
         return {
           clip,
           asset,
           trackId,
-          httpUrl,
-          url: resolveEffectivePreviewUrl(httpUrl),
+          url: getAudioAssetPlaybackUrl(projectId, sessionId, asset.id),
           volume: clip.volume ?? session.audio_settings.bgm_volume ?? 0.28,
           muted: audioTrackMuted[trackId] ?? false,
         }
@@ -200,8 +190,6 @@ export function useTimelineAudioPlayback({
     syncAudioElements()
   }, [clips])
 
-  useEffect(() => subscribePreviewMediaCache(() => syncAudioElements()), [])
-
   useEffect(() => {
     if (isPlaying) {
       clipModeRef.current.clear()
@@ -241,25 +229,4 @@ export function useTimelineAudioPlayback({
       containerRef.current = null
     }
   }, [])
-}
-
-export function syncTimelineAudioToPlayhead(
-  session: EditSession | null,
-  playheadSec: number,
-  audioTrackMuted: Record<string, boolean>,
-  container: HTMLElement | null
-): void {
-  if (!session || !container) return
-  for (const clip of session.audio_elements ?? []) {
-    if (clip.hidden) continue
-    const trackId = getAudioClipTrackId(clip)
-    if (audioTrackMuted[trackId]) continue
-    const audio = container.querySelector<HTMLAudioElement>(`[data-clip-id="${clip.id}"]`)
-    if (!audio) continue
-    applyMediaPlaybackRate(audio, clip.playback_rate ?? 1)
-    audio.currentTime = Math.max(
-      0,
-      (clip.trim_start_sec ?? 0) + Math.max(0, playheadSec - clip.start_sec) * rate
-    )
-  }
 }

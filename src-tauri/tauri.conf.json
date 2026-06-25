@@ -26,7 +26,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval'; media-src 'self' asset: http://asset.localhost blob: data: http: https:; img-src 'self' asset: http://asset.localhost blob: data:;",
+      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval'; media-src 'self' asset: http://asset.localhost http://video.localhost video: blob: data: http: https:; img-src 'self' asset: http://asset.localhost http://video.localhost video: blob: data:;",
       "assetProtocol": {
         "enable": true,
         "scope": {

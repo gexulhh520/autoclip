@@ -1,18 +1,9 @@
 import type { EditBlock, EditSession } from '../../types/editSession'
 import { isCrossTransition } from '../../types/transitions'
 import { isImportedBlock, resolveBlockMediaTimeSec } from '../../utils/editBlockMedia'
-import {
-  applyPreviewVideoSrc,
-  buildPreviewMediaRequest,
-  ensurePreviewMediaPrefetch,
-  isLocalPreviewMediaUrl,
-  resolveEffectivePreviewUrl,
-} from '../../utils/previewLocalMedia'
-import type { PreviewLocalMediaContext } from '../../utils/previewLocalMedia'
+import { applyPreviewVideoSrc } from '../../utils/previewMediaUrl'
 import { isMainTrackBlock, resolveMainTrackBlocks } from '../videoTracks'
 import { isVoiceoverBrollBlock } from '../voiceover/voiceoverBroll'
-
-export type { PreviewLocalMediaContext } from '../../utils/previewLocalMedia'
 
 /**
  * 叠化转场期间 outgoing/incoming 需同时显示不同帧，不能与邻段共用解码器。
@@ -68,57 +59,18 @@ export function ensureDecoderBound(
   video: HTMLVideoElement,
   block: EditBlock,
   getVideoUrlForBlock: (block: EditBlock) => string,
-  session?: EditSession | null,
-  localMedia?: PreviewLocalMediaContext | null
+  session?: EditSession | null
 ): boolean {
-  if (localMedia) {
-    ensurePreviewMediaPrefetch(
-      localMedia.projectId,
-      localMedia.sessionId,
-      block,
-      localMedia.useSourceVideo
-    )
-  }
   const decoderKey = resolvePreviewDecoderKey(block, session)
-  const httpUrl = getVideoUrlForBlock(block)
-  const mediaReq = localMedia
-    ? buildPreviewMediaRequest(
-        localMedia.projectId,
-        localMedia.sessionId,
-        block,
-        localMedia.useSourceVideo
-      )
-    : null
-  const cacheKey = mediaReq?.cacheKey ?? httpUrl
-  // 主轨：有本地 asset 时优先绑定；叠画轨与 overlay 一致走 HTTP
-  const preferLocal =
-    isMainTrackBlock(block) && localMedia != null && localMedia.preferLocal !== false
-  const nextUrl = resolveEffectivePreviewUrl(httpUrl, cacheKey, { preferLocal })
+  const nextUrl = getVideoUrlForBlock(block)
   const boundUrl = video.dataset.effectiveUrl ?? video.src
-  if (video.dataset.decoderKey === decoderKey && boundUrl) {
+  if (video.dataset.decoderKey === decoderKey && boundUrl === nextUrl) {
     video.dataset.boundBlockId = block.id
-    if (nextUrl === boundUrl) return false
-    const boundIsLocal = isLocalPreviewMediaUrl(boundUrl)
-    const nextIsLocal = isLocalPreviewMediaUrl(nextUrl)
-    // 播放切 HTTP（连续解码）；暂停切 asset（本地 scrub）。禁止反向与同协议重复换源。
-    if (boundIsLocal !== nextIsLocal) {
-      if (boundIsLocal && !nextIsLocal && !preferLocal) {
-        applyPreviewVideoSrc(video, nextUrl, httpUrl, cacheKey)
-        return true
-      }
-      if (!boundIsLocal && nextIsLocal && preferLocal) {
-        applyPreviewVideoSrc(video, nextUrl, httpUrl, cacheKey)
-        return true
-      }
-      return false
-    }
-    if (!boundIsLocal && !nextIsLocal) return false
-    applyPreviewVideoSrc(video, nextUrl, httpUrl, cacheKey)
-    return true
+    return false
   }
   video.dataset.decoderKey = decoderKey
   video.dataset.boundBlockId = block.id
-  applyPreviewVideoSrc(video, nextUrl, httpUrl, cacheKey)
+  applyPreviewVideoSrc(video, nextUrl)
   return true
 }
 

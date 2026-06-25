@@ -1,16 +1,18 @@
 use crate::backend_manager::BackendManager;
 use crate::commands::*;
 use crate::tray::setup_system_tray;
+use std::path::PathBuf;
 use tauri::Manager;
 
 mod backend_manager;
 mod commands;
 pub mod compositor;
+mod preview_media;
 mod tray;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    preview_media::register_protocol(tauri::Builder::default())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -37,6 +39,10 @@ pub fn run() {
             // 设置环境变量
             std::env::set_var("AUTOCLIP_DESKTOP_MODE", "true");
             std::env::set_var("AUTOCLIP_MODE", "desktop");
+
+            if let Some(data_dir) = BackendManager::load_persisted_data_dir_public() {
+                preview_media::init_data_dir(PathBuf::from(data_dir));
+            }
 
             // 设置系统托盘
             if let Err(e) = setup_system_tray(&app.handle()) {

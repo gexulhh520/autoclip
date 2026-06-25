@@ -321,6 +321,10 @@ impl BackendManager {
             .map(|item| item.to_string())
     }
 
+    pub fn load_persisted_data_dir_public() -> Option<String> {
+        Self::load_persisted_data_dir()
+    }
+
     fn backend_binary_name() -> &'static str {
         if cfg!(target_os = "windows") {
             "autoclip-backend.exe"

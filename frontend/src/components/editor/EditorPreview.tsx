@@ -8,11 +8,6 @@ import { getBlockVideoUrlForPreview, resolveBlockMediaTimeSec } from '../../util
 import {
   buildPreviewMediaSequenceKey,
 } from '../../utils/editSessionSyncKeys'
-import {
-  clearPreviewMediaCache,
-  prefetchSessionAudioAssets,
-  prefetchSessionPreviewMedia,
-} from '../../utils/previewLocalMedia'
 import { useEditSessionStore } from '../../stores/useEditSessionStore'
 import {
   formatTimecode,
@@ -127,46 +122,10 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const transitionDurationSec = session?.audio_settings?.transition_duration_sec ?? 0.35
   const useSourcePreview = session?.audio_settings?.use_source_video ?? false
 
-  /** 首次播放后保持 HTTP，避免暂停↔播放反复 asset/HTTP 切换导致重载卡顿 */
-  const [previewPlaybackStarted, setPreviewPlaybackStarted] = useState(false)
-  useEffect(() => {
-    setPreviewPlaybackStarted(false)
-  }, [sessionId])
-  useEffect(() => {
-    if (isPlaying) setPreviewPlaybackStarted(true)
-  }, [isPlaying])
-
-  const previewLocalMedia = useMemo(
-    () => ({
-      projectId,
-      sessionId,
-      useSourceVideo: useSourcePreview,
-      preferLocal: !isPlaying && !previewPlaybackStarted,
-    }),
-    [projectId, sessionId, useSourcePreview, isPlaying, previewPlaybackStarted]
-  )
-
   const previewMediaSequenceKey = useMemo(
     () => buildPreviewMediaSequenceKey(session),
     [session]
   )
-
-  const audioAssetsPrefetchKey = useMemo(
-    () => session?.audio_assets?.map((asset) => `${asset.id}:${asset.path}`).join('|') ?? '',
-    [session?.audio_assets]
-  )
-
-  useEffect(() => {
-    if (!session || !previewMediaSequenceKey) return
-    prefetchSessionPreviewMedia(projectId, sessionId, session, useSourcePreview)
-  }, [projectId, sessionId, previewMediaSequenceKey, session, useSourcePreview])
-
-  useEffect(() => {
-    if (!session || !audioAssetsPrefetchKey) return
-    prefetchSessionAudioAssets(projectId, sessionId, session)
-  }, [projectId, sessionId, audioAssetsPrefetchKey, session])
-
-  useEffect(() => () => clearPreviewMediaCache(), [])
 
   const totalDuration = useMemo(() => {
     if (!session) return 0
@@ -456,7 +415,6 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                 moveOverlayPositions={moveOverlayPositions}
                 moveCaptionOffsets={moveCaptionOffsets}
                 moveBlockVideoPositions={moveBlockVideoPositions}
-                previewLocalMedia={previewLocalMedia}
               />
             ) : (
               <div className="editor-empty-hint">点击左侧素材预览，或选择时间线片段</div>
