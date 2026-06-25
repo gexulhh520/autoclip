@@ -15,6 +15,7 @@ import {
 import {
   ensureHttpMediaLocalPrefetch,
   resolveEffectivePreviewUrl,
+  resolveHttpMediaLocalUrl,
   subscribePreviewMediaCache,
 } from '../../../utils/previewLocalMedia'
 import editApi from '../../../services/editApi'
