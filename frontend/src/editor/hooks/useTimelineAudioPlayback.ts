@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import editApi from '../../services/editApi'
+import {
+  ensureHttpMediaLocalPrefetch,
+  resolveEffectivePreviewUrl,
+  subscribePreviewMediaCache,
+} from '../../utils/previewLocalMedia'
 import { clampHtmlMediaVolume } from '../audioVolume'
 import { applyMediaPlaybackRate } from '../mediaPlaybackRate'
 import { findAudioAsset, getAudioClipTrackId } from '../audioTracks'
@@ -56,11 +61,16 @@ export function useTimelineAudioPlayback({
         const asset = findAudioAsset(session, clip.asset_id)
         if (!asset) return null
         const trackId = getAudioClipTrackId(clip)
+        const httpUrl = editApi.getAudioAssetUrl(projectId, sessionId, asset.id)
+        ensureHttpMediaLocalPrefetch(httpUrl, () =>
+          editApi.getAudioAssetLocalPath(projectId, sessionId, asset.id)
+        )
         return {
           clip,
           asset,
           trackId,
-          url: editApi.getAudioAssetUrl(projectId, sessionId, asset.id),
+          httpUrl,
+          url: resolveEffectivePreviewUrl(httpUrl),
           volume: clip.volume ?? session.audio_settings.bgm_volume ?? 0.28,
           muted: audioTrackMuted[trackId] ?? false,
         }
@@ -189,6 +199,8 @@ export function useTimelineAudioPlayback({
   useEffect(() => {
     syncAudioElements()
   }, [clips])
+
+  useEffect(() => subscribePreviewMediaCache(() => syncAudioElements()), [])
 
   useEffect(() => {
     if (isPlaying) {

@@ -52,6 +52,7 @@ from backend.schemas.edit_session import (
 from backend.schemas.preview_media import LocalMediaPathResponse
 from backend.services.preview_media_path_service import (
     PreviewMediaPathError,
+    resolve_edit_audio_asset_path,
     resolve_edit_block_media_path,
 )
 from backend.schemas.editor_agent import (
@@ -1154,6 +1155,37 @@ async def stream_edit_session_block_media(
         raise
     except Exception as exc:
         logger.exception("读取片段媒体失败: %s/%s/%s", project_id, session_id, block_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get(
+    "/{project_id}/edit-sessions/{session_id}/audio-assets/{asset_id}/local-path",
+    response_model=LocalMediaPathResponse,
+)
+async def get_edit_session_audio_asset_local_path(
+    project_id: str,
+    session_id: str,
+    asset_id: str,
+    service: EditSessionService = Depends(get_edit_session_service),
+):
+    """桌面端：返回音频资源本地绝对路径。"""
+    try:
+        path = await asyncio.to_thread(
+            resolve_edit_audio_asset_path,
+            service,
+            project_id,
+            session_id,
+            asset_id,
+        )
+        return LocalMediaPathResponse(path=str(path))
+    except PreviewMediaPathError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception(
+            "解析音频本地路径失败: %s/%s/%s", project_id, session_id, asset_id
+        )
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 

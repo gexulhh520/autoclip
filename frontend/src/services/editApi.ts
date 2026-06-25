@@ -242,6 +242,16 @@ export const editApi = {
     return `${base}/projects/${projectId}/edit-sessions/${sessionId}/audio-assets/${assetId}`
   },
 
+  getAudioAssetLocalPath: async (
+    projectId: string,
+    sessionId: string,
+    assetId: string
+  ): Promise<{ path: string }> => {
+    return (await api.get(
+      `/projects/${projectId}/edit-sessions/${sessionId}/audio-assets/${assetId}/local-path`
+    )) as { path: string }
+  },
+
   getBgmUrl: (projectId: string, sessionId: string): string => {
     const base = api.defaults.baseURL || '/api/v1'
     return `${base}/projects/${projectId}/edit-sessions/${sessionId}/bgm`

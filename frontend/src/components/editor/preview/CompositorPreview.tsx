@@ -15,6 +15,10 @@ import {
 } from '../../../editor/compositor/previewDecoderBinding'
 import { subscribePreviewMediaCache } from '../../../utils/previewLocalMedia'
 import {
+  buildCanvasOverlaySyncKey,
+  buildSequenceVideoSyncKey,
+} from '../../../utils/editSessionSyncKeys'
+import {
   capturePreviewVideoFrame,
   hasPreviewVideoFrameCache,
 } from '../../../editor/compositor/previewVideoFrameCache'
@@ -228,6 +232,37 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   previewLocalMedia = null,
 }) => {
   const [localMediaEpoch, setLocalMediaEpoch] = useState(0)
+  const sequenceVideoSyncKey = useMemo(
+    () => buildSequenceVideoSyncKey(session),
+    [session]
+  )
+
+  const canvasOverlaySyncKey = useMemo(
+    () =>
+      buildCanvasOverlaySyncKey({
+        session,
+        selectedOverlayId,
+        selectedOverlayIds,
+        selectedCaptionBlockIds,
+        selectedVideoBlockIds,
+        previewBurnSubtitles,
+        captionsHidden,
+        captionsMuted,
+        mutedTextTrackIds,
+      }),
+    [
+      session,
+      selectedOverlayId,
+      selectedOverlayIds,
+      selectedCaptionBlockIds,
+      selectedVideoBlockIds,
+      previewBurnSubtitles,
+      captionsHidden,
+      captionsMuted,
+      mutedTextTrackIds,
+    ]
+  )
+
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const decoderHostRef = useRef<HTMLDivElement>(null)
   const decoderPoolRef = useRef<PreviewDecoderPool | null>(null)
@@ -779,6 +814,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   }, [isPlaying, paintAt])
 
   const scrubPaintRafRef = useRef(0)
+  const canvasPaintRafRef = useRef(0)
   const prewarmRafRef = useRef(0)
 
   useEffect(() => {
@@ -788,7 +824,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       prewarmDecodersAtPlayhead(sequencePlayheadSec)
     })
     return () => cancelAnimationFrame(prewarmRafRef.current)
-  }, [isPlaying, sequencePlayheadSec, session, prewarmDecodersAtPlayhead])
+  }, [isPlaying, sequencePlayheadSec, sequenceVideoSyncKey, prewarmDecodersAtPlayhead])
 
   useEffect(() => {
     if (isPlaying) return undefined
@@ -796,10 +832,19 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     scrubPaintRafRef.current = requestAnimationFrame(() => {
       wasInCrossRef.current = false
       lastReportedPlayheadRef.current = sequencePlayheadSec
-      paintAt(sequencePlayheadSec, true)
+      paintAtRef.current(sequencePlayheadSec, true)
     })
     return () => cancelAnimationFrame(scrubPaintRafRef.current)
-  }, [isPlaying, sequencePlayheadSec, paintAt, sceneBuilderInput, videoNaturalSize])
+  }, [isPlaying, sequencePlayheadSec, sequenceVideoSyncKey, videoNaturalSize])
+
+  useEffect(() => {
+    if (isPlaying) return undefined
+    cancelAnimationFrame(canvasPaintRafRef.current)
+    canvasPaintRafRef.current = requestAnimationFrame(() => {
+      paintAtRef.current(sequencePlayheadSec, false)
+    })
+    return () => cancelAnimationFrame(canvasPaintRafRef.current)
+  }, [isPlaying, sequencePlayheadSec, canvasOverlaySyncKey])
 
   useEffect(() => {
     if (!isPlaying) return undefined

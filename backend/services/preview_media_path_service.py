@@ -56,6 +56,19 @@ def resolve_project_clip_path(
     return video_file.resolve()
 
 
+def resolve_edit_audio_asset_path(
+    service: EditSessionService,
+    project_id: str,
+    session_id: str,
+    asset_id: str,
+) -> Path:
+    _require_desktop()
+    from backend.utils.bgm_audio import ensure_browser_playable_bgm
+
+    asset_path = service.resolve_audio_asset_path(project_id, session_id, asset_id)
+    return ensure_browser_playable_bgm(asset_path).resolve()
+
+
 def resolve_project_source_video_path(
     project_id: str,
     source_id: str | None = None,

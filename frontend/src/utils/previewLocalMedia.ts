@@ -58,24 +58,41 @@ async function resolvePreviewMediaRequest(req: PreviewMediaRequest): Promise<str
   const pending = inflight.get(req.cacheKey)
   if (pending) return pending
 
-  const promise = (async () => {
-    try {
-      const { path } = await req.fetchLocalPath()
-      if (!path?.trim()) return req.httpUrl
-      const assetUrl = await toAssetUrl(path.trim())
-      localUrlCache.set(req.cacheKey, assetUrl)
-      notifyPreviewMediaCache()
-      return assetUrl
-    } catch (error) {
-      console.warn('[previewLocalMedia] 本地路径解析失败，回退 HTTP:', req.cacheKey, error)
-      return req.httpUrl
-    } finally {
-      inflight.delete(req.cacheKey)
-    }
-  })()
-
+  const promise = resolvePreviewMediaRequestInner(req)
   inflight.set(req.cacheKey, promise)
   return promise
+}
+
+async function resolvePreviewMediaRequestInner(req: PreviewMediaRequest): Promise<string> {
+  try {
+    const { path } = await req.fetchLocalPath()
+    if (!path?.trim()) return req.httpUrl
+    const assetUrl = await toAssetUrl(path.trim())
+    localUrlCache.set(req.cacheKey, assetUrl)
+    notifyPreviewMediaCache()
+    return assetUrl
+  } catch (error) {
+    console.warn('[previewLocalMedia] 本地路径解析失败，回退 HTTP:', req.cacheKey, error)
+    return req.httpUrl
+  } finally {
+    inflight.delete(req.cacheKey)
+  }
+}
+
+export async function resolveHttpMediaLocalUrl(
+  httpUrl: string,
+  fetchLocalPath: () => Promise<{ path: string }>
+): Promise<string> {
+  return resolvePreviewMediaRequest({ cacheKey: httpUrl, httpUrl, fetchLocalPath })
+}
+
+export function ensureHttpMediaLocalPrefetch(
+  httpUrl: string,
+  fetchLocalPath: () => Promise<{ path: string }>
+): void {
+  if (!isTauriRuntime()) return
+  if (localUrlCache.has(httpUrl) || inflight.has(httpUrl)) return
+  void resolvePreviewMediaRequest({ cacheKey: httpUrl, httpUrl, fetchLocalPath })
 }
 
 function resolveSourceIdFromPath(sourceVideoPath: string): string | null {
@@ -127,6 +144,20 @@ export async function prefetchPreviewMediaForBlock(
   return resolvePreviewMediaRequest(
     buildPreviewMediaRequest(projectId, sessionId, block, useSourceVideo)
   )
+}
+
+export function prefetchSessionAudioAssets(
+  projectId: string,
+  sessionId: string,
+  session: EditSession
+): void {
+  if (!isTauriRuntime() || !session.audio_assets?.length) return
+  for (const asset of session.audio_assets) {
+    const httpUrl = editApi.getAudioAssetUrl(projectId, sessionId, asset.id)
+    ensureHttpMediaLocalPrefetch(httpUrl, () =>
+      editApi.getAudioAssetLocalPath(projectId, sessionId, asset.id)
+    )
+  }
 }
 
 /** 后台预取 session 内各片段本地 asset URL（桌面端） */

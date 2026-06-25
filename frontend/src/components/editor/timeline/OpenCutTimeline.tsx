@@ -8,6 +8,15 @@ import {
 } from '../../../editor/scene'
 import { getBlockVideoUrl } from '../../../utils/editBlockMedia'
 import { extractWaveformPeaks } from '../../../utils/audioWaveform'
+import {
+  buildWaveformCacheKey,
+  getOrExtractWaveformPeaks,
+} from '../../../utils/waveformPeakCache'
+import {
+  ensureHttpMediaLocalPrefetch,
+  resolveEffectivePreviewUrl,
+  subscribePreviewMediaCache,
+} from '../../../utils/previewLocalMedia'
 import editApi from '../../../services/editApi'
 import { buildAdaptedTracks, findAudioTrackAtY, findElementInTracks, findTextTrackAtY, findVideoTrackAtY, isUserAudioAdaptedTrack, isUserTextAdaptedTrack, isUserVideoAdaptedTrack, mapTrackIdToStoreKey, resolveMainTrackBlocks, resolveTimelinePointerY, ADAPTED_TRACK_IDS } from './adapter'
 import { DEFAULT_VIDEO_TRACK_ID, isMainTrackBlock, resolveVideoTracks } from '../../../editor/videoTracks'
@@ -96,7 +105,10 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   })
   const sessionId = session?.id ?? ''
   const blocks = session?.sequence ?? []
-  const mainBlocks = useMemo(() => (session ? resolveMainTrackBlocks(session) : []), [session])
+  const mainBlocks = useMemo(
+    () => (session ? resolveMainTrackBlocks(session) : []),
+    [session?.sequence, session?.video_tracks]
+  )
   const bookmarks = session?.bookmarks ?? []
   const transitionDurationSec = session?.audio_settings?.transition_duration_sec ?? 0.35
   const fps = session?.export_settings?.fps ?? 30
@@ -416,9 +428,16 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     const load = async () => {
       const next: Record<string, number> = {}
       for (const asset of assets) {
+        const httpUrl = editApi.getAudioAssetUrl(projectId, sessionId, asset.id)
+        ensureHttpMediaLocalPrefetch(httpUrl, () =>
+          editApi.getAudioAssetLocalPath(projectId, sessionId, asset.id)
+        )
+        const playbackUrl = await resolveHttpMediaLocalUrl(httpUrl, () =>
+          editApi.getAudioAssetLocalPath(projectId, sessionId, asset.id)
+        )
         const audio = document.createElement('audio')
         audio.preload = 'metadata'
-        audio.src = editApi.getAudioAssetUrl(projectId, sessionId, asset.id)
+        audio.src = playbackUrl
         await new Promise<void>((resolve) => {
           const done = () => resolve()
           audio.addEventListener('loadedmetadata', done, { once: true })
@@ -434,6 +453,17 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     }
   }, [session?.audio_assets, projectId, sessionId])
 
+  const waveformSourceKey = useMemo(
+    () =>
+      segments
+        .map((segment) => {
+          const url = getBlockVideoUrl(projectId, sessionId, segment.block)
+          return buildWaveformCacheKey(segment.block.id, url, segment.duration)
+        })
+        .join('|'),
+    [segments, projectId, sessionId]
+  )
+
   useEffect(() => {
     if (blocks.length === 0) {
       setWaveforms({})
@@ -445,7 +475,8 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       for (const segment of segments) {
         try {
           const url = getBlockVideoUrl(projectId, sessionId, segment.block)
-          next[segment.block.id] = await extractWaveformPeaks(url, 48, {
+          const cacheKey = buildWaveformCacheKey(segment.block.id, url, segment.duration)
+          next[segment.block.id] = await getOrExtractWaveformPeaks(cacheKey, url, 48, {
             durationSec: segment.duration,
           })
         } catch {
@@ -458,7 +489,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     return () => {
       cancelled = true
     }
-  }, [blocks, segments, projectId, sessionId])
+  }, [blocks.length, waveformSourceKey, segments, projectId, sessionId])
 
   useEffect(() => {
     if (!contextMenu) return

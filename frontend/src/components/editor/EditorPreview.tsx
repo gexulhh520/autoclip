@@ -6,7 +6,11 @@ import {
 } from '../../editor/scene'
 import { getBlockVideoUrlForPreview, resolveBlockMediaTimeSec } from '../../utils/editBlockMedia'
 import {
+  buildPreviewMediaSequenceKey,
+} from '../../utils/editSessionSyncKeys'
+import {
   clearPreviewMediaCache,
+  prefetchSessionAudioAssets,
   prefetchSessionPreviewMedia,
 } from '../../utils/previewLocalMedia'
 import { useEditSessionStore } from '../../stores/useEditSessionStore'
@@ -132,10 +136,25 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
     [projectId, sessionId, useSourcePreview]
   )
 
+  const previewMediaSequenceKey = useMemo(
+    () => buildPreviewMediaSequenceKey(session),
+    [session]
+  )
+
+  const audioAssetsPrefetchKey = useMemo(
+    () => session?.audio_assets?.map((asset) => `${asset.id}:${asset.path}`).join('|') ?? '',
+    [session?.audio_assets]
+  )
+
   useEffect(() => {
-    if (!session) return
+    if (!session || !previewMediaSequenceKey) return
     prefetchSessionPreviewMedia(projectId, sessionId, session, useSourcePreview)
-  }, [projectId, sessionId, session, useSourcePreview])
+  }, [projectId, sessionId, previewMediaSequenceKey, session, useSourcePreview])
+
+  useEffect(() => {
+    if (!session || !audioAssetsPrefetchKey) return
+    prefetchSessionAudioAssets(projectId, sessionId, session)
+  }, [projectId, sessionId, audioAssetsPrefetchKey, session])
 
   useEffect(() => () => clearPreviewMediaCache(), [])
 
