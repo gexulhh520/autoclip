@@ -1,4 +1,4 @@
-from backend.schemas.edit_project_v3 import migrate_session_to_v3, normalize_session
+from backend.schemas.edit_project_v3 import migrate_session_to_v3, normalize_session, project_v3_as_payload
 from backend.schemas.edit_session import EditBlock, EditBlockTrim, EditSession, EditSessionAudioSettings, EditExportSettings
 
 
@@ -46,6 +46,27 @@ def test_migrate_session_to_v3_builds_tracks():
     assert len(project.media_pool) == 2
     assert len(project.scenes[0].tracks.main) == 2
     assert project.scenes[0].tracks.main[1].start_time == 4.0
+
+
+def test_project_v3_as_payload_serializes_nested_dicts():
+    session = EditSession(
+        id="s1",
+        project_id="p1",
+        name="test",
+        sequence=[_block("a", 4)],
+        export_settings=EditExportSettings(),
+        audio_settings=EditSessionAudioSettings(),
+        created_at="",
+        updated_at="",
+    )
+    payload = project_v3_as_payload(migrate_session_to_v3(session))
+    assert payload.media_pool
+    assert isinstance(payload.media_pool[0], dict)
+    assert payload.scenes
+    assert isinstance(payload.scenes[0], dict)
+    dumped = payload.model_dump(mode="json")
+    assert isinstance(dumped["media_pool"][0], dict)
+    assert isinstance(dumped["scenes"][0], dict)
 
 
 def test_migrate_session_to_v3_includes_audio_elements():

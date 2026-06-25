@@ -231,6 +231,13 @@ def migrate_session_to_v3(session: EditSession) -> EditProjectV3:
     )
 
 
+def project_v3_as_payload(project: EditProjectV3) -> "EditProjectV3Payload":
+    """将 v3 内存模型转为 EditSession 可 JSON 序列化的 nested dict payload。"""
+    from backend.schemas.edit_session import EditProjectV3Payload
+
+    return EditProjectV3Payload.model_validate(project.model_dump(mode="json"))
+
+
 def normalize_session(raw: dict) -> EditSession:
     """加载 JSON 时升级到 v3 内存模型（仍保留 v2 扁平字段）。"""
     raw.setdefault("bookmarks", [])
@@ -245,6 +252,6 @@ def normalize_session(raw: dict) -> EditSession:
     if version < 3:
         project = migrate_session_to_v3(session)
         session.schema_version = 3
-        session.project_v3 = project
+        session.project_v3 = project_v3_as_payload(project)
         session.bookmarks = project.scenes[0].bookmarks if project.scenes else []
     return session

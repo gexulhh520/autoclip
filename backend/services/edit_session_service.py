@@ -791,9 +791,9 @@ class EditSessionService:
                 data["voiceover_plan"] = payload.voiceover_plan.model_dump(mode="json")
         data["updated_at"] = _utc_now_iso()
         updated = EditSession.model_validate(data)
-        from backend.schemas.edit_project_v3 import migrate_session_to_v3
+        from backend.schemas.edit_project_v3 import migrate_session_to_v3, project_v3_as_payload
 
-        updated.project_v3 = migrate_session_to_v3(updated)
+        updated.project_v3 = project_v3_as_payload(migrate_session_to_v3(updated))
         updated.schema_version = 3
         self._save_session(get_project_directory(project_id), updated)
         return updated
