@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { Input, Select, message } from 'antd'
 import { LinkOutlined, SearchOutlined } from '@ant-design/icons'
 import libraryApi, { type MaterialSearchResult } from '../../services/libraryApi'
+import { openExternalLink } from '../../utils/externalLinks'
 
 interface MaterialSearchTabProps {
   onDownloadStarted: () => void
@@ -87,7 +88,7 @@ const MaterialSearchTab: React.FC<MaterialSearchTabProps> = ({ onDownloadStarted
   }
 
   const openUrl = (url: string) => {
-    window.open(url, '_blank', 'noopener,noreferrer')
+    void openExternalLink(url)
   }
 
   const handleDownloadSelected = async () => {
