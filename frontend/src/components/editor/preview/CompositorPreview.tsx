@@ -41,7 +41,8 @@ import {
 } from '../../../editor/scene'
 import type { PreviewVideoLayerProps } from '../../../editor/scene/adapters/previewAdapter'
 import { stopEditorPlayback } from '../../../editor/stopEditorPlayback'
-import { applyMediaPlaybackRate } from '../../../editor/mediaPlaybackRate'
+import { isImportedBlock } from '../../../utils/editBlockMedia'
+import { isMainTrackBlock } from '../../../editor/videoTracks'
 
 const PAUSED_SEEK_THRESHOLD_SEC = 0.03
 
@@ -157,6 +158,8 @@ export interface CompositorPreviewProps {
 const PLAYBACK_END_EPSILON_SEC = 0.02
 
 const PLAYBACK_SEEK_DRIFT_SEC = 0.35
+/** 叠画轨（口播 B-roll）播放时放宽漂移校正，避免周期性 seek 造成顿挫 */
+const OVERLAY_PLAYBACK_DRIFT_SEC = 1.25
 /** 转场播放时略收紧 drift，但勿每帧 seek（会导致解码器无法出帧 → 灰屏） */
 const CROSS_PLAYBACK_SEEK_DRIFT_SEC = 0.12
 
@@ -560,15 +563,21 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       applyMediaPlaybackRate(video, layer.playbackRate || 1)
 
       const drift = Math.abs(video.currentTime - target)
+      const isOverlayImported =
+        !isMainTrackBlock(layer.block) && isImportedBlock(layer.block)
       const driftThreshold =
-        inDissolve && isPlaying ? CROSS_PLAYBACK_SEEK_DRIFT_SEC : PLAYBACK_SEEK_DRIFT_SEC
+        inDissolve && isPlaying
+          ? CROSS_PLAYBACK_SEEK_DRIFT_SEC
+          : isPlaying && isOverlayImported
+            ? OVERLAY_PLAYBACK_DRIFT_SEC
+            : PLAYBACK_SEEK_DRIFT_SEC
       const mustSeek = forceSeek || rebinding || forceTransitionSeek || drift > driftThreshold
       let didSeek = false
       if (isPlaying) {
         if (!skipSeek && mustSeek) {
           const seekOpts = {
             play: true,
-            forceSeek: true,
+            forceSeek: Boolean(forceSeek || rebinding || forceTransitionSeek),
             playbackRate: layer.playbackRate || 1,
           }
           didSeek = rebinding
@@ -785,12 +794,9 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       paintGenerationRef.current = generation
       const isCurrentGeneration = () => paintGenerationRef.current === generation
 
-      const videosForPaint = [...collectVideosForLayers(vm.videoLayers).values()]
-      const anyVideoSeeking = videosForPaint.some((video) => video.seeking)
-
-      if (anySeek || anyVideoSeeking || (forceTransitionSeek && isPlaying)) {
+      if (anySeek || (forceTransitionSeek && isPlaying)) {
         paintAfterVideoSync(
-          videosForPaint,
+          [...collectVideosForLayers(vm.videoLayers).values()],
           () => {
             if (!isCurrentGeneration()) return
             renderCanvas()
