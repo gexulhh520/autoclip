@@ -633,3 +633,201 @@ def test_voiceover_rerun_tts_preserves_video_block(tmp_path, monkeypatch):
     assert "audio-old" not in asset_ids
     assert seg.tts.asset_id in asset_ids
     assert len(session.audio_assets or []) == 1
+
+
+def test_voiceover_rerun_repacks_timeline_from_audio_not_video_blocks(tmp_path, monkeypatch):
+    from backend.schemas.edit_session import (
+        AudioClipElement,
+        EditBlock,
+        EditBlockMedia,
+        EditBlockOverlay,
+        EditBlockTrim,
+        EditSessionUpdateRequest,
+    )
+    from backend.schemas.voiceover_plan import VoiceoverBrollState, VoiceoverTtsState
+    from backend.services.edit_session_service import EditSessionService
+    from backend.services.voiceover_broll_service import VOICEOVER_BROLL_TRACK_ID
+    from backend.services.voiceover_plan_service import VoiceoverPlanService
+    from backend.utils.edge_tts_service import SynthesizedSpeech
+
+    project_id = "proj_vo_repack"
+    project_dir = tmp_path / "data" / "projects" / project_id
+    project_dir.mkdir(parents=True)
+    (project_dir / "edit_sessions").mkdir()
+
+    durations = iter([8.0, 5.0])
+
+    async def fake_synthesize(*_args, **_kwargs):
+        duration = next(durations, 7.0)
+        return SynthesizedSpeech(
+            voice="zh-CN-XiaoxiaoNeural",
+            duration_sec=duration,
+            cues=[SubtitleCueTiming(text="测试。", start_sec=0.0, end_sec=duration)],
+            word_timings=[],
+        )
+
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_orchestrator.synthesize_with_timings",
+        fake_synthesize,
+    )
+
+    session_service = EditSessionService(db=None)
+    created = session_service.create_blank_session(project_id, name="VO Repack Test")
+    vo_service = VoiceoverPlanService(session_service=session_service)
+
+    block1 = EditBlock(
+        id="block-seg-1",
+        source_clip_id="import-1",
+        title="口播素材-1",
+        media=EditBlockMedia(type="imported_clip", path="a.mp4"),
+        trim=EditBlockTrim(in_sec=0.0, out_sec=5.0),
+        overlay=EditBlockOverlay(outline="", content=[], recommend_reason=""),
+        duration_sec=5.0,
+        track_id=VOICEOVER_BROLL_TRACK_ID,
+        timeline_start_sec=0.0,
+    )
+    block2 = EditBlock(
+        id="block-seg-2",
+        source_clip_id="import-2",
+        title="口播素材-2",
+        media=EditBlockMedia(type="imported_clip", path="b.mp4"),
+        trim=EditBlockTrim(in_sec=0.0, out_sec=5.0),
+        overlay=EditBlockOverlay(outline="", content=[], recommend_reason=""),
+        duration_sec=5.0,
+        track_id=VOICEOVER_BROLL_TRACK_ID,
+        timeline_start_sec=5.0,
+    )
+    clip1 = AudioClipElement(
+        id="vo-audio-1",
+        asset_id="audio-1",
+        track_id="default-audio",
+        start_sec=0.0,
+        duration_sec=5.0,
+        trim_start_sec=0.0,
+        trim_end_sec=5.0,
+        volume=1.0,
+        block_id=block1.id,
+        block_offset_sec=0.0,
+    )
+    clip2 = AudioClipElement(
+        id="vo-audio-2",
+        asset_id="audio-2",
+        track_id="default-audio",
+        start_sec=5.0,
+        duration_sec=5.0,
+        trim_start_sec=0.0,
+        trim_end_sec=5.0,
+        volume=1.0,
+        block_id=block2.id,
+        block_offset_sec=0.0,
+    )
+    session_service.update_session(
+        project_id,
+        created.id,
+        EditSessionUpdateRequest(
+            sequence=[block1, block2],
+            audio_elements=[clip1, clip2],
+        ),
+    )
+
+    plan = VoiceoverPlan(
+        id="vo-plan-repack",
+        status=VoiceoverPlanStatus.COMPLETED,
+        user_brief="测试",
+        segments=[
+            VoiceoverSegment(
+                id="seg-1",
+                index=1,
+                narration_text="第一段。",
+                visual_brief="画面1",
+                status=VoiceoverSegmentStatus.BROLL_DONE,
+                tts=VoiceoverTtsState(
+                    asset_id="audio-1",
+                    audio_clip_id=clip1.id,
+                    duration_sec=5.0,
+                    timeline_start_sec=0.0,
+                ),
+                broll=VoiceoverBrollState(block_id=block1.id, source_in_sec=0.0, source_out_sec=5.0),
+            ),
+            VoiceoverSegment(
+                id="seg-2",
+                index=2,
+                narration_text="第二段。",
+                visual_brief="画面2",
+                status=VoiceoverSegmentStatus.BROLL_DONE,
+                tts=VoiceoverTtsState(
+                    asset_id="audio-2",
+                    audio_clip_id=clip2.id,
+                    duration_sec=5.0,
+                    timeline_start_sec=5.0,
+                ),
+                broll=VoiceoverBrollState(block_id=block2.id, source_in_sec=0.0, source_out_sec=5.0),
+            ),
+        ],
+    )
+    session_service.update_session(
+        project_id,
+        created.id,
+        EditSessionUpdateRequest(voiceover_plan=plan),
+    )
+
+    orchestrator = vo_service.orchestrator
+    asset_counter = {"n": 0}
+
+    def fake_import_tts(project_id, session_id, session, source_path, display_name, **kwargs):
+        from backend.schemas.edit_session import AudioAssetMeta, EditSessionUpdateRequest
+
+        asset_counter["n"] += 1
+        asset_id = f"audio-new-{asset_counter['n']}"
+        return session_service.update_session(
+            project_id,
+            session_id,
+            EditSessionUpdateRequest(
+                audio_assets=[
+                    *(session.audio_assets or []),
+                    AudioAssetMeta(
+                        id=asset_id,
+                        name=display_name,
+                        path=f"{asset_id}.m4a",
+                        duration_sec=8.0,
+                        category="sfx",
+                    ),
+                ]
+            ),
+        )
+
+    monkeypatch.setattr(orchestrator, "_import_tts_asset", fake_import_tts)
+    monkeypatch.setattr(
+        session_service,
+        "probe_imported_block_duration",
+        lambda *_args, **_kwargs: 30.0,
+    )
+
+    session, updated_plan, _note = asyncio.run(
+        vo_service.execute_plan(
+            project_id,
+            created.id,
+            VoiceoverExecuteRequest(segment_ids=["seg-1", "seg-2"]),
+        )
+    )
+
+    seg1, seg2 = updated_plan.segments
+    assert seg1.tts.timeline_start_sec == pytest.approx(0.0)
+    assert seg1.tts.duration_sec == pytest.approx(8.0)
+    assert seg2.tts.timeline_start_sec == pytest.approx(8.0)
+    assert seg2.tts.duration_sec == pytest.approx(5.0)
+
+    audio_by_id = {clip.id: clip for clip in (session.audio_elements or [])}
+    clip_a = audio_by_id[seg1.tts.audio_clip_id]
+    clip_b = audio_by_id[seg2.tts.audio_clip_id]
+    assert clip_a.start_sec == pytest.approx(0.0)
+    assert clip_b.start_sec == pytest.approx(8.0)
+    assert clip_a.start_sec + clip_a.duration_sec <= clip_b.start_sec + 0.01
+
+    block_by_id = {block.id: block for block in (session.sequence or [])}
+    assert block_by_id[block2.id].timeline_start_sec == pytest.approx(8.0)
+    assert block_by_id[block2.id].duration_sec == pytest.approx(5.0)

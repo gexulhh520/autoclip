@@ -25,6 +25,7 @@ from backend.schemas.voiceover_plan import (
 )
 from backend.services.edit_session_service import EditSessionService, get_project_directory
 from backend.services.material_library_service import resolve_library_video_path
+from backend.services.voiceover_broll_service import VOICEOVER_BROLL_TRACK_ID
 from backend.services.voiceover_subtitle_builder import build_voiceover_overlays
 from backend.utils.edge_tts_service import SynthesizedSpeech, synthesize_with_timings
 
@@ -55,7 +56,10 @@ class VoiceoverOrchestrator:
         session = self._save_plan(project_id, session_id, plan)
 
         ordered = sorted(plan.segments, key=lambda item: item.index)
-        targets = self._resolve_target_segments(ordered, segment_ids)
+        targets = sorted(
+            self._resolve_target_segments(ordered, segment_ids),
+            key=lambda item: item.index,
+        )
         if not targets:
             raise ValueError(
                 "没有待执行的口播分段。"
@@ -168,7 +172,10 @@ class VoiceoverOrchestrator:
 
         session = self.session_service.get_session(project_id, session_id)
         ordered = sorted(plan.segments, key=lambda item: item.index)
-        timeline_start = self._resolve_segment_timeline_start(session, ordered, segment)
+        is_rerun = self._is_rerun_segment(segment)
+        timeline_start = self._resolve_segment_timeline_start(
+            session, ordered, segment, is_rerun=is_rerun
+        )
         insert_index = self._resolve_insert_index(session, segment)
 
         speech, tts_asset_id = await self._synthesize_segment_tts(
@@ -196,9 +203,10 @@ class VoiceoverOrchestrator:
             if resolved_block_id:
                 saved_block_id = resolved_block_id
                 preserved_video = True
-                element_timeline_start = self._block_timeline_start(
-                    session, saved_block_id, fallback=timeline_start
-                )
+                if not is_rerun:
+                    element_timeline_start = self._block_timeline_start(
+                        session, saved_block_id, fallback=timeline_start
+                    )
 
         placeholder_id = (placeholder_library_asset_id or "").strip()
         if not saved_block_id and placeholder_id:
@@ -213,9 +221,23 @@ class VoiceoverOrchestrator:
             trim_in_sec = 0.0
             trim_out_sec = float(block.trim.out_sec or speech.duration_sec)
             library_asset_id_for_meta = placeholder_id
-            element_timeline_start = self._block_timeline_start(
-                session, saved_block_id, fallback=timeline_start
-            )
+            if not is_rerun:
+                element_timeline_start = self._block_timeline_start(
+                    session, saved_block_id, fallback=timeline_start
+                )
+
+        if is_rerun:
+            element_timeline_start = timeline_start
+            if saved_block_id:
+                session = self._sync_voiceover_block_timeline(
+                    project_id,
+                    session_id,
+                    saved_block_id,
+                    timeline_start_sec=element_timeline_start,
+                    duration_sec=float(speech.duration_sec),
+                    trim_in_sec=trim_in_sec,
+                    trim_out_sec=trim_out_sec,
+                )
 
         overlays = build_voiceover_overlays(
             speech.cues,
@@ -311,12 +333,25 @@ class VoiceoverOrchestrator:
         segment = next((item for item in plan.segments if item.id == segment_id), None)
         return segment.index if segment else 0
 
+    @staticmethod
+    def _is_rerun_segment(segment: VoiceoverSegment) -> bool:
+        return segment.status in (
+            VoiceoverSegmentStatus.TTS_DONE,
+            VoiceoverSegmentStatus.BROLL_DONE,
+            VoiceoverSegmentStatus.FAILED,
+        ) and bool(segment.tts.audio_clip_id or segment.tts.duration_sec)
+
     def _resolve_segment_timeline_start(
         self,
         session: EditSession,
         ordered: List[VoiceoverSegment],
         segment: VoiceoverSegment,
+        *,
+        is_rerun: bool = False,
     ) -> float:
+        if is_rerun:
+            return self._repack_voiceover_timeline_start(ordered, segment)
+
         if segment.tts.timeline_start_sec is not None and segment.tts.timeline_start_sec >= 0:
             return float(segment.tts.timeline_start_sec)
 
@@ -328,6 +363,71 @@ class VoiceoverOrchestrator:
             if item.status == VoiceoverSegmentStatus.TTS_DONE and item.tts.duration_sec:
                 cursor += float(item.tts.duration_sec)
         return cursor
+
+    @staticmethod
+    def _repack_voiceover_timeline_start(
+        ordered: List[VoiceoverSegment],
+        segment: VoiceoverSegment,
+    ) -> float:
+        """Repack voiceover audio positions sequentially; do not anchor to stale video blocks."""
+        anchor = 0.0
+        if ordered:
+            first = ordered[0]
+            if first.tts.timeline_start_sec is not None and first.tts.timeline_start_sec >= 0:
+                anchor = float(first.tts.timeline_start_sec)
+
+        cursor = anchor
+        for item in ordered:
+            if item.id == segment.id:
+                return cursor
+            duration = float(item.tts.duration_sec or 0)
+            if duration <= 0:
+                continue
+            if item.status in (
+                VoiceoverSegmentStatus.SCRIPT_CONFIRMED,
+                VoiceoverSegmentStatus.TTS_DONE,
+                VoiceoverSegmentStatus.BROLL_DONE,
+                VoiceoverSegmentStatus.FAILED,
+            ):
+                cursor += duration
+        return cursor
+
+    def _sync_voiceover_block_timeline(
+        self,
+        project_id: str,
+        session_id: str,
+        block_id: str,
+        *,
+        timeline_start_sec: float,
+        duration_sec: float,
+        trim_in_sec: float,
+        trim_out_sec: float,
+    ) -> EditSession:
+        session = self.session_service.get_session(project_id, session_id)
+        updated_blocks: List[EditBlock] = []
+        found = False
+        for item in session.sequence or []:
+            if item.id != block_id:
+                updated_blocks.append(item)
+                continue
+            found = True
+            data = item.model_dump()
+            data["trim"] = EditBlockTrim(
+                in_sec=trim_in_sec,
+                out_sec=trim_out_sec,
+            ).model_dump()
+            data["duration_sec"] = float(duration_sec)
+            if item.track_id == VOICEOVER_BROLL_TRACK_ID or item.timeline_start_sec is not None:
+                data["track_id"] = VOICEOVER_BROLL_TRACK_ID
+                data["timeline_start_sec"] = round(float(timeline_start_sec), 3)
+            updated_blocks.append(EditBlock.model_validate(data))
+        if not found:
+            return session
+        return self.session_service.update_session(
+            project_id,
+            session_id,
+            EditSessionUpdateRequest(sequence=updated_blocks),
+        )
 
     @staticmethod
     def _composition_end_sec(session: EditSession) -> float:
