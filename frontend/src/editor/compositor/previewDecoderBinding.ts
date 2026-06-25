@@ -90,14 +90,18 @@ export function ensureDecoderBound(
       )
     : null
   const cacheKey = mediaReq?.cacheKey ?? httpUrl
-  // 预览解码器统一 HTTP（含主轨导入），避免暂停 asset / 播放 HTTP 换源导致重复帧
-  const nextUrl = resolveEffectivePreviewUrl(httpUrl, cacheKey, { preferLocal: false })
+  // 主轨：有本地 asset 时优先绑定；叠画轨与 overlay 一致走 HTTP
+  const preferLocal =
+    isMainTrackBlock(block) && localMedia != null && localMedia.preferLocal !== false
+  const nextUrl = resolveEffectivePreviewUrl(httpUrl, cacheKey, { preferLocal })
   const boundUrl = video.dataset.effectiveUrl ?? video.src
   if (video.dataset.decoderKey === decoderKey && boundUrl) {
     video.dataset.boundBlockId = block.id
     if (nextUrl === boundUrl) return false
     const boundIsLocal = isLocalPreviewMediaUrl(boundUrl)
     const nextIsLocal = isLocalPreviewMediaUrl(nextUrl)
+    // 已绑定后禁止 asset↔HTTP 换源（播放/暂停不再切换）
+    if (boundIsLocal !== nextIsLocal) return false
     if (!boundIsLocal && !nextIsLocal) return false
     applyPreviewVideoSrc(video, nextUrl, httpUrl, cacheKey)
     return true

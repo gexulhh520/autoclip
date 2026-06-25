@@ -132,6 +132,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
       projectId,
       sessionId,
       useSourceVideo: useSourcePreview,
+      preferLocal: true,
     }),
     [projectId, sessionId, useSourcePreview]
   )

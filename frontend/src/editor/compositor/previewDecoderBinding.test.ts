@@ -95,14 +95,17 @@ describe('previewDecoderBinding', () => {
     expect(video.preload).toBe('auto')
   })
 
-  it('ensureDecoderBound uses HTTP for main-track imported clips', () => {
-    const path = 'edit_sessions/s1/media/clip.mp4'
-    const block = importedBlock('main-1', path)
-    const editSession = sessionWith([block])
+  it('ensureDecoderBound prefers HTTP for overlay imported clips', () => {
+    const path = 'edit_sessions/s1/media/broll.mp4'
+    const block = {
+      ...importedBlock('broll-1', path),
+      track_id: 'voiceover-broll',
+      timeline_start_sec: 0,
+    }
     const video = { src: '', dataset: {} as DOMStringMap } as HTMLVideoElement
-    const httpUrl = 'http://test/blocks/main-1/media'
+    const httpUrl = 'http://test/blocks/broll-1/media'
 
-    ensureDecoderBound(video, block, () => httpUrl, editSession, {
+    ensureDecoderBound(video, block, () => httpUrl, sessionWith([block]), {
       projectId: 'p1',
       sessionId: 's1',
       useSourceVideo: false,
@@ -110,6 +113,30 @@ describe('previewDecoderBinding', () => {
     })
 
     expect(video.src).toBe(httpUrl)
-    expect(video.dataset.effectiveUrl).toBe(httpUrl)
+  })
+
+  it('does not switch decoder between asset and HTTP once bound', () => {
+    const path = 'edit_sessions/s1/media/clip.mp4'
+    const block = importedBlock('main-1', path)
+    const assetUrl = 'asset://localhost/clip.mp4'
+    const httpUrl = 'http://test/blocks/main-1/media'
+    const video = {
+      src: assetUrl,
+      dataset: {
+        decoderKey: `media:${path}`,
+        effectiveUrl: assetUrl,
+        boundBlockId: block.id,
+      } as DOMStringMap,
+    } as HTMLVideoElement
+
+    expect(
+      ensureDecoderBound(video, block, () => httpUrl, sessionWith([block]), {
+        projectId: 'p1',
+        sessionId: 's1',
+        useSourceVideo: false,
+        preferLocal: false,
+      })
+    ).toBe(false)
+    expect(video.src).toBe(assetUrl)
   })
 })
