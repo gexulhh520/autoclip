@@ -638,6 +638,7 @@ class EditSessionTtsResponse(BaseModel):
 def _rebuild_forward_ref_models() -> None:
     """解析跨模块 forward ref（Voiceover*Response → EditSession）。"""
     from backend.schemas.voiceover_plan import (
+        VoiceoverBrollApplyStatusResponse,
         VoiceoverExecuteResponse,
         VoiceoverGenerateResponse,
         VoiceoverPlanResponse,
@@ -647,6 +648,7 @@ def _rebuild_forward_ref_models() -> None:
     VoiceoverPlanResponse.model_rebuild(_types_namespace=types_namespace)
     VoiceoverGenerateResponse.model_rebuild(_types_namespace=types_namespace)
     VoiceoverExecuteResponse.model_rebuild(_types_namespace=types_namespace)
+    VoiceoverBrollApplyStatusResponse.model_rebuild(_types_namespace=types_namespace)
 
 
 _rebuild_forward_ref_models()
