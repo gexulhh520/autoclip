@@ -94,4 +94,22 @@ describe('previewDecoderBinding', () => {
     ensureDecoderPreloadForTargetTime(video, 60)
     expect(video.preload).toBe('auto')
   })
+
+  it('ensureDecoderBound uses HTTP for main-track imported clips', () => {
+    const path = 'edit_sessions/s1/media/clip.mp4'
+    const block = importedBlock('main-1', path)
+    const editSession = sessionWith([block])
+    const video = { src: '', dataset: {} as DOMStringMap } as HTMLVideoElement
+    const httpUrl = 'http://test/blocks/main-1/media'
+
+    ensureDecoderBound(video, block, () => httpUrl, editSession, {
+      projectId: 'p1',
+      sessionId: 's1',
+      useSourceVideo: false,
+      preferLocal: true,
+    })
+
+    expect(video.src).toBe(httpUrl)
+    expect(video.dataset.effectiveUrl).toBe(httpUrl)
+  })
 })

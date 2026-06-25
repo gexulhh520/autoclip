@@ -90,9 +90,8 @@ export function ensureDecoderBound(
       )
     : null
   const cacheKey = mediaReq?.cacheKey ?? httpUrl
-  // 叠画轨（口播 B-roll）始终 HTTP，避免暂停 asset / 播放 HTTP 换源闪旧帧
-  const preferLocal = isMainTrackBlock(block) && localMedia?.preferLocal !== false
-  const nextUrl = resolveEffectivePreviewUrl(httpUrl, cacheKey, { preferLocal })
+  // 预览解码器统一 HTTP（含主轨导入），避免暂停 asset / 播放 HTTP 换源导致重复帧
+  const nextUrl = resolveEffectivePreviewUrl(httpUrl, cacheKey, { preferLocal: false })
   const boundUrl = video.dataset.effectiveUrl ?? video.src
   if (video.dataset.decoderKey === decoderKey && boundUrl) {
     video.dataset.boundBlockId = block.id
