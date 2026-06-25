@@ -5,6 +5,7 @@ import {
   applyPreviewVideoSrc,
   buildPreviewMediaRequest,
   ensurePreviewMediaPrefetch,
+  isLocalPreviewMediaUrl,
   resolveEffectivePreviewUrl,
 } from '../../utils/previewLocalMedia'
 import type { PreviewLocalMediaContext } from '../../utils/previewLocalMedia'
@@ -77,16 +78,17 @@ export function ensureDecoderBound(
       )
     : null
   const cacheKey = mediaReq?.cacheKey ?? httpUrl
-  const nextUrl = resolveEffectivePreviewUrl(httpUrl, cacheKey)
+  const preferLocal = localMedia?.preferLocal !== false
+  const nextUrl = resolveEffectivePreviewUrl(httpUrl, cacheKey, { preferLocal })
   const boundUrl = video.dataset.effectiveUrl ?? video.src
   if (video.dataset.decoderKey === decoderKey && boundUrl) {
     video.dataset.boundBlockId = block.id
     if (nextUrl === boundUrl) return false
-    if (nextUrl !== httpUrl) {
-      applyPreviewVideoSrc(video, nextUrl, httpUrl, cacheKey)
-      return true
-    }
-    return false
+    const boundIsLocal = isLocalPreviewMediaUrl(boundUrl)
+    const nextIsLocal = isLocalPreviewMediaUrl(nextUrl)
+    if (!boundIsLocal && !nextIsLocal) return false
+    applyPreviewVideoSrc(video, nextUrl, httpUrl, cacheKey)
+    return true
   }
   video.dataset.decoderKey = decoderKey
   video.dataset.boundBlockId = block.id

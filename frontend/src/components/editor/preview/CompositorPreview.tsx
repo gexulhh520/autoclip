@@ -546,6 +546,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
             playbackRate: layer.playbackRate || 1,
           })
         } else {
+          // 解码器需静音才能稳定通过 play()；片段原声走独立 audio 轨
+          video.muted = true
           void video.play().catch(() => undefined)
         }
         return didSeek
@@ -886,8 +888,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
   useEffect(() => {
     if (localMediaEpoch === 0) return
-    paintAt(sequencePlayheadSec, true)
-  }, [localMediaEpoch, paintAt, sequencePlayheadSec])
+    paintAtRef.current(sequencePlayheadSec, !wasPlayingRef.current)
+  }, [localMediaEpoch, sequencePlayheadSec])
 
   useEffect(() => {
     return () => {

@@ -132,8 +132,9 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
       projectId,
       sessionId,
       useSourceVideo: useSourcePreview,
+      preferLocal: !isPlaying,
     }),
-    [projectId, sessionId, useSourcePreview]
+    [projectId, sessionId, useSourcePreview, isPlaying]
   )
 
   const previewMediaSequenceKey = useMemo(

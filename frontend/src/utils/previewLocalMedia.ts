@@ -11,6 +11,8 @@ export interface PreviewLocalMediaContext {
   projectId: string
   sessionId: string
   useSourceVideo: boolean
+  /** 播放中 false → 用 HTTP 流式；暂停 true → 优先 asset 本地读盘 */
+  preferLocal?: boolean
 }
 
 interface PreviewMediaRequest {
@@ -188,9 +190,10 @@ export function prefetchSessionPreviewMedia(
 
 export function resolveEffectivePreviewUrl(
   httpUrl: string,
-  cacheKey?: string
+  cacheKey?: string,
+  options?: { preferLocal?: boolean }
 ): string {
-  if (!isTauriRuntime()) return httpUrl
+  if (!isTauriRuntime() || options?.preferLocal === false) return httpUrl
   if (cacheKey) {
     const cached = localUrlCache.get(cacheKey)
     if (cached) return cached
@@ -209,6 +212,10 @@ function isAssetProtocolUrl(url: string): boolean {
     url.startsWith('https://asset.localhost/') ||
     url.startsWith('http://asset.localhost/')
   )
+}
+
+export function isLocalPreviewMediaUrl(url: string): boolean {
+  return isAssetProtocolUrl(url)
 }
 
 export function applyPreviewVideoSrc(
