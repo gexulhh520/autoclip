@@ -41,6 +41,7 @@ import {
 } from '../../../editor/scene'
 import type { PreviewVideoLayerProps } from '../../../editor/scene/adapters/previewAdapter'
 import { stopEditorPlayback } from '../../../editor/stopEditorPlayback'
+import { applyMediaPlaybackRate } from '../../../editor/mediaPlaybackRate'
 import { isImportedBlock } from '../../../utils/editBlockMedia'
 import { isMainTrackBlock } from '../../../editor/videoTracks'
 
