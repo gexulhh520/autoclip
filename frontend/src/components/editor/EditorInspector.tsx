@@ -308,9 +308,10 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
           />
         ) : null}
         <div className="editor-inspector-section">
-          <div className="editor-inspector-label">花字预设</div>
+          <div className="editor-inspector-label">字幕样式</div>
           <TextPresetPicker
             activePresetId={activePresetId}
+            batchCount={isBatch ? overlayItems.length : 0}
             onSelect={(presetId) => {
               if (isBatch) applyTextPresetToOverlays(overlayIds, presetId)
               else applyTextPreset(seed.id, presetId)

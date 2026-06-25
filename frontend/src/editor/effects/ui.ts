@@ -3,7 +3,7 @@ import type { TransitionOutKind } from '../../types/transitions'
 import { transitionKindFromEffectId } from '../../types/transitions'
 import { listEffects } from './registry'
 import { resolveVisualFilterCss } from './filters'
-import { TEXT_PRESET_EFFECTS } from './textPresets'
+import { SUBTITLE_STYLE_PRESETS, type SubtitleStylePreview } from './textPresets'
 
 export interface VisualFilterUiOption {
   value: VisualFilterId
@@ -58,11 +58,18 @@ export function listTransitionUiOptions(): TransitionUiOption[] {
 export interface TextPresetUiOption {
   effectId: string
   label: string
+  preview: SubtitleStylePreview
 }
 
-export function listTextPresetUiOptions(): TextPresetUiOption[] {
-  return TEXT_PRESET_EFFECTS.map((def) => ({
+export function listSubtitleStyleUiOptions(): TextPresetUiOption[] {
+  return SUBTITLE_STYLE_PRESETS.map((def) => ({
     effectId: def.id,
     label: def.label,
+    preview: def.preview,
   }))
+}
+
+/** @deprecated 使用 listSubtitleStyleUiOptions */
+export function listTextPresetUiOptions(): TextPresetUiOption[] {
+  return listSubtitleStyleUiOptions()
 }

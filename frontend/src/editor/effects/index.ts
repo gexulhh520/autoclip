@@ -22,6 +22,7 @@ export {
   listVisualFilterUiOptions,
   listTransitionUiOptions,
   listTextPresetUiOptions,
+  listSubtitleStyleUiOptions,
 } from './ui'
 export type { VisualFilterUiOption, TransitionUiOption, TextPresetUiOption } from './ui'
 export {

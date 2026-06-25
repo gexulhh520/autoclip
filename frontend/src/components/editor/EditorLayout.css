@@ -572,9 +572,61 @@
 
 .editor-effect-preset__label {
   font-size: 11px;
-  color: var(--editor-sub);
-  padding: 0 4px 8px;
+  color: var(--editor-muted);
+  padding: 0 6px 8px;
   text-align: center;
+}
+
+.editor-subtitle-style-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.editor-subtitle-style-picker__hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.editor-subtitle-style-picker__row {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.editor-subtitle-style-picker__item {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--editor-border);
+  border-radius: 8px;
+  background: #2a2a2a;
+  cursor: pointer;
+  padding: 0;
+  transition: border-color 0.15s ease;
+}
+
+.editor-subtitle-style-picker__item:hover {
+  border-color: color-mix(in srgb, var(--editor-accent) 45%, var(--editor-border));
+}
+
+.editor-subtitle-style-picker__item.is-active {
+  border-color: var(--editor-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--editor-accent) 35%, transparent);
+}
+
+.editor-subtitle-style-picker__glyph {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  font-family: var(--editor-font, system-ui, sans-serif);
+  user-select: none;
 }
 
 .editor-media-grid {
