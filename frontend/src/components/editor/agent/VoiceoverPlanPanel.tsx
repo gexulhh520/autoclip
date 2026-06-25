@@ -86,6 +86,7 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
 }) => {
   const sessionPlan = useEditSessionStore((state) => state.session?.voiceover_plan ?? null)
   const syncSessionFromApi = useEditSessionStore((state) => state.syncSessionFromApi)
+  const withServerMutation = useEditSessionStore((state) => state.withServerMutation)
 
   const [userBrief, setUserBrief] = useState('')
   const [draftPlan, setDraftPlan] = useState<VoiceoverPlan | null>(null)
@@ -185,6 +186,17 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     [syncSessionFromApi]
   )
 
+  const applyVoiceoverApi = useCallback(
+    async <T extends { session: Parameters<typeof syncSessionFromApi>[0] }>(
+      operation: () => Promise<T>
+    ): Promise<T> => {
+      const response = await withServerMutation(operation)
+      applyResponse(response)
+      return response
+    },
+    [applyResponse, withServerMutation]
+  )
+
   const canEditSearchQueries = (segment: VoiceoverSegment) =>
     isEditable || (Boolean(plan) && plan.status !== 'draft')
 
@@ -235,16 +247,17 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     setTranslatingSegmentId(segment.id)
     onError('')
     try {
-      const response = await voiceoverApi.translateSegmentSearchQueries(
-        projectId,
-        sessionId,
-        segment.id,
-        {
-          target_language: targetLanguage,
-          search_queries: queries,
-        }
+      const response = await applyVoiceoverApi(() =>
+        voiceoverApi.translateSegmentSearchQueries(
+          projectId,
+          sessionId,
+          segment.id,
+          {
+            target_language: targetLanguage,
+            search_queries: queries,
+          }
+        )
       )
-      applyResponse(response)
     } catch (err: unknown) {
       onError(readApiErrorMessage(err, '搜索词翻译失败'))
     } finally {
@@ -265,12 +278,13 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     setLoading(true)
     onError('')
     try {
-      const response = await voiceoverApi.generate(projectId, sessionId, {
-        user_brief: brief,
-        voice_id: voiceId,
-        replace_existing: Boolean(replaceExisting),
-      })
-      applyResponse(response)
+      const response = await applyVoiceoverApi(() =>
+        voiceoverApi.generate(projectId, sessionId, {
+          user_brief: brief,
+          voice_id: voiceId,
+          replace_existing: Boolean(replaceExisting),
+        })
+      )
       setUserBrief(response.plan.user_brief)
       if (response.note.includes('已有口播草稿')) {
         onError('')
@@ -296,8 +310,9 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     setSaving(true)
     onError('')
     try {
-      const response = await voiceoverApi.updatePlan(projectId, sessionId, plan)
-      applyResponse(response)
+      const response = await applyVoiceoverApi(() =>
+        voiceoverApi.updatePlan(projectId, sessionId, plan)
+      )
     } catch (err: unknown) {
       onError(err instanceof Error ? err.message : '保存口播脚本失败')
     } finally {
@@ -311,10 +326,9 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     onError('')
     try {
       if (draftPlan) {
-        await voiceoverApi.updatePlan(projectId, sessionId, draftPlan)
+        await withServerMutation(() => voiceoverApi.updatePlan(projectId, sessionId, draftPlan))
       }
-      const response = await voiceoverApi.confirm(projectId, sessionId)
-      applyResponse(response)
+      const response = await applyVoiceoverApi(() => voiceoverApi.confirm(projectId, sessionId))
       onPlanConfirmed?.()
       onError('')
     } catch (err: unknown) {
@@ -328,8 +342,7 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     setSaving(true)
     onError('')
     try {
-      const response = await voiceoverApi.resetDraft(projectId, sessionId)
-      applyResponse(response)
+      const response = await applyVoiceoverApi(() => voiceoverApi.resetDraft(projectId, sessionId))
     } catch (err: unknown) {
       onError(err instanceof Error ? err.message : '重置失败')
     } finally {
@@ -342,8 +355,7 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     setSaving(true)
     onError('')
     try {
-      const response = await voiceoverApi.deletePlan(projectId, sessionId)
-      applyResponse(response)
+      const response = await applyVoiceoverApi(() => voiceoverApi.deletePlan(projectId, sessionId))
       setDraftPlan(null)
       setUserBrief('')
     } catch (err: unknown) {
@@ -358,15 +370,16 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     onError('')
     try {
       if (draftPlan && isEditable) {
-        await voiceoverApi.updatePlan(projectId, sessionId, draftPlan)
+        await withServerMutation(() => voiceoverApi.updatePlan(projectId, sessionId, draftPlan))
       }
-      const response = await voiceoverApi.regenerateSegment(
-        projectId,
-        sessionId,
-        segmentId,
-        segmentInstructions[segmentId]?.trim() || undefined
+      const response = await applyVoiceoverApi(() =>
+        voiceoverApi.regenerateSegment(
+          projectId,
+          sessionId,
+          segmentId,
+          segmentInstructions[segmentId]?.trim() || undefined
+        )
       )
-      applyResponse(response)
     } catch (err: unknown) {
       onError(err instanceof Error ? err.message : '分段重写失败')
     } finally {
@@ -379,10 +392,11 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     onError('')
     try {
       if (draftPlan && isEditable) {
-        await voiceoverApi.updatePlan(projectId, sessionId, draftPlan)
+        await withServerMutation(() => voiceoverApi.updatePlan(projectId, sessionId, draftPlan))
       }
-      const response = await voiceoverApi.addSegment(projectId, sessionId, afterSegmentId)
-      applyResponse(response)
+      const response = await applyVoiceoverApi(() =>
+        voiceoverApi.addSegment(projectId, sessionId, afterSegmentId)
+      )
     } catch (err: unknown) {
       onError(err instanceof Error ? err.message : '添加分段失败')
     } finally {
@@ -400,8 +414,9 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     onError('')
     try {
       const payload = { placeholder_library_asset_id: placeholderAssetId.trim() || null }
-      const response = await voiceoverApi.execute(projectId, sessionId, payload)
-      applyResponse(response)
+      const response = await applyVoiceoverApi(() =>
+        voiceoverApi.execute(projectId, sessionId, payload)
+      )
     } catch (err: unknown) {
       onError(readApiErrorMessage(err, '口播 TTS 执行失败'))
     } finally {
@@ -423,8 +438,9 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
         placeholder_library_asset_id: placeholderAssetId.trim() || null,
         segment_ids: rerunnableSegmentIds,
       }
-      const response = await voiceoverApi.execute(projectId, sessionId, payload)
-      applyResponse(response)
+      const response = await applyVoiceoverApi(() =>
+        voiceoverApi.execute(projectId, sessionId, payload)
+      )
     } catch (err: unknown) {
       onError(readApiErrorMessage(err, '口播 TTS 重跑失败'))
     } finally {
@@ -445,8 +461,9 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     onError('')
     try {
       const payload = { placeholder_library_asset_id: placeholderAssetId.trim() || null }
-      const response = await voiceoverApi.executeSegment(projectId, sessionId, segmentId, payload)
-      applyResponse(response)
+      const response = await applyVoiceoverApi(() =>
+        voiceoverApi.executeSegment(projectId, sessionId, segmentId, payload)
+      )
     } catch (err: unknown) {
       onError(readApiErrorMessage(err, '分段 TTS 执行失败'))
     } finally {
@@ -462,13 +479,14 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
       if (!isEditable) {
         queries = await persistSegmentSearchQueries(segment)
       }
-      const response = await voiceoverApi.searchSegmentMaterials(
-        projectId,
-        sessionId,
-        segment.id,
-        { platform: brollPlatform, limit: 10, search_queries: queries }
+      const response = await applyVoiceoverApi(() =>
+        voiceoverApi.searchSegmentMaterials(
+          projectId,
+          sessionId,
+          segment.id,
+          { platform: brollPlatform, limit: 10, search_queries: queries }
+        )
       )
-      applyResponse(response)
     } catch (err: unknown) {
       onError(err instanceof Error ? err.message : '素材搜索失败')
     } finally {
@@ -483,10 +501,11 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
       setBrollBusySegmentId(segmentId)
       onError('')
       try {
-        const response = await voiceoverApi.selectSegmentMaterial(projectId, sessionId, segmentId, {
-          library_asset_id: libraryAssetId,
-        })
-        applyResponse(response)
+        const response = await applyVoiceoverApi(() =>
+          voiceoverApi.selectSegmentMaterial(projectId, sessionId, segmentId, {
+            library_asset_id: libraryAssetId,
+          })
+        )
       } catch (err: unknown) {
         onError(err instanceof Error ? err.message : '素材选定失败')
       } finally {
@@ -501,10 +520,11 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     setBrollBusySegmentId(segmentId)
     onError('')
     try {
-      const response = await voiceoverApi.selectSegmentMaterial(projectId, sessionId, segmentId, {
-        search_result_index: searchIndex,
-      })
-      applyResponse(response)
+      const response = await applyVoiceoverApi(() =>
+        voiceoverApi.selectSegmentMaterial(projectId, sessionId, segmentId, {
+          search_result_index: searchIndex,
+        })
+      )
     } catch (err: unknown) {
       onError(err instanceof Error ? err.message : '素材选定失败')
     } finally {
@@ -525,13 +545,14 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
               wait_download_timeout_sec: 300,
             }
           : { wait_download_timeout_sec: 300 }
-      const response = await voiceoverApi.applySegmentBroll(
-        projectId,
-        sessionId,
-        segmentId,
-        payload
+      const response = await applyVoiceoverApi(() =>
+        voiceoverApi.applySegmentBroll(
+          projectId,
+          sessionId,
+          segmentId,
+          payload
+        )
       )
-      applyResponse(response)
     } catch (err: unknown) {
       onError(readApiErrorMessage(err, 'B-roll 应用失败'))
     } finally {
@@ -572,8 +593,9 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     setSaving(true)
     onError('')
     try {
-      const response = await voiceoverApi.removeSegment(projectId, sessionId, segmentId)
-      applyResponse(response)
+      const response = await applyVoiceoverApi(() =>
+        voiceoverApi.removeSegment(projectId, sessionId, segmentId)
+      )
     } catch (err: unknown) {
       onError(err instanceof Error ? err.message : '删除分段失败')
     } finally {

@@ -18,6 +18,7 @@ const EditSessionPage: React.FC = () => {
   const session = useEditSessionStore((state) => state.session)
   const dirty = useEditSessionStore((state) => state.dirty)
   const saving = useEditSessionStore((state) => state.saving)
+  const serverMutationInFlight = useEditSessionStore((state) => state.serverMutationInFlight)
   const isPlaying = useEditSessionStore((state) => state.isPlaying)
   const saveTimerRef = useRef<number | null>(null)
   const [projectId, setProjectId] = useState<string | null>(routeProjectId ?? null)
@@ -72,7 +73,7 @@ const EditSessionPage: React.FC = () => {
   }, [projectId, sessionId, loadSession])
 
   useEffect(() => {
-    if (!projectId || !dirty || saving || isPlaying) return
+    if (!projectId || !dirty || saving || isPlaying || serverMutationInFlight > 0) return
     if (saveTimerRef.current) {
       window.clearTimeout(saveTimerRef.current)
     }
@@ -84,7 +85,7 @@ const EditSessionPage: React.FC = () => {
         window.clearTimeout(saveTimerRef.current)
       }
     }
-  }, [projectId, dirty, saving, isPlaying, saveSession])
+  }, [projectId, dirty, saving, isPlaying, serverMutationInFlight, saveSession])
 
   if (!sessionId) {
     return <Alert type="error" message="无效的剪辑工程地址" />

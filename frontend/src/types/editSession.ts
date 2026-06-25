@@ -221,6 +221,7 @@ export interface EditSessionUpdateRequest {
   audio_settings?: EditSessionAudioSettings
   schema_version?: number
   project_v3?: EditProjectV3 | null
+  voiceover_plan?: import('./voiceoverPlan').VoiceoverPlan | null
 }
 
 export interface EditSessionAppendRequest {

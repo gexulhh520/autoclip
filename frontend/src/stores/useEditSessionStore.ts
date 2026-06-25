@@ -192,7 +192,26 @@ const buildSessionSavePayload = (session: EditSession): EditSessionUpdateRequest
   export_settings: session.export_settings,
   audio_settings: session.audio_settings,
   schema_version: 3,
+  voiceover_plan: session.voiceover_plan ?? null,
 })
+
+const SERVER_MUTATION_WAIT_MS = 120_000
+
+const waitForServerMutationIdle = (
+  get: () => EditSessionState,
+  budgetMs = SERVER_MUTATION_WAIT_MS
+): Promise<void> =>
+  new Promise((resolve) => {
+    const start = Date.now()
+    const wait = () => {
+      if (get().serverMutationInFlight <= 0 || Date.now() - start > budgetMs) {
+        resolve()
+        return
+      }
+      window.setTimeout(wait, 50)
+    }
+    wait()
+  })
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -276,6 +295,8 @@ interface EditSessionState {
   exportMessage: string
   error: string | null
   dirty: boolean
+  /** 口播 TTS 等后端已落盘的操作进行中时，禁止前端 PATCH 覆盖 */
+  serverMutationInFlight: number
   selectedBlockId: string | null
   selectedBlockIds: string[]
   selectedOverlayId: string | null
@@ -622,6 +643,7 @@ interface EditSessionState {
   canUndo: () => boolean
   canRedo: () => boolean
   markDirty: () => void
+  withServerMutation: <T>(operation: () => Promise<T>) => Promise<T>
   syncSessionFromApi: (session: EditSession) => void
   executeAgentToolCalls: (
     calls: Array<{ name: string; arguments: Record<string, unknown> }>,
@@ -749,6 +771,7 @@ export const useEditSessionStore = create<EditSessionState>()(
       exportMessage: '',
       error: null,
       dirty: false,
+      serverMutationInFlight: 0,
       selectedBlockId: null,
       selectedBlockIds: [],
       selectedOverlayId: null,
@@ -925,7 +948,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             do {
               saveReschedule = false
               const session = get().session
-              if (!session || !get().dirty) break
+              if (!session || !get().dirty || get().serverMutationInFlight > 0) break
 
               const updated = await editApi.updateSession(
                 projectId,
@@ -956,8 +979,9 @@ export const useEditSessionStore = create<EditSessionState>()(
       },
 
       flushSaveSession: async (projectId) => {
+        await waitForServerMutationIdle(get)
         const { dirty, saving, session } = get()
-        if (!dirty || !session) return
+        if (!dirty || !session || get().serverMutationInFlight > 0) return
         if (saving) {
           await new Promise<void>((resolve) => {
             const start = Date.now()
@@ -3456,6 +3480,18 @@ export const useEditSessionStore = create<EditSessionState>()(
       canUndo: () => get().historyPast.length > 0,
       canRedo: () => get().historyFuture.length > 0,
       markDirty: () => set({ dirty: true }),
+      withServerMutation: async (operation) => {
+        set((state) => {
+          state.serverMutationInFlight += 1
+        })
+        try {
+          return await operation()
+        } finally {
+          set((state) => {
+            state.serverMutationInFlight = Math.max(0, state.serverMutationInFlight - 1)
+          })
+        }
+      },
       syncSessionFromApi: (session) => {
         set((state) => {
           state.session = cloneSessionFromApi(session)
@@ -3487,6 +3523,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           exportMessage: '',
           error: null,
           dirty: false,
+          serverMutationInFlight: 0,
           selectedBlockId: null,
           selectedBlockIds: [],
           selectedOverlayId: null,
