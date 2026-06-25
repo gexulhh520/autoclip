@@ -277,6 +277,9 @@ export function resolveSceneAt(
   }
 
   const mutedVideoTrackIds = new Set(options.mutedVideoTrackIds ?? [])
+  for (const track of resolveVideoTracks(session)) {
+    if (track.muted) mutedVideoTrackIds.add(track.id)
+  }
   const hiddenVideoTrackIds = new Set(
     resolveVideoTracks(session).filter((track) => track.hidden).map((track) => track.id)
   )
@@ -321,6 +324,8 @@ export function resolveSceneAt(
   for (const layer of videoLayers) {
     const segment = timeline.segments[layer.blockIndex]
     if (!segment) continue
+    const trackId = getBlockTrackId(segment.block)
+    if (mutedVideoTrackIds.has(trackId)) continue
     audioLayers.push({
       kind: 'clip',
       blockId: layer.blockId,

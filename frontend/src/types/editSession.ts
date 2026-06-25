@@ -24,6 +24,7 @@ export interface VideoTrackMeta {
   id: string
   name: string
   hidden?: boolean
+  muted?: boolean
   order: number
 }
 

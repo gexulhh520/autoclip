@@ -18,11 +18,11 @@ export function parseAdaptedVideoTrackId(adaptedId: string): string | null {
 }
 
 export function createVideoTrack(name: string, order: number): VideoTrackMeta {
-  return { id: nanoid(), name, order, hidden: false }
+  return { id: nanoid(), name, order, hidden: false, muted: false }
 }
 
 export function createDefaultVideoTrack(order = 0): VideoTrackMeta {
-  return { id: DEFAULT_VIDEO_TRACK_ID, name: 'Video', order, hidden: false }
+  return { id: DEFAULT_VIDEO_TRACK_ID, name: 'Video', order, hidden: false, muted: false }
 }
 
 export function getBlockTrackId(block: EditBlock): string {
@@ -38,6 +38,18 @@ export function resolveVideoTracks(session: EditSession): VideoTrackMeta[] {
     ? [...session.video_tracks]
     : [createDefaultVideoTrack()]
   return tracks.sort((a, b) => a.order - b.order)
+}
+
+export function buildVideoTrackMutedMap(session: EditSession): Record<string, boolean> {
+  const muted: Record<string, boolean> = {}
+  for (const track of resolveVideoTracks(session)) {
+    if (track.muted) muted[track.id] = true
+  }
+  return muted
+}
+
+export function isVideoTrackMutedInSession(session: EditSession, trackId: string): boolean {
+  return Boolean(resolveVideoTracks(session).find((track) => track.id === trackId)?.muted)
 }
 
 export function resolveMainTrackBlocks(session: EditSession): EditBlock[] {

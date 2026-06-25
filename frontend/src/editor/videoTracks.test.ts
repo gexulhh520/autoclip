@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { EditBlock, EditSession } from '../types/editSession'
 import {
   DEFAULT_VIDEO_TRACK_ID,
+  buildVideoTrackMutedMap,
   ensureVideoTracks,
   getBlockTrackId,
   isMainTrackBlock,
@@ -57,6 +58,18 @@ describe('ensureVideoTracks', () => {
     expect(session.video_tracks).toHaveLength(1)
     expect(session.video_tracks?.[0]?.id).toBe(DEFAULT_VIDEO_TRACK_ID)
     expect(getBlockTrackId(session.sequence[0]!)).toBe(DEFAULT_VIDEO_TRACK_ID)
+  })
+
+  it('buildVideoTrackMutedMap reflects session video_tracks.muted', () => {
+    const session = baseSession([baseBlock('b1')])
+    ensureVideoTracks(session)
+    session.video_tracks = [
+      { id: DEFAULT_VIDEO_TRACK_ID, name: 'Video', order: 0, muted: true },
+      { id: 'overlay-track', name: 'Video 2', order: 1, muted: false },
+    ]
+    expect(buildVideoTrackMutedMap(session)).toEqual({
+      [DEFAULT_VIDEO_TRACK_ID]: true,
+    })
   })
 
   it('assigns timeline_start_sec to overlay blocks', () => {

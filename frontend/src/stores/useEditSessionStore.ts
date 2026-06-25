@@ -69,6 +69,7 @@ import {
 } from '../editor/speedControl'
 import {
   DEFAULT_VIDEO_TRACK_ID,
+  buildVideoTrackMutedMap,
   createVideoTrack,
   defaultVideoTrackName,
   ensureVideoTracks,
@@ -870,6 +871,8 @@ export const useEditSessionStore = create<EditSessionState>()(
           const firstBlockOverlays = firstBlockId
             ? getTemplateOverlaysForBlock(finalSession, firstBlockId)
             : []
+          const videoTrackMuted = buildVideoTrackMutedMap(finalSession)
+          const mainVideoMuted = Boolean(videoTrackMuted[DEFAULT_VIDEO_TRACK_ID])
           set({
             session: finalSession,
             editProject: document.project,
@@ -887,11 +890,11 @@ export const useEditSessionStore = create<EditSessionState>()(
             selectedCaptionBlockIds: [],
             selectedAudioClipId: null,
             timelineTrackCollapsed: { ...DEFAULT_TRACK_COLLAPSED },
-            timelineTrackMuted: { ...DEFAULT_TRACK_MUTED },
+            timelineTrackMuted: { ...DEFAULT_TRACK_MUTED, mainVideo: mainVideoMuted },
             timelineTrackHidden: { ...DEFAULT_TRACK_HIDDEN },
             textTrackMuted: {},
             audioTrackMuted: {},
-            videoTrackMuted: {},
+            videoTrackMuted,
             activeTextTrackId: DEFAULT_TEXT_TRACK_ID,
             activeAudioTrackId: DEFAULT_AUDIO_TRACK_ID,
             activeVideoTrackId: DEFAULT_VIDEO_TRACK_ID,
@@ -1983,6 +1986,16 @@ export const useEditSessionStore = create<EditSessionState>()(
       toggleTimelineTrackMuted: (trackId) => {
         set((state) => {
           state.timelineTrackMuted[trackId] = !state.timelineTrackMuted[trackId]
+          if (trackId === 'mainVideo' && state.session?.video_tracks) {
+            const track = state.session.video_tracks.find(
+              (item) => item.id === DEFAULT_VIDEO_TRACK_ID
+            )
+            if (track) {
+              track.muted = state.timelineTrackMuted.mainVideo
+              state.videoTrackMuted[DEFAULT_VIDEO_TRACK_ID] = track.muted
+              state.dirty = true
+            }
+          }
         })
       },
 
@@ -2035,7 +2048,15 @@ export const useEditSessionStore = create<EditSessionState>()(
 
       toggleVideoTrackMuted: (videoTrackId) => {
         set((state) => {
-          state.videoTrackMuted[videoTrackId] = !state.videoTrackMuted[videoTrackId]
+          if (!state.session?.video_tracks) return
+          const track = state.session.video_tracks.find((item) => item.id === videoTrackId)
+          if (!track) return
+          track.muted = !track.muted
+          state.videoTrackMuted[videoTrackId] = track.muted
+          if (videoTrackId === DEFAULT_VIDEO_TRACK_ID) {
+            state.timelineTrackMuted.mainVideo = track.muted
+          }
+          state.dirty = true
         })
       },
 

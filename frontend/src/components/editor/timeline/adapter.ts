@@ -234,9 +234,7 @@ export function buildAdaptedTracks(params: {
       type: 'video',
       name: meta.name,
       isMain,
-      muted: isMain
-        ? trackMuted.mainVideo
-        : (videoTrackMuted[meta.id] ?? false),
+      muted: Boolean(meta.muted),
       hidden: meta.hidden ?? false,
       videoTrackId: meta.id,
       elements: meta.hidden ? [] : elements,

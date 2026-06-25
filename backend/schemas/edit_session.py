@@ -207,6 +207,7 @@ class VideoTrackMeta(BaseModel):
     id: str
     name: str = "Video"
     hidden: bool = False
+    muted: bool = False
     order: int = 0
 
 

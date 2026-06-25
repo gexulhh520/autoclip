@@ -24,6 +24,8 @@ from backend.utils.video_processor import VideoProcessor
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_VIDEO_TRACK_ID = "default-video"
+
 ProgressCallback = Callable[[int, str], None]
 
 VISUAL_FILTER_PRESETS: Dict[str, Optional[str]] = {
@@ -52,6 +54,18 @@ def target_dimensions(
     export_settings = normalize_fit_mode(settings) if hasattr(settings, "aspect") else settings
     canvas = resolve_canvas_size(export_settings, source_width, source_height)
     return canvas.width, canvas.height
+
+
+def _block_video_track_id(block: EditBlock) -> str:
+    return block.track_id or DEFAULT_VIDEO_TRACK_ID
+
+
+def is_block_video_audio_muted(session: EditSession, block: EditBlock) -> bool:
+    track_id = _block_video_track_id(block)
+    for track in session.video_tracks or []:
+        if track.id == track_id:
+            return bool(track.muted or track.hidden)
+    return False
 
 
 def build_final_video_filter(
@@ -1396,9 +1410,14 @@ def mux_compositor_export(
         for block in session.sequence
         if block_id is None or block.id == block_id
     ]
+    audible_blocks = [
+        block for block in blocks_for_audio if not is_block_video_audio_muted(session, block)
+    ]
 
     for index, block in enumerate(session.sequence):
         if block_id is not None and block.id != block_id:
+            continue
+        if is_block_video_audio_muted(session, block):
             continue
         seg_audio = export_dir / f"compositor_audio_{index:03d}.aac"
         if extract_block_audio_segment(
@@ -1408,7 +1427,7 @@ def mux_compositor_export(
 
     audio_mixed = False
     audio_warning: Optional[str] = None
-    failed_count = len(blocks_for_audio) - len(audio_segments)
+    failed_count = len(audible_blocks) - len(audio_segments)
     video_duration = _resolve_mux_duration(
         session,
         compositor_video,
@@ -1486,7 +1505,7 @@ def mux_compositor_export(
                 audio_warning = f"有 {failed_count} 个片段未能提取音频，成片可能不完整。"
     else:
         shutil.copy2(compositor_video, output_path)
-        if blocks_for_audio:
+        if audible_blocks:
             if session.audio_elements:
                 audio_warning = (
                     "未能从视频片段提取原声，且时间轴 BGM/音频轨渲染失败。"
@@ -1497,7 +1516,7 @@ def mux_compositor_export(
                     "未能从时间轴片段提取任何音频。"
                     "请确认切片/原片文件存在且含音轨，或取消「使用原片重切」后重试。"
                 )
-        else:
+        elif not blocks_for_audio:
             audio_warning = "时间轴无片段，导出为无声视频。"
 
     bgm_rel = session.audio_settings.bgm_path
