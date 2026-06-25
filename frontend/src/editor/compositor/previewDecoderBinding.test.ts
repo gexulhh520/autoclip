@@ -37,6 +37,27 @@ describe('previewDecoderBinding', () => {
     )
   })
 
+  it('overlay imported blocks use dedicated decoders even with same media path', () => {
+    const path = 'edit_sessions/s1/media/broll.mp4'
+    const broll1 = {
+      ...importedBlock('broll-1', path),
+      track_id: 'voiceover-broll',
+      timeline_start_sec: 2,
+    }
+    const broll2 = {
+      ...importedBlock('broll-2', path),
+      track_id: 'voiceover-broll',
+      timeline_start_sec: 8,
+    }
+    const editSession = sessionWith([
+      importedBlock('main-1', 'edit_sessions/s1/media/main.mp4'),
+      broll1,
+      broll2,
+    ])
+    expect(resolvePreviewDecoderKey(broll1, editSession)).toBe('block:broll-1')
+    expect(resolvePreviewDecoderKey(broll2, editSession)).toBe('block:broll-2')
+  })
+
   it('uses dedicated decoders for cross-transition neighbors on same file', () => {
     const path = 'edit_sessions/s1/media/clip.mp4'
     const editSession = sessionWith([

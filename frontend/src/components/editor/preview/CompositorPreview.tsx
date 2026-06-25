@@ -21,6 +21,7 @@ import {
 } from '../../../utils/editSessionSyncKeys'
 import {
   capturePreviewVideoFrame,
+  clearPreviewVideoFrameCache,
   hasPreviewVideoFrameCache,
 } from '../../../editor/compositor/previewVideoFrameCache'
 import {
@@ -501,7 +502,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         if (!video) continue
         const cache = pool.getFrameCache(layer.block.id)
         capturePreviewVideoFrame(video, cache)
-        if (hasPreviewVideoFrameCache(cache)) {
+        if (hasPreviewVideoFrameCache(cache) && !video.seeking) {
           caches.set(layer.block.id, cache)
         }
       }
@@ -543,6 +544,12 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         session,
         previewLocalMedia
       )
+      if (rebinding) {
+        const pool = getDecoderPool()
+        if (pool) {
+          clearPreviewVideoFrameCache(pool.getFrameCache(layer.block.id))
+        }
+      }
       ensureDecoderPreloadForTargetTime(video, target)
       if (rebinding && isPlaying) {
         video.preload = 'auto'
@@ -584,7 +591,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       video.pause()
       return didSeek
     },
-    [getSourceTimeForBlock, getVideoUrlForBlock, isPlaying, previewLocalMedia, session]
+    [getDecoderPool, getSourceTimeForBlock, getVideoUrlForBlock, isPlaying, previewLocalMedia, session]
   )
 
   const syncVideosFromVm = useCallback(
@@ -666,7 +673,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         if (!video) continue
         const cache = pool.getFrameCache(layer.block.id)
         capturePreviewVideoFrame(video, cache)
-        if (hasPreviewVideoFrameCache(cache)) {
+        if (hasPreviewVideoFrameCache(cache) && !video.seeking) {
           caches.set(layer.block.id, cache)
         }
       }
@@ -778,9 +785,12 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       paintGenerationRef.current = generation
       const isCurrentGeneration = () => paintGenerationRef.current === generation
 
-      if (anySeek || (forceTransitionSeek && isPlaying)) {
+      const videosForPaint = [...collectVideosForLayers(vm.videoLayers).values()]
+      const anyVideoSeeking = videosForPaint.some((video) => video.seeking)
+
+      if (anySeek || anyVideoSeeking || (forceTransitionSeek && isPlaying)) {
         paintAfterVideoSync(
-          [...collectVideosForLayers(vm.videoLayers).values()],
+          videosForPaint,
           () => {
             if (!isCurrentGeneration()) return
             renderCanvas()

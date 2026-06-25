@@ -9,7 +9,7 @@ import {
   resolveEffectivePreviewUrl,
 } from '../../utils/previewLocalMedia'
 import type { PreviewLocalMediaContext } from '../../utils/previewLocalMedia'
-import { resolveMainTrackBlocks } from '../videoTracks'
+import { isMainTrackBlock, resolveMainTrackBlocks } from '../videoTracks'
 
 export type { PreviewLocalMediaContext } from '../../utils/previewLocalMedia'
 
@@ -36,6 +36,16 @@ export function blockNeedsDedicatedPreviewDecoder(
   return false
 }
 
+/** 同源导入仅主轨切割段可共用解码器；叠画轨（含口播 B-roll）各段独立，避免 seek 互相抢帧 */
+export function shouldShareImportedPreviewDecoder(
+  block: EditBlock,
+  session?: EditSession | null
+): boolean {
+  if (!isMainTrackBlock(block)) return false
+  if (blockNeedsDedicatedPreviewDecoder(block, session)) return false
+  return true
+}
+
 /** 同源导入片段（含切割后多段）共用同一解码器，避免重复拉流 */
 export function resolvePreviewDecoderKey(
   block: EditBlock,
@@ -44,7 +54,7 @@ export function resolvePreviewDecoderKey(
   if (
     isImportedBlock(block) &&
     block.media.path &&
-    !blockNeedsDedicatedPreviewDecoder(block, session)
+    shouldShareImportedPreviewDecoder(block, session)
   ) {
     return `media:${block.media.path}`
   }

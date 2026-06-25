@@ -29,3 +29,8 @@ export function capturePreviewVideoFrame(
 export function hasPreviewVideoFrameCache(cache: HTMLCanvasElement | null): boolean {
   return Boolean(cache && cache.width > 0 && cache.height > 0)
 }
+
+export function clearPreviewVideoFrameCache(cache: HTMLCanvasElement): void {
+  cache.width = 0
+  cache.height = 0
+}
