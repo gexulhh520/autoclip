@@ -962,11 +962,10 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       return
     }
 
-    const onMove = (moveEvent: PointerEvent) => {
+    const applyMove = (moveEvent: PointerEvent) => {
       const deltaSec = (moveEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
       const raw = Math.max(0, initialStart + deltaSec)
       const snapped = snapTime(raw, sequenceSnapPoints, snapEnabled)
-      setSnapPoint({ time: snapped, type: 'grid' })
 
       if (element.source.kind === 'overlay') {
         const deltaFromAnchor = snapped - initialStart
@@ -995,6 +994,8 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           )
         }
 
+        setSnapPoint({ time: previewStartSec, type: 'grid' })
+
         const textTrack = resolveTargetTextTrack(moveEvent.clientY)
         if (textTrack?.textTrackId) {
           pendingTargetTextTrackId = textTrack.textTrackId
@@ -1015,31 +1016,37 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           audioTrack?.audioTrackId &&
           sourceTrack?.audioTrackId &&
           audioTrack.audioTrackId !== sourceTrack.audioTrackId
-        const overlapTrack = isCrossTrackPreview ? audioTrack : sourceTrack
-        const siblings = getTrackSiblingRanges(overlapTrack?.elements ?? [], element.id)
-        const canPlace = canPlaceAtStart(siblings, element.duration, snapped)
-        const nextStart = canPlace ? snapped : initialStart
 
-        updateAudioClip(element.source.clipId, { start_sec: nextStart }, { recordHistory: false })
+        const sourceSiblings = getTrackSiblingRanges(sourceTrack?.elements ?? [], element.id)
+        const sourceStart = clampStartAvoidingOverlap(sourceSiblings, element.duration, snapped)
 
-        if (isCrossTrackPreview && canPlace) {
-          pendingTargetAudioTrackId = audioTrack.audioTrackId!
+        if (isCrossTrackPreview && audioTrack?.audioTrackId) {
+          const targetSiblings = getTrackSiblingRanges(audioTrack.elements ?? [], element.id)
+          const previewStart = clampStartAvoidingOverlap(targetSiblings, element.duration, snapped)
+          setSnapPoint({ time: previewStart, type: 'grid' })
+          updateAudioClip(element.source.clipId, { start_sec: sourceStart }, { recordHistory: false })
+          pendingTargetAudioTrackId = audioTrack.audioTrackId
           setDragTargetTrackId(audioTrack.id)
           setAudioDragPreview({
             trackId: audioTrack.id,
-            startSec: snapped,
+            startSec: previewStart,
             duration: element.duration,
             label: element.name,
           })
         } else {
+          setSnapPoint({ time: sourceStart, type: 'grid' })
+          updateAudioClip(element.source.clipId, { start_sec: sourceStart }, { recordHistory: false })
           pendingTargetAudioTrackId = null
           setDragTargetTrackId(null)
           setAudioDragPreview(null)
         }
       } else if (element.source.kind === 'bgm') {
+        setSnapPoint({ time: snapped, type: 'grid' })
         updateAudioSettings({ bgm_start_sec: snapped })
       }
     }
+
+    const onMove = rafPointerMove(applyMove)
 
     const onUp = (upEvent: PointerEvent) => {
       setSnapPoint(null)
@@ -1093,10 +1100,11 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         if (isCrossTrack) {
           const targetTrack = tracks.find((item) => item.audioTrackId === targetAudioTrackId)
           const siblings = getTrackSiblingRanges(targetTrack?.elements ?? [], element.id)
-          if (canPlaceAtStart(siblings, element.duration, snapped)) {
+          const placementStart = clampStartAvoidingOverlap(siblings, element.duration, snapped)
+          if (canPlaceAtStart(siblings, element.duration, placementStart)) {
             updateAudioClip(
               element.source.clipId,
-              { start_sec: snapped },
+              { start_sec: placementStart },
               { recordHistory: false }
             )
             moveAudioClipToTrack(element.source.clipId, targetAudioTrackId, {
@@ -1112,13 +1120,12 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           }
         } else {
           const siblings = getTrackSiblingRanges(sourceTrack?.elements ?? [], element.id)
-          if (!canPlaceAtStart(siblings, element.duration, snapped)) {
-            updateAudioClip(
-              element.source.clipId,
-              { start_sec: initialStart },
-              { recordHistory: false }
-            )
-          }
+          const placementStart = clampStartAvoidingOverlap(siblings, element.duration, snapped)
+          updateAudioClip(
+            element.source.clipId,
+            { start_sec: placementStart },
+            { recordHistory: false }
+          )
         }
         void flushSaveSession(projectId)
       }
