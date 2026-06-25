@@ -13,8 +13,10 @@ from backend.schemas.edit_session import (
     EditSessionUpdateRequest,
 )
 from backend.schemas.voiceover_plan import (
+    VoiceoverApplyBrollRequest,
     VoiceoverBrollState,
     VoiceoverPlan,
+    VoiceoverPlanStatus,
     VoiceoverSearchResult,
     VoiceoverSegment,
     VoiceoverSegmentStatus,
@@ -272,6 +274,136 @@ def test_reconcile_broll_block_ids_from_timeline_titles():
     )
     assert changed is True
     assert reconciled_plan.segments[0].broll.block_id == "block-seg-4"
+
+
+def test_reconcile_broll_block_ids_clears_stale_block_reference():
+    plan = VoiceoverPlan(
+        id="vo-plan",
+        segments=[
+            VoiceoverSegment(
+                id="seg-1",
+                index=1,
+                narration_text="第一段",
+                status=VoiceoverSegmentStatus.BROLL_DONE,
+                tts=VoiceoverTtsState(duration_sec=5.0, timeline_start_sec=0.0),
+                broll=VoiceoverBrollState(
+                    block_id="ce56c262-f63c-49df-bdfa-1020d66f8656",
+                    library_asset_id="lib-old",
+                    source_in_sec=0.0,
+                    source_out_sec=5.0,
+                    selected=VoiceoverSearchResult(title="旧素材", url=""),
+                ),
+            )
+        ],
+    )
+    reconciled_plan, _, changed = VoiceoverBrollService._reconcile_broll_block_ids(
+        SimpleNamespace(sequence=[]),
+        plan,
+    )
+    assert changed is True
+    seg = reconciled_plan.segments[0]
+    assert seg.broll.block_id == ""
+    assert seg.status == VoiceoverSegmentStatus.TTS_DONE
+    assert seg.broll.selected is not None
+    assert seg.broll.library_asset_id == "lib-old"
+
+
+def test_apply_segment_broll_recreates_block_after_timeline_delete(monkeypatch, tmp_path):
+    from backend.services.voiceover_plan_service import VoiceoverPlanService
+
+    project_id = "proj_vo_reapply"
+    project_dir = tmp_path / "data" / "projects" / project_id
+    project_dir.mkdir(parents=True)
+    (project_dir / "edit_sessions").mkdir()
+    library_video = tmp_path / "broll.mp4"
+    library_video.write_bytes(b"fake-video")
+
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.resolve_library_video_path",
+        lambda asset_id: library_video if asset_id == "lib-broll" else None,
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.get_library_asset",
+        lambda asset_id: {"id": asset_id, "title": "测试素材", "platform": "local"},
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.VideoProcessor.probe_video_duration_sec",
+        lambda _path: 45.0,
+    )
+    fake_match = SimpleNamespace(
+        trim_in_sec=1.0,
+        trim_out_sec=6.0,
+        match_score=0.9,
+        match_reason="画面匹配",
+    )
+    monkeypatch.setattr(
+        "backend.services.clip_event_detector.search_clip_events",
+        lambda *_args, **_kwargs: ([fake_match], {"engine": "test"}),
+    )
+
+    session_service = EditSessionService(db=None)
+    created = session_service.create_blank_session(project_id, name="reapply test")
+    stale_block_id = "ce56c262-f63c-49df-bdfa-1020d66f8656"
+    plan = VoiceoverPlan(
+        id="vo-plan",
+        status=VoiceoverPlanStatus.COMPLETED,
+        user_brief="测试",
+        segments=[
+            VoiceoverSegment(
+                id="seg-1",
+                index=1,
+                narration_text="口播测试。",
+                visual_brief="城市夜景",
+                status=VoiceoverSegmentStatus.BROLL_DONE,
+                tts=VoiceoverTtsState(duration_sec=5.0, timeline_start_sec=0.0),
+                broll=VoiceoverBrollState(
+                    block_id=stale_block_id,
+                    selected=VoiceoverSearchResult(
+                        platform="local",
+                        title="测试素材",
+                        url="",
+                        in_library=True,
+                        library_asset_id="lib-broll",
+                    ),
+                ),
+            )
+        ],
+    )
+    session_service.update_session(
+        project_id,
+        created.id,
+        EditSessionUpdateRequest(sequence=[], voiceover_plan=plan),
+    )
+
+    vo_service = VoiceoverPlanService(session_service=session_service)
+    monkeypatch.setattr(
+        session_service,
+        "probe_imported_block_duration",
+        lambda *_args, **_kwargs: 45.0,
+    )
+    monkeypatch.setattr(
+        session_service,
+        "_prepare_import_video_source",
+        lambda source, dest: (source, "reference"),
+    )
+
+    session, updated_plan, note = vo_service.apply_segment_broll(
+        project_id,
+        created.id,
+        "seg-1",
+        VoiceoverApplyBrollRequest(),
+    )
+
+    seg = updated_plan.segments[0]
+    assert seg.status == VoiceoverSegmentStatus.BROLL_DONE
+    assert seg.broll.block_id
+    assert seg.broll.block_id != stale_block_id
+    assert len(session.sequence) == 1
+    assert "画面匹配" in note
 
 
 def test_resolve_segment_timeline_start_from_plan():

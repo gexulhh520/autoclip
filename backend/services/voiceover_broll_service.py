@@ -833,8 +833,9 @@ class VoiceoverBrollService:
         session: EditSession,
         plan: VoiceoverPlan,
     ) -> Tuple[VoiceoverPlan, EditSession, bool]:
-        """将时间线上「口播素材-N」block 写回 plan，修复 plan 与 timeline 不同步。"""
+        """将时间线上「口播素材-N」block 写回 plan，并清除已删除 block 的 stale 引用。"""
         blocks_by_index: dict[int, str] = {}
+        sequence_ids = {block.id for block in (session.sequence or [])}
         for block in session.sequence or []:
             title = str(block.title or "")
             if not title.startswith(BROLL_BLOCK_TITLE_PREFIX):
@@ -843,27 +844,37 @@ class VoiceoverBrollService:
             if suffix.isdigit():
                 blocks_by_index[int(suffix)] = block.id
 
-        if not blocks_by_index:
-            return plan, session, False
-
         changed = False
         new_segments: List[VoiceoverSegment] = []
         for seg in plan.segments:
-            if seg.broll.block_id:
-                new_segments.append(seg)
+            updated = seg
+            block_id = (seg.broll.block_id or "").strip()
+
+            if block_id and block_id not in sequence_ids:
+                updated = seg.model_copy(deep=True)
+                updated.broll.block_id = ""
+                if updated.status == VoiceoverSegmentStatus.BROLL_DONE:
+                    updated.status = VoiceoverSegmentStatus.TTS_DONE
+                changed = True
+                block_id = ""
+
+            if block_id:
+                new_segments.append(updated)
                 continue
-            block_id = blocks_by_index.get(seg.index)
-            if not block_id:
-                new_segments.append(seg)
+
+            recovered_id = blocks_by_index.get(seg.index)
+            if not recovered_id:
+                new_segments.append(updated)
                 continue
             if seg.status not in (
                 VoiceoverSegmentStatus.TTS_DONE,
                 VoiceoverSegmentStatus.BROLL_DONE,
             ):
-                new_segments.append(seg)
+                new_segments.append(updated)
                 continue
-            updated = seg.model_copy(deep=True)
-            updated.broll.block_id = block_id
+            if updated is seg:
+                updated = seg.model_copy(deep=True)
+            updated.broll.block_id = recovered_id
             new_segments.append(updated)
             changed = True
 
