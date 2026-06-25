@@ -374,6 +374,15 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
   const useSourceVideo = session.audio_settings.use_source_video ?? false
 
+  const resolveSceneVm = useCallback(
+    (compositionSec: number) => {
+      const scene = resolveSceneAt(sceneBuilderInput, compositionSec, videoNaturalSize)
+      const vm = renderSceneToPreviewViewModel(scene, session.sequence)
+      return { scene, vm }
+    },
+    [sceneBuilderInput, session.sequence, videoNaturalSize]
+  )
+
   const resolveCompositionSec = useCallback((): number => {
     if (!plan) return sequencePlayheadSec
     if (!isPlaying) {
@@ -433,15 +442,6 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       return upcoming
     },
     [session]
-  )
-
-  const resolveSceneVm = useCallback(
-    (compositionSec: number) => {
-      const scene = resolveSceneAt(sceneBuilderInput, compositionSec, videoNaturalSize)
-      const vm = renderSceneToPreviewViewModel(scene, session.sequence)
-      return { scene, vm }
-    },
-    [sceneBuilderInput, session.sequence, videoNaturalSize]
   )
 
   const syncWarmupDecoder = useCallback(
