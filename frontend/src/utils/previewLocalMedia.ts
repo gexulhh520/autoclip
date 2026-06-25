@@ -4,7 +4,6 @@ import type { EditBlock, EditSession } from '../types/editSession'
 import {
   blockUsesSourceVideoPreview,
   getBlockVideoUrlForPreview,
-  isImportedBlock,
 } from './editBlockMedia'
 import { isTauriRuntime } from './tauriRuntime'
 
@@ -102,6 +101,23 @@ function resolveSourceIdFromPath(sourceVideoPath: string): string | null {
   return index >= 0 && parts[index + 1] ? parts[index + 1]! : null
 }
 
+function buildStableMediaCacheKey(
+  projectId: string,
+  block: EditBlock,
+  useSourceVideo: boolean
+): string {
+  if (blockUsesSourceVideoPreview(block, useSourceVideo)) {
+    const sourceId = block.media.source_video_path?.includes('sources/')
+      ? resolveSourceIdFromPath(block.media.source_video_path!)
+      : null
+    return `source:${projectId}:${sourceId ?? 'default'}`
+  }
+  if (block.media.path) {
+    return `media-path:${block.media.path}`
+  }
+  return `clip:${projectId}:${block.source_clip_id}:${block.id}`
+}
+
 export function buildPreviewMediaRequest(
   projectId: string,
   sessionId: string,
@@ -109,7 +125,7 @@ export function buildPreviewMediaRequest(
   useSourceVideo: boolean
 ): PreviewMediaRequest {
   const httpUrl = getBlockVideoUrlForPreview(projectId, sessionId, block, useSourceVideo)
-  const cacheKey = httpUrl
+  const cacheKey = buildStableMediaCacheKey(projectId, block, useSourceVideo)
 
   if (blockUsesSourceVideoPreview(block, useSourceVideo)) {
     const sourceId = resolveSourceIdFromPath(block.media.source_video_path!)
@@ -120,18 +136,10 @@ export function buildPreviewMediaRequest(
     }
   }
 
-  if (isImportedBlock(block)) {
-    return {
-      cacheKey,
-      httpUrl,
-      fetchLocalPath: () => editApi.getBlockMediaLocalPath(projectId, sessionId, block.id),
-    }
-  }
-
   return {
     cacheKey,
     httpUrl,
-    fetchLocalPath: () => projectApi.getClipLocalPath(projectId, block.source_clip_id),
+    fetchLocalPath: () => editApi.getBlockMediaLocalPath(projectId, sessionId, block.id),
   }
 }
 
@@ -178,10 +186,57 @@ export function prefetchSessionPreviewMedia(
   }
 }
 
-/** 同步读取已缓存的 asset URL；未命中则仍用 HTTP 并在后台触发解析 */
-export function resolveEffectivePreviewUrl(httpUrl: string): string {
+export function resolveEffectivePreviewUrl(
+  httpUrl: string,
+  cacheKey?: string
+): string {
   if (!isTauriRuntime()) return httpUrl
+  if (cacheKey) {
+    const cached = localUrlCache.get(cacheKey)
+    if (cached) return cached
+  }
   return localUrlCache.get(httpUrl) ?? httpUrl
+}
+
+export function invalidatePreviewMediaCacheKey(cacheKey: string): void {
+  localUrlCache.delete(cacheKey)
+  notifyPreviewMediaCache()
+}
+
+function isAssetProtocolUrl(url: string): boolean {
+  return (
+    url.startsWith('asset://') ||
+    url.startsWith('https://asset.localhost/') ||
+    url.startsWith('http://asset.localhost/')
+  )
+}
+
+export function applyPreviewVideoSrc(
+  video: HTMLVideoElement,
+  nextUrl: string,
+  httpUrl: string,
+  cacheKey: string
+): void {
+  if (isAssetProtocolUrl(nextUrl)) {
+    video.removeAttribute('crossorigin')
+  } else {
+    video.crossOrigin = 'anonymous'
+  }
+  video.dataset.fallbackHttpUrl = httpUrl
+  video.dataset.fallbackCacheKey = cacheKey
+  video.onerror = () => {
+    const fallback = video.dataset.fallbackHttpUrl
+    const key = video.dataset.fallbackCacheKey
+    if (!fallback || !key) return
+    const current = video.dataset.effectiveUrl ?? video.src
+    if (!isAssetProtocolUrl(current)) return
+    invalidatePreviewMediaCacheKey(key)
+    video.crossOrigin = 'anonymous'
+    video.dataset.effectiveUrl = fallback
+    video.src = fallback
+  }
+  video.dataset.effectiveUrl = nextUrl
+  video.src = nextUrl
 }
 
 export function ensurePreviewMediaPrefetch(

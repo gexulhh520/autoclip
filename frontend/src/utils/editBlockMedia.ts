@@ -71,5 +71,6 @@ export function getBlockVideoUrlForPreview(
       : null
     return projectApi.getSourceVideoUrl(projectId, sourceId)
   }
-  return getBlockVideoUrl(projectId, sessionId, block)
+  // 剪辑预览统一走 block media 端点，与后端 _resolve_input_video 一致
+  return editApi.getBlockMediaUrl(projectId, sessionId, block.id)
 }

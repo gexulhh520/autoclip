@@ -54,7 +54,7 @@ export function createPreviewDecoderPool(
     video.dataset.blockId = blockId
     video.playsInline = true
     video.preload = 'metadata'
-    video.crossOrigin = 'anonymous'
+    // crossOrigin 在 applyPreviewVideoSrc 按 HTTP / asset 协议分别设置
     video.addEventListener('loadedmetadata', () => {
       options.onMetadata?.(video, blockId)
     })

@@ -2,6 +2,8 @@ import type { EditBlock, EditSession } from '../../types/editSession'
 import { isCrossTransition } from '../../types/transitions'
 import { isImportedBlock, resolveBlockMediaTimeSec } from '../../utils/editBlockMedia'
 import {
+  applyPreviewVideoSrc,
+  buildPreviewMediaRequest,
   ensurePreviewMediaPrefetch,
   resolveEffectivePreviewUrl,
 } from '../../utils/previewLocalMedia'
@@ -66,23 +68,29 @@ export function ensureDecoderBound(
   }
   const decoderKey = resolvePreviewDecoderKey(block, session)
   const httpUrl = getVideoUrlForBlock(block)
-  const nextUrl = resolveEffectivePreviewUrl(httpUrl)
+  const mediaReq = localMedia
+    ? buildPreviewMediaRequest(
+        localMedia.projectId,
+        localMedia.sessionId,
+        block,
+        localMedia.useSourceVideo
+      )
+    : null
+  const cacheKey = mediaReq?.cacheKey ?? httpUrl
+  const nextUrl = resolveEffectivePreviewUrl(httpUrl, cacheKey)
   const boundUrl = video.dataset.effectiveUrl ?? video.src
   if (video.dataset.decoderKey === decoderKey && boundUrl) {
     video.dataset.boundBlockId = block.id
     if (nextUrl === boundUrl) return false
-    // 同源多 block 共用解码器：仅 HTTP→asset 升级，不因 block 级 URL 差异重载
     if (nextUrl !== httpUrl) {
-      video.dataset.effectiveUrl = nextUrl
-      video.src = nextUrl
+      applyPreviewVideoSrc(video, nextUrl, httpUrl, cacheKey)
       return true
     }
     return false
   }
   video.dataset.decoderKey = decoderKey
   video.dataset.boundBlockId = block.id
-  video.dataset.effectiveUrl = nextUrl
-  video.src = nextUrl
+  applyPreviewVideoSrc(video, nextUrl, httpUrl, cacheKey)
   return true
 }
 
