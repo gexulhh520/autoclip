@@ -1,10 +1,36 @@
 import type { AdaptedElement } from '../../components/editor/timeline/types'
-import type { EditSession } from '../../types/editSession'
-import { getAudioClipTrackId, resolveAudioTracks } from '../audioTracks'
+import type { AudioTrackMeta, EditSession } from '../../types/editSession'
+import {
+  createAudioTrack,
+  defaultAudioTrackName,
+  getAudioClipTrackId,
+  nextAudioTrackOrder,
+  resolveAudioTracks,
+} from '../audioTracks'
 import { getOverlayTrackId } from '../textTracks'
 
 export const MIN_TIMELINE_ELEMENT_SEC = 0.2
 const EPS = 0.001
+
+export interface AudioClipPlacementResult {
+  trackId: string
+  startSec: number
+  /** strictStart 下现有轨均重叠时自动新建 */
+  newTrack?: AudioTrackMeta
+}
+
+export function applyAudioClipPlacementTracks(
+  session: EditSession,
+  placement: AudioClipPlacementResult
+): void {
+  if (!placement.newTrack) return
+  const tracks = session.audio_tracks?.length ? [...session.audio_tracks] : []
+  tracks.push(placement.newTrack)
+  session.audio_tracks = tracks
+    .slice()
+    .sort((a, b) => a.order - b.order)
+    .map((track, index) => ({ ...track, order: index }))
+}
 
 export interface TimelineRange {
   id: string
@@ -192,7 +218,7 @@ function listTrackGaps(
   return gaps
 }
 
-/** 为音频片段找不重叠的轨与起点；strictStart 时仅接受 proposedStartSec */
+/** 为音频片段找不重叠的轨与起点；strictStart 时保持 proposedStart，必要时新建轨道 */
 export function findAudioClipPlacement(
   session: EditSession,
   options: {
@@ -200,8 +226,9 @@ export function findAudioClipPlacement(
     durationSec: number
     proposedStartSec: number
     strictStart?: boolean
+    allowNewTrack?: boolean
   }
-): { trackId: string; startSec: number } | null {
+): AudioClipPlacementResult | null {
   const safeDuration = Math.max(MIN_TIMELINE_ELEMENT_SEC, options.durationSec)
   const proposedStart = Math.max(0, options.proposedStartSec)
   const visibleTrackIds = resolveAudioTracks(session)
@@ -226,7 +253,15 @@ export function findAudioClipPlacement(
     if (exact) return exact
   }
 
-  if (options.strictStart) return null
+  if (options.strictStart) {
+    if (options.allowNewTrack === false) return null
+    const tracks = resolveAudioTracks(session)
+    const newTrack = createAudioTrack(
+      defaultAudioTrackName(tracks.length),
+      nextAudioTrackOrder(tracks)
+    )
+    return { trackId: newTrack.id, startSec: proposedStart, newTrack }
+  }
 
   let best: { trackId: string; startSec: number; distance: number } | null = null
   for (const trackId of orderedTrackIds) {

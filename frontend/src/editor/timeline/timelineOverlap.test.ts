@@ -68,13 +68,27 @@ describe('findAudioClipPlacement', () => {
     updated_at: '',
   })
 
-  it('rejects strict placement when proposed start overlaps', () => {
+  it('creates a new track for strict placement when all tracks overlap', () => {
+    const placement = findAudioClipPlacement(session(), {
+      preferredTrackId: DEFAULT_AUDIO_TRACK_ID,
+      durationSec: 5,
+      proposedStartSec: 2,
+      strictStart: true,
+    })
+    expect(placement).not.toBeNull()
+    expect(placement!.startSec).toBeCloseTo(2, 3)
+    expect(placement!.trackId).not.toBe(DEFAULT_AUDIO_TRACK_ID)
+    expect(placement!.newTrack).toMatchObject({ name: 'Audio 2', order: 1 })
+  })
+
+  it('returns null for strict overlap when allowNewTrack is false', () => {
     expect(
       findAudioClipPlacement(session(), {
         preferredTrackId: DEFAULT_AUDIO_TRACK_ID,
         durationSec: 5,
         proposedStartSec: 2,
         strictStart: true,
+        allowNewTrack: false,
       })
     ).toBeNull()
   })

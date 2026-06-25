@@ -95,6 +95,7 @@ import {
   blockTimelineVisualStartSec,
 } from '../utils/editTimeline'
 import {
+  applyAudioClipPlacementTracks,
   applyAudioClipTimingClamp,
   applyOverlayElementTimingClamp,
   clampOverlayStartOnTrack,
@@ -1626,6 +1627,7 @@ export const useEditSessionStore = create<EditSessionState>()(
               )
               return
             }
+            applyAudioClipPlacementTracks(state.session, placement)
             created.start_sec = placement.startSec
             created.track_id = placement.trackId
           }
@@ -1764,6 +1766,7 @@ export const useEditSessionStore = create<EditSessionState>()(
               )
               return
             }
+            applyAudioClipPlacementTracks(state.session, placement)
             created.start_sec = placement.startSec
             created.track_id = placement.trackId
           }
@@ -3122,6 +3125,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             strictStart: options?.strictStart,
           })
           if (!placement) return
+          applyAudioClipPlacementTracks(state.session, placement)
           clipId = nanoid()
           const clip: AudioClipElement = {
             id: clipId,

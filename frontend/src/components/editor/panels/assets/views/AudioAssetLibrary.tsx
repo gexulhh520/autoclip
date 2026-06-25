@@ -57,7 +57,7 @@ const AudioAssetLibrary: React.FC<AudioAssetLibraryProps> = ({
                   if (clipId) {
                     message.success('已添加到时间线')
                   } else {
-                    message.warning('该位置已有音频片段，无法重叠添加')
+                    message.warning('无法在该位置添加音频')
                   }
                 }}
               >
