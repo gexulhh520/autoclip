@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from typing import Any, Callable, Dict, List, Optional
 
@@ -204,7 +205,112 @@ def search_platform(
         normalized = normalize_search_entry(platform, entry)
         if normalized:
             results.append(normalized)
+    if platform == "bilibili" and results:
+        results = enrich_bilibili_search_results(results, browser=browser)
     return results
+
+
+def _entry_thumbnail(entry: dict) -> Optional[str]:
+    thumb = entry.get("thumbnail")
+    if thumb:
+        return str(thumb)
+    thumbnails = entry.get("thumbnails") or []
+    if thumbnails and isinstance(thumbnails[0], dict):
+        url = thumbnails[0].get("url")
+        if url:
+            return str(url)
+    return None
+
+
+def _parse_duration_sec(entry: dict) -> Optional[int]:
+    duration = entry.get("duration")
+    if duration is None:
+        duration = entry.get("duration_string")
+    try:
+        return int(duration) if duration is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def needs_bilibili_title_probe(item: dict) -> bool:
+    external_id = str(item.get("external_id") or "").strip()
+    title = str(item.get("title") or "").strip()
+    if not title or title == "未命名":
+        return True
+    if external_id and title == external_id:
+        return True
+    return title.isdigit()
+
+
+def probe_bilibili_search_item(item: dict, browser: Optional[str] = None) -> dict:
+    url = str(item.get("url") or "").strip()
+    if not url:
+        return item
+    try:
+        info = extract_info(url, {"skip_download": True}, browser=browser)
+    except Exception as exc:
+        logger.warning("Bilibili 搜索条目解析失败 %s: %s", url, exc)
+        return item
+
+    merged = dict(item)
+    external_id = str(item.get("external_id") or "").strip()
+    probed_title = str(info.get("title") or "").strip()
+    if probed_title and probed_title != external_id and not probed_title.isdigit():
+        merged["title"] = probed_title
+
+    thumbnail = _entry_thumbnail(info)
+    if thumbnail and not merged.get("thumbnail"):
+        merged["thumbnail"] = thumbnail
+
+    duration_sec = _parse_duration_sec(info)
+    if duration_sec is not None and merged.get("duration_sec") is None:
+        merged["duration_sec"] = duration_sec
+
+    uploader = info.get("uploader") or info.get("channel")
+    if uploader and not merged.get("uploader"):
+        merged["uploader"] = uploader
+
+    if merged.get("view_count") is None and info.get("view_count") is not None:
+        merged["view_count"] = info.get("view_count")
+
+    if not merged.get("upload_date") and info.get("upload_date"):
+        merged["upload_date"] = info.get("upload_date")
+
+    probed_id = str(info.get("id") or "").strip()
+    if probed_id:
+        merged["external_id"] = probed_id
+
+    webpage_url = str(info.get("webpage_url") or "").strip()
+    if webpage_url:
+        merged["url"] = webpage_url
+
+    return merged
+
+
+def enrich_bilibili_search_results(
+    results: List[dict],
+    browser: Optional[str] = None,
+    *,
+    max_workers: int = 4,
+) -> List[dict]:
+    indices = [i for i, item in enumerate(results) if needs_bilibili_title_probe(item)]
+    if not indices:
+        return results
+
+    enriched = list(results)
+    workers = min(max(1, max_workers), len(indices))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        future_map = {
+            pool.submit(probe_bilibili_search_item, enriched[i], browser): i
+            for i in indices
+        }
+        for future in as_completed(future_map):
+            idx = future_map[future]
+            try:
+                enriched[idx] = future.result()
+            except Exception as exc:
+                logger.warning("Bilibili 搜索条目补全失败 index=%s: %s", idx, exc)
+    return enriched
 
 
 def normalize_search_entry(platform: str, entry: dict) -> Optional[dict]:
@@ -218,19 +324,13 @@ def normalize_search_entry(platform: str, entry: dict) -> Optional[dict]:
             url = f"https://www.bilibili.com/video/{external_id}"
     if not url:
         return None
-    duration = entry.get("duration")
-    if duration is None:
-        duration = entry.get("duration_string")
-    try:
-        duration_sec = int(duration) if duration is not None else None
-    except (TypeError, ValueError):
-        duration_sec = None
+    duration_sec = _parse_duration_sec(entry)
     return {
         "platform": platform,
         "external_id": external_id or None,
         "title": title,
         "url": url,
-        "thumbnail": entry.get("thumbnail") or entry.get("thumbnails", [{}])[0].get("url"),
+        "thumbnail": _entry_thumbnail(entry),
         "duration_sec": duration_sec,
         "uploader": entry.get("uploader") or entry.get("channel"),
         "view_count": entry.get("view_count"),
