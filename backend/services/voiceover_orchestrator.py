@@ -10,6 +10,7 @@ from backend.pipeline.scene_builder import build_composition_timeline
 from backend.schemas.edit_session import (
     AudioClipElement,
     AudioTrackMeta,
+    EditBlock,
     EditBlockTrim,
     EditOverlayElement,
     EditSession,
@@ -165,16 +166,37 @@ class VoiceoverOrchestrator:
         timeline_start = self._resolve_segment_timeline_start(session, ordered, segment)
         insert_index = self._resolve_insert_index(session, segment)
 
-        speech, asset_id = await self._synthesize_segment_tts(
+        speech, tts_asset_id = await self._synthesize_segment_tts(
             project_id, session_id, plan, segment
         )
         session = self._cleanup_segment_artifacts(project_id, session_id, segment)
 
-        placeholder_id = (placeholder_library_asset_id or "").strip()
         saved_block_id = ""
         element_timeline_start = timeline_start
+        preserved_video = False
+        trim_in_sec = 0.0
+        trim_out_sec = float(speech.duration_sec)
+        library_asset_id_for_meta = ""
 
-        if placeholder_id:
+        existing_block_id = (segment.broll.block_id or "").strip()
+        if existing_block_id:
+            session, resolved_block_id, trim_in_sec, trim_out_sec = (
+                self._align_existing_block_to_audio(
+                    project_id,
+                    session_id,
+                    segment,
+                    float(speech.duration_sec),
+                )
+            )
+            if resolved_block_id:
+                saved_block_id = resolved_block_id
+                preserved_video = True
+                element_timeline_start = self._block_timeline_start(
+                    session, saved_block_id, fallback=timeline_start
+                )
+
+        placeholder_id = (placeholder_library_asset_id or "").strip()
+        if not saved_block_id and placeholder_id:
             session, block = self._import_placeholder_block(
                 project_id,
                 session_id,
@@ -183,6 +205,9 @@ class VoiceoverOrchestrator:
                 audio_duration_sec=speech.duration_sec,
             )
             saved_block_id = block.id
+            trim_in_sec = 0.0
+            trim_out_sec = float(block.trim.out_sec or speech.duration_sec)
+            library_asset_id_for_meta = placeholder_id
             element_timeline_start = self._block_timeline_start(
                 session, saved_block_id, fallback=timeline_start
             )
@@ -196,7 +221,7 @@ class VoiceoverOrchestrator:
         )
         audio_clip = self._build_audio_clip(
             speech,
-            asset_id=asset_id,
+            asset_id=tts_asset_id,
             timeline_start_sec=element_timeline_start,
             block_id=saved_block_id or None,
         )
@@ -211,12 +236,15 @@ class VoiceoverOrchestrator:
         segment = self._mark_segment_done(
             segment,
             speech,
-            asset_id=asset_id,
+            asset_id=tts_asset_id,
             block_id=saved_block_id,
             audio_clip_id=audio_clip.id,
             timeline_start_sec=element_timeline_start,
             overlay_ids=[item.id for item in overlays],
-            library_asset_id=placeholder_id,
+            preserve_video_block=preserved_video,
+            trim_in_sec=trim_in_sec,
+            trim_out_sec=trim_out_sec,
+            library_asset_id=library_asset_id_for_meta,
         )
         plan = self._replace_segment(plan, segment)
         session = self._save_plan(project_id, session_id, plan)
@@ -317,10 +345,10 @@ class VoiceoverOrchestrator:
         session_id: str,
         segment: VoiceoverSegment,
     ) -> EditSession:
+        """Remove prior TTS audio clip and subtitle overlays; keep video blocks."""
         session = self.session_service.get_session(project_id, session_id)
         overlay_ids = set(segment.subtitles.overlay_ids or [])
         clip_id = segment.tts.audio_clip_id
-        block_id = segment.broll.block_id
 
         overlays = [
             item
@@ -332,9 +360,6 @@ class VoiceoverOrchestrator:
             for item in (session.audio_elements or [])
             if not clip_id or item.id != clip_id
         ]
-        sequence = [
-            item for item in (session.sequence or []) if not block_id or item.id != block_id
-        ]
 
         return self.session_service.update_session(
             project_id,
@@ -342,9 +367,64 @@ class VoiceoverOrchestrator:
             EditSessionUpdateRequest(
                 overlay_elements=overlays,
                 audio_elements=clips,
-                sequence=sequence,
             ),
         )
+
+    def _align_existing_block_to_audio(
+        self,
+        project_id: str,
+        session_id: str,
+        segment: VoiceoverSegment,
+        audio_duration_sec: float,
+    ) -> Tuple[EditSession, str, float, float]:
+        block_id = (segment.broll.block_id or "").strip()
+        if not block_id:
+            return self.session_service.get_session(project_id, session_id), "", 0.0, 0.0
+
+        session = self.session_service.get_session(project_id, session_id)
+        block = next((item for item in session.sequence if item.id == block_id), None)
+        if block is None:
+            return session, "", 0.0, 0.0
+
+        source_duration = self.session_service.probe_imported_block_duration(
+            project_id,
+            session_id,
+            block_id,
+        )
+        if source_duration <= 0:
+            raise ValueError("画面素材时长探测失败")
+
+        if segment.broll.source_in_sec is not None:
+            trim_in = float(segment.broll.source_in_sec)
+        else:
+            trim_in = float(block.trim.in_sec or 0.0)
+
+        desired_out = trim_in + float(audio_duration_sec)
+        if desired_out > source_duration + 0.05:
+            available = max(0.0, source_duration - trim_in)
+            raise ValueError(
+                f"新口播 {audio_duration_sec:.2f}s 长于画面可用 {available:.2f}s，"
+                "请缩短文案、重新应用 B-roll 或更换占位素材"
+            )
+        trim_out = min(desired_out, source_duration)
+        timeline_duration = float(audio_duration_sec)
+
+        updated_sequence: List[EditBlock] = []
+        for item in session.sequence:
+            if item.id != block_id:
+                updated_sequence.append(item)
+                continue
+            data = item.model_dump()
+            data["trim"] = EditBlockTrim(in_sec=trim_in, out_sec=trim_out).model_dump()
+            data["duration_sec"] = timeline_duration
+            updated_sequence.append(EditBlock.model_validate(data))
+
+        session = self.session_service.update_session(
+            project_id,
+            session_id,
+            EditSessionUpdateRequest(sequence=updated_sequence),
+        )
+        return session, block_id, trim_in, trim_out
 
     async def _synthesize_segment_tts(
         self,
@@ -451,8 +531,6 @@ class VoiceoverOrchestrator:
             data = item.model_dump()
             data["trim"] = EditBlockTrim(in_sec=0.0, out_sec=trim_out).model_dump()
             data["duration_sec"] = trim_out
-            from backend.schemas.edit_session import EditBlock
-
             updated_sequence.append(EditBlock.model_validate(data))
 
         session = self.session_service.update_session(
@@ -532,9 +610,17 @@ class VoiceoverOrchestrator:
         audio_clip_id: str,
         timeline_start_sec: float,
         overlay_ids: List[str],
+        preserve_video_block: bool = False,
+        trim_in_sec: float = 0.0,
+        trim_out_sec: float = 0.0,
         library_asset_id: str = "",
     ) -> VoiceoverSegment:
-        segment.status = VoiceoverSegmentStatus.TTS_DONE
+        had_broll = segment.broll.selected is not None or segment.status == VoiceoverSegmentStatus.BROLL_DONE
+        segment.status = (
+            VoiceoverSegmentStatus.BROLL_DONE
+            if preserve_video_block and had_broll
+            else VoiceoverSegmentStatus.TTS_DONE
+        )
         segment.error = None
         segment.tts.asset_id = asset_id
         segment.tts.audio_clip_id = audio_clip_id
@@ -551,9 +637,13 @@ class VoiceoverOrchestrator:
         segment.subtitles.overlay_ids = overlay_ids
         segment.subtitles.alignment = "sentence"
         segment.broll.block_id = block_id
-        segment.broll.library_asset_id = library_asset_id
-        segment.broll.source_in_sec = 0.0
-        segment.broll.source_out_sec = float(speech.duration_sec)
+        if preserve_video_block:
+            segment.broll.source_in_sec = trim_in_sec
+            segment.broll.source_out_sec = trim_out_sec
+        else:
+            segment.broll.library_asset_id = library_asset_id
+            segment.broll.source_in_sec = 0.0
+            segment.broll.source_out_sec = float(speech.duration_sec)
         return segment
 
     @staticmethod

@@ -406,6 +406,14 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
   }
 
   const handleExecuteSegment = async (segmentId: string) => {
+    const segment = plan?.segments.find((item) => item.id === segmentId)
+    if (segment && segmentHasTts(segment)) {
+      const keepVideo = Boolean(segment.broll?.block_id)
+      const message = keepVideo
+        ? '将替换该段音频与字幕，保留时间线上的画面。若新口播更长，需确保素材时长足够。继续？'
+        : '将替换该段音频与字幕。继续？'
+      if (!window.confirm(message)) return
+    }
     setExecuting(true)
     onError('')
     try {
@@ -815,14 +823,16 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
                           : ''}
                       </p>
                     ) : null}
-                    {!segmentHasTts(segment) ? (
+                    {segmentHasTts(segment) || segment.status === 'failed' ? (
                       <button
                         type="button"
                         className="editor-agent-panel__voiceover-btn"
                         onClick={() => void handleExecuteSegment(segment.id)}
                         disabled={executing || saving}
                       >
-                        {segment.status === 'failed' ? '重试 TTS' : '重新生成本段 TTS'}
+                        {segmentHasTts(segment)
+                          ? '重新生成本段 TTS + 字幕'
+                          : '重试 TTS'}
                       </button>
                     ) : null}
                   </div>
