@@ -426,13 +426,13 @@ function renderLayerItemSync(
     }
   }
 
-  if (frameCache) {
-    drawVideoInTransform(ctx, frameCache, item.transform, item.opacity, blurFilter, layerOptions)
+  if (video && video.readyState >= 2 && !video.seeking) {
+    drawVideoInTransform(ctx, video, item.transform, item.opacity, blurFilter, layerOptions)
     return
   }
 
-  if (video && video.readyState >= 2) {
-    drawVideoInTransform(ctx, video, item.transform, item.opacity, blurFilter, layerOptions)
+  if (frameCache) {
+    drawVideoInTransform(ctx, frameCache, item.transform, item.opacity, blurFilter, layerOptions)
     return
   }
 

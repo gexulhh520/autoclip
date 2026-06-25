@@ -1,5 +1,11 @@
 import type { EditBlock, EditSession } from '../../types/editSession'
-import { resolveMainTrackBlocks } from '../videoTracks'
+import {
+  blockTimelineStartSec,
+  mapOverlayBlockToRelativeSource,
+  resolveMainTrackBlocks,
+  resolveOverlayVideoBlocks,
+} from '../videoTracks'
+import { blockDuration } from '../../utils/editTimeline'
 import {
   buildCompositionTimeline,
   findActiveSegmentAtCompositionTime,
@@ -68,6 +74,13 @@ export function findPlayheadWarmupTargets(
   const crossIncoming = findUpcomingCrossIncomingBlock(session, clamped)
   if (crossIncoming) {
     add(crossIncoming, 0)
+  }
+
+  for (const block of resolveOverlayVideoBlocks(session)) {
+    const startSec = blockTimelineStartSec(block)
+    const durationSec = blockDuration(block)
+    if (clamped < startSec || clamped >= startSec + durationSec) continue
+    add(block, mapOverlayBlockToRelativeSource(block, clamped))
   }
 
   return targets

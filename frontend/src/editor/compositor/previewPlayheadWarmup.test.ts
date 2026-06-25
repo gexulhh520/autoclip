@@ -49,4 +49,21 @@ describe('previewPlayheadWarmup', () => {
 
     expect(targets.map((target) => target.block.id)).toContain('b')
   })
+
+  it('warms overlay video block active at playhead', () => {
+    const main = block('main', 10)
+    const broll: EditBlock = {
+      ...block('broll', 5),
+      source_clip_id: 'import-broll',
+      media: { type: 'imported_clip', path: 'edit_sessions/s1/media/broll.mp4' },
+      track_id: 'voiceover-broll',
+      timeline_start_sec: 2,
+    }
+    const editSession = session([main, broll])
+    const targets = findPlayheadWarmupTargets(editSession, 3)
+
+    expect(targets.map((target) => target.block.id)).toContain('broll')
+    const brollTarget = targets.find((target) => target.block.id === 'broll')
+    expect(brollTarget?.relativeSourceSec).toBeCloseTo(1, 2)
+  })
 })

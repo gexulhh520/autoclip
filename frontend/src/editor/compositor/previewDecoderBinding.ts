@@ -88,7 +88,8 @@ export function ensureDecoderBound(
       )
     : null
   const cacheKey = mediaReq?.cacheKey ?? httpUrl
-  const preferLocal = localMedia?.preferLocal !== false
+  // 叠画轨（口播 B-roll）始终 HTTP，避免暂停 asset / 播放 HTTP 换源闪旧帧
+  const preferLocal = isMainTrackBlock(block) && localMedia?.preferLocal !== false
   const nextUrl = resolveEffectivePreviewUrl(httpUrl, cacheKey, { preferLocal })
   const boundUrl = video.dataset.effectiveUrl ?? video.src
   if (video.dataset.decoderKey === decoderKey && boundUrl) {

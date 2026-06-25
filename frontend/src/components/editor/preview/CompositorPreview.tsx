@@ -43,7 +43,7 @@ import type { PreviewVideoLayerProps } from '../../../editor/scene/adapters/prev
 import { stopEditorPlayback } from '../../../editor/stopEditorPlayback'
 import { applyMediaPlaybackRate } from '../../../editor/mediaPlaybackRate'
 import { isImportedBlock } from '../../../utils/editBlockMedia'
-import { isMainTrackBlock } from '../../../editor/videoTracks'
+import { isMainTrackBlock, resolveOverlayVideoBlocks } from '../../../editor/videoTracks'
 
 const PAUSED_SEEK_THRESHOLD_SEC = 0.03
 
@@ -572,7 +572,18 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
           : isPlaying && isOverlayImported
             ? OVERLAY_PLAYBACK_DRIFT_SEC
             : PLAYBACK_SEEK_DRIFT_SEC
-      const mustSeek = forceSeek || rebinding || forceTransitionSeek || drift > driftThreshold
+
+      let mustSeek = forceSeek || rebinding || forceTransitionSeek
+      if (!mustSeek) {
+        if (!isPlaying) {
+          mustSeek = drift > driftThreshold
+        } else if (isOverlayImported) {
+          // 叠画 B-roll：段内跟 video 自然播放，仅在段首一次性对齐
+          mustSeek = layer.relativeSourceSec < 0.25 && drift > 0.08
+        } else {
+          mustSeek = drift > driftThreshold
+        }
+      }
       let didSeek = false
       if (isPlaying) {
         if (!skipSeek && mustSeek) {
@@ -770,14 +781,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         liveDescriptorRef.current = descriptor
 
         const videos = collectVideosForLayers(vm.videoLayers)
-        const needsFrameCacheFallback =
-          isPlaying &&
-          vm.videoLayers.some((layer) => {
-            const video = videos.get(layer.block.id)
-            return video != null && video.readyState < 2
-          })
         const videoFrameCaches = isPlaying
-          ? vm.inDissolve || exitingCross || needsFrameCacheFallback
+          ? vm.inDissolve || exitingCross
             ? buildCrossFrameCaches(vm.videoLayers)
             : undefined
           : buildPausedFrameCaches(vm.videoLayers)
@@ -843,6 +848,12 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     const clock = playbackClockRef.current
     if (isPlaying) {
       if (!wasPlayingRef.current) {
+        const pool = decoderPoolRef.current
+        if (pool) {
+          for (const block of resolveOverlayVideoBlocks(session)) {
+            clearPreviewVideoFrameCache(pool.getFrameCache(block.id))
+          }
+        }
         const anchor = sequencePlayheadRef.current
         clock.startAt(anchor)
         lastReportedPlayheadRef.current = anchor
@@ -853,7 +864,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       stopEditorPlayback()
     }
     wasPlayingRef.current = isPlaying
-  }, [isPlaying, paintAt])
+  }, [isPlaying, paintAt, session])
 
   const scrubPaintRafRef = useRef(0)
   const canvasPaintRafRef = useRef(0)
