@@ -1,3 +1,4 @@
+use crate::preview_media;
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -77,6 +78,11 @@ impl BackendManager {
 
         if let Some(data_dir) = Self::load_persisted_data_dir() {
             cmd.env("AUTOCLIP_DATA_DIR", data_dir);
+        } else if let Ok(data_dir) = std::env::var("AUTOCLIP_DATA_DIR") {
+            cmd.env("AUTOCLIP_DATA_DIR", data_dir);
+        } else {
+            let data_dir = preview_media::default_data_dir();
+            cmd.env("AUTOCLIP_DATA_DIR", data_dir.to_string_lossy().to_string());
         }
 
         // Point the backend at the bundled ffmpeg/ffprobe when present.

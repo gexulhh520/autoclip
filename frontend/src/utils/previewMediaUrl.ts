@@ -2,9 +2,17 @@ import editApi from '../services/editApi'
 import { projectApi } from '../services/api'
 import { isTauriRuntime } from './tauriRuntime'
 
+function isWindowsHost(): boolean {
+  if (typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent
+  if (/Windows/i.test(ua)) return true
+  const platform = navigator.platform
+  return platform === 'Win32' || platform === 'Win64' || /Win/i.test(platform)
+}
+
 /** Windows WebView2 使用 http://video.localhost；macOS/Linux 使用 video://localhost */
 export function previewMediaOrigin(): string {
-  if (typeof navigator !== 'undefined' && navigator.userAgent.includes('Windows')) {
+  if (isWindowsHost()) {
     return 'http://video.localhost'
   }
   return 'video://localhost'

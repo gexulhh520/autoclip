@@ -40,9 +40,11 @@ pub fn run() {
             std::env::set_var("AUTOCLIP_DESKTOP_MODE", "true");
             std::env::set_var("AUTOCLIP_MODE", "desktop");
 
-            if let Some(data_dir) = BackendManager::load_persisted_data_dir_public() {
-                preview_media::init_data_dir(PathBuf::from(data_dir));
-            }
+            let data_dir = BackendManager::load_persisted_data_dir_public()
+                .map(PathBuf::from)
+                .unwrap_or_else(preview_media::default_data_dir);
+            preview_media::init_data_dir(data_dir.clone());
+            std::env::set_var("AUTOCLIP_DATA_DIR", data_dir.to_string_lossy().to_string());
 
             // 设置系统托盘
             if let Err(e) = setup_system_tray(&app.handle()) {

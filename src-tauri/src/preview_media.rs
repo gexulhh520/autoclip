@@ -21,12 +21,7 @@ pub fn init_data_dir(path: PathBuf) {
 }
 
 fn data_dir() -> PathBuf {
-    DATA_DIR
-        .get()
-        .cloned()
-        .or_else(|| std::env::var("AUTOCLIP_DATA_DIR").ok().map(PathBuf::from))
-        .or_else(load_persisted_data_dir)
-        .unwrap_or_else(default_dev_data_dir)
+    default_data_dir()
 }
 
 fn load_persisted_data_dir() -> Option<PathBuf> {
@@ -75,6 +70,15 @@ fn default_dev_data_dir() -> PathBuf {
         .join("data")
 }
 
+pub fn default_data_dir() -> PathBuf {
+    DATA_DIR
+        .get()
+        .cloned()
+        .or_else(|| std::env::var("AUTOCLIP_DATA_DIR").ok().map(PathBuf::from))
+        .or_else(load_persisted_data_dir)
+        .unwrap_or_else(default_dev_data_dir)
+}
+
 fn projects_dir() -> PathBuf {
     data_dir().join("projects")
 }
@@ -94,23 +98,26 @@ fn is_safe_id(id: &str) -> bool {
         && id != ".."
 }
 
-fn resolve_under_project(project_dir: &Path, rel: &str) -> Result<PathBuf, String> {
+/// 与 Python `_resolve_input_video` 一致：相对路径拼 project_dir，绝对路径直接读（路径导入 symlink/reference）。
+fn resolve_media_file_path(project_dir: &Path, rel: &str) -> Result<PathBuf, String> {
     let rel = rel.replace('\\', "/");
+    if rel.contains("..") {
+        return Err("invalid media path".into());
+    }
+
     let candidate = if Path::new(&rel).is_absolute() {
         PathBuf::from(&rel)
     } else {
         project_dir.join(&rel)
     };
-  let canonical = candidate
-        .canonicalize()
-        .map_err(|_| format!("media not found: {}", rel))?;
-    let project_canonical = project_dir
-        .canonicalize()
-        .unwrap_or_else(|_| project_dir.to_path_buf());
-    if !canonical.starts_with(&project_canonical) {
-        return Err("media path outside project".into());
+
+    if !candidate.exists() {
+        return Err(format!("media not found: {}", rel));
     }
-    Ok(canonical)
+
+    candidate
+        .canonicalize()
+        .map_err(|_| format!("media not found: {}", rel))
 }
 
 fn read_session_json(project_dir: &Path, session_id: &str) -> Result<serde_json::Value, String> {
@@ -147,7 +154,7 @@ fn resolve_block_media_path(
         .and_then(|m| m.get("path"))
         .and_then(|p| p.as_str())
         .ok_or_else(|| "block media path missing".to_string())?;
-    resolve_under_project(&project_dir, media_path)
+    resolve_media_file_path(&project_dir, media_path)
 }
 
 fn resolve_audio_asset_path(
@@ -170,7 +177,7 @@ fn resolve_audio_asset_path(
                 .get("path")
                 .and_then(|p| p.as_str())
                 .ok_or_else(|| "audio path missing".to_string())?;
-            return resolve_under_project(&project_dir, rel);
+            return resolve_media_file_path(&project_dir, rel);
         }
     }
     if asset_id.starts_with("legacy-") {
@@ -179,7 +186,7 @@ fn resolve_audio_asset_path(
             .and_then(|s| s.get("bgm_path"))
             .and_then(|p| p.as_str());
         if let Some(rel) = legacy {
-            return resolve_under_project(&project_dir, rel);
+            return resolve_media_file_path(&project_dir, rel);
         }
     }
     Err("audio asset not found".to_string())
@@ -366,16 +373,22 @@ fn stream_file_response(
             builder.body(buf).map_err(|e| e.to_string())
         }
     } else {
+        // 无 Range 时只返回首块，避免大文件整段读入内存（WebView 会跟 Range 请求）
+        let end = (len - 1).min(MAX_RANGE_CHUNK_BYTES - 1);
+        let bytes_to_read = end + 1;
         if is_head {
             return builder
                 .header(CONTENT_LENGTH, len)
                 .body(Vec::new())
                 .map_err(|e| e.to_string());
         }
-        let mut buf = Vec::with_capacity(len as usize);
-        file.read_to_end(&mut buf).map_err(|e| e.to_string())?;
+        let mut buf = Vec::with_capacity(bytes_to_read as usize);
+        file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+        file.take(bytes_to_read)
+            .read_to_end(&mut buf)
+            .map_err(|e| e.to_string())?;
         builder
-            .header(CONTENT_LENGTH, len)
+            .header(CONTENT_LENGTH, bytes_to_read)
             .body(buf)
             .map_err(|e| e.to_string())
     }
