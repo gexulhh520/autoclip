@@ -595,6 +595,7 @@ export const hydrateEditDocument = (session: EditSession): EditDocument => {
       template_id: session.template_id ?? fromV3.template_id,
       template_version: session.template_version ?? fromV3.template_version,
       overlay_snapshot: session.overlay_snapshot ?? fromV3.overlay_snapshot,
+      voiceover_plan: session.voiceover_plan ?? fromV3.voiceover_plan,
       sequence: mergedSequence,
       overlay_elements,
       text_tracks,
@@ -633,6 +634,7 @@ export const normalizeEditDocument = (session: EditSession): EditDocument => {
   }
   const project = migrateSessionToV3(session)
   const normalized = flattenV3ToSession(project)
+  normalized.voiceover_plan = session.voiceover_plan
   normalized.schema_version = 3
   normalized.project_v3 = project
   return { project, session: normalized }

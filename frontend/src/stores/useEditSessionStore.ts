@@ -192,7 +192,6 @@ const buildSessionSavePayload = (session: EditSession): EditSessionUpdateRequest
   export_settings: session.export_settings,
   audio_settings: session.audio_settings,
   schema_version: 3,
-  voiceover_plan: session.voiceover_plan ?? null,
 })
 
 const SERVER_MUTATION_WAIT_MS = 120_000

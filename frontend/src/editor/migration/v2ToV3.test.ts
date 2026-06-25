@@ -57,6 +57,29 @@ describe('EditProjectV3 migration', () => {
     })
   })
 
+  it('hydrateEditDocument preserves voiceover_plan from flat session', () => {
+    const session = loadFixtureSession('session-minimal.json')
+    const project = migrateSessionToV3(session)
+    const voiceoverPlan = {
+      id: 'plan-1',
+      status: 'confirmed' as const,
+      user_brief: '测试口播',
+      voice_id: 'voice-1',
+      segments: [],
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    }
+    const stale = {
+      ...session,
+      schema_version: 3,
+      project_v3: project,
+      voiceover_plan: voiceoverPlan,
+    }
+    const document = hydrateEditDocument(stale)
+    expect(document.session.voiceover_plan?.id).toBe('plan-1')
+    expect(document.session.voiceover_plan?.user_brief).toBe('测试口播')
+  })
+
   it('hydrateEditDocument merges video_transform from flat sequence when v3 lacks it', () => {
     const session = loadFixtureSession('session-minimal.json')
     const project = migrateSessionToV3(session)
