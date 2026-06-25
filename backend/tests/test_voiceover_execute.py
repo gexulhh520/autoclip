@@ -533,6 +533,15 @@ def test_voiceover_rerun_tts_preserves_video_block(tmp_path, monkeypatch):
             sequence=[block],
             audio_elements=[old_clip],
             overlay_elements=[old_overlay],
+            audio_assets=[
+                AudioAssetMeta(
+                    id="audio-old",
+                    name="口播-1-旧.mp3",
+                    path="edit_sessions/test/asset_audio-old.m4a",
+                    duration_sec=2.5,
+                    category="sfx",
+                )
+            ],
         ),
     )
 
@@ -620,3 +629,7 @@ def test_voiceover_rerun_tts_preserves_video_block(tmp_path, monkeypatch):
     assert len(session.audio_elements or []) == 1
     assert session.audio_elements[0].id == seg.tts.audio_clip_id
     assert old_overlay.id not in {item.id for item in (session.overlay_elements or [])}
+    asset_ids = {item.id for item in (session.audio_assets or [])}
+    assert "audio-old" not in asset_ids
+    assert seg.tts.asset_id in asset_ids
+    assert len(session.audio_assets or []) == 1

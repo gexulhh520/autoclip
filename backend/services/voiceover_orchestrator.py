@@ -23,7 +23,7 @@ from backend.schemas.voiceover_plan import (
     VoiceoverSegmentStatus,
     VoiceoverWordTiming,
 )
-from backend.services.edit_session_service import EditSessionService
+from backend.services.edit_session_service import EditSessionService, get_project_directory
 from backend.services.material_library_service import resolve_library_video_path
 from backend.services.voiceover_subtitle_builder import build_voiceover_overlays
 from backend.utils.edge_tts_service import SynthesizedSpeech, synthesize_with_timings
@@ -345,10 +345,11 @@ class VoiceoverOrchestrator:
         session_id: str,
         segment: VoiceoverSegment,
     ) -> EditSession:
-        """Remove prior TTS audio clip and subtitle overlays; keep video blocks."""
+        """Remove prior TTS audio clip, subtitle overlays, and unreferenced TTS assets."""
         session = self.session_service.get_session(project_id, session_id)
         overlay_ids = set(segment.subtitles.overlay_ids or [])
         clip_id = segment.tts.audio_clip_id
+        old_asset_id = (segment.tts.asset_id or "").strip()
 
         overlays = [
             item
@@ -361,13 +362,74 @@ class VoiceoverOrchestrator:
             if not clip_id or item.id != clip_id
         ]
 
-        return self.session_service.update_session(
+        session = self.session_service.update_session(
             project_id,
             session_id,
             EditSessionUpdateRequest(
                 overlay_elements=overlays,
                 audio_elements=clips,
             ),
+        )
+
+        if old_asset_id:
+            session = self._remove_orphaned_audio_assets(
+                project_id,
+                session_id,
+                session,
+                {old_asset_id},
+                exclude_segment_id=segment.id,
+            )
+        return session
+
+    def _remove_orphaned_audio_assets(
+        self,
+        project_id: str,
+        session_id: str,
+        session: EditSession,
+        asset_ids: set[str],
+        *,
+        exclude_segment_id: Optional[str] = None,
+    ) -> EditSession:
+        if not asset_ids:
+            return session
+
+        referenced: set[str] = set()
+        for clip in session.audio_elements or []:
+            aid = (clip.asset_id or "").strip()
+            if aid:
+                referenced.add(aid)
+
+        plan = session.voiceover_plan
+        if plan:
+            for seg in plan.segments:
+                if exclude_segment_id and seg.id == exclude_segment_id:
+                    continue
+                aid = (seg.tts.asset_id or "").strip()
+                if aid:
+                    referenced.add(aid)
+
+        to_remove = {aid for aid in asset_ids if aid and aid not in referenced}
+        if not to_remove:
+            return session
+
+        project_dir = get_project_directory(project_id)
+        remaining_assets = []
+        for asset in session.audio_assets or []:
+            if asset.id in to_remove:
+                if asset.path:
+                    file_path = project_dir / asset.path
+                    if file_path.exists():
+                        try:
+                            file_path.unlink()
+                        except OSError:
+                            logger.warning("无法删除口播 TTS 文件: %s", file_path)
+                continue
+            remaining_assets.append(asset)
+
+        return self.session_service.update_session(
+            project_id,
+            session_id,
+            EditSessionUpdateRequest(audio_assets=remaining_assets),
         )
 
     def _align_existing_block_to_audio(
