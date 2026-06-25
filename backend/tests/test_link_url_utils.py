@@ -8,6 +8,7 @@ from backend.utils.link_url_utils import detect_link_platform, parse_link_urls, 
 def test_detect_bilibili_and_youtube():
     assert detect_link_platform("https://www.bilibili.com/video/BV1xx411c7mu") == "bilibili"
     assert detect_link_platform("https://www.youtube.com/watch?v=dQw4w9WgXcQ") == "youtube"
+    assert detect_link_platform("https://v.douyin.com/RBZnW4-92WE/") == "douyin"
     assert detect_link_platform("https://example.com/video") is None
 
 

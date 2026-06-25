@@ -378,7 +378,7 @@ class EditSessionImportLibraryAssetRequest(BaseModel):
 
 class EditSessionImportBgmUrlRequest(BaseModel):
     url: str = Field(min_length=1)
-    platform: Optional[str] = None
+    platform: Optional[Literal["douyin", "bilibili", "youtube"]] = None
 
 
 class EditSessionCreateRequest(BaseModel):

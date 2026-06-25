@@ -4,34 +4,21 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 from contextlib import contextmanager
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 import yt_dlp
 
+from backend.utils.link_url_utils import (
+    detect_link_platform,
+    get_platform_label,
+    supported_platform_labels,
+)
+
 logger = logging.getLogger(__name__)
 
-
-@dataclass(frozen=True)
-class LinkPlatform:
-    id: str
-    label: str
-    host_patterns: tuple[re.Pattern[str], ...]
-
-
-SUPPORTED_PLATFORMS: tuple[LinkPlatform, ...] = (
-    LinkPlatform(
-        id="douyin",
-        label="抖音",
-        host_patterns=(
-            re.compile(r"(^|\.)douyin\.com", re.I),
-            re.compile(r"(^|\.)iesdouyin\.com", re.I),
-        ),
-    ),
-)
+SUPPORTED_PLATFORM_IDS = ("douyin", "bilibili", "youtube")
 
 
 class UnsupportedLinkPlatformError(ValueError):
@@ -61,27 +48,6 @@ def _sanitized_yt_env():
         os.environ.update(original_env)
 
 
-def detect_link_platform(url: str) -> Optional[str]:
-    normalized = (url or "").strip()
-    if not normalized:
-        return None
-    for platform in SUPPORTED_PLATFORMS:
-        if any(pattern.search(normalized) for pattern in platform.host_patterns):
-            return platform.id
-    return None
-
-
-def get_platform_label(platform_id: str) -> str:
-    for platform in SUPPORTED_PLATFORMS:
-        if platform.id == platform_id:
-            return platform.label
-    return platform_id
-
-
-def supported_platform_labels() -> list[str]:
-    return [platform.label for platform in SUPPORTED_PLATFORMS]
-
-
 def _base_ytdl_opts(output_template: str) -> dict:
     return {
         "quiet": True,
@@ -98,7 +64,6 @@ def _base_ytdl_opts(output_template: str) -> dict:
 
 def _platform_ytdl_opts(platform_id: str, output_template: str) -> dict:
     opts = _base_ytdl_opts(output_template)
-    # 预留各平台专属参数，后续扩展 B 站 / YouTube 等
     if platform_id == "douyin":
         opts.setdefault("http_headers", {})["User-Agent"] = (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -140,6 +105,20 @@ def _resolve_downloaded_path(info: dict, output_dir: Path) -> Path:
     raise LinkDownloadError("下载完成但未找到视频文件")
 
 
+def _resolve_platform(url: str, platform_id: Optional[str]) -> str:
+    explicit = (platform_id or "").strip().lower()
+    if explicit:
+        if explicit not in SUPPORTED_PLATFORM_IDS:
+            labels = "、".join(supported_platform_labels())
+            raise UnsupportedLinkPlatformError(f"不支持的平台: {platform_id}，当前支持：{labels}")
+        return explicit
+    detected = detect_link_platform(url)
+    if not detected:
+        labels = "、".join(supported_platform_labels())
+        raise UnsupportedLinkPlatformError(f"暂不支持该链接，当前支持：{labels}")
+    return detected
+
+
 def download_link_video(url: str, output_dir: Path, platform_id: Optional[str] = None) -> tuple[Path, str]:
     """
     使用 yt-dlp 下载链接中的视频（mp4），返回本地路径与展示标题。
@@ -149,10 +128,7 @@ def download_link_video(url: str, output_dir: Path, platform_id: Optional[str] =
     if not normalized_url:
         raise ValueError("链接不能为空")
 
-    resolved_platform = platform_id or detect_link_platform(normalized_url)
-    if not resolved_platform:
-        labels = "、".join(supported_platform_labels())
-        raise UnsupportedLinkPlatformError(f"暂不支持该链接，当前支持：{labels}")
+    resolved_platform = _resolve_platform(normalized_url, platform_id)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     output_template = str((output_dir / "video.%(ext)s").resolve())

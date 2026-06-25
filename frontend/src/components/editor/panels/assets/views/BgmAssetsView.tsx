@@ -75,9 +75,9 @@ const BgmAssetsView: React.FC<BgmAssetsViewProps> = ({ projectId }) => {
         open={bgmUrlModalOpen}
         saving={saving}
         onClose={() => setBgmUrlModalOpen(false)}
-        onSubmit={async (url) => {
+        onSubmit={async (url, platform) => {
           try {
-            await importBgmFromUrl(projectId, url)
+            await importBgmFromUrl(projectId, url, platform)
             setBgmUrlModalOpen(false)
             message.success('已从链接导入 BGM')
           } catch {

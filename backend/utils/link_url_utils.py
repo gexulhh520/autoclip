@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from typing import List, Literal, Optional, Tuple
 
-LinkPlatform = Literal["bilibili", "youtube"]
+LinkPlatform = Literal["bilibili", "youtube", "douyin"]
 
 _BILIBILI_PATTERNS = (
     re.compile(r"^https?://(www\.)?bilibili\.com/video/[Bb][Vv][0-9A-Za-z]+", re.I),
@@ -20,11 +20,33 @@ _YOUTUBE_PATTERNS = (
     re.compile(r"^https?://(www\.)?youtube\.com/v/[\w-]+", re.I),
 )
 
+_DOUYIN_PATTERNS = (
+    re.compile(r"^https?://(www\.)?douyin\.com/", re.I),
+    re.compile(r"^https?://v\.douyin\.com/", re.I),
+    re.compile(r"^https?://(www\.)?iesdouyin\.com/", re.I),
+)
+
+PLATFORM_LABELS: dict[str, str] = {
+    "bilibili": "Bilibili",
+    "youtube": "YouTube",
+    "douyin": "抖音",
+}
+
+
+def get_platform_label(platform_id: str) -> str:
+    return PLATFORM_LABELS.get(platform_id, platform_id)
+
+
+def supported_platform_labels() -> list[str]:
+    return [PLATFORM_LABELS[key] for key in ("douyin", "bilibili", "youtube")]
+
 
 def detect_link_platform(url: str) -> Optional[LinkPlatform]:
     text = url.strip()
     if not text:
         return None
+    if any(pattern.search(text) for pattern in _DOUYIN_PATTERNS):
+        return "douyin"
     if any(pattern.search(text) for pattern in _BILIBILI_PATTERNS):
         return "bilibili"
     if any(pattern.search(text) for pattern in _YOUTUBE_PATTERNS):

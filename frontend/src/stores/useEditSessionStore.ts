@@ -445,7 +445,7 @@ interface EditSessionState {
       voice?: string
     }
   ) => Promise<Blob>
-  importBgmFromUrl: (projectId: string, url: string) => Promise<void>
+  importBgmFromUrl: (projectId: string, url: string, platform?: string) => Promise<void>
   removeAudioAsset: (assetId: string) => void
   addAudioClipToTimeline: (
     assetId: string,
@@ -3057,12 +3057,15 @@ export const useEditSessionStore = create<EditSessionState>()(
         }
       },
 
-      importBgmFromUrl: async (projectId, url) => {
+      importBgmFromUrl: async (projectId, url, platform) => {
         const { session } = get()
         if (!session) throw new Error('无剪辑工程')
         set({ saving: true, error: null })
         try {
-          const updated = await editApi.importBgmFromUrl(projectId, session.id, { url })
+          const updated = await editApi.importBgmFromUrl(projectId, session.id, {
+            url,
+            platform,
+          })
           set((state) => {
             state.session = cloneSessionFromApi(updated)
             state.saving = false
