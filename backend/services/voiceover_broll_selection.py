@@ -75,6 +75,30 @@ def align_interval_to_target_duration(
     )
 
 
+def fallback_broll_trim_selection(
+    *,
+    target_duration_sec: float,
+    source_duration_sec: float,
+    criteria: str = "",
+) -> BrollTrimSelection:
+    target = max(0.1, float(target_duration_sec))
+    source_max = max(0.1, float(source_duration_sec))
+    in_sec = 0.0
+    out_sec = min(source_max, target)
+    brief = (criteria or "").strip()
+    if len(brief) > 48:
+        brief = f"{brief[:48]}…"
+    label = brief or "口播描述"
+    return BrollTrimSelection(
+        source_in_sec=in_sec,
+        source_out_sec=out_sec,
+        selection_reason=(
+            f"未找到与「{label}」精确匹配的片段，"
+            f"已选用素材开头 {in_sec:.2f}s–{out_sec:.2f}s 与口播等长"
+        ),
+    )
+
+
 def block_dict_for_search(
     *,
     rel_media_path: str,

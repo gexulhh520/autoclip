@@ -1,4 +1,6 @@
 """宫格 Coarse-to-Fine clip 事件检测单元测试。"""
+import pytest
+
 from backend.services.clip_event_detector import (
     COARSE_SAFETY_TILE_EVERY_N,
     COARSE_TILE_FRAMES,
@@ -139,3 +141,50 @@ def test_coarse_score_records_to_moments_fallback():
     assert moments[0].timeline_end_sec == 600.0
     assert "回退宫格粗筛" in moments[0].match_reason
     assert moments[0].transcript_source == "visual_clip_coarse_fallback"
+
+
+def test_search_clip_events_keeps_progressive_best_when_done_empty():
+    from backend.services.clip_event_detector import search_clip_events
+
+    good_match = {
+        "start_sec": 1.5,
+        "end_sec": 28.0,
+        "timeline_start_sec": 1.5,
+        "timeline_end_sec": 28.0,
+        "trim_in_sec": 1.5,
+        "trim_out_sec": 28.0,
+        "match_score": 1.0,
+        "match_reason": "视频包含梅西在球场上的动作镜头",
+        "transcript_source": "visual_clip",
+    }
+
+    def fake_iter(*_args, **_kwargs):
+        yield {"type": "matches", "matches": [good_match]}
+        yield {
+            "type": "done",
+            "matches": [],
+            "engine": "clip_collage_coarse_fine_v2",
+            "note": "未找到符合检索条件的事件",
+        }
+
+    import backend.services.clip_event_detector as detector
+
+    original = detector.iter_clip_event_search
+    detector.iter_clip_event_search = fake_iter
+    try:
+        matches, meta = search_clip_events(
+            None,
+            None,
+            {"id": "b1"},
+            "梅西特写",
+            0.0,
+            120.0,
+            8,
+            purpose="voiceover_broll",
+        )
+    finally:
+        detector.iter_clip_event_search = original
+
+    assert len(matches) == 1
+    assert matches[0].match_score == pytest.approx(1.0)
+    assert meta.get("engine") == "clip_collage_coarse_fine_v2"

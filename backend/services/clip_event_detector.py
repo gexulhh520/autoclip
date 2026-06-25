@@ -1267,6 +1267,34 @@ def moment_to_dict(moment: MatchedMoment) -> Dict[str, Any]:
     }
 
 
+def moments_from_match_dicts(raw: List[Any]) -> List[MatchedMoment]:
+    moments: List[MatchedMoment] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        moments.append(
+            MatchedMoment(
+                start_sec=float(item.get("start_sec") or 0),
+                end_sec=float(item.get("end_sec") or 0),
+                timeline_start_sec=float(item.get("timeline_start_sec") or 0),
+                timeline_end_sec=float(item.get("timeline_end_sec") or 0),
+                trim_in_sec=float(item.get("trim_in_sec") or 0),
+                trim_out_sec=float(item.get("trim_out_sec") or 0),
+                text_preview=str(item.get("text_preview") or ""),
+                match_score=float(item.get("match_score") or 0),
+                match_reason=str(item.get("match_reason") or ""),
+                transcript_source=str(item.get("transcript_source") or "visual_clip"),
+            )
+        )
+    return moments
+
+
+def _best_match_list(matches: List[MatchedMoment]) -> float:
+    if not matches:
+        return -1.0
+    return max(float(item.match_score or 0) for item in matches)
+
+
 def search_clip_events(
     llm_manager: Any,
     project_dir: Path,
@@ -1281,7 +1309,7 @@ def search_clip_events(
     search_spec: Optional[ClipSearchSpec] = None,
     purpose: str = "default",
 ) -> Tuple[List[MatchedMoment], Dict[str, Any]]:
-    final_matches: List[MatchedMoment] = []
+    progressive_best: List[MatchedMoment] = []
     meta: Dict[str, Any] = {}
     for event in iter_clip_event_search(
         llm_manager,
@@ -1297,23 +1325,14 @@ def search_clip_events(
         purpose=purpose,
     ):
         if event.get("type") == "matches":
-            raw = event.get("matches") or []
-            final_matches = [
-                MatchedMoment(
-                    start_sec=float(item.get("start_sec") or 0),
-                    end_sec=float(item.get("end_sec") or 0),
-                    timeline_start_sec=float(item.get("timeline_start_sec") or 0),
-                    timeline_end_sec=float(item.get("timeline_end_sec") or 0),
-                    trim_in_sec=float(item.get("trim_in_sec") or 0),
-                    trim_out_sec=float(item.get("trim_out_sec") or 0),
-                    text_preview=str(item.get("text_preview") or ""),
-                    match_score=float(item.get("match_score") or 0),
-                    match_reason=str(item.get("match_reason") or ""),
-                    transcript_source=str(item.get("transcript_source") or "visual_clip"),
-                )
-                for item in raw
-                if isinstance(item, dict)
-            ]
+            parsed = moments_from_match_dicts(event.get("matches") or [])
+            if parsed and _best_match_list(parsed) >= _best_match_list(progressive_best):
+                progressive_best = parsed
         elif event.get("type") == "done":
             meta = event
-    return final_matches, meta
+            done_matches = moments_from_match_dicts(event.get("matches") or [])
+            if done_matches:
+                return done_matches, meta
+    if progressive_best:
+        return progressive_best, meta
+    return [], meta

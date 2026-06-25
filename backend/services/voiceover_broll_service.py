@@ -38,6 +38,7 @@ from backend.services.voiceover_broll_selection import (
     apply_manual_trim_override,
     block_dict_for_search,
     build_broll_search_criteria,
+    fallback_broll_trim_selection,
     pick_best_semantic_match,
 )
 from backend.services.voiceover_track_placement import (
@@ -201,6 +202,12 @@ class VoiceoverBrollService:
         session, _migrated = self._maybe_migrate_voiceover_to_main_track(
             project_id, session_id, session, plan
         )
+        segment = next(item for item in plan.segments if item.id == segment_id)
+        segment = segment.model_copy(deep=True)
+        segment.error = None
+        segment.broll.selection_reason = ""
+        plan = self._replace_segment(plan, segment)
+        session = self._save_plan(project_id, session_id, plan)
         segment = next(item for item in plan.segments if item.id == segment_id)
         self._ensure_tts_ready(segment)
 
@@ -481,10 +488,15 @@ class VoiceoverBrollService:
         )
         best = pick_best_semantic_match(matches)
         if best is None:
-            engine = meta.get("engine") or "clip_event"
-            raise ValueError(
-                f"语义选段未找到与「{criteria[:48]}…」匹配的画面区间（{engine}）。"
-                "请更换素材、放宽画面描述，或手动指定 in/out"
+            logger.warning(
+                "口播 B-roll 语义选段无命中，使用素材开头兜底 block=%s engine=%s",
+                block_id,
+                meta.get("engine") or "clip_event",
+            )
+            return fallback_broll_trim_selection(
+                target_duration_sec=target_duration_sec,
+                source_duration_sec=source_duration_sec,
+                criteria=criteria,
             )
 
         return align_interval_to_target_duration(

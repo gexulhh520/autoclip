@@ -224,6 +224,11 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
         })
         if (status.done) {
           if (status.failed) {
+            if (status.session) {
+              syncSessionFromApi(status.session)
+              setDraftPlan(null)
+              setSearchQueryDrafts({})
+            }
             throw new Error(status.error || status.message || 'B-roll 应用失败')
           }
           if (status.session) {

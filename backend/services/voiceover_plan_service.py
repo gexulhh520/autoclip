@@ -399,6 +399,12 @@ class VoiceoverPlanService:
                     session_id,
                     segment_id,
                 )
+                session = self._mark_segment_broll_apply_failed(
+                    project_id,
+                    session_id,
+                    segment_id,
+                    str(exc),
+                )
                 update_broll_apply_job(
                     job.operation_id,
                     done=True,
@@ -406,6 +412,8 @@ class VoiceoverPlanService:
                     error=str(exc),
                     stage="failed",
                     message=str(exc),
+                    session=session,
+                    plan=session.voiceover_plan if session else None,
                 )
 
         threading.Thread(target=run, daemon=True, name=f"broll-apply-{segment_id}").start()
@@ -431,4 +439,31 @@ class VoiceoverPlanService:
             session=job.session,
             plan=job.plan,
             note=job.note,
+        )
+
+    def _mark_segment_broll_apply_failed(
+        self,
+        project_id: str,
+        session_id: str,
+        segment_id: str,
+        error_message: str,
+    ) -> EditSession:
+        session = self.session_service.get_session(project_id, session_id)
+        plan = session.voiceover_plan
+        if plan is None:
+            return session
+        segment = next((item for item in plan.segments if item.id == segment_id), None)
+        if segment is None:
+            return session
+        updated = segment.model_copy(deep=True)
+        updated.error = error_message
+        updated.broll.selection_reason = ""
+        plan = plan.model_copy(deep=True)
+        plan.segments = [
+            updated if item.id == segment_id else item for item in plan.segments
+        ]
+        return self.session_service.update_session(
+            project_id,
+            session_id,
+            EditSessionUpdateRequest(voiceover_plan=plan),
         )

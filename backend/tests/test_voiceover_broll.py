@@ -30,6 +30,7 @@ from backend.services.voiceover_broll_selection import (
     align_interval_to_target_duration,
     apply_manual_trim_override,
     build_broll_search_criteria,
+    fallback_broll_trim_selection,
     pick_best_semantic_match,
 )
 
@@ -111,6 +112,70 @@ def test_pick_best_semantic_match():
     ]
     best = pick_best_semantic_match(matches)
     assert best.match_score == pytest.approx(0.91)
+
+
+def test_fallback_broll_trim_selection_uses_source_start():
+    selection = fallback_broll_trim_selection(
+        target_duration_sec=17.71,
+        source_duration_sec=120.0,
+        criteria="慢镜头特写梅西",
+    )
+    assert selection.source_in_sec == pytest.approx(0.0)
+    assert selection.source_out_sec == pytest.approx(17.71, abs=0.01)
+    assert "素材开头" in selection.selection_reason
+
+
+def test_semantic_select_trim_falls_back_when_no_matches(monkeypatch, tmp_path):
+    project_id = "proj_vo_fallback"
+    project_dir = tmp_path / "data" / "projects" / project_id
+    project_dir.mkdir(parents=True)
+    (project_dir / "edit_sessions").mkdir()
+
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+    monkeypatch.setattr(
+        "backend.services.clip_event_detector.search_clip_events",
+        lambda *_args, **_kwargs: ([], {"engine": "clip_collage_coarse_fine_v2"}),
+    )
+
+    session_service = EditSessionService(db=None)
+    created = session_service.create_blank_session(project_id, name="fallback test")
+    block = EditBlock(
+        id="block-fallback",
+        source_clip_id="import-fallback",
+        title="口播素材-1",
+        media=EditBlockMedia(type="imported_clip", path="clip.mp4"),
+        trim=EditBlockTrim(in_sec=0.0, out_sec=120.0),
+        overlay=EditBlockOverlay(outline="", content=[], recommend_reason=""),
+        duration_sec=120.0,
+    )
+    session_service.update_session(
+        project_id,
+        created.id,
+        EditSessionUpdateRequest(sequence=[block]),
+    )
+
+    vo_service = VoiceoverBrollService(session_service=session_service)
+    segment = VoiceoverSegment(
+        id="seg-1",
+        index=1,
+        narration_text="口播",
+        visual_brief="梅西特写",
+        status=VoiceoverSegmentStatus.TTS_DONE,
+        tts=VoiceoverTtsState(duration_sec=17.71),
+    )
+    selection = vo_service._semantic_select_trim(
+        project_id,
+        created.id,
+        block.id,
+        segment=segment,
+        source_duration_sec=120.0,
+        target_duration_sec=17.71,
+    )
+    assert selection.source_out_sec - selection.source_in_sec == pytest.approx(17.71, abs=0.01)
+    assert "素材开头" in selection.selection_reason
 
 
 def test_voiceover_broll_service_select_and_apply_mocked(tmp_path, monkeypatch):
