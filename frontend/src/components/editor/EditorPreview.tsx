@@ -127,14 +127,23 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
   const transitionDurationSec = session?.audio_settings?.transition_duration_sec ?? 0.35
   const useSourcePreview = session?.audio_settings?.use_source_video ?? false
 
+  /** 首次播放后保持 HTTP，避免暂停↔播放反复 asset/HTTP 切换导致重载卡顿 */
+  const [previewPlaybackStarted, setPreviewPlaybackStarted] = useState(false)
+  useEffect(() => {
+    setPreviewPlaybackStarted(false)
+  }, [sessionId])
+  useEffect(() => {
+    if (isPlaying) setPreviewPlaybackStarted(true)
+  }, [isPlaying])
+
   const previewLocalMedia = useMemo(
     () => ({
       projectId,
       sessionId,
       useSourceVideo: useSourcePreview,
-      preferLocal: !isPlaying,
+      preferLocal: !isPlaying && !previewPlaybackStarted,
     }),
-    [projectId, sessionId, useSourcePreview, isPlaying]
+    [projectId, sessionId, useSourcePreview, isPlaying, previewPlaybackStarted]
   )
 
   const previewMediaSequenceKey = useMemo(

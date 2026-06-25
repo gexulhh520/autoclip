@@ -11,7 +11,7 @@ export interface PreviewLocalMediaContext {
   projectId: string
   sessionId: string
   useSourceVideo: boolean
-  /** 播放中 false → 用 HTTP 流式；暂停 true → 优先 asset 本地读盘 */
+  /** 播放中或已播放过 → false（HTTP 流式）；仅首次播放前暂停 scrub 时 true（asset 本地读盘） */
   preferLocal?: boolean
 }
 

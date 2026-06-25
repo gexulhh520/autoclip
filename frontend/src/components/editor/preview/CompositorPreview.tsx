@@ -43,6 +43,20 @@ import { applyMediaPlaybackRate } from '../../../editor/mediaPlaybackRate'
 
 const PAUSED_SEEK_THRESHOLD_SEC = 0.03
 
+function seekVideoWhenReady(
+  video: HTMLVideoElement,
+  target: number,
+  options: { play: boolean; forceSeek: boolean; playbackRate?: number }
+): boolean {
+  const run = () => seekVideoToTarget(video, target, options)
+  if (video.readyState >= 2) {
+    return run()
+  }
+  video.preload = 'auto'
+  video.addEventListener('loadeddata', () => run(), { once: true })
+  return true
+}
+
 function seekVideoToTarget(
   video: HTMLVideoElement,
   target: number,
@@ -528,6 +542,9 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         previewLocalMedia
       )
       ensureDecoderPreloadForTargetTime(video, target)
+      if (rebinding && isPlaying) {
+        video.preload = 'auto'
+      }
 
       video.muted = audioMuted
       video.volume = audioMuted ? 0 : Math.min(1, Math.max(0, layer.volume))
@@ -540,11 +557,14 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       let didSeek = false
       if (isPlaying) {
         if (!skipSeek && mustSeek) {
-          didSeek = seekVideoToTarget(video, target, {
+          const seekOpts = {
             play: true,
             forceSeek: true,
             playbackRate: layer.playbackRate || 1,
-          })
+          }
+          didSeek = rebinding
+            ? seekVideoWhenReady(video, target, seekOpts)
+            : seekVideoToTarget(video, target, seekOpts)
         } else {
           // 解码器需静音才能稳定通过 play()；片段原声走独立 audio 轨
           video.muted = true
@@ -888,7 +908,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
   useEffect(() => {
     if (localMediaEpoch === 0) return
-    paintAtRef.current(sequencePlayheadSec, !wasPlayingRef.current)
+    if (isPlayingRef.current) return
+    paintAtRef.current(sequencePlayheadSec, true)
   }, [localMediaEpoch, sequencePlayheadSec])
 
   useEffect(() => {
