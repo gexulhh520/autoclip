@@ -646,7 +646,10 @@ def test_voiceover_rerun_repacks_timeline_from_audio_not_video_blocks(tmp_path, 
     )
     from backend.schemas.voiceover_plan import VoiceoverBrollState, VoiceoverTtsState
     from backend.services.edit_session_service import EditSessionService
-    from backend.services.voiceover_broll_service import VOICEOVER_BROLL_TRACK_ID
+    from backend.services.voiceover_broll_service import (
+        DEFAULT_VIDEO_TRACK_ID,
+        VOICEOVER_BROLL_TRACK_ID,
+    )
     from backend.services.voiceover_plan_service import VoiceoverPlanService
     from backend.utils.edge_tts_service import SynthesizedSpeech
 
@@ -829,5 +832,6 @@ def test_voiceover_rerun_repacks_timeline_from_audio_not_video_blocks(tmp_path, 
     assert clip_a.start_sec + clip_a.duration_sec <= clip_b.start_sec + 0.01
 
     block_by_id = {block.id: block for block in (session.sequence or [])}
-    assert block_by_id[block2.id].timeline_start_sec == pytest.approx(8.0)
+    assert block_by_id[block2.id].track_id == DEFAULT_VIDEO_TRACK_ID
+    assert block_by_id[block2.id].timeline_start_sec is None
     assert block_by_id[block2.id].duration_sec == pytest.approx(5.0)

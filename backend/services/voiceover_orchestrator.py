@@ -27,6 +27,13 @@ from backend.services.edit_session_service import EditSessionService, get_projec
 from backend.services.material_library_service import resolve_library_video_path
 from backend.services.voiceover_broll_service import VOICEOVER_BROLL_TRACK_ID
 from backend.services.voiceover_subtitle_builder import build_voiceover_overlays
+from backend.services.voiceover_track_placement import (
+    apply_main_track_placement_to_block_data,
+    apply_overlay_track_placement_to_block_data,
+    migrate_voiceover_blocks_to_main_track,
+    resolve_main_track_insert_index,
+    should_use_main_track_for_voiceover,
+)
 from backend.utils.edge_tts_service import SynthesizedSpeech, synthesize_with_timings
 
 logger = logging.getLogger(__name__)
@@ -171,12 +178,19 @@ class VoiceoverOrchestrator:
             raise ValueError(f"第 {segment.index} 段状态不可执行: {segment.status}")
 
         session = self.session_service.get_session(project_id, session_id)
+        sequence, migrated = migrate_voiceover_blocks_to_main_track(session, plan)
+        if migrated:
+            session = self.session_service.update_session(
+                project_id,
+                session_id,
+                EditSessionUpdateRequest(sequence=sequence),
+            )
         ordered = sorted(plan.segments, key=lambda item: item.index)
         is_rerun = self._is_rerun_segment(segment)
         timeline_start = self._resolve_segment_timeline_start(
             session, ordered, segment, is_rerun=is_rerun
         )
-        insert_index = self._resolve_insert_index(session, segment)
+        insert_index = self._resolve_insert_index(session, plan, segment)
 
         speech, tts_asset_id = await self._synthesize_segment_tts(
             project_id, session_id, plan, segment
@@ -404,6 +418,7 @@ class VoiceoverOrchestrator:
         trim_out_sec: float,
     ) -> EditSession:
         session = self.session_service.get_session(project_id, session_id)
+        use_main_track = should_use_main_track_for_voiceover(session)
         updated_blocks: List[EditBlock] = []
         found = False
         for item in session.sequence or []:
@@ -417,9 +432,10 @@ class VoiceoverOrchestrator:
                 out_sec=trim_out_sec,
             ).model_dump()
             data["duration_sec"] = float(duration_sec)
-            if item.track_id == VOICEOVER_BROLL_TRACK_ID or item.timeline_start_sec is not None:
-                data["track_id"] = VOICEOVER_BROLL_TRACK_ID
-                data["timeline_start_sec"] = round(float(timeline_start_sec), 3)
+            if use_main_track:
+                apply_main_track_placement_to_block_data(data)
+            elif item.track_id == VOICEOVER_BROLL_TRACK_ID or item.timeline_start_sec is not None:
+                apply_overlay_track_placement_to_block_data(data, timeline_start_sec)
             updated_blocks.append(EditBlock.model_validate(data))
         if not found:
             return session
@@ -430,13 +446,13 @@ class VoiceoverOrchestrator:
         )
 
     @staticmethod
-    def _composition_end_sec(session: EditSession) -> float:
-        transition = float(session.audio_settings.transition_duration_sec or 0.35)
-        timeline = build_composition_timeline(session.sequence, transition)
-        return float(timeline.total_duration_sec)
-
-    @staticmethod
-    def _resolve_insert_index(session: EditSession, segment: VoiceoverSegment) -> Optional[int]:
+    def _resolve_insert_index(
+        session: EditSession,
+        plan: VoiceoverPlan,
+        segment: VoiceoverSegment,
+    ) -> Optional[int]:
+        if should_use_main_track_for_voiceover(session):
+            return resolve_main_track_insert_index(session, plan, segment)
         block_id = segment.broll.block_id
         if not block_id:
             return None
@@ -444,6 +460,12 @@ class VoiceoverOrchestrator:
             if block.id == block_id:
                 return index
         return None
+
+    @staticmethod
+    def _composition_end_sec(session: EditSession) -> float:
+        transition = float(session.audio_settings.transition_duration_sec or 0.35)
+        timeline = build_composition_timeline(session.sequence, transition)
+        return float(timeline.total_duration_sec)
 
     def _cleanup_segment_artifacts(
         self,
