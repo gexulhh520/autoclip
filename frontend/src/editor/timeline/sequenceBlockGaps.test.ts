@@ -147,6 +147,32 @@ describe('sequenceBlockGaps', () => {
     expect(session.sequence[0]!.transition_out).toBe('cut')
   })
 
+  it('blocks head trim overlap after split continuation block', () => {
+    const first = block('a', 10, { in: 0, out: 4 })
+    const second: EditBlock = {
+      ...block('b', 10, { in: 0, out: 6 }),
+      media: {
+        ...block('b', 10).media,
+        clip_file_start_sec: 4,
+      },
+    }
+    const session = sessionWith([first, second])
+    applyVideoHeadTrimClamp(session, 1, second, {
+      fixedOutSec: 6,
+      proposedVisualStartSec: 1,
+    })
+    const timeline = buildCompositionTimeline(session.sequence, 0.35, session.sequence_block_gaps)
+    const end0 = blockTimelineVisualEndSec(
+      timeline.segments[0]!.compositionStartSec,
+      timeline.segments[0]!.block
+    )
+    const start1 = blockTimelineVisualStartSec(
+      timeline.segments[1]!.compositionStartSec,
+      timeline.segments[1]!.block
+    )
+    expect(start1).toBeGreaterThanOrEqual(end0 - 0.001)
+  })
+
   it('reports adjacency only when visual ends meet', () => {
     const session = sessionWith([block('a', 5), block('b', 5)])
     expect(areMainTrackBlocksAdjacent(session, 0)).toBe(true)

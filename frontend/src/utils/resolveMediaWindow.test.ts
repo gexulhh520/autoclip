@@ -47,6 +47,18 @@ describe('resolveBlockMediaWindow', () => {
     expect(resolveBlockMediaWindow(second, false).mediaEndSec).toBeCloseTo(10, 3)
   })
 
+  it('split second half with head trim shifts media window', () => {
+    const second = {
+      ...step6Block({ in: 2, out: 6 }),
+      media: {
+        ...step6Block({ in: 2, out: 6 }).media,
+        clip_file_start_sec: 4,
+      },
+    }
+    expect(resolveBlockMediaWindow(second, false).mediaStartSec).toBeCloseTo(6, 3)
+    expect(resolveBlockMediaWindow(second, false).mediaEndSec).toBeCloseTo(10, 3)
+  })
+
   it('split second half with source metadata keeps source preview window', () => {
     const second = {
       ...step6Block({ in: 0, out: 6 }),

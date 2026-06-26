@@ -2185,6 +2185,8 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (!state.session) return
           const block = state.session.sequence.find((item) => item.id === blockId)
           if (!block) return
+          // 顺序主轨片段由 gap/ripple 布局，不能通过 timeline_start_sec 自由定位（会与相邻段重叠）
+          if (isMainTrackBlock(block) && block.timeline_start_sec == null) return
           block.timeline_start_sec = Math.max(0, startSec)
           state.dirty = true
         })

@@ -732,6 +732,8 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       const blockId = element.source.blockId
       const block = blocks.find((item) => item.id === blockId)
       if (!block) return
+      // 顺序主轨片段只能裁切，不能整体拖动改 timeline_start_sec（否则会与前段重叠）
+      if (isMainTrackBlock(block) && block.timeline_start_sec == null) return
 
       beginTimelineGesture()
       let pendingTargetVideoTrackId: string | null = sourceTrack?.videoTrackId ?? null

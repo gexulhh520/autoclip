@@ -35,10 +35,11 @@ export function blockUsesSourceVideoPreview(
 }
 
 function resolveClipFilePlaybackOffset(block: EditBlock): number {
+  const trimIn = Math.max(0, block.trim.in_sec)
   if (block.media.clip_file_start_sec != null) {
-    return block.media.clip_file_start_sec
+    return block.media.clip_file_start_sec + trimIn
   }
-  return Math.max(0, block.trim.in_sec)
+  return trimIn
 }
 
 /** EditBlock → 非破坏性媒体窗口（预览 seek / 导出窗口共用） */

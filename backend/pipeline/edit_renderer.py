@@ -222,10 +222,11 @@ def _input_has_audio_stream(path: Path) -> bool:
 
 
 def _clip_file_playback_offset(block: EditBlock) -> float:
+    trim_in = max(0.0, float(block.trim.in_sec))
     clip_start = block.media.clip_file_start_sec
     if clip_start is not None:
-        return max(0.0, float(clip_start))
-    return max(0.0, float(block.trim.in_sec))
+        return max(0.0, float(clip_start)) + trim_in
+    return trim_in
 
 
 def _block_source_trim_duration(block: EditBlock) -> float:
