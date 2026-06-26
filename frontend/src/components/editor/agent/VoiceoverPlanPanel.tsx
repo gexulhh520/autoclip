@@ -6,6 +6,7 @@ import {
   resolveEdgeTtsVoiceId,
 } from '../../../editor/tts/edgeTtsVoices'
 import { voiceoverApi } from '../../../services/voiceoverApi'
+import editApi from '../../../services/editApi'
 import libraryApi, { type LibraryAsset } from '../../../services/libraryApi'
 import type { VoiceoverPlan, VoiceoverSegment, VoiceoverSearchQueryLanguage } from '../../../types/voiceoverPlan'
 import {
@@ -276,21 +277,19 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
             }
             throw new Error(status.error || status.message || 'B-roll 应用失败')
           }
-          let syncedSession = status.session
+          let syncedSession = status.session ?? null
+          try {
+            syncedSession = await editApi.getSession(projectId, sessionId)
+          } catch {
+            if (!syncedSession) {
+              const refreshed = await voiceoverApi.getPlan(projectId, sessionId)
+              syncedSession = refreshed.session ?? null
+            }
+          }
           if (syncedSession) {
             syncSessionFromApi(syncedSession)
             setDraftPlan(null)
             setSearchQueryDrafts({})
-          } else {
-            const refreshed = await voiceoverApi.getPlan(projectId, sessionId)
-            if (refreshed.session) {
-              syncedSession = refreshed.session
-              syncSessionFromApi(refreshed.session)
-              setDraftPlan(null)
-              setSearchQueryDrafts({})
-            }
-          }
-          if (syncedSession) {
             const blockId =
               status.plan?.segments.find((item) => item.id === segmentId)?.broll?.block_id?.trim() ||
               syncedSession.voiceover_plan?.segments
@@ -299,8 +298,16 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
             if (blockId) {
               const block = syncedSession.sequence.find((item) => item.id === blockId)
               if (block) {
-                setActiveVideoTrackId(getBlockTrackId(block))
-                setSelectedBlockId(blockId)
+                const trackId = getBlockTrackId(block)
+                useEditSessionStore.setState((state) => {
+                  const track = state.session?.video_tracks?.find((item) => item.id === trackId)
+                  if (track?.hidden) {
+                    track.hidden = false
+                    state.dirty = true
+                  }
+                })
+                setActiveVideoTrackId(trackId)
+                setSelectedBlockId(blockId, { seekPlayhead: trackId === 'default-video' })
                 setSequencePlayheadSec(blockTimelineStartSec(block))
               }
             }
@@ -680,10 +687,11 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
         libraryAssetOverride?.trim() || libraryPickBySegment[segmentId]?.trim() || undefined
       if (libraryAssetId) {
         payload.library_asset_id = libraryAssetId
-      }
-      const searchIndex = selectedSearchIndex[segmentId]
-      if (searchIndex !== undefined && !Number.isNaN(searchIndex)) {
-        payload.search_result_index = searchIndex
+      } else {
+        const searchIndex = selectedSearchIndex[segmentId]
+        if (searchIndex !== undefined && !Number.isNaN(searchIndex)) {
+          payload.search_result_index = searchIndex
+        }
       }
       return payload
     },
@@ -728,31 +736,56 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     }
   }
 
+  const resolveSearchResultForPreview = useCallback((segment: VoiceoverSegment) => {
+    const searchIndex = selectedSearchIndex[segment.id]
+    if (searchIndex === undefined || Number.isNaN(searchIndex)) return null
+    return segment.broll?.search_results?.[searchIndex] ?? null
+  }, [selectedSearchIndex])
+
+  const downloadSearchResultToLibrary = useCallback(
+    async (item: NonNullable<VoiceoverSegment['broll']>['search_results']>[number]) => {
+      const url = (item.url || '').trim()
+      if (!url) {
+        throw new Error('该搜索结果缺少可用链接')
+      }
+      const tasks = await libraryApi.createDownloads({
+        items: [
+          {
+            platform: item.platform,
+            url,
+            title: item.title,
+            external_id: item.external_id ?? null,
+            duration_sec: item.duration_sec ?? null,
+          },
+        ],
+      })
+      const task = tasks[0]
+      if (!task) {
+        throw new Error('无法创建素材下载任务')
+      }
+      return task.asset_id ?? (await waitForDownloadTask(task.id, { timeoutMs: 600_000 }))
+    },
+    []
+  )
+
   const resolvePreviewAsset = useCallback(
     async (segment: VoiceoverSegment): Promise<LibraryAsset> => {
       const selected = segment.broll?.selected
-      if (!selected && !libraryPickBySegment[segment.id]?.trim()) {
-        throw new Error('请先确认素材候选，或从素材库指定视频')
+      const searchResult = resolveSearchResultForPreview(segment)
+      if (!selected && !libraryPickBySegment[segment.id]?.trim() && !searchResult) {
+        throw new Error('请从搜索结果、素材库或已确认候选中选择一条素材')
       }
 
       let assetId = resolveBrollLibraryAssetId(segment, libraryPickBySegment[segment.id] ?? '')
+      let previewTitle = selected?.title ?? searchResult?.title ?? `口播素材-${segment.index}`
+      let previewDuration = selected?.duration_sec ?? searchResult?.duration_sec ?? null
+      let previewPlatform = selected?.platform ?? searchResult?.platform ?? null
+      let previewUrl = selected?.url ?? searchResult?.url ?? null
+
       if (!assetId && selected?.url) {
-        const tasks = await libraryApi.createDownloads({
-          items: [
-            {
-              platform: selected.platform,
-              url: selected.url,
-              title: selected.title,
-              external_id: selected.external_id ?? null,
-              duration_sec: selected.duration_sec ?? null,
-            },
-          ],
-        })
-        const task = tasks[0]
-        if (!task) {
-          throw new Error('无法创建素材下载任务')
-        }
-        assetId = task.asset_id ?? (await waitForDownloadTask(task.id, { timeoutMs: 600_000 }))
+        assetId = await downloadSearchResultToLibrary(selected)
+      } else if (!assetId && searchResult) {
+        assetId = await downloadSearchResultToLibrary(searchResult)
       }
 
       if (!assetId) {
@@ -764,20 +797,21 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
 
       return {
         id: assetId,
-        title: selected?.title ?? `口播素材-${segment.index}`,
+        title: previewTitle,
         video_path: '',
-        duration_sec: selected?.duration_sec ?? null,
-        platform: selected?.platform ?? null,
-        source_url: selected?.url ?? null,
+        duration_sec: previewDuration,
+        platform: previewPlatform,
+        source_url: previewUrl,
       }
     },
-    [libraryAssets, libraryPickBySegment]
+    [downloadSearchResultToLibrary, libraryAssets, libraryPickBySegment, resolveSearchResultForPreview]
   )
 
   const handleOpenManualTrimPreview = async (segment: VoiceoverSegment) => {
     const hasLibraryPick = Boolean(libraryPickBySegment[segment.id]?.trim())
-    if (!segment.broll?.selected && !hasLibraryPick) {
-      onError('请先确认素材候选，或从素材库指定视频')
+    const hasSearchPick = Boolean(resolveSearchResultForPreview(segment))
+    if (!segment.broll?.selected && !hasLibraryPick && !hasSearchPick) {
+      onError('请从搜索结果、素材库或已确认候选中选择一条素材')
       return
     }
     setTrimPreviewLoadingSegmentId(segment.id)
@@ -1354,7 +1388,9 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
                           Boolean(brollBusySegmentId) ||
                           executing ||
                           Boolean(trimPreviewLoadingSegmentId) ||
-                          (!segment.broll?.selected && !libraryPickBySegment[segment.id]?.trim())
+                          (!segment.broll?.selected &&
+                            !libraryPickBySegment[segment.id]?.trim() &&
+                            selectedSearchIndex[segment.id] === undefined)
                         }
                       >
                         {trimPreviewLoadingSegmentId === segment.id

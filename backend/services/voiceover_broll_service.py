@@ -986,9 +986,6 @@ class VoiceoverBrollService:
         library_asset_id: Optional[str] = None,
         search_result_index: Optional[int] = None,
     ) -> Tuple[EditSession, VoiceoverPlan, VoiceoverSegment]:
-        if segment.broll.selected is not None:
-            return self.session_service.get_session(project_id, session_id), plan, segment
-
         asset_id = (library_asset_id or "").strip()
         if asset_id:
             session, plan, _message = self.select_segment_material(
@@ -1009,6 +1006,9 @@ class VoiceoverBrollService:
             )
             segment = next(item for item in plan.segments if item.id == segment_id)
             return session, plan, segment
+
+        if segment.broll.selected is not None:
+            return self.session_service.get_session(project_id, session_id), plan, segment
 
         return self.session_service.get_session(project_id, session_id), plan, segment
 
