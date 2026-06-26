@@ -15,6 +15,7 @@ import {
   VOICEOVER_SEGMENT_STATUS_LABEL,
 } from '../../../types/voiceoverPlan'
 import { useEditSessionStore } from '../../../stores/useEditSessionStore'
+import { openExternalLink } from '../../../utils/externalLinks'
 
 interface VoiceoverPlanPanelProps {
   projectId: string
@@ -1011,31 +1012,45 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
 
                     {(segment.broll?.search_results?.length ?? 0) > 0 ? (
                       <ul className="editor-agent-panel__voiceover-broll-results">
-                        {segment.broll!.search_results!.map((item, index) => (
+                        {segment.broll!.search_results!.map((item, index) => {
+                          const sourceUrl = (item.url || '').trim()
+                          return (
                           <li key={`${item.url}-${index}`}>
-                            <label className="editor-agent-panel__voiceover-broll-result">
-                              <input
-                                type="radio"
-                                name={`broll-search-${segment.id}`}
-                                checked={selectedSearchIndex[segment.id] === index}
-                                onChange={() =>
-                                  setSelectedSearchIndex((prev) => ({
-                                    ...prev,
-                                    [segment.id]: index,
-                                  }))
-                                }
-                              />
-                              <span>
+                            <div className="editor-agent-panel__voiceover-broll-result">
+                              <label className="editor-agent-panel__voiceover-broll-result-select">
+                                <input
+                                  type="radio"
+                                  name={`broll-search-${segment.id}`}
+                                  checked={selectedSearchIndex[segment.id] === index}
+                                  onChange={() =>
+                                    setSelectedSearchIndex((prev) => ({
+                                      ...prev,
+                                      [segment.id]: index,
+                                    }))
+                                  }
+                                />
+                              </label>
+                              <button
+                                type="button"
+                                className="editor-agent-panel__voiceover-broll-result-body"
+                                disabled={!sourceUrl}
+                                title={sourceUrl ? '在浏览器中打开原视频' : '无可用链接'}
+                                onClick={() => {
+                                  if (sourceUrl) void openExternalLink(sourceUrl)
+                                }}
+                              >
                                 <strong>{item.title || '未命名'}</strong>
                                 <span className="editor-agent-panel__voiceover-broll-result-meta">
                                   {item.platform}
                                   {item.duration_sec ? ` · ${Math.round(item.duration_sec)}s` : ''}
                                   {item.in_library ? ' · 已在库' : ''}
+                                  {sourceUrl ? ' · 点击查看原视频' : ''}
                                 </span>
-                              </span>
-                            </label>
+                              </button>
+                            </div>
                           </li>
-                        ))}
+                          )
+                        })}
                       </ul>
                     ) : null}
 
