@@ -27,6 +27,7 @@ from backend.services.material_download_service import format_material_download_
 from backend.services.edit_session_service import EditSessionService
 from backend.services.voiceover_broll_service import BROLL_BLOCK_TITLE_PREFIX, VoiceoverBrollService
 from backend.services.voiceover_track_placement import (
+    VOICEOVER_BROLL_TRACK_ID,
     VOICEOVER_PLACEHOLDER_TITLE_PREFIX,
     resolve_segment_video_block_id,
 )
@@ -596,6 +597,106 @@ def test_apply_manual_broll_without_prior_select(monkeypatch, tmp_path):
     assert block.trim.out_sec - block.trim.in_sec == pytest.approx(5.0, abs=0.05)
     assert block.media.source_start_sec == pytest.approx(2.0, abs=0.05)
     assert seg.broll.source_in_sec == pytest.approx(2.0, abs=0.05)
+    assert block.track_id == VOICEOVER_BROLL_TRACK_ID
+    assert block.timeline_start_sec == pytest.approx(0.0)
+
+
+def test_apply_manual_broll_aligns_overlay_to_audio_clip(monkeypatch, tmp_path):
+    from backend.services.voiceover_plan_service import VoiceoverPlanService
+
+    project_id = "proj_vo_manual_align"
+    project_dir = tmp_path / "data" / "projects" / project_id
+    project_dir.mkdir(parents=True)
+    (project_dir / "edit_sessions").mkdir()
+    library_video = tmp_path / "broll.mp4"
+    library_video.write_bytes(b"fake-video")
+
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.resolve_library_video_path",
+        lambda asset_id: library_video if asset_id == "lib-broll" else None,
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.get_library_asset",
+        lambda asset_id: {"id": asset_id, "title": "测试素材", "platform": "local"},
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.VideoProcessor.probe_video_duration_sec",
+        lambda _path: 120.0,
+    )
+
+    audio = AudioClipElement(
+        id="vo-audio-2",
+        asset_id="tts-2",
+        start_sec=5.0,
+        duration_sec=4.0,
+    )
+    session_service = EditSessionService(db=None)
+    created = session_service.create_blank_session(project_id, name="manual align")
+    plan = VoiceoverPlan(
+        id="vo-plan",
+        status=VoiceoverPlanStatus.CONFIRMED,
+        user_brief="测试",
+        segments=[
+            VoiceoverSegment(
+                id="seg-2",
+                index=2,
+                narration_text="第二段",
+                status=VoiceoverSegmentStatus.TTS_DONE,
+                tts=VoiceoverTtsState(
+                    duration_sec=4.0,
+                    timeline_start_sec=99.0,
+                    audio_clip_id=audio.id,
+                ),
+                broll=VoiceoverBrollState(
+                    selected=VoiceoverSearchResult(
+                        platform="local",
+                        title="测试素材",
+                        url="",
+                        in_library=True,
+                        library_asset_id="lib-broll",
+                    )
+                ),
+            )
+        ],
+    )
+    session_service.update_session(
+        project_id,
+        created.id,
+        EditSessionUpdateRequest(audio_elements=[audio], voiceover_plan=plan),
+    )
+
+    vo_service = VoiceoverPlanService(session_service=session_service)
+    monkeypatch.setattr(
+        session_service,
+        "probe_imported_block_duration",
+        lambda *_args, **_kwargs: 120.0,
+    )
+    monkeypatch.setattr(
+        session_service,
+        "_prepare_import_video_source",
+        lambda source, dest: (source, "reference"),
+    )
+
+    session, updated_plan, _note = vo_service.apply_segment_broll(
+        project_id,
+        created.id,
+        "seg-2",
+        VoiceoverApplyBrollRequest(
+            source_in_sec=30.0,
+            source_out_sec=40.0,
+        ),
+    )
+
+    block = next(item for item in session.sequence if item.id == updated_plan.segments[0].broll.block_id)
+    assert block.track_id == VOICEOVER_BROLL_TRACK_ID
+    assert block.timeline_start_sec == pytest.approx(5.0)
+    assert block.media.source_start_sec == pytest.approx(30.0)
+    assert block.trim.in_sec == pytest.approx(0.0)
+    assert block.duration_sec == pytest.approx(4.0, abs=0.05)
 
 
 def test_apply_manual_broll_library_asset_id_overrides_stale_selected(monkeypatch, tmp_path):
@@ -1108,6 +1209,8 @@ def test_apply_segment_broll_creates_new_block_when_plan_block_id_missing(monkey
 
 
 def test_resolve_segment_timeline_start_from_plan():
+    from types import SimpleNamespace
+
     plan = VoiceoverPlan(
         id="vo-plan",
         segments=[
@@ -1136,13 +1239,44 @@ def test_resolve_segment_timeline_start_from_plan():
     )
     seg2 = plan.segments[1]
     seg5 = plan.segments[2]
-    assert VoiceoverBrollService._resolve_segment_timeline_start(plan, seg5) == pytest.approx(18.0)
-    assert VoiceoverBrollService._resolve_segment_timeline_start(plan, seg2) == pytest.approx(4.0)
+    empty_session = SimpleNamespace(audio_elements=[])
+    assert VoiceoverBrollService._resolve_segment_timeline_start(empty_session, plan, seg5) == pytest.approx(18.0)
+    assert VoiceoverBrollService._resolve_segment_timeline_start(empty_session, plan, seg2) == pytest.approx(4.0)
 
 
-def test_create_segment_video_block_uses_main_track_when_empty(monkeypatch, tmp_path):
+def test_resolve_segment_timeline_start_prefers_audio_clip():
+    from types import SimpleNamespace
+
+    audio = AudioClipElement(
+        id="vo-audio-2",
+        asset_id="tts-2",
+        start_sec=5.25,
+        duration_sec=4.0,
+    )
+    session = SimpleNamespace(audio_elements=[audio])
+    plan = VoiceoverPlan(
+        id="vo-plan",
+        segments=[
+            VoiceoverSegment(
+                id="seg-2",
+                index=2,
+                narration_text="二",
+                status=VoiceoverSegmentStatus.TTS_DONE,
+                tts=VoiceoverTtsState(
+                    duration_sec=4.0,
+                    timeline_start_sec=99.0,
+                    audio_clip_id=audio.id,
+                ),
+            ),
+        ],
+    )
+    seg = plan.segments[0]
+    assert VoiceoverBrollService._resolve_segment_timeline_start(session, plan, seg) == pytest.approx(5.25)
+
+
+def test_create_segment_video_block_uses_overlay_aligned_to_audio(monkeypatch, tmp_path):
     from backend.services.voiceover_broll_service import (
-        DEFAULT_VIDEO_TRACK_ID,
+        VOICEOVER_BROLL_TRACK_ID,
         VoiceoverBrollService,
     )
 
@@ -1196,11 +1330,9 @@ def test_create_segment_video_block_uses_main_track_when_empty(monkeypatch, tmp_
         target_duration_sec=5.0,
     )
     block = next(item for item in session.sequence if item.id == block_id)
-    assert block.track_id == DEFAULT_VIDEO_TRACK_ID
-    assert block.timeline_start_sec is None
-    assert not any(
-        track.id == "voiceover-broll" for track in (session.video_tracks or [])
-    )
+    assert block.track_id == VOICEOVER_BROLL_TRACK_ID
+    assert block.timeline_start_sec == pytest.approx(0.0)
+    assert any(track.id == VOICEOVER_BROLL_TRACK_ID for track in (session.video_tracks or []))
 
 
 def test_create_segment_video_block_uses_overlay_when_audio_not_at_zero(monkeypatch, tmp_path):
@@ -1340,10 +1472,10 @@ def test_create_segment_video_block_appends_main_when_audio_after_existing_clip(
         target_duration_sec=6.0,
     )
     block = next(item for item in session.sequence if item.id == block_id)
-    assert block.track_id == DEFAULT_VIDEO_TRACK_ID
-    assert block.timeline_start_sec is None
+    assert block.track_id == VOICEOVER_BROLL_TRACK_ID
+    assert block.timeline_start_sec == pytest.approx(10.0)
     main_blocks = [item for item in session.sequence if item.track_id == DEFAULT_VIDEO_TRACK_ID]
-    assert [item.id for item in main_blocks] == [main_block.id, block_id]
+    assert [item.id for item in main_blocks] == [main_block.id]
 
 
 def test_create_segment_video_block_uses_overlay_when_main_overlaps_audio_window(
@@ -1496,10 +1628,10 @@ def test_create_segment_video_block_second_segment_uses_main_after_first_on_main
         target_duration_sec=3.5,
     )
     block = next(item for item in session.sequence if item.id == block_id)
-    assert block.track_id == DEFAULT_VIDEO_TRACK_ID
-    assert block.timeline_start_sec is None
+    assert block.track_id == VOICEOVER_BROLL_TRACK_ID
+    assert block.timeline_start_sec == pytest.approx(4.0)
     main_blocks = [item for item in session.sequence if item.track_id == DEFAULT_VIDEO_TRACK_ID]
-    assert [item.id for item in main_blocks] == [seg1_block.id, block_id]
+    assert [item.id for item in main_blocks] == [seg1_block.id]
 
 
 def test_should_insert_on_main_false_when_audio_window_overlaps_main_video():
