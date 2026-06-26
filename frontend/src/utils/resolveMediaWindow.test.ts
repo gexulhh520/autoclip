@@ -34,10 +34,30 @@ describe('resolveBlockMediaWindow', () => {
   })
 
   it('split second half keeps same file with shifted trim window', () => {
-    const second = step6Block({ in: 4, out: 10 })
+    const second = {
+      ...step6Block({ in: 0, out: 6 }),
+      media: {
+        ...step6Block({ in: 0, out: 6 }).media,
+        clip_file_start_sec: 4,
+      },
+    }
     const first = step6Block({ in: 0, out: 4 })
     expect(resolvePreviewMediaFileKey(first, false)).toBe(resolvePreviewMediaFileKey(second, false))
     expect(resolveBlockMediaTimeSec(second, 0, false)).toBeCloseTo(4, 3)
+    expect(resolveBlockMediaWindow(second, false).mediaEndSec).toBeCloseTo(10, 3)
+  })
+
+  it('split second half with source metadata keeps source preview window', () => {
+    const second = {
+      ...step6Block({ in: 0, out: 6 }),
+      media: {
+        ...step6Block({ in: 0, out: 6 }).media,
+        clip_file_start_sec: 4,
+      },
+    }
+    const window = resolveBlockMediaWindow(second, true)
+    expect(window.mediaStartSec).toBe(49)
+    expect(window.mediaEndSec).toBe(55)
   })
 
   it('imported clip adds source_start_sec base to trim', () => {

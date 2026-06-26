@@ -1,5 +1,5 @@
 import type { EditBlock } from '../types/editSession'
-import { blockPlaybackRate } from './editTimeline'
+import { blockPlaybackRate, blockSourceTrimDuration } from './editTimeline'
 
 /** 预览/导出统一的「打开哪个文件 + 播放哪一段」语义 */
 export interface BlockMediaWindow {
@@ -34,6 +34,13 @@ export function blockUsesSourceVideoPreview(
   )
 }
 
+function resolveClipFilePlaybackOffset(block: EditBlock): number {
+  if (block.media.clip_file_start_sec != null) {
+    return block.media.clip_file_start_sec
+  }
+  return Math.max(0, block.trim.in_sec)
+}
+
 /** EditBlock → 非破坏性媒体窗口（预览 seek / 导出窗口共用） */
 export function resolveBlockMediaWindow(
   block: EditBlock,
@@ -41,23 +48,34 @@ export function resolveBlockMediaWindow(
 ): BlockMediaWindow {
   const trimIn = Math.max(0, block.trim.in_sec)
   const trimOut = Math.max(trimIn + 0.001, block.trim.out_sec)
+  const sourceDuration = blockSourceTrimDuration(block)
 
   if (blockUsesSourceVideoPreview(block, useSourceVideo)) {
     const base = block.media.source_start_sec ?? 0
+    const offset = resolveClipFilePlaybackOffset(block)
     return {
       filePath: normalizeMediaFilePath(block.media.source_video_path!),
-      mediaStartSec: base + trimIn,
-      mediaEndSec: base + trimOut,
+      mediaStartSec: base + offset,
+      mediaEndSec: base + offset + sourceDuration,
     }
   }
 
   const filePath = normalizeMediaFilePath(block.media.path)
-  const base = isImportedBlockMedia(block) ? (block.media.source_start_sec ?? 0) : 0
 
+  if (isImportedBlockMedia(block)) {
+    const base = block.media.source_start_sec ?? 0
+    return {
+      filePath,
+      mediaStartSec: base + trimIn,
+      mediaEndSec: base + trimIn + sourceDuration,
+    }
+  }
+
+  const clipOffset = resolveClipFilePlaybackOffset(block)
   return {
     filePath,
-    mediaStartSec: base + trimIn,
-    mediaEndSec: base + trimOut,
+    mediaStartSec: clipOffset,
+    mediaEndSec: clipOffset + sourceDuration,
   }
 }
 

@@ -221,18 +221,30 @@ def _input_has_audio_stream(path: Path) -> bool:
     return any(stream.get("codec_type") == "audio" for stream in streams)
 
 
+def _clip_file_playback_offset(block: EditBlock) -> float:
+    clip_start = block.media.clip_file_start_sec
+    if clip_start is not None:
+        return max(0.0, float(clip_start))
+    return max(0.0, float(block.trim.in_sec))
+
+
+def _block_source_trim_duration(block: EditBlock) -> float:
+    trim_in = max(0.0, float(block.trim.in_sec))
+    trim_out = float(block.trim.out_sec)
+    if trim_out > trim_in:
+        return trim_out - trim_in
+    return float(block.duration_sec or 1.0)
+
+
 def _resolve_clip_render_window(
     project_dir: Path,
     block: EditBlock,
 ) -> Tuple[Path, float, float]:
     """从切片文件解析 trim 窗口（不读原片）。"""
     input_video = _resolve_input_video(project_dir, block)
-    trim_in = max(0.0, float(block.trim.in_sec))
-    trim_out = float(block.trim.out_sec)
-    if trim_out <= trim_in:
-        trim_out = trim_in + (_probe_duration(input_video) or block.duration_sec or 1.0)
-    duration = max(0.1, trim_out - trim_in)
-    return input_video, trim_in, duration
+    trim_in = _clip_file_playback_offset(block)
+    duration = _block_source_trim_duration(block)
+    return input_video, trim_in, max(0.1, duration)
 
 
 def _resolve_input_video(project_dir: Path, block: EditBlock) -> Path:
@@ -253,6 +265,8 @@ def _resolve_render_window(
     """返回 (输入视频, trim_in_sec, duration_sec)。"""
     trim_in = max(0.0, float(block.trim.in_sec))
     trim_out = float(block.trim.out_sec)
+    source_duration = _block_source_trim_duration(block)
+    clip_offset = _clip_file_playback_offset(block)
 
     if (
         use_source_video
@@ -262,14 +276,8 @@ def _resolve_render_window(
         source = project_dir / block.media.source_video_path
         if source.exists():
             base = float(block.media.source_start_sec)
-            if trim_out <= trim_in:
-                source_end = block.media.source_end_sec
-                if source_end is not None:
-                    trim_out = float(source_end) - base
-                else:
-                    trim_out = _probe_duration(source) - base
-            abs_in = base + trim_in
-            duration = max(0.1, base + trim_out - abs_in)
+            abs_in = base + clip_offset
+            duration = max(0.1, source_duration)
             return source, abs_in, duration
 
     input_video = _resolve_input_video(project_dir, block)
@@ -281,18 +289,17 @@ def _resolve_render_window(
         and not block.media.source_video_path
     ):
         base = float(source_offset)
-        if trim_out <= trim_in:
-            trim_out = trim_in + (
-                _probe_duration(input_video) or block.duration_sec or 1.0
-            ) - base
         abs_in = base + trim_in
-        duration = max(0.1, base + trim_out - abs_in)
+        duration = max(0.1, source_duration)
         return input_video, abs_in, duration
 
-    if trim_out <= trim_in:
+    if trim_out <= trim_in and block.media.clip_file_start_sec is None:
         trim_out = trim_in + (_probe_duration(input_video) or block.duration_sec or 1.0)
-    duration = max(0.1, trim_out - trim_in)
-    return input_video, trim_in, duration
+        duration = max(0.1, trim_out - trim_in)
+        return input_video, trim_in, duration
+
+    duration = max(0.1, source_duration)
+    return input_video, clip_offset, duration
 
 
 def _settings_from_session(session: EditSession) -> Dict[str, Any]:

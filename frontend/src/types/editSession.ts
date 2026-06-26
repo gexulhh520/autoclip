@@ -65,6 +65,8 @@ export interface EditBlockMedia {
   source_video_path?: string | null
   source_start_sec?: number | null
   source_end_sec?: number | null
+  /** 切割续段等在 clip 文件内的播放入点；时间轴 trim.in 为 0，仅影响解码 seek */
+  clip_file_start_sec?: number | null
 }
 
 export type TextMotionType = 'none' | 'fade' | 'slide_up' | 'slide_down' | 'scale' | 'pop'

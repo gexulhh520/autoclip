@@ -162,6 +162,7 @@ import {
   splitOverlayElement,
   splitTimelinePositionedVideoBlockAt,
   splitVideoBlockAt,
+  buildVideoBlockPiecesAtTrimBoundaries,
 } from '../editor/timeline/splitAtPlayhead'
 import {
   resolveEditSessionTimelineDurationSec,
@@ -1300,16 +1301,11 @@ export const useEditSessionStore = create<EditSessionState>()(
           const original = state.session.sequence[index]
           const sorted = [...points].sort((a, b) => a - b)
           const boundaries = [original.trim.in_sec, ...sorted, original.trim.out_sec]
-          const newBlocks: EditBlock[] = []
-          for (let i = 0; i < boundaries.length - 1; i += 1) {
-            const inSec = boundaries[i]
-            const outSec = boundaries[i + 1]
-            if (outSec - inSec < 0.15) continue
-            const piece = cloneSequence([original])[0]
-            if (i > 0) piece.id = nanoid()
-            piece.trim = { in_sec: inSec, out_sec: outSec }
-            newBlocks.push(piece)
-          }
+          const pieces = buildVideoBlockPiecesAtTrimBoundaries(original, boundaries)
+          const newBlocks: EditBlock[] = pieces.map((piece, i) => ({
+            ...piece,
+            id: i === 0 ? original.id : nanoid(),
+          }))
           if (newBlocks.length <= 1) return
           state.session.sequence.splice(index, 1, ...newBlocks)
           ensureTemplateCaptionOverlays(state.session)

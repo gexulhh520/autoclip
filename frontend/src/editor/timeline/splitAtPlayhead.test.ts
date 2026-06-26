@@ -9,6 +9,11 @@ import {
   splitVideoBlockAt,
 } from './splitAtPlayhead'
 import { resolveBlockMediaTimeSec } from '../../utils/resolveMediaWindow'
+import {
+  blockDuration,
+  blockTimelineVisualStartSec,
+  buildCompositionTimelineSegments,
+} from '../../utils/editTimeline'
 
 describe('splitAtPlayhead', () => {
   it('isPlayheadSplittableInRange rejects edges', () => {
@@ -93,8 +98,9 @@ describe('splitAtPlayhead', () => {
     }
     const split = splitVideoBlockAt(block, 4)
     expect(split.first.trim).toEqual({ in_sec: 0, out_sec: 4 })
-    expect(split.second.trim).toEqual({ in_sec: 4, out_sec: 10 })
+    expect(split.second.trim).toEqual({ in_sec: 0, out_sec: 6 })
     expect(split.second.media.path).toBe(block.media.path)
+    expect(split.second.media.clip_file_start_sec).toBe(4)
     expect(split.second.media.source_start_sec).toBeUndefined()
     expect(resolveBlockMediaTimeSec(split.second, 0, false)).toBeCloseTo(4, 3)
   })
@@ -116,8 +122,8 @@ describe('splitAtPlayhead', () => {
       transition_out: 'cut',
     }
     const split = splitVideoBlockAt(block, 10)
-    expect(split.second.trim).toEqual({ in_sec: 10, out_sec: 30 })
-    expect(split.second.media.source_start_sec).toBe(60)
+    expect(split.second.trim).toEqual({ in_sec: 0, out_sec: 20 })
+    expect(split.second.media.source_start_sec).toBe(70)
     expect(resolveBlockMediaTimeSec(split.second, 0, false)).toBeCloseTo(70, 3)
   })
 
@@ -136,6 +142,29 @@ describe('splitAtPlayhead', () => {
     }
     const split = splitTimelinePositionedVideoBlockAt(block, 12)
     expect(split?.second.timeline_start_sec).toBe(12)
-    expect(split?.second.trim.in_sec).toBe(4)
+    expect(split?.second.trim.in_sec).toBe(0)
+    expect(split?.second.trim.out_sec).toBe(6)
+    expect(split?.second.media.clip_file_start_sec).toBe(4)
+  })
+
+  it('splitVideoBlockAt keeps sequential timeline segments contiguous', () => {
+    const block: EditBlock = {
+      id: 'b1',
+      title: 'clip',
+      source_clip_id: 'c1',
+      duration_sec: 10,
+      trim: { in_sec: 0, out_sec: 10 },
+      media: { type: 'step6_clip', path: '/a.mp4' },
+      overlay: { outline: '', content: [], recommend_reason: '' },
+      audio: { volume: 1 },
+      transition_out: 'cut',
+    }
+    const split = splitVideoBlockAt(block, 4)
+    const first: EditBlock = { ...split.first, id: 'b1' }
+    const second: EditBlock = { ...split.second, id: 'b2' }
+    const segments = buildCompositionTimelineSegments([first, second], 24, 0.5)
+    const firstEnd = blockTimelineVisualStartSec(segments[0]!.startSec, first) + blockDuration(first)
+    const secondStart = blockTimelineVisualStartSec(segments[1]!.startSec, second)
+    expect(firstEnd).toBeCloseTo(secondStart, 3)
   })
 })

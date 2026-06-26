@@ -14,6 +14,10 @@ class EditBlockMedia(BaseModel):
     source_video_path: Optional[str] = None
     source_start_sec: Optional[float] = None
     source_end_sec: Optional[float] = None
+    clip_file_start_sec: Optional[float] = Field(
+        default=None,
+        description="切割续段等在 clip 文件内的播放入点；时间轴 trim.in 为 0",
+    )
 
 
 class EditBlockOverlay(BaseModel):

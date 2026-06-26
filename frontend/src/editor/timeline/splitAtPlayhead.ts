@@ -11,6 +11,7 @@ import {
   blockTimelineVisualStartSec,
   buildCompositionTimelineSegments,
 } from '../../utils/editTimeline'
+import { isImportedBlockMedia } from '../../utils/resolveMediaWindow'
 
 export const MIN_SPLIT_GAP_SEC = 0.2
 
@@ -121,13 +122,61 @@ export function resolveSplitSelectionTarget(params: {
 }
 
 /**
- * 非破坏性切割：同 media.path，仅调整 trim 窗口；不修改 source_start_sec。
+ * 按 trim 边界拆成多段（静音切分等）；首段保留 head trim，后续段 trim.in=0 并写入播放入点。
+ */
+export function buildVideoBlockPiecesAtTrimBoundaries(
+  block: EditBlock,
+  boundaries: number[]
+): Omit<EditBlock, 'id'>[] {
+  const pieces: Omit<EditBlock, 'id'>[] = []
+  for (let i = 0; i < boundaries.length - 1; i += 1) {
+    const inSec = boundaries[i]!
+    const outSec = boundaries[i + 1]!
+    if (outSec - inSec < 0.15) continue
+
+    if (i === 0) {
+      pieces.push({
+        ...JSON.parse(JSON.stringify(block)) as EditBlock,
+        trim: { in_sec: inSec, out_sec: outSec },
+      })
+      continue
+    }
+
+    const cloned = JSON.parse(JSON.stringify(block)) as EditBlock
+    const media = { ...cloned.media }
+    if (isImportedBlockMedia(block)) {
+      media.source_start_sec = (block.media.source_start_sec ?? 0) + inSec
+      delete media.clip_file_start_sec
+    } else {
+      media.clip_file_start_sec = inSec
+    }
+    pieces.push({
+      ...cloned,
+      trim: { in_sec: 0, out_sec: outSec - inSec },
+      media,
+    })
+  }
+  return pieces
+}
+
+/**
+ * 非破坏性切割：同 media.path；第二段时间轴 trim.in=0 以首尾贴合，播放入点写入 clip_file_start_sec / source_start_sec。
  */
 export function splitVideoBlockAt(
   block: EditBlock,
   splitAtTrimSec: number
 ): { first: EditBlock; second: Omit<EditBlock, 'id'> } {
   const cloned = JSON.parse(JSON.stringify(block)) as EditBlock
+  const secondDuration = block.trim.out_sec - splitAtTrimSec
+  const secondMedia = { ...cloned.media }
+
+  if (isImportedBlockMedia(block)) {
+    secondMedia.source_start_sec = (block.media.source_start_sec ?? 0) + splitAtTrimSec
+    delete secondMedia.clip_file_start_sec
+  } else {
+    secondMedia.clip_file_start_sec = splitAtTrimSec
+  }
+
   return {
     first: {
       ...JSON.parse(JSON.stringify(block)) as EditBlock,
@@ -139,9 +188,10 @@ export function splitVideoBlockAt(
     second: {
       ...cloned,
       trim: {
-        in_sec: splitAtTrimSec,
-        out_sec: block.trim.out_sec,
+        in_sec: 0,
+        out_sec: secondDuration,
       },
+      media: secondMedia,
     },
   }
 }

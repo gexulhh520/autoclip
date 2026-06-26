@@ -839,3 +839,41 @@ def test_resolve_render_window_imported_clip_split_offset(tmp_path, monkeypatch)
     assert input_video.resolve() == media.resolve()
     assert trim_in == pytest.approx(60.0)
     assert duration == pytest.approx(30.0)
+
+
+def test_resolve_render_window_clip_file_start_after_split(tmp_path, monkeypatch):
+    from backend.pipeline.edit_renderer import _resolve_render_window
+    from backend.schemas.edit_session import EditBlock, EditBlockMedia, EditBlockTrim, EditBlockOverlay
+
+    project_dir = tmp_path / "proj"
+    media = project_dir / "output" / "clips" / "a.mp4"
+    media.parent.mkdir(parents=True, exist_ok=True)
+    media.write_bytes(b"video")
+
+    block = EditBlock(
+        id="b2",
+        source_clip_id="c1",
+        title="第二段",
+        media=EditBlockMedia(
+            type="step6_clip",
+            path="output/clips/a.mp4",
+            clip_file_start_sec=4.0,
+        ),
+        trim=EditBlockTrim(in_sec=0.0, out_sec=6.0),
+        overlay=EditBlockOverlay(outline="", content=[], recommend_reason=""),
+        duration_sec=10.0,
+    )
+
+    monkeypatch.setattr(
+        "backend.pipeline.edit_renderer._probe_duration",
+        lambda _path: 10.0,
+    )
+
+    input_video, trim_in, duration = _resolve_render_window(
+        project_dir,
+        block,
+        use_source_video=False,
+    )
+    assert input_video.resolve() == media.resolve()
+    assert trim_in == pytest.approx(4.0)
+    assert duration == pytest.approx(6.0)
