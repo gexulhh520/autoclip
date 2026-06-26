@@ -27,6 +27,7 @@ import {
   mapCompositionTimeToRelativeSource,
   mapIncomingRelativeDuringCrossTransition,
 } from './timelineLayout'
+import { crossTransitionAudioGainMultiplier } from '../compositor/previewTransitionAudio'
 import { resolveCrossTransitionLayerState } from '../transitions/crossTransitionLayers'
 import { easeInOutCubic } from '../compositor/previewPlayhead'
 import type {
@@ -209,7 +210,7 @@ export function resolveSceneAt(
           outgoing.sourceDurationSec,
           outgoing.block.audio.fade_in_sec ?? 0,
           outgoing.block.audio.fade_out_sec ?? 0
-        ) * (kind === 'fade_black' ? outState.opacity : 1),
+        ) * crossTransitionAudioGainMultiplier(kind, outState.opacity),
       playbackRate: blockPlaybackRate(outgoing.block),
       zIndex: 0,
     })
@@ -225,7 +226,7 @@ export function resolveSceneAt(
           incoming.sourceDurationSec,
           incoming.block.audio.fade_in_sec ?? 0,
           incoming.block.audio.fade_out_sec ?? 0
-        ) * (kind === 'fade_black' ? inState.opacity : 1),
+        ) * crossTransitionAudioGainMultiplier(kind, inState.opacity),
       playbackRate: blockPlaybackRate(incoming.block),
       zIndex: 1,
     })

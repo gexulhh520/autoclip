@@ -65,6 +65,7 @@ describe('sceneBuilder', () => {
     const incoming = timeline.segments[1]!
     const crossEnd =
       (outgoing.compositionStartSec + outgoing.block.trim.out_sec) + outgoing.dissolveOutSec / 2
+    const atCenter = resolveSceneAt(input, crossEnd - outgoing.dissolveOutSec / 2)
     const atEnd = resolveSceneAt(input, crossEnd - 0.001)
     const after = resolveSceneAt(input, crossEnd + 0.002)
     expect(atEnd.videoLayers).toHaveLength(2)
@@ -77,6 +78,13 @@ describe('sceneBuilder', () => {
     expect(incomingAfter?.relativeSourceSec).toBeGreaterThan(
       (incomingDuring?.relativeSourceSec ?? 0) - 0.01
     )
+
+    const outgoingCenter = atCenter.videoLayers.find((layer) => layer.blockId === 'a')
+    const incomingCenter = atCenter.videoLayers.find((layer) => layer.blockId === 'b')
+    expect(outgoingCenter?.volume).toBeGreaterThan(0)
+    expect(outgoingCenter?.volume).toBeLessThan(1)
+    expect(incomingCenter?.volume).toBeGreaterThan(0)
+    expect(incomingCenter?.volume).toBeLessThan(1)
   })
 
   it('hides template captions when burnSubtitles is false', () => {

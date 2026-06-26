@@ -8,6 +8,7 @@ import {
 } from '../../../editor/compositor'
 import type { FrameDescriptor } from '../../../editor/compositor/types'
 import { findUpcomingCrossIncomingBlock } from '../../../editor/compositor/previewCrossTransitionWarmup'
+import { resolvePreviewLayerAudio } from '../../../editor/compositor/previewTransitionAudio'
 import { findPlayheadWarmupTargets } from '../../../editor/compositor/previewPlayheadWarmup'
 import {
   ensureDecoderBound,
@@ -586,12 +587,17 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       options?: {
         skipSeek?: boolean
         audioMuted?: boolean
+        audioVolume?: number
         inDissolve?: boolean
         forceTransitionSeek?: boolean
       }
     ) => {
       const skipSeek = options?.skipSeek ?? false
       const audioMuted = options?.audioMuted ?? true
+      const audioVolume = Math.min(
+        1,
+        Math.max(0, options?.audioVolume ?? (audioMuted ? 0 : layer?.volume ?? 0))
+      )
       const inDissolve = options?.inDissolve ?? false
       const forceTransitionSeek = options?.forceTransitionSeek ?? false
 
@@ -623,7 +629,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       }
 
       video.muted = audioMuted
-      video.volume = audioMuted ? 0 : Math.min(1, Math.max(0, layer.volume))
+      video.volume = audioMuted ? 0 : audioVolume
       applyMediaPlaybackRate(video, layer.playbackRate || 1)
 
       const drift = Math.abs(video.currentTime - target)
@@ -663,6 +669,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
             : seekVideoToTarget(video, target, seekOpts)
         } else {
           video.muted = audioMuted
+          video.volume = audioMuted ? 0 : audioVolume
           void video.play().catch(() => undefined)
         }
         return didSeek
@@ -714,11 +721,17 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
           session,
           useSourceVideo
         )
-        const audioMuted =
-          clipAudioMuted || layer.block.id !== audioBlockId || layer.block.id === warmupId
+        const { muted: audioMuted, volume: audioVolume } = resolvePreviewLayerAudio(layer, {
+          clipAudioMuted,
+          inDissolve,
+          dissolveLayerCount: vmLayers.length,
+          primaryAudioBlockId: audioBlockId,
+          warmupBlockId: warmupId,
+        })
         if (
           syncVideoElement(video, layer, forceSeek, {
             audioMuted,
+            audioVolume,
             inDissolve,
             forceTransitionSeek,
           })
