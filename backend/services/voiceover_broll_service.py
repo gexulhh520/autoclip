@@ -48,8 +48,12 @@ from backend.services.voiceover_track_placement import (
     VOICEOVER_BROLL_TRACK_ID,
     apply_main_track_placement_to_block_data,
     apply_overlay_track_placement_to_block_data,
+    block_id_from_segment_audio_clip,
+    collect_segment_video_block_ids,
     migrate_voiceover_blocks_to_main_track,
+    is_voiceover_broll_block,
     resolve_main_track_insert_index,
+    resolve_segment_video_block_id,
     should_insert_voiceover_broll_on_main_track,
 )
 from backend.utils.video_processor import VideoProcessor
@@ -235,6 +239,23 @@ class VoiceoverBrollService:
 
         report("analyzing", 42.0, "素材已就绪，正在分析画面选段…")
 
+        resolved_block_id = resolve_segment_video_block_id(session, plan, segment)
+        if resolved_block_id and resolved_block_id != (segment.broll.block_id or "").strip():
+            segment = segment.model_copy(deep=True)
+            segment.broll.block_id = resolved_block_id
+            plan = self._replace_segment(plan, segment)
+            session = self._save_plan(project_id, session_id, plan)
+            segment = next(item for item in plan.segments if item.id == segment_id)
+
+        session = self._remove_duplicate_segment_video_blocks(
+            project_id,
+            session_id,
+            session,
+            plan,
+            segment,
+            keep_block_id=resolved_block_id,
+        )
+
         is_manual_trim = source_in_sec is not None and source_out_sec is not None
         existing_asset = (segment.broll.library_asset_id or "").strip()
         same_asset_retrim = bool(
@@ -243,7 +264,7 @@ class VoiceoverBrollService:
             and existing_asset == library_asset_id
         )
 
-        block_id = segment.broll.block_id
+        block_id = (segment.broll.block_id or "").strip() or resolved_block_id
         if not block_id:
             session, block_id = self._create_segment_video_block(
                 project_id,
@@ -591,6 +612,48 @@ class VoiceoverBrollService:
             EditSessionUpdateRequest(sequence=updated_blocks),
         )
 
+    def _remove_duplicate_segment_video_blocks(
+        self,
+        project_id: str,
+        session_id: str,
+        session: EditSession,
+        plan: VoiceoverPlan,
+        segment: VoiceoverSegment,
+        *,
+        keep_block_id: Optional[str],
+    ) -> EditSession:
+        """移除同一段落遗留的占位/重复视频 block，避免新素材接在旧占位后面。"""
+        keep_id = (keep_block_id or "").strip()
+        associated = collect_segment_video_block_ids(session, plan, segment)
+        if keep_id:
+            associated.discard(keep_id)
+        if not associated:
+            return session
+
+        remove_ids = {
+            block_id
+            for block_id in associated
+            if any(item.id == block_id and is_voiceover_broll_block(item) for item in session.sequence or [])
+        }
+        if not remove_ids:
+            return session
+
+        updated = [block for block in (session.sequence or []) if block.id not in remove_ids]
+        if len(updated) == len(session.sequence or []):
+            return session
+
+        logger.info(
+            "口播 B-roll 清理重复画面 block segment=%s removed=%s keep=%s",
+            segment.id,
+            sorted(remove_ids),
+            keep_id or "(new)",
+        )
+        return self.session_service.update_session(
+            project_id,
+            session_id,
+            EditSessionUpdateRequest(sequence=updated),
+        )
+
     def _ensure_voiceover_video_tracks(
         self,
         project_id: str,
@@ -893,6 +956,10 @@ class VoiceoverBrollService:
                 continue
 
             recovered_id = blocks_by_index.get(seg.index)
+            if not recovered_id:
+                audio_block_id = block_id_from_segment_audio_clip(session, seg)
+                if audio_block_id and audio_block_id in sequence_ids:
+                    recovered_id = audio_block_id
             if not recovered_id:
                 new_segments.append(updated)
                 continue

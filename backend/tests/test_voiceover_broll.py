@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from backend.schemas.edit_session import (
+    AudioClipElement,
     EditBlock,
     EditBlockMedia,
     EditBlockOverlay,
@@ -25,6 +26,10 @@ from backend.schemas.voiceover_plan import (
 from backend.services.material_download_service import format_material_download_error
 from backend.services.edit_session_service import EditSessionService
 from backend.services.voiceover_broll_service import BROLL_BLOCK_TITLE_PREFIX, VoiceoverBrollService
+from backend.services.voiceover_track_placement import (
+    VOICEOVER_PLACEHOLDER_TITLE_PREFIX,
+    resolve_segment_video_block_id,
+)
 
 from backend.services.voiceover_broll_selection import (
     align_interval_to_target_duration,
@@ -480,6 +485,290 @@ def test_apply_segment_broll_recreates_block_after_timeline_delete(monkeypatch, 
     assert seg.broll.block_id != stale_block_id
     assert len(session.sequence) == 1
     assert "画面匹配" in note
+
+
+def test_resolve_segment_video_block_id_from_audio_linked_placeholder():
+    placeholder_id = "block-placeholder"
+    placeholder = EditBlock(
+        id=placeholder_id,
+        source_clip_id="import-ph",
+        title=f"{VOICEOVER_PLACEHOLDER_TITLE_PREFIX}abc12345",
+        media=EditBlockMedia(type="imported_clip", path="placeholder.mp4"),
+        trim=EditBlockTrim(in_sec=0.0, out_sec=5.0),
+        overlay=EditBlockOverlay(outline="", content=[], recommend_reason=""),
+        duration_sec=5.0,
+    )
+    audio_clip = AudioClipElement(
+        id="vo-audio-1",
+        asset_id="tts-1",
+        start_sec=0.0,
+        duration_sec=5.0,
+        block_id=placeholder_id,
+    )
+    plan = VoiceoverPlan(
+        id="vo-plan",
+        segments=[
+            VoiceoverSegment(
+                id="seg-1",
+                index=1,
+                narration_text="口播",
+                status=VoiceoverSegmentStatus.TTS_DONE,
+                tts=VoiceoverTtsState(duration_sec=5.0, audio_clip_id=audio_clip.id),
+                broll=VoiceoverBrollState(),
+            )
+        ],
+    )
+    session = SimpleNamespace(sequence=[placeholder], audio_elements=[audio_clip])
+    assert resolve_segment_video_block_id(session, plan, plan.segments[0]) == placeholder_id
+
+
+def test_apply_segment_broll_removes_orphan_placeholder_after_duplicate(monkeypatch, tmp_path):
+    from backend.services.voiceover_plan_service import VoiceoverPlanService
+
+    project_id = "proj_vo_orphan_ph"
+    project_dir = tmp_path / "data" / "projects" / project_id
+    project_dir.mkdir(parents=True)
+    (project_dir / "edit_sessions").mkdir()
+    library_video = tmp_path / "broll.mp4"
+    library_video.write_bytes(b"fake-video")
+
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.resolve_library_video_path",
+        lambda asset_id: library_video if asset_id == "lib-broll" else None,
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.get_library_asset",
+        lambda asset_id: {"id": asset_id, "title": "测试素材", "platform": "local"},
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.VideoProcessor.probe_video_duration_sec",
+        lambda _path: 45.0,
+    )
+    fake_match = SimpleNamespace(
+        trim_in_sec=1.0,
+        trim_out_sec=6.0,
+        match_score=0.9,
+        match_reason="画面匹配",
+    )
+    monkeypatch.setattr(
+        "backend.services.clip_event_detector.search_clip_events",
+        lambda *_args, **_kwargs: ([fake_match], {"engine": "test"}),
+    )
+
+    placeholder_id = "block-placeholder"
+    duplicate_id = "block-dup-broll"
+    placeholder = EditBlock(
+        id=placeholder_id,
+        source_clip_id="import-ph",
+        title=f"{VOICEOVER_PLACEHOLDER_TITLE_PREFIX}abc12345",
+        media=EditBlockMedia(type="imported_clip", path="placeholder.mp4"),
+        trim=EditBlockTrim(in_sec=0.0, out_sec=5.0),
+        overlay=EditBlockOverlay(outline="", content=[], recommend_reason=""),
+        duration_sec=5.0,
+    )
+    duplicate = EditBlock(
+        id=duplicate_id,
+        source_clip_id="import-dup",
+        title=f"{BROLL_BLOCK_TITLE_PREFIX}1",
+        media=EditBlockMedia(type="imported_clip", path="dup.mp4"),
+        trim=EditBlockTrim(in_sec=0.0, out_sec=5.0),
+        overlay=EditBlockOverlay(outline="", content=[], recommend_reason=""),
+        duration_sec=5.0,
+    )
+    audio_clip = AudioClipElement(
+        id="vo-audio-1",
+        asset_id="tts-1",
+        start_sec=0.0,
+        duration_sec=5.0,
+        block_id=placeholder_id,
+    )
+    plan = VoiceoverPlan(
+        id="vo-plan",
+        status=VoiceoverPlanStatus.COMPLETED,
+        user_brief="测试",
+        segments=[
+            VoiceoverSegment(
+                id="seg-1",
+                index=1,
+                narration_text="口播测试。",
+                visual_brief="城市夜景",
+                status=VoiceoverSegmentStatus.TTS_DONE,
+                tts=VoiceoverTtsState(
+                    duration_sec=5.0,
+                    timeline_start_sec=0.0,
+                    audio_clip_id=audio_clip.id,
+                ),
+                broll=VoiceoverBrollState(
+                    block_id=duplicate_id,
+                    selected=VoiceoverSearchResult(
+                        platform="local",
+                        title="测试素材",
+                        url="",
+                        in_library=True,
+                        library_asset_id="lib-broll",
+                    ),
+                ),
+            )
+        ],
+    )
+
+    session_service = EditSessionService(db=None)
+    created = session_service.create_blank_session(project_id, name="orphan placeholder")
+    session_service.update_session(
+        project_id,
+        created.id,
+        EditSessionUpdateRequest(
+            sequence=[placeholder, duplicate],
+            audio_elements=[audio_clip],
+            voiceover_plan=plan,
+        ),
+    )
+
+    vo_service = VoiceoverPlanService(session_service=session_service)
+    monkeypatch.setattr(
+        session_service,
+        "probe_imported_block_duration",
+        lambda *_args, **_kwargs: 45.0,
+    )
+    monkeypatch.setattr(
+        session_service,
+        "_prepare_import_video_source",
+        lambda source, dest: (source, "reference"),
+    )
+
+    session, updated_plan, _note = vo_service.apply_segment_broll(
+        project_id,
+        created.id,
+        "seg-1",
+        VoiceoverApplyBrollRequest(),
+    )
+
+    assert len(session.sequence) == 1
+    assert session.sequence[0].id == duplicate_id
+    assert updated_plan.segments[0].broll.block_id == duplicate_id
+
+
+def test_apply_segment_broll_reuses_placeholder_when_plan_block_id_missing(monkeypatch, tmp_path):
+    from backend.services.voiceover_plan_service import VoiceoverPlanService
+
+    project_id = "proj_vo_reuse_ph"
+    project_dir = tmp_path / "data" / "projects" / project_id
+    project_dir.mkdir(parents=True)
+    (project_dir / "edit_sessions").mkdir()
+    library_video = tmp_path / "broll.mp4"
+    library_video.write_bytes(b"fake-video")
+
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.resolve_library_video_path",
+        lambda asset_id: library_video if asset_id == "lib-broll" else None,
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.get_library_asset",
+        lambda asset_id: {"id": asset_id, "title": "测试素材", "platform": "local"},
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.VideoProcessor.probe_video_duration_sec",
+        lambda _path: 45.0,
+    )
+    fake_match = SimpleNamespace(
+        trim_in_sec=1.0,
+        trim_out_sec=6.0,
+        match_score=0.9,
+        match_reason="画面匹配",
+    )
+    monkeypatch.setattr(
+        "backend.services.clip_event_detector.search_clip_events",
+        lambda *_args, **_kwargs: ([fake_match], {"engine": "test"}),
+    )
+
+    placeholder_id = "block-placeholder"
+    placeholder = EditBlock(
+        id=placeholder_id,
+        source_clip_id="import-ph",
+        title=f"{VOICEOVER_PLACEHOLDER_TITLE_PREFIX}abc12345",
+        media=EditBlockMedia(type="imported_clip", path="placeholder.mp4"),
+        trim=EditBlockTrim(in_sec=0.0, out_sec=5.0),
+        overlay=EditBlockOverlay(outline="", content=[], recommend_reason=""),
+        duration_sec=5.0,
+    )
+    audio_clip = AudioClipElement(
+        id="vo-audio-1",
+        asset_id="tts-1",
+        start_sec=0.0,
+        duration_sec=5.0,
+        block_id=placeholder_id,
+    )
+    plan = VoiceoverPlan(
+        id="vo-plan",
+        status=VoiceoverPlanStatus.COMPLETED,
+        user_brief="测试",
+        segments=[
+            VoiceoverSegment(
+                id="seg-1",
+                index=1,
+                narration_text="口播测试。",
+                visual_brief="城市夜景",
+                status=VoiceoverSegmentStatus.TTS_DONE,
+                tts=VoiceoverTtsState(
+                    duration_sec=5.0,
+                    timeline_start_sec=0.0,
+                    audio_clip_id=audio_clip.id,
+                ),
+                broll=VoiceoverBrollState(
+                    selected=VoiceoverSearchResult(
+                        platform="local",
+                        title="测试素材",
+                        url="",
+                        in_library=True,
+                        library_asset_id="lib-broll",
+                    ),
+                ),
+            )
+        ],
+    )
+
+    session_service = EditSessionService(db=None)
+    created = session_service.create_blank_session(project_id, name="reuse placeholder")
+    session_service.update_session(
+        project_id,
+        created.id,
+        EditSessionUpdateRequest(
+            sequence=[placeholder],
+            audio_elements=[audio_clip],
+            voiceover_plan=plan,
+        ),
+    )
+
+    vo_service = VoiceoverPlanService(session_service=session_service)
+    monkeypatch.setattr(
+        session_service,
+        "probe_imported_block_duration",
+        lambda *_args, **_kwargs: 45.0,
+    )
+    monkeypatch.setattr(
+        session_service,
+        "_prepare_import_video_source",
+        lambda source, dest: (source, "reference"),
+    )
+
+    session, updated_plan, _note = vo_service.apply_segment_broll(
+        project_id,
+        created.id,
+        "seg-1",
+        VoiceoverApplyBrollRequest(),
+    )
+
+    assert len(session.sequence) == 1
+    assert session.sequence[0].id == placeholder_id
+    assert updated_plan.segments[0].broll.block_id == placeholder_id
 
 
 def test_resolve_segment_timeline_start_from_plan():

@@ -10,6 +10,7 @@ from backend.schemas.voiceover_plan import VoiceoverPlan, VoiceoverSegment
 DEFAULT_VIDEO_TRACK_ID = "default-video"
 VOICEOVER_BROLL_TRACK_ID = "voiceover-broll"
 BROLL_BLOCK_TITLE_PREFIX = "口播素材-"
+VOICEOVER_PLACEHOLDER_TITLE_PREFIX = "口播占位-"
 
 
 def is_main_track_block(block: EditBlock) -> bool:
@@ -128,10 +129,75 @@ def should_insert_voiceover_broll_on_main_track(
     return abs(main_end - start) <= 0.05
 
 
+def is_voiceover_placeholder_block(block: EditBlock) -> bool:
+    return str(block.title or "").startswith(VOICEOVER_PLACEHOLDER_TITLE_PREFIX)
+
+
 def is_voiceover_broll_block(block: EditBlock) -> bool:
     if (block.track_id or "").strip() == VOICEOVER_BROLL_TRACK_ID:
         return True
+    if is_voiceover_placeholder_block(block):
+        return True
     return str(block.title or "").startswith(BROLL_BLOCK_TITLE_PREFIX)
+
+
+def block_id_from_segment_audio_clip(
+    session: EditSession,
+    segment: VoiceoverSegment,
+) -> Optional[str]:
+    clip_id = (segment.tts.audio_clip_id or "").strip()
+    if not clip_id:
+        return None
+    for clip in session.audio_elements or []:
+        if clip.id != clip_id:
+            continue
+        linked = (clip.block_id or "").strip()
+        return linked or None
+    return None
+
+
+def resolve_segment_video_block_id(
+    session: EditSession,
+    plan: VoiceoverPlan,
+    segment: VoiceoverSegment,
+) -> Optional[str]:
+    """解析该段应对应的时间线视频 block（plan、标题、口播音频 clip 关联）。"""
+    sequence_ids = {block.id for block in (session.sequence or [])}
+
+    block_id = (segment.broll.block_id or "").strip()
+    if block_id and block_id in sequence_ids:
+        return block_id
+
+    for block in session.sequence or []:
+        if segment_index_for_block(block, plan) == segment.index:
+            return block.id
+
+    audio_block_id = block_id_from_segment_audio_clip(session, segment)
+    if audio_block_id and audio_block_id in sequence_ids:
+        return audio_block_id
+
+    return None
+
+
+def collect_segment_video_block_ids(
+    session: EditSession,
+    plan: VoiceoverPlan,
+    segment: VoiceoverSegment,
+) -> set[str]:
+    ids: set[str] = set()
+    block_id = (segment.broll.block_id or "").strip()
+    if block_id:
+        ids.add(block_id)
+    audio_block_id = block_id_from_segment_audio_clip(session, segment)
+    if audio_block_id:
+        ids.add(audio_block_id)
+    for block in session.sequence or []:
+        if segment_index_for_block(block, plan) == segment.index:
+            ids.add(block.id)
+    resolved = resolve_segment_video_block_id(session, plan, segment)
+    if resolved:
+        ids.add(resolved)
+    return ids
 
 
 def segment_index_for_block(
