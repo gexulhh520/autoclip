@@ -468,18 +468,6 @@ const LibraryAssetTrimModal: React.FC<LibraryAssetTrimModalProps> = ({
             className="library-trim-modal__btn library-trim-modal__btn--primary"
             disabled={confirming || duration <= 0 || outSec <= inSec + 0.09}
             onClick={() => {
-              const duration = durationSec || asset.duration_sec || 0
-              if (targetDurationSec != null && targetDurationSec > 0 && duration > 0) {
-                const aligned = alignTrimToTargetDuration(
-                  duration,
-                  inSec,
-                  targetDurationSec,
-                  'in',
-                  MIN_TRIM_SPAN
-                )
-                void onConfirm(aligned.inSec, aligned.outSec)
-                return
-              }
               void onConfirm(inSec, outSec)
             }}
           >

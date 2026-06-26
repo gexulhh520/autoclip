@@ -39,6 +39,7 @@ from backend.services.voiceover_broll_selection import (
     block_dict_for_search,
     build_broll_search_criteria,
     fallback_broll_trim_selection,
+    normalize_broll_block_trim_for_timeline,
     pick_best_semantic_match,
 )
 from backend.services.voiceover_timeline_sync import VoiceoverTimelineSyncService
@@ -585,11 +586,19 @@ class VoiceoverBrollService:
                 continue
             found = True
             data = item.model_dump()
+            media = dict(data.get("media") or {})
+            trim_in, trim_out, duration, media = normalize_broll_block_trim_for_timeline(
+                trim_in_sec,
+                trim_out_sec,
+                duration_sec,
+                media,
+            )
+            data["media"] = media
             data["trim"] = EditBlockTrim(
-                in_sec=trim_in_sec,
-                out_sec=trim_out_sec,
+                in_sec=trim_in,
+                out_sec=trim_out,
             ).model_dump()
-            data["duration_sec"] = duration_sec
+            data["duration_sec"] = duration
             if use_main_track:
                 apply_main_track_placement_to_block_data(data)
             else:

@@ -155,6 +155,27 @@ def apply_manual_trim_override(
     )
 
 
+def normalize_broll_block_trim_for_timeline(
+    trim_in_sec: float,
+    trim_out_sec: float,
+    duration_sec: float,
+    media: Optional[dict] = None,
+) -> Tuple[float, float, float, dict]:
+    """把源素材入点写入 media.source_start_sec，时间线 trim 从 0 起算，避免主轨把 in 当成时间轴偏移。"""
+    media = dict(media or {})
+    trim_in = float(trim_in_sec)
+    trim_out = float(trim_out_sec)
+    duration = max(0.1, float(duration_sec))
+    span = trim_out - trim_in if trim_out > trim_in + 0.001 else duration
+
+    if trim_in > 0.001:
+        media["source_start_sec"] = round(trim_in, 3)
+    else:
+        media.pop("source_start_sec", None)
+
+    return 0.0, span, duration, media
+
+
 def align_existing_block_trim_to_audio(
     *,
     block: EditBlock,

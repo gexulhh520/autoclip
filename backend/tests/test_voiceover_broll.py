@@ -36,6 +36,7 @@ from backend.services.voiceover_broll_selection import (
     apply_manual_trim_override,
     build_broll_search_criteria,
     fallback_broll_trim_selection,
+    normalize_broll_block_trim_for_timeline,
     pick_best_semantic_match,
 )
 
@@ -118,6 +119,28 @@ def test_apply_manual_trim_override():
     assert long_sel.source_in_sec == pytest.approx(3.0)
     assert long_sel.source_out_sec == pytest.approx(8.0)
     assert "对齐" in long_sel.selection_reason
+
+
+def test_normalize_broll_block_trim_for_timeline():
+    trim_in, trim_out, duration, media = normalize_broll_block_trim_for_timeline(
+        30.0,
+        35.0,
+        5.0,
+        {"type": "imported_clip", "path": "clip.mp4"},
+    )
+    assert trim_in == pytest.approx(0.0)
+    assert trim_out == pytest.approx(5.0)
+    assert duration == pytest.approx(5.0)
+    assert media["source_start_sec"] == pytest.approx(30.0)
+
+    trim_in, trim_out, duration, media = normalize_broll_block_trim_for_timeline(
+        0.0,
+        5.0,
+        5.0,
+        media,
+    )
+    assert trim_in == pytest.approx(0.0)
+    assert "source_start_sec" not in media
 
 
 def test_pick_best_semantic_match():
@@ -569,7 +592,10 @@ def test_apply_manual_broll_without_prior_select(monkeypatch, tmp_path):
     assert len(session.sequence) == 1
     block = session.sequence[0]
     assert block.duration_sec == pytest.approx(5.0, abs=0.05)
+    assert block.trim.in_sec == pytest.approx(0.0)
     assert block.trim.out_sec - block.trim.in_sec == pytest.approx(5.0, abs=0.05)
+    assert block.media.source_start_sec == pytest.approx(2.0, abs=0.05)
+    assert seg.broll.source_in_sec == pytest.approx(2.0, abs=0.05)
 
 
 def test_apply_manual_broll_library_asset_id_overrides_stale_selected(monkeypatch, tmp_path):
