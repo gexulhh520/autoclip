@@ -27,6 +27,33 @@ function encodePathSegment(value: string): string {
   return encodeURIComponent(value)
 }
 
+/** 按项目内媒体相对路径流式读取（同文件多 block 共用 URL） */
+export function projectMediaPreviewMediaUrl(
+  projectId: string,
+  relativeMediaPath: string
+): string {
+  const normalized = relativeMediaPath.replace(/\\/g, '/').replace(/^\/+/, '')
+  const encodedPath = normalized
+    .split('/')
+    .filter(Boolean)
+    .map(encodePathSegment)
+    .join('/')
+  return buildPreviewProtocolUrl(
+    `/media/${encodePathSegment(projectId)}/${encodedPath}`
+  )
+}
+
+export function projectMediaPreviewPlaybackUrl(
+  projectId: string,
+  relativeMediaPath: string,
+  options?: { httpFallback: string }
+): string {
+  return resolvePreviewPlaybackUrl(
+    options?.httpFallback ?? '',
+    projectMediaPreviewMediaUrl(projectId, relativeMediaPath)
+  )
+}
+
 export function blockPreviewMediaUrl(
   projectId: string,
   sessionId: string,

@@ -1,6 +1,6 @@
 import type { EditBlock, EditSession } from '../../types/editSession'
 import { isCrossTransition } from '../../types/transitions'
-import { isImportedBlock, resolveBlockMediaTimeSec } from '../../utils/editBlockMedia'
+import { resolveBlockMediaTimeSec, resolvePreviewMediaFileKey } from '../../utils/resolveMediaWindow'
 import { applyPreviewVideoSrc } from '../../utils/previewMediaUrl'
 import { isMainTrackBlock, resolveMainTrackSequentialBlocks } from '../videoTracks'
 import { isVoiceoverBrollBlock } from '../voiceover/voiceoverBroll'
@@ -28,8 +28,8 @@ export function blockNeedsDedicatedPreviewDecoder(
   return false
 }
 
-/** 同源导入仅主轨切割段可共用解码器；叠画轨（含口播 B-roll）各段独立，避免 seek 互相抢帧 */
-export function shouldShareImportedPreviewDecoder(
+/** 主轨同源媒体可共用解码器；叠画/B-roll/转场邻段独立 */
+export function shouldSharePreviewDecoder(
   block: EditBlock,
   session?: EditSession | null
 ): boolean {
@@ -39,17 +39,15 @@ export function shouldShareImportedPreviewDecoder(
   return true
 }
 
-/** 同源导入片段（含切割后多段）共用同一解码器，避免重复拉流 */
+/** 同源媒体（含切割多段）共用 decoder；URL 按 media.path 稳定 */
 export function resolvePreviewDecoderKey(
   block: EditBlock,
-  session?: EditSession | null
+  session?: EditSession | null,
+  useSourceVideo = false
 ): string {
-  if (
-    isImportedBlock(block) &&
-    block.media.path &&
-    shouldShareImportedPreviewDecoder(block, session)
-  ) {
-    return `media:${block.media.path}`
+  const fileKey = resolvePreviewMediaFileKey(block, useSourceVideo)
+  if (fileKey && shouldSharePreviewDecoder(block, session)) {
+    return `media:${fileKey}`
   }
   return `block:${block.id}`
 }
@@ -59,15 +57,22 @@ export function ensureDecoderBound(
   video: HTMLVideoElement,
   block: EditBlock,
   getVideoUrlForBlock: (block: EditBlock) => string,
-  session?: EditSession | null
+  session?: EditSession | null,
+  useSourceVideo = false
 ): boolean {
-  const decoderKey = resolvePreviewDecoderKey(block, session)
+  const decoderKey = resolvePreviewDecoderKey(block, session, useSourceVideo)
   const nextUrl = getVideoUrlForBlock(block)
   const boundUrl = video.dataset.effectiveUrl ?? video.src
-  if (video.dataset.decoderKey === decoderKey && boundUrl === nextUrl) {
+
+  if (video.dataset.decoderKey === decoderKey) {
     video.dataset.boundBlockId = block.id
-    return false
+    if (boundUrl === nextUrl) {
+      return false
+    }
+    applyPreviewVideoSrc(video, nextUrl)
+    return true
   }
+
   video.dataset.decoderKey = decoderKey
   video.dataset.boundBlockId = block.id
   applyPreviewVideoSrc(video, nextUrl)

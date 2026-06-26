@@ -1,5 +1,5 @@
 import type { EditBlock } from '../../types/editSession'
-import { blockUsesMediaSourceOffset } from '../../utils/editBlockMedia'
+import { readVideoSourceRelativeSec as readRelativeFromWindow } from '../../utils/resolveMediaWindow'
 import type { CompositionTimeline } from '../scene/types'
 import {
   mapRelativeSourceToCompositionTime,
@@ -16,10 +16,7 @@ export function readVideoSourceRelativeSec(
   block: EditBlock,
   useSourceVideo: boolean
 ): number {
-  if (blockUsesMediaSourceOffset(block, useSourceVideo)) {
-    return video.currentTime - block.media.source_start_sec! - block.trim.in_sec
-  }
-  return video.currentTime - block.trim.in_sec
+  return readRelativeFromWindow(video.currentTime, block, useSourceVideo)
 }
 
 export function compositionTimeFromVideo(

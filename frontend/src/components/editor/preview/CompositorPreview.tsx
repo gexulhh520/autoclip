@@ -452,7 +452,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         pool,
         warmupBlock,
         getVideoUrlForBlock,
-        session
+        session,
+        useSourceVideo
       )
       const warmupLayer: PreviewVideoLayerProps = {
         block: warmupBlock,
@@ -499,7 +500,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
           pool,
           block,
           getVideoUrlForBlock,
-          session
+          session,
+          useSourceVideo
         )
         video.muted = true
         video.volume = 0
@@ -589,7 +591,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         video,
         layer.block,
         getVideoUrlForBlock,
-        session
+        session,
+        useSourceVideo
       )
       if (rebinding) {
         const pool = getDecoderPool()
@@ -690,7 +693,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
           pool,
           layer.block,
           getVideoUrlForBlock,
-          session
+          session,
+          useSourceVideo
         )
         const audioMuted =
           clipAudioMuted || layer.block.id !== audioBlockId || layer.block.id === warmupId

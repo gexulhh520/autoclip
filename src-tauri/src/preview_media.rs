@@ -251,6 +251,14 @@ fn decode_path_segments(path: &str) -> Vec<String> {
 
 fn resolve_media_path_from_uri(path: &str) -> Result<PathBuf, String> {
     let segments = decode_path_segments(path);
+    if segments.len() >= 3 && segments[0] == "media" {
+        let rel = segments[2..].join("/");
+        if rel.contains("..") {
+            return Err("invalid media path".into());
+        }
+        let project_dir = project_dir(&segments[1])?;
+        return resolve_media_file_path(&project_dir, &rel);
+    }
     if segments.len() == 4 && segments[0] == "block" {
         return resolve_block_media_path(&segments[1], &segments[2], &segments[3]);
     }

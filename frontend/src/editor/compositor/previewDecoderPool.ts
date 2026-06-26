@@ -5,7 +5,11 @@ import { ensurePreviewVideoFrameCache } from './previewVideoFrameCache'
 const MAX_RETAINED_DECODERS = 8
 
 export interface PreviewDecoderPool {
-  ensureForBlock(block: EditBlock, session?: EditSession | null): HTMLVideoElement
+  ensureForBlock(
+    block: EditBlock,
+    session?: EditSession | null,
+    useSourceVideo?: boolean
+  ): HTMLVideoElement
   get(blockId: string): HTMLVideoElement | null
   getFrameCache(blockId: string): HTMLCanvasElement
   getLastStableFrame(blockId: string): HTMLCanvasElement | undefined
@@ -69,8 +73,8 @@ export function createPreviewDecoderPool(
   }
 
   return {
-    ensureForBlock(block: EditBlock, session?: EditSession | null): HTMLVideoElement {
-      const storageKey = resolvePreviewDecoderKey(block, session)
+    ensureForBlock(block: EditBlock, session?: EditSession | null, useSourceVideo = false): HTMLVideoElement {
+      const storageKey = resolvePreviewDecoderKey(block, session, useSourceVideo)
       blockToStorageKey.set(block.id, storageKey)
       return ensureStorage(storageKey, block.id)
     },
@@ -152,9 +156,10 @@ export function bindPreviewDecoder(
   pool: PreviewDecoderPool,
   block: EditBlock,
   getVideoUrlForBlock: (block: EditBlock) => string,
-  session?: EditSession | null
+  session?: EditSession | null,
+  useSourceVideo = false
 ): HTMLVideoElement {
-  const video = pool.ensureForBlock(block, session)
-  ensureDecoderBound(video, block, getVideoUrlForBlock, session)
+  const video = pool.ensureForBlock(block, session, useSourceVideo)
+  ensureDecoderBound(video, block, getVideoUrlForBlock, session, useSourceVideo)
   return video
 }

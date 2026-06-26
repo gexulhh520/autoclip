@@ -74,6 +74,7 @@ import {
   defaultVideoTrackName,
   ensureVideoTracks,
   isMainTrackBlock,
+  isMainTrackFreePositionBlock,
   nextVideoTrackOrder,
   reorderVideoTrackMetas,
   resolveMainTrackSequentialBlocks,
@@ -159,6 +160,7 @@ import {
   resolveVideoBlockSplitAt,
   splitAudioClipElement,
   splitOverlayElement,
+  splitTimelinePositionedVideoBlockAt,
   splitVideoBlockAt,
 } from '../editor/timeline/splitAtPlayhead'
 import {
@@ -3409,15 +3411,34 @@ export const useEditSessionStore = create<EditSessionState>()(
         const index = session.sequence.findIndex((item) => item.id === target.blockId)
         if (index < 0) return false
         const block = session.sequence[index]!
+
+        if (isMainTrackFreePositionBlock(block) || !isMainTrackBlock(block)) {
+          const split = splitTimelinePositionedVideoBlockAt(block, sequencePlayheadSec)
+          if (!split) return false
+          set((draft) => {
+            if (!draft.session) return
+            const current = draft.session.sequence[index]
+            if (!current) return
+            draft.session.sequence[index] = split.first
+            const second: EditBlock = { ...split.second, id: nanoid() }
+            draft.session.sequence.splice(index + 1, 0, second)
+            draft.selectedBlockId = second.id
+            draft.selectedBlockIds = [second.id]
+            draft.dirty = true
+          })
+          return true
+        }
+
         const segments = buildCompositionTimelineSegments(
-          session.sequence,
+          resolveMainTrackSequentialBlocks(session),
           pxPerSec,
           transitionDurationSec(session),
           session.sequence_block_gaps
         )
         const segment = segments.find((item) => item.block.id === target.blockId)
         if (!segment) return false
-        const splitAt = resolveVideoBlockSplitAt(block, segment.startSec, sequencePlayheadSec)
+        const visualStart = blockTimelineVisualStartSec(segment.startSec, block)
+        const splitAt = resolveVideoBlockSplitAt(block, visualStart, sequencePlayheadSec)
         if (splitAt == null) return false
 
         set((draft) => {

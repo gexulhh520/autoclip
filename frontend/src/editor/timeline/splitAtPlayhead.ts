@@ -1,7 +1,14 @@
 import type { AudioClipElement, EditBlock, EditOverlayElement, EditSession } from '../../types/editSession'
 import {
+  isMainTrackBlock,
+  isMainTrackFreePositionBlock,
+  resolveMainTrackSequentialBlocks,
+  blockTimelineStartSec,
+} from '../videoTracks'
+import {
   blockDuration,
   blockPlaybackRate,
+  blockTimelineVisualStartSec,
   buildCompositionTimelineSegments,
 } from '../../utils/editTimeline'
 
@@ -80,61 +87,99 @@ export function resolveSplitSelectionTarget(params: {
   const blockId = captionBlockId ?? selectedBlockId
   if (!blockId) return null
 
+  const block = session.sequence.find((item) => item.id === blockId)
+  if (!block) return null
+
+  if (isMainTrackFreePositionBlock(block) || !isMainTrackBlock(block)) {
+    if (
+      isPlayheadSplittableInRange(
+        blockTimelineStartSec(block),
+        blockDuration(block),
+        playheadSec
+      )
+    ) {
+      return { kind: 'video_block', blockId }
+    }
+    return null
+  }
+
   const segments = buildCompositionTimelineSegments(
-    session.sequence,
+    resolveMainTrackSequentialBlocks(session),
     pxPerSec,
-    transitionDurationSec
+    transitionDurationSec,
+    session.sequence_block_gaps
   )
   const segment = segments.find((item) => item.block.id === blockId)
   if (!segment) return null
 
-  const relativeSec = playheadSec - segment.startSec
-  if (
-    relativeSec <= MIN_SPLIT_GAP_SEC ||
-    relativeSec >= segment.duration - MIN_SPLIT_GAP_SEC
-  ) {
+  const visualStart = blockTimelineVisualStartSec(segment.startSec, segment.block)
+  if (!isPlayheadSplittableInRange(visualStart, segment.duration, playheadSec)) {
     return null
   }
 
   return { kind: 'video_block', blockId }
 }
 
-/** 切割主轨视频：第二段 trim.in 归零，源偏移写入 media.source_start_sec，避免负间隙被裁切逻辑重置 */
+/**
+ * 非破坏性切割：同 media.path，仅调整 trim 窗口；不修改 source_start_sec。
+ */
 export function splitVideoBlockAt(
   block: EditBlock,
-  splitAtSourceSec: number
+  splitAtTrimSec: number
 ): { first: EditBlock; second: Omit<EditBlock, 'id'> } {
-  const sourceOffset = block.media.source_start_sec ?? 0
   const cloned = JSON.parse(JSON.stringify(block)) as EditBlock
   return {
     first: {
       ...JSON.parse(JSON.stringify(block)) as EditBlock,
       trim: {
         in_sec: block.trim.in_sec,
-        out_sec: splitAtSourceSec,
+        out_sec: splitAtTrimSec,
       },
     },
     second: {
       ...cloned,
       trim: {
-        in_sec: 0,
-        out_sec: block.trim.out_sec - splitAtSourceSec,
+        in_sec: splitAtTrimSec,
+        out_sec: block.trim.out_sec,
       },
-      media: {
-        ...cloned.media,
-        source_start_sec: sourceOffset + splitAtSourceSec,
-      },
+    },
+  }
+}
+
+export function splitTimelinePositionedVideoBlockAt(
+  block: EditBlock,
+  playheadSec: number,
+  minGap = MIN_SPLIT_GAP_SEC
+): { first: EditBlock; second: Omit<EditBlock, 'id'> } | null {
+  const startSec = blockTimelineStartSec(block)
+  if (!isPlayheadSplittableInRange(startSec, blockDuration(block), playheadSec, minGap)) {
+    return null
+  }
+  const offset = playheadSec - startSec
+  const splitAtTrimSec = block.trim.in_sec + offset * blockPlaybackRate(block)
+  if (
+    splitAtTrimSec <= block.trim.in_sec + minGap ||
+    splitAtTrimSec >= block.trim.out_sec - minGap
+  ) {
+    return null
+  }
+  const split = splitVideoBlockAt(block, splitAtTrimSec)
+  return {
+    first: split.first,
+    second: {
+      ...split.second,
+      timeline_start_sec: playheadSec,
     },
   }
 }
 
 export function resolveVideoBlockSplitAt(
   block: EditBlock,
-  segmentStartSec: number,
+  visualStartSec: number,
   playheadSec: number,
   minGap = MIN_SPLIT_GAP_SEC
 ): number | null {
-  const relativeSec = playheadSec - segmentStartSec
+  const relativeSec = playheadSec - visualStartSec
   const timelineDuration = blockDuration(block)
   if (relativeSec <= minGap || relativeSec >= timelineDuration - minGap) {
     return null

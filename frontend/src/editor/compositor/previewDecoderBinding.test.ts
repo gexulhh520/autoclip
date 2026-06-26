@@ -5,6 +5,7 @@ import {
   ensureDecoderBound,
   ensureDecoderPreloadForTargetTime,
   resolvePreviewDecoderKey,
+  shouldSharePreviewDecoder,
 } from './previewDecoderBinding'
 
 const importedBlock = (id: string, path: string, transition: EditBlock['transition_out'] = 'cut'): EditBlock => ({
@@ -26,7 +27,7 @@ const sessionWith = (sequence: EditBlock[]): EditSession =>
   }) as EditSession
 
 describe('previewDecoderBinding', () => {
-  it('resolvePreviewDecoderKey shares storage for same imported media path', () => {
+  it('resolvePreviewDecoderKey shares storage for same media path', () => {
     const path = 'edit_sessions/s1/media/clip.mp4'
     const editSession = sessionWith([
       importedBlock('b1', path),
@@ -35,6 +36,24 @@ describe('previewDecoderBinding', () => {
     expect(resolvePreviewDecoderKey(importedBlock('b1', path), editSession)).toBe(
       resolvePreviewDecoderKey(importedBlock('b2', path), editSession)
     )
+  })
+
+  it('step6 clips on main track share decoder by media path', () => {
+    const path = 'output/clips/moment-a.mp4'
+    const blockA = {
+      ...importedBlock('a1', path),
+      source_clip_id: 'moment-a',
+      media: { type: 'step6_clip' as const, path },
+    }
+    const blockB = {
+      ...blockA,
+      id: 'a2',
+      trim: { in_sec: 4, out_sec: 10 },
+    }
+    const editSession = sessionWith([blockA, blockB])
+    expect(shouldSharePreviewDecoder(blockA, editSession)).toBe(true)
+    expect(resolvePreviewDecoderKey(blockA, editSession)).toBe(`media:${path}`)
+    expect(resolvePreviewDecoderKey(blockB, editSession)).toBe(`media:${path}`)
   })
 
   it('overlay imported blocks use dedicated decoders even with same media path', () => {
@@ -81,7 +100,8 @@ describe('previewDecoderBinding', () => {
       importedBlock('b2', path),
     ])
     const video = { src: '', dataset: {} as DOMStringMap } as HTMLVideoElement
-    const getUrl = () => `video://localhost/block/p/s/shared`
+    const getUrl = () =>
+      `video://localhost/media/p/edit_sessions/s1/media/clip.mp4`
 
     expect(ensureDecoderBound(video, importedBlock('b1', path), getUrl, editSession)).toBe(true)
     const firstSrc = video.src

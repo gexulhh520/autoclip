@@ -5,13 +5,10 @@ import {
   resolveVideoBlockSplitAt,
   splitAudioClipElement,
   splitOverlayElement,
+  splitTimelinePositionedVideoBlockAt,
   splitVideoBlockAt,
 } from './splitAtPlayhead'
-import { buildCompositionTimeline } from '../scene/timelineLayout'
-import {
-  blockTimelineVisualEndSec,
-  blockTimelineVisualStartSec,
-} from '../../utils/editTimeline'
+import { resolveBlockMediaTimeSec } from '../../utils/resolveMediaWindow'
 
 describe('splitAtPlayhead', () => {
   it('isPlayheadSplittableInRange rejects edges', () => {
@@ -67,28 +64,78 @@ describe('splitAtPlayhead', () => {
     expect(resolveVideoBlockSplitAt(block, 0, 2.5)).toBe(5)
   })
 
-  it('splitVideoBlockAt keeps timeline contiguous without negative gaps', () => {
+  it('resolveVideoBlockSplitAt uses visual start when trim.in_sec > 0', () => {
+    const block: EditBlock = {
+      id: 'b1',
+      title: 'clip',
+      source_clip_id: 'c1',
+      duration_sec: 10,
+      trim: { in_sec: 4, out_sec: 14 },
+      media: { type: 'step6_clip', path: '/a.mp4' },
+      overlay: { outline: '', content: [], recommend_reason: '' },
+      audio: { volume: 1 },
+      transition_out: 'cut',
+    }
+    expect(resolveVideoBlockSplitAt(block, 4, 6)).toBe(6)
+  })
+
+  it('splitVideoBlockAt is non-destructive and keeps same media path', () => {
     const block: EditBlock = {
       id: 'b1',
       title: 'clip',
       source_clip_id: 'c1',
       duration_sec: 10,
       trim: { in_sec: 0, out_sec: 10 },
-      media: { type: 'step6_clip', path: '/a.mp4' },
+      media: { type: 'step6_clip', path: 'output/clips/a.mp4' },
       overlay: { outline: '', content: [], recommend_reason: '' },
       audio: { volume: 1 },
       transition_out: 'cut',
     }
     const split = splitVideoBlockAt(block, 4)
     expect(split.first.trim).toEqual({ in_sec: 0, out_sec: 4 })
-    expect(split.second.trim).toEqual({ in_sec: 0, out_sec: 6 })
-    expect(split.second.media.source_start_sec).toBe(4)
+    expect(split.second.trim).toEqual({ in_sec: 4, out_sec: 10 })
+    expect(split.second.media.path).toBe(block.media.path)
+    expect(split.second.media.source_start_sec).toBeUndefined()
+    expect(resolveBlockMediaTimeSec(split.second, 0, false)).toBeCloseTo(4, 3)
+  })
 
-    const timeline = buildCompositionTimeline([split.first, { ...split.second, id: 'b2' }], 0.35, [0])
-    const seg0 = timeline.segments[0]!
-    const seg1 = timeline.segments[1]!
-    const end0 = blockTimelineVisualEndSec(seg0.compositionStartSec, seg0.block)
-    const start1 = blockTimelineVisualStartSec(seg1.compositionStartSec, seg1.block)
-    expect(start1).toBeCloseTo(end0, 3)
+  it('splitVideoBlockAt preserves imported source_start_sec', () => {
+    const block: EditBlock = {
+      id: 'import-1',
+      title: '长片',
+      source_clip_id: 'import-abc',
+      duration_sec: 90,
+      trim: { in_sec: 0, out_sec: 30 },
+      media: {
+        type: 'imported_clip',
+        path: 'edit_sessions/s1/media/long.mp4',
+        source_start_sec: 60,
+      },
+      overlay: { outline: '', content: [], recommend_reason: '' },
+      audio: { volume: 1 },
+      transition_out: 'cut',
+    }
+    const split = splitVideoBlockAt(block, 10)
+    expect(split.second.trim).toEqual({ in_sec: 10, out_sec: 30 })
+    expect(split.second.media.source_start_sec).toBe(60)
+    expect(resolveBlockMediaTimeSec(split.second, 0, false)).toBeCloseTo(70, 3)
+  })
+
+  it('splitTimelinePositionedVideoBlockAt splits free-position block', () => {
+    const block: EditBlock = {
+      id: 'b1',
+      title: 'clip',
+      source_clip_id: 'c1',
+      duration_sec: 10,
+      trim: { in_sec: 0, out_sec: 10 },
+      timeline_start_sec: 8,
+      media: { type: 'step6_clip', path: '/a.mp4' },
+      overlay: { outline: '', content: [], recommend_reason: '' },
+      audio: { volume: 1 },
+      transition_out: 'cut',
+    }
+    const split = splitTimelinePositionedVideoBlockAt(block, 12)
+    expect(split?.second.timeline_start_sec).toBe(12)
+    expect(split?.second.trim.in_sec).toBe(4)
   })
 })
