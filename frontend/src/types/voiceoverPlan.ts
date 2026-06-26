@@ -129,6 +129,7 @@ export interface VoiceoverSelectMaterialRequest {
 export interface VoiceoverApplyBrollRequest {
   source_in_sec?: number | null
   source_out_sec?: number | null
+  trim_anchor?: 'in' | 'out' | null
   library_asset_id?: string | null
   search_result_index?: number | null
   wait_download_timeout_sec?: number

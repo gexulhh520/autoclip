@@ -177,6 +177,7 @@ class VoiceoverBrollService:
         *,
         source_in_sec: Optional[float] = None,
         source_out_sec: Optional[float] = None,
+        trim_anchor: Optional[str] = None,
         library_asset_id: Optional[str] = None,
         search_result_index: Optional[int] = None,
         wait_download_timeout_sec: float = 180.0,
@@ -283,6 +284,7 @@ class VoiceoverBrollService:
                 target_duration_sec=target_duration,
                 source_duration_sec=source_duration,
                 previous_reason=segment.broll.selection_reason or "",
+                trim_anchor=trim_anchor or "in",
             )
         else:
             selection = self._semantic_select_trim(
@@ -760,11 +762,22 @@ class VoiceoverBrollService:
         session_id: str,
         block_id: str,
     ) -> float:
-        duration = self.session_service.probe_imported_block_duration(
-            project_id,
-            session_id,
-            block_id,
-        )
+        session = self.session_service.get_session(project_id, session_id)
+        block = next((item for item in session.sequence if item.id == block_id), None)
+        if block is None:
+            raise ValueError(f"视频 block 不存在: {block_id}")
+
+        project_dir = get_project_directory(project_id)
+        from backend.pipeline.edit_renderer import _resolve_input_video
+
+        video_path = _resolve_input_video(project_dir, block)
+        duration = VideoProcessor.probe_video_duration_sec(video_path)
+        if duration <= 0:
+            duration = self.session_service.probe_imported_block_duration(
+                project_id,
+                session_id,
+                block_id,
+            )
         if duration <= 0:
             raise ValueError("素材时长探测失败")
         return float(duration)

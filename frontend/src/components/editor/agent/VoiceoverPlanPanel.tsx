@@ -680,13 +680,16 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     (
       segmentId: string,
       useManualTrim: boolean,
-      trim?: { inSec: number; outSec: number },
+      trim?: { inSec: number; outSec: number; anchor?: 'in' | 'out' },
       libraryAssetOverride?: string
     ): VoiceoverApplyBrollRequest => {
       const payload: VoiceoverApplyBrollRequest = { wait_download_timeout_sec: 600 }
       if (useManualTrim && trim) {
         payload.source_in_sec = trim.inSec
         payload.source_out_sec = trim.outSec
+        if (trim.anchor) {
+          payload.trim_anchor = trim.anchor
+        }
       }
       const libraryAssetId =
         libraryAssetOverride?.trim() || libraryPickBySegment[segmentId]?.trim() || undefined
@@ -706,7 +709,7 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
   const handleApplyBroll = async (
     segmentId: string,
     useManualTrim: boolean,
-    trim?: { inSec: number; outSec: number },
+    trim?: { inSec: number; outSec: number; anchor?: 'in' | 'out' },
     libraryAssetOverride?: string
   ) => {
     setBrollBusySegmentId(segmentId)
@@ -835,7 +838,11 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     }
   }
 
-  const handleConfirmManualTrim = async (trimInSec: number, trimOutSec: number) => {
+  const handleConfirmManualTrim = async (
+    trimInSec: number,
+    trimOutSec: number,
+    trimAnchor: 'in' | 'out' = 'in'
+  ) => {
     if (!trimPreview) return
     const segmentId = trimPreview.segmentId
     const libraryAssetId = trimPreview.asset.id?.trim()
@@ -848,6 +855,7 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
         {
           inSec: trimInSec,
           outSec: trimOutSec,
+          anchor: trimAnchor,
         },
         libraryAssetId
       )

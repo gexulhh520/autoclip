@@ -125,25 +125,43 @@ def apply_manual_trim_override(
     target_duration_sec: float,
     source_duration_sec: float,
     previous_reason: str = "",
+    trim_anchor: str = "in",
 ) -> BrollTrimSelection:
     target = max(0.1, float(target_duration_sec))
-    source_max = max(0.1, float(source_duration_sec))
-    user_in = max(0.0, min(float(source_in_sec), source_max - 0.05))
-    user_out = max(user_in + 0.05, min(float(source_out_sec), source_max))
+    raw_in = float(source_in_sec)
+    raw_out = float(source_out_sec)
+    # 用户选段可能超出 block.duration_sec（时间线时长），需以选段边界扩展素材上限
+    source_max = max(0.1, float(source_duration_sec), raw_out, raw_in + 0.05)
+
+    user_out = max(0.05, min(raw_out, source_max))
+    user_in = max(0.0, min(raw_in, user_out - 0.05))
     user_span = user_out - user_in
+    tolerance = 0.1
+    anchor = (trim_anchor or "in").strip().lower()
+    if anchor not in ("in", "out"):
+        anchor = "in"
 
-    in_sec = user_in
-    out_sec = min(source_max, in_sec + target)
-    if out_sec - in_sec < target - 0.001:
-        in_sec = max(0.0, out_sec - target)
-
-    if abs(user_span - target) > 0.05:
+    if abs(user_span - target) <= tolerance:
+        in_sec = user_in
+        out_sec = user_out
+        reason = f"用户确认选段 {in_sec:.2f}s–{out_sec:.2f}s"
+    else:
+        if anchor == "out":
+            out_sec = user_out
+            in_sec = max(0.0, out_sec - target)
+        else:
+            in_sec = user_in
+            out_sec = min(source_max, in_sec + target)
+        if out_sec - in_sec < target - 0.001:
+            if anchor == "out":
+                in_sec = max(0.0, out_sec - target)
+            else:
+                out_sec = min(source_max, in_sec + target)
+                in_sec = max(0.0, out_sec - target)
         reason = (
             f"用户选段 {user_in:.2f}s–{user_out:.2f}s，"
             f"按口播 {target:.2f}s 对齐为 {in_sec:.2f}s–{out_sec:.2f}s"
         )
-    else:
-        reason = f"用户确认选段 {in_sec:.2f}s–{out_sec:.2f}s"
 
     if previous_reason.strip():
         reason = f"{previous_reason.strip()}；{reason}"

@@ -121,6 +121,26 @@ def test_apply_manual_trim_override():
     assert long_sel.source_out_sec == pytest.approx(8.0)
     assert "对齐" in long_sel.selection_reason
 
+    out_anchor = apply_manual_trim_override(
+        source_in_sec=3.0,
+        source_out_sec=30.0,
+        target_duration_sec=5.0,
+        source_duration_sec=30.0,
+        trim_anchor="out",
+    )
+    assert out_anchor.source_in_sec == pytest.approx(25.0)
+    assert out_anchor.source_out_sec == pytest.approx(30.0)
+
+    # block.duration_sec 可能仅为口播时长，不能据此 clamp 用户选段
+    short_probe = apply_manual_trim_override(
+        source_in_sec=30.0,
+        source_out_sec=35.0,
+        target_duration_sec=5.0,
+        source_duration_sec=5.0,
+    )
+    assert short_probe.source_in_sec == pytest.approx(30.0)
+    assert short_probe.source_out_sec == pytest.approx(35.0)
+
 
 def test_normalize_broll_block_trim_for_timeline():
     trim_in, trim_out, duration, media = normalize_broll_block_trim_for_timeline(
@@ -697,6 +717,104 @@ def test_apply_manual_broll_aligns_overlay_to_audio_clip(monkeypatch, tmp_path):
     assert block.media.source_start_sec == pytest.approx(30.0)
     assert block.trim.in_sec == pytest.approx(0.0)
     assert block.duration_sec == pytest.approx(4.0, abs=0.05)
+
+
+def test_apply_manual_broll_respects_trim_when_block_duration_is_tts_length(monkeypatch, tmp_path):
+    """创建 block 后 duration_sec 仅为口播时长，不能误当作素材全长 clamp 用户选段。"""
+    from backend.services.voiceover_plan_service import VoiceoverPlanService
+
+    project_id = "proj_vo_manual_probe"
+    project_dir = tmp_path / "data" / "projects" / project_id
+    project_dir.mkdir(parents=True)
+    (project_dir / "edit_sessions").mkdir()
+    library_video = tmp_path / "broll.mp4"
+    library_video.write_bytes(b"fake-video")
+
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.resolve_library_video_path",
+        lambda asset_id: library_video if asset_id == "lib-broll" else None,
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.get_library_asset",
+        lambda asset_id: {"id": asset_id, "title": "测试素材", "platform": "local"},
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.VideoProcessor.probe_video_duration_sec",
+        lambda _path: 120.0,
+    )
+
+    audio = AudioClipElement(
+        id="vo-audio-probe",
+        asset_id="tts-probe",
+        start_sec=2.0,
+        duration_sec=5.0,
+    )
+    session_service = EditSessionService(db=None)
+    created = session_service.create_blank_session(project_id, name="manual probe")
+    plan = VoiceoverPlan(
+        id="vo-plan",
+        status=VoiceoverPlanStatus.CONFIRMED,
+        user_brief="测试",
+        segments=[
+            VoiceoverSegment(
+                id="seg-probe",
+                index=1,
+                narration_text="测试",
+                status=VoiceoverSegmentStatus.TTS_DONE,
+                tts=VoiceoverTtsState(
+                    duration_sec=5.0,
+                    timeline_start_sec=2.0,
+                    audio_clip_id=audio.id,
+                ),
+                broll=VoiceoverBrollState(
+                    selected=VoiceoverSearchResult(
+                        platform="local",
+                        title="测试素材",
+                        url="",
+                        in_library=True,
+                        library_asset_id="lib-broll",
+                    )
+                ),
+            )
+        ],
+    )
+    session_service.update_session(
+        project_id,
+        created.id,
+        EditSessionUpdateRequest(audio_elements=[audio], voiceover_plan=plan),
+    )
+
+    vo_service = VoiceoverPlanService(session_service=session_service)
+    monkeypatch.setattr(
+        session_service,
+        "probe_imported_block_duration",
+        lambda *_args, **_kwargs: 5.0,
+    )
+    monkeypatch.setattr(
+        session_service,
+        "_prepare_import_video_source",
+        lambda source, dest: (source, "reference"),
+    )
+
+    session, updated_plan, _note = vo_service.apply_segment_broll(
+        project_id,
+        created.id,
+        "seg-probe",
+        VoiceoverApplyBrollRequest(
+            source_in_sec=30.0,
+            source_out_sec=35.0,
+        ),
+    )
+
+    block = next(item for item in session.sequence if item.id == updated_plan.segments[0].broll.block_id)
+    assert block.media.source_start_sec == pytest.approx(30.0)
+    assert block.duration_sec == pytest.approx(5.0, abs=0.05)
+    assert updated_plan.segments[0].broll.source_in_sec == pytest.approx(30.0)
+    assert updated_plan.segments[0].broll.source_out_sec == pytest.approx(35.0)
 
 
 def test_apply_manual_broll_library_asset_id_overrides_stale_selected(monkeypatch, tmp_path):

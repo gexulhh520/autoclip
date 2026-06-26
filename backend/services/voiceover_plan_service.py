@@ -361,6 +361,7 @@ class VoiceoverPlanService:
             segment_id,
             source_in_sec=payload.source_in_sec,
             source_out_sec=payload.source_out_sec,
+            trim_anchor=payload.trim_anchor,
             library_asset_id=payload.library_asset_id,
             search_result_index=payload.search_result_index,
             wait_download_timeout_sec=payload.wait_download_timeout_sec,

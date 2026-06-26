@@ -26,7 +26,11 @@ export interface LibraryAssetTrimModalProps {
   targetDurationSec?: number | null
   initialTrim?: { inSec: number; outSec: number } | null
   onClose: () => void
-  onConfirm: (trimInSec: number, trimOutSec: number) => void | Promise<void>
+  onConfirm: (
+    trimInSec: number,
+    trimOutSec: number,
+    trimAnchor?: 'in' | 'out'
+  ) => void | Promise<void>
 }
 
 type DragTarget = 'in' | 'out' | 'playhead' | null
@@ -59,6 +63,7 @@ const LibraryAssetTrimModal: React.FC<LibraryAssetTrimModalProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<DragTarget>(null)
+  const trimAnchorRef = useRef<'in' | 'out'>('in')
 
   const [durationSec, setDurationSec] = useState(0)
   const [inSec, setInSec] = useState(0)
@@ -104,14 +109,16 @@ const LibraryAssetTrimModal: React.FC<LibraryAssetTrimModalProps> = ({
 
   const applyRange = useCallback(
     (nextIn: number, nextOut: number, anchor?: 'in' | 'out') => {
+      const resolvedAnchor = anchor ?? 'in'
+      trimAnchorRef.current = resolvedAnchor
       const duration = durationSec > 0 ? durationSec : Math.max(nextOut, asset?.duration_sec ?? 0)
       const clamped =
         targetDurationSec != null && targetDurationSec > 0
           ? alignTrimToTargetDuration(
               duration,
-              anchor === 'out' ? nextOut : nextIn,
+              resolvedAnchor === 'out' ? nextOut : nextIn,
               targetDurationSec,
-              anchor ?? 'in',
+              resolvedAnchor,
               MIN_TRIM_SPAN
             )
           : clampTrimRange(duration, nextIn, nextOut, MIN_TRIM_SPAN)
@@ -468,7 +475,7 @@ const LibraryAssetTrimModal: React.FC<LibraryAssetTrimModalProps> = ({
             className="library-trim-modal__btn library-trim-modal__btn--primary"
             disabled={confirming || duration <= 0 || outSec <= inSec + 0.09}
             onClick={() => {
-              void onConfirm(inSec, outSec)
+              void onConfirm(inSec, outSec, trimAnchorRef.current)
             }}
           >
             {confirming ? '处理中…' : confirmLabel}
