@@ -522,7 +522,137 @@ def test_resolve_segment_video_block_id_from_audio_linked_placeholder():
     assert resolve_segment_video_block_id(session, plan, plan.segments[0]) == placeholder_id
 
 
-def test_apply_segment_broll_removes_orphan_placeholder_after_duplicate(monkeypatch, tmp_path):
+def test_apply_segment_broll_keeps_other_segment_blocks_on_reapply(monkeypatch, tmp_path):
+    from backend.services.voiceover_plan_service import VoiceoverPlanService
+
+    project_id = "proj_vo_multi_seg"
+    project_dir = tmp_path / "data" / "projects" / project_id
+    project_dir.mkdir(parents=True)
+    (project_dir / "edit_sessions").mkdir()
+    library_video = tmp_path / "broll.mp4"
+    library_video.write_bytes(b"fake-video")
+
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.resolve_library_video_path",
+        lambda asset_id: library_video if asset_id == "lib-broll" else None,
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.get_library_asset",
+        lambda asset_id: {"id": asset_id, "title": "测试素材", "platform": "local"},
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.VideoProcessor.probe_video_duration_sec",
+        lambda _path: 45.0,
+    )
+    fake_match = SimpleNamespace(
+        trim_in_sec=1.0,
+        trim_out_sec=6.0,
+        match_score=0.9,
+        match_reason="画面匹配",
+    )
+    monkeypatch.setattr(
+        "backend.services.clip_event_detector.search_clip_events",
+        lambda *_args, **_kwargs: ([fake_match], {"engine": "test"}),
+    )
+
+    block_seg1 = EditBlock(
+        id="block-seg-1",
+        source_clip_id="import-1",
+        title=f"{BROLL_BLOCK_TITLE_PREFIX}1",
+        media=EditBlockMedia(type="imported_clip", path="seg1.mp4"),
+        trim=EditBlockTrim(in_sec=0.0, out_sec=5.0),
+        overlay=EditBlockOverlay(outline="", content=[], recommend_reason=""),
+        duration_sec=5.0,
+    )
+    block_seg2 = EditBlock(
+        id="block-seg-2",
+        source_clip_id="import-2",
+        title=f"{BROLL_BLOCK_TITLE_PREFIX}2",
+        media=EditBlockMedia(type="imported_clip", path="seg2.mp4"),
+        trim=EditBlockTrim(in_sec=0.0, out_sec=4.0),
+        overlay=EditBlockOverlay(outline="", content=[], recommend_reason=""),
+        duration_sec=4.0,
+    )
+    plan = VoiceoverPlan(
+        id="vo-plan",
+        status=VoiceoverPlanStatus.COMPLETED,
+        user_brief="测试",
+        segments=[
+            VoiceoverSegment(
+                id="seg-1",
+                index=1,
+                narration_text="第一段。",
+                status=VoiceoverSegmentStatus.BROLL_DONE,
+                tts=VoiceoverTtsState(duration_sec=5.0, timeline_start_sec=0.0),
+                broll=VoiceoverBrollState(
+                    block_id=block_seg1.id,
+                    library_asset_id="lib-broll",
+                    source_in_sec=0.0,
+                    source_out_sec=5.0,
+                    selected=VoiceoverSearchResult(title="素材1", url=""),
+                ),
+            ),
+            VoiceoverSegment(
+                id="seg-2",
+                index=2,
+                narration_text="第二段。",
+                status=VoiceoverSegmentStatus.BROLL_DONE,
+                tts=VoiceoverTtsState(duration_sec=4.0, timeline_start_sec=5.0),
+                broll=VoiceoverBrollState(
+                    block_id=block_seg2.id,
+                    library_asset_id="lib-broll",
+                    source_in_sec=1.0,
+                    source_out_sec=5.0,
+                    selected=VoiceoverSearchResult(
+                        title="素材2",
+                        url="",
+                        in_library=True,
+                        library_asset_id="lib-broll",
+                    ),
+                ),
+            ),
+        ],
+    )
+
+    session_service = EditSessionService(db=None)
+    created = session_service.create_blank_session(project_id, name="multi seg")
+    session_service.update_session(
+        project_id,
+        created.id,
+        EditSessionUpdateRequest(sequence=[block_seg1, block_seg2], voiceover_plan=plan),
+    )
+
+    vo_service = VoiceoverPlanService(session_service=session_service)
+    monkeypatch.setattr(
+        session_service,
+        "probe_imported_block_duration",
+        lambda *_args, **_kwargs: 45.0,
+    )
+    monkeypatch.setattr(
+        session_service,
+        "_prepare_import_video_source",
+        lambda source, dest: (source, "reference"),
+    )
+
+    session, updated_plan, _note = vo_service.apply_segment_broll(
+        project_id,
+        created.id,
+        "seg-2",
+        VoiceoverApplyBrollRequest(),
+    )
+
+    assert len(session.sequence) == 2
+    assert {block.id for block in session.sequence} == {block_seg1.id, block_seg2.id}
+    seg2 = next(item for item in updated_plan.segments if item.id == "seg-2")
+    assert seg2.broll.block_id == block_seg2.id
+    assert seg2.broll.source_out_sec - seg2.broll.source_in_sec == pytest.approx(4.0, abs=0.05)
+
+
+def test_apply_segment_broll_keeps_orphan_placeholder_on_reapply(monkeypatch, tmp_path):
     from backend.services.voiceover_plan_service import VoiceoverPlanService
 
     project_id = "proj_vo_orphan_ph"
@@ -647,12 +777,12 @@ def test_apply_segment_broll_removes_orphan_placeholder_after_duplicate(monkeypa
         VoiceoverApplyBrollRequest(),
     )
 
-    assert len(session.sequence) == 1
-    assert session.sequence[0].id == duplicate_id
+    assert len(session.sequence) == 2
+    assert {block.id for block in session.sequence} == {placeholder_id, duplicate_id}
     assert updated_plan.segments[0].broll.block_id == duplicate_id
 
 
-def test_apply_segment_broll_reuses_placeholder_when_plan_block_id_missing(monkeypatch, tmp_path):
+def test_apply_segment_broll_creates_new_block_when_plan_block_id_missing(monkeypatch, tmp_path):
     from backend.services.voiceover_plan_service import VoiceoverPlanService
 
     project_id = "proj_vo_reuse_ph"

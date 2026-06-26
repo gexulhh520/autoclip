@@ -4,6 +4,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
+from backend.schemas.edit_session import EditBlock
+from backend.schemas.voiceover_plan import VoiceoverSegment
+
 
 @dataclass
 class BrollTrimSelection:
@@ -149,4 +152,26 @@ def apply_manual_trim_override(
         source_in_sec=in_sec,
         source_out_sec=out_sec,
         selection_reason=reason,
+    )
+
+
+def align_existing_block_trim_to_audio(
+    *,
+    block: EditBlock,
+    segment: VoiceoverSegment,
+    target_duration_sec: float,
+    source_duration_sec: float,
+) -> BrollTrimSelection:
+    """重应用 B-roll：保留原 block 媒体，仅按口播时长对齐 trim。"""
+    in_sec = segment.broll.source_in_sec
+    out_sec = segment.broll.source_out_sec
+    if in_sec is None or out_sec is None:
+        in_sec = float(block.trim.in_sec or 0.0)
+        out_sec = float(block.trim.out_sec or target_duration_sec)
+    return apply_manual_trim_override(
+        source_in_sec=in_sec,
+        source_out_sec=out_sec,
+        target_duration_sec=target_duration_sec,
+        source_duration_sec=source_duration_sec,
+        previous_reason=segment.broll.selection_reason or "",
     )
