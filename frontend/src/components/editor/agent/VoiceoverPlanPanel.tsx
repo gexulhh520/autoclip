@@ -8,7 +8,12 @@ import {
 import { voiceoverApi } from '../../../services/voiceoverApi'
 import editApi from '../../../services/editApi'
 import libraryApi, { type LibraryAsset } from '../../../services/libraryApi'
-import type { VoiceoverPlan, VoiceoverSegment, VoiceoverSearchQueryLanguage } from '../../../types/voiceoverPlan'
+import type {
+  VoiceoverPlan,
+  VoiceoverSegment,
+  VoiceoverSearchQueryLanguage,
+  VoiceoverSearchResult,
+} from '../../../types/voiceoverPlan'
 import {
   MAX_VOICEOVER_SEGMENTS,
   VOICEOVER_BROLL_APPLY_STAGE_LABEL,
@@ -743,7 +748,7 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
   }, [selectedSearchIndex])
 
   const downloadSearchResultToLibrary = useCallback(
-    async (item: NonNullable<VoiceoverSegment['broll']>['search_results']>[number]) => {
+    async (item: VoiceoverSearchResult) => {
       const url = (item.url || '').trim()
       if (!url) {
         throw new Error('该搜索结果缺少可用链接')
