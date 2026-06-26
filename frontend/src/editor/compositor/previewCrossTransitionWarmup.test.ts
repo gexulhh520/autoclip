@@ -26,10 +26,11 @@ const session = (sequence: EditBlock[]): EditSession =>
   }) as EditSession
 
 describe('previewCrossTransitionWarmup', () => {
-  it('warms incoming for the whole outgoing clip before cross window', () => {
+  it('warms incoming only shortly before cross window', () => {
     const editSession = session([block('a', 4, 'dissolve'), block('b', 3)])
-    expect(findUpcomingCrossIncomingBlock(editSession, 0.5)?.id).toBe('b')
-    expect(findUpcomingCrossIncomingBlock(editSession, 2.0)?.id).toBe('b')
+    expect(findUpcomingCrossIncomingBlock(editSession, 0.5)).toBeNull()
+    expect(findUpcomingCrossIncomingBlock(editSession, 2.0)).toBeNull()
+    expect(findUpcomingCrossIncomingBlock(editSession, 3.5)?.id).toBe('b')
   })
 
   it('returns null once cross window has started', () => {

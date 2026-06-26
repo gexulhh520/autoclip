@@ -161,8 +161,6 @@ const PLAYBACK_END_EPSILON_SEC = 0.02
 const PLAYBACK_SEEK_DRIFT_SEC = 1.0
 /** 叠画轨（口播 B-roll）播放时放宽漂移校正，避免周期性 seek 造成顿挫 */
 const OVERLAY_PLAYBACK_DRIFT_SEC = 1.25
-/** 转场播放时略收紧 drift，但勿每帧 seek（会导致解码器无法出帧 → 灰屏） */
-const CROSS_PLAYBACK_SEEK_DRIFT_SEC = 0.12
 
 function paintAfterVideoSync(
   videos: HTMLVideoElement[],
@@ -615,16 +613,17 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       const isOverlayImported =
         !isMainTrackBlock(layer.block) && isImportedBlock(layer.block)
       const driftThreshold =
-        inDissolve && isPlaying
-          ? CROSS_PLAYBACK_SEEK_DRIFT_SEC
-          : isPlaying && (isOverlayImported || isVoiceoverMainBroll)
-            ? OVERLAY_PLAYBACK_DRIFT_SEC
-            : PLAYBACK_SEEK_DRIFT_SEC
+        isPlaying && (isOverlayImported || isVoiceoverMainBroll)
+          ? OVERLAY_PLAYBACK_DRIFT_SEC
+          : PLAYBACK_SEEK_DRIFT_SEC
 
       let mustSeek = forceSeek || rebinding || forceTransitionSeek
       if (!mustSeek) {
         if (!isPlaying) {
           mustSeek = drift > driftThreshold
+        } else if (inDissolve) {
+          // 转场窗口内由墙钟 + progress 驱动 target；禁止 drift seek（短窗口内极易闪帧）
+          mustSeek = false
         } else if (isOverlayImported || isVoiceoverMainBroll) {
           // 口播 B-roll / 叠画：段内跟 video 自然播放，仅在段首一次性对齐
           mustSeek = layer.relativeSourceSec < 0.25 && drift > 0.08
