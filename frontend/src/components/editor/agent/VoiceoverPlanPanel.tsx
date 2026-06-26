@@ -18,6 +18,11 @@ import { useEditSessionStore } from '../../../stores/useEditSessionStore'
 import { openExternalLink } from '../../../utils/externalLinks'
 import { waitForDownloadTask } from '../../../editor/agent/materialLibraryTools'
 import LibraryAssetTrimModal from '../library/LibraryAssetTrimModal'
+import {
+  blockTimelineStartSec,
+  getBlockTrackId,
+} from '../../../editor/videoTracks'
+import type { VoiceoverApplyBrollRequest } from '../../../types/voiceoverPlan'
 
 interface VoiceoverPlanPanelProps {
   projectId: string
@@ -124,6 +129,9 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
   const sessionPlan = useEditSessionStore((state) => state.session?.voiceover_plan ?? null)
   const syncSessionFromApi = useEditSessionStore((state) => state.syncSessionFromApi)
   const withServerMutation = useEditSessionStore((state) => state.withServerMutation)
+  const setSelectedBlockId = useEditSessionStore((state) => state.setSelectedBlockId)
+  const setActiveVideoTrackId = useEditSessionStore((state) => state.setActiveVideoTrackId)
+  const setSequencePlayheadSec = useEditSessionStore((state) => state.setSequencePlayheadSec)
 
   const [userBrief, setUserBrief] = useState('')
   const [draftPlan, setDraftPlan] = useState<VoiceoverPlan | null>(null)
@@ -268,10 +276,34 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
             }
             throw new Error(status.error || status.message || 'B-roll 应用失败')
           }
-          if (status.session) {
-            syncSessionFromApi(status.session)
+          let syncedSession = status.session
+          if (syncedSession) {
+            syncSessionFromApi(syncedSession)
             setDraftPlan(null)
             setSearchQueryDrafts({})
+          } else {
+            const refreshed = await voiceoverApi.getPlan(projectId, sessionId)
+            if (refreshed.session) {
+              syncedSession = refreshed.session
+              syncSessionFromApi(refreshed.session)
+              setDraftPlan(null)
+              setSearchQueryDrafts({})
+            }
+          }
+          if (syncedSession) {
+            const blockId =
+              status.plan?.segments.find((item) => item.id === segmentId)?.broll?.block_id?.trim() ||
+              syncedSession.voiceover_plan?.segments
+                .find((item) => item.id === segmentId)
+                ?.broll?.block_id?.trim()
+            if (blockId) {
+              const block = syncedSession.sequence.find((item) => item.id === blockId)
+              if (block) {
+                setActiveVideoTrackId(getBlockTrackId(block))
+                setSelectedBlockId(blockId)
+                setSequencePlayheadSec(blockTimelineStartSec(block))
+              }
+            }
           }
           return status
         }
@@ -281,7 +313,14 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
         'B-roll 应用等待超时，任务可能仍在后台进行。请稍后重新打开草稿查看，勿重复点击。'
       )
     },
-    [projectId, sessionId, syncSessionFromApi]
+    [
+      projectId,
+      sessionId,
+      syncSessionFromApi,
+      setActiveVideoTrackId,
+      setSelectedBlockId,
+      setSequencePlayheadSec,
+    ]
   )
 
   const canEditSearchQueries = (segment: VoiceoverSegment) =>
@@ -625,10 +664,37 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     }
   }
 
+  const buildBrollApplyPayload = useCallback(
+    (
+      segmentId: string,
+      useManualTrim: boolean,
+      trim?: { inSec: number; outSec: number },
+      libraryAssetOverride?: string
+    ): VoiceoverApplyBrollRequest => {
+      const payload: VoiceoverApplyBrollRequest = { wait_download_timeout_sec: 600 }
+      if (useManualTrim && trim) {
+        payload.source_in_sec = trim.inSec
+        payload.source_out_sec = trim.outSec
+      }
+      const libraryAssetId =
+        libraryAssetOverride?.trim() || libraryPickBySegment[segmentId]?.trim() || undefined
+      if (libraryAssetId) {
+        payload.library_asset_id = libraryAssetId
+      }
+      const searchIndex = selectedSearchIndex[segmentId]
+      if (searchIndex !== undefined && !Number.isNaN(searchIndex)) {
+        payload.search_result_index = searchIndex
+      }
+      return payload
+    },
+    [libraryPickBySegment, selectedSearchIndex]
+  )
+
   const handleApplyBroll = async (
     segmentId: string,
     useManualTrim: boolean,
-    trim?: { inSec: number; outSec: number }
+    trim?: { inSec: number; outSec: number },
+    libraryAssetOverride?: string
   ) => {
     setBrollBusySegmentId(segmentId)
     setBrollApplyProgress({
@@ -639,14 +705,12 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     })
     onError('')
     try {
-      const payload =
-        useManualTrim && trim
-          ? {
-              source_in_sec: trim.inSec,
-              source_out_sec: trim.outSec,
-              wait_download_timeout_sec: 600,
-            }
-          : { wait_download_timeout_sec: 600 }
+      const payload = buildBrollApplyPayload(
+        segmentId,
+        useManualTrim,
+        trim,
+        libraryAssetOverride
+      )
       await withServerMutation(async () => {
         const { operation_id } = await voiceoverApi.applySegmentBroll(
           projectId,
@@ -735,13 +799,19 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
   const handleConfirmManualTrim = async (trimInSec: number, trimOutSec: number) => {
     if (!trimPreview) return
     const segmentId = trimPreview.segmentId
+    const libraryAssetId = trimPreview.asset.id?.trim()
     setTrimPreviewConfirming(true)
     setTrimPreview(null)
     try {
-      await handleApplyBroll(segmentId, true, {
-        inSec: trimInSec,
-        outSec: trimOutSec,
-      })
+      await handleApplyBroll(
+        segmentId,
+        true,
+        {
+          inSec: trimInSec,
+          outSec: trimOutSec,
+        },
+        libraryAssetId
+      )
     } finally {
       setTrimPreviewConfirming(false)
     }

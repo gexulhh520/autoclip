@@ -487,6 +487,89 @@ def test_apply_segment_broll_recreates_block_after_timeline_delete(monkeypatch, 
     assert "画面匹配" in note
 
 
+def test_apply_manual_broll_without_prior_select(monkeypatch, tmp_path):
+    from backend.services.voiceover_plan_service import VoiceoverPlanService
+
+    project_id = "proj_vo_manual_pick"
+    project_dir = tmp_path / "data" / "projects" / project_id
+    project_dir.mkdir(parents=True)
+    (project_dir / "edit_sessions").mkdir()
+    library_video = tmp_path / "broll.mp4"
+    library_video.write_bytes(b"fake-video")
+
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.resolve_library_video_path",
+        lambda asset_id: library_video if asset_id == "lib-broll" else None,
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.get_library_asset",
+        lambda asset_id: {"id": asset_id, "title": "测试素材", "platform": "local"},
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.VideoProcessor.probe_video_duration_sec",
+        lambda _path: 45.0,
+    )
+
+    session_service = EditSessionService(db=None)
+    created = session_service.create_blank_session(project_id, name="manual pick")
+    plan = VoiceoverPlan(
+        id="vo-plan",
+        status=VoiceoverPlanStatus.CONFIRMED,
+        user_brief="测试",
+        segments=[
+            VoiceoverSegment(
+                id="seg-1",
+                index=1,
+                narration_text="口播测试。",
+                status=VoiceoverSegmentStatus.TTS_DONE,
+                tts=VoiceoverTtsState(duration_sec=5.0, timeline_start_sec=0.0),
+                broll=VoiceoverBrollState(selected=None),
+            )
+        ],
+    )
+    session_service.update_session(
+        project_id,
+        created.id,
+        EditSessionUpdateRequest(voiceover_plan=plan),
+    )
+
+    vo_service = VoiceoverPlanService(session_service=session_service)
+    monkeypatch.setattr(
+        session_service,
+        "probe_imported_block_duration",
+        lambda *_args, **_kwargs: 45.0,
+    )
+    monkeypatch.setattr(
+        session_service,
+        "_prepare_import_video_source",
+        lambda source, dest: (source, "reference"),
+    )
+
+    session, updated_plan, _note = vo_service.apply_segment_broll(
+        project_id,
+        created.id,
+        "seg-1",
+        VoiceoverApplyBrollRequest(
+            source_in_sec=2.0,
+            source_out_sec=10.0,
+            library_asset_id="lib-broll",
+        ),
+    )
+
+    seg = updated_plan.segments[0]
+    assert seg.status == VoiceoverSegmentStatus.BROLL_DONE
+    assert seg.broll.selected is not None
+    assert seg.broll.block_id
+    assert len(session.sequence) == 1
+    block = session.sequence[0]
+    assert block.duration_sec == pytest.approx(5.0, abs=0.05)
+    assert block.trim.out_sec - block.trim.in_sec == pytest.approx(5.0, abs=0.05)
+
+
 def test_resolve_segment_video_block_id_from_audio_linked_placeholder():
     placeholder_id = "block-placeholder"
     placeholder = EditBlock(

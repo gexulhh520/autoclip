@@ -104,6 +104,21 @@ describe('ensureVideoTracks', () => {
     expect(isMainTrackBlock(session.sequence[1]!)).toBe(false)
   })
 
+  it('registers missing voiceover-broll track instead of demoting overlay blocks', () => {
+    const session = baseSession([
+      baseBlock('broll', {
+        track_id: 'voiceover-broll',
+        timeline_start_sec: 4,
+        title: '口播画面-1',
+      }),
+    ])
+    ensureVideoTracks(session)
+    expect(session.video_tracks?.some((track) => track.id === 'voiceover-broll')).toBe(true)
+    expect(session.sequence[0]?.track_id).toBe('voiceover-broll')
+    expect(session.sequence[0]?.timeline_start_sec).toBe(4)
+    expect(resolveOverlayVideoBlocks(session, 'voiceover-broll')).toHaveLength(1)
+  })
+
   it('maps overlay composition time to trim-relative source time', () => {
     const block = baseBlock('overlay', {
       track_id: 'overlay-track',

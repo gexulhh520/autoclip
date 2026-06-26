@@ -159,6 +159,9 @@ def test_sync_after_broll_apply_does_not_repack_subtitles():
             assert request.audio_elements is None
             return session
 
+        def get_session(self, project_id, session_id):
+            return session
+
     sync = VoiceoverTimelineSyncService(_FakeSessionService())
     out_session, out_plan = sync.sync_after_broll_apply("proj-1", "sess-1", session, plan)
 

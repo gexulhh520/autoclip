@@ -4,6 +4,12 @@ import { blockDuration, blockPlaybackRate, blockSourceTrimDuration } from '../ut
 
 export const DEFAULT_VIDEO_TRACK_ID = 'default-video'
 
+export const VOICEOVER_BROLL_TRACK_ID = 'voiceover-broll'
+
+const KNOWN_VIDEO_TRACK_NAMES: Record<string, string> = {
+  [VOICEOVER_BROLL_TRACK_ID]: '口播画面',
+}
+
 export const ADAPTED_VIDEO_TRACK_PREFIX = 'track-video-'
 
 export function adaptedVideoTrackId(metaId: string): string {
@@ -124,10 +130,15 @@ export function ensureVideoTracks(session: EditSession): boolean {
       block.track_id = DEFAULT_VIDEO_TRACK_ID
       migrated = true
     } else if (!trackIds.has(block.track_id)) {
-      block.track_id = DEFAULT_VIDEO_TRACK_ID
-      if (block.timeline_start_sec != null) {
-        delete block.timeline_start_sec
-      }
+      const trackId = block.track_id
+      session.video_tracks.push({
+        id: trackId,
+        name: KNOWN_VIDEO_TRACK_NAMES[trackId] ?? `Video ${session.video_tracks.length + 1}`,
+        order: nextVideoTrackOrder(session.video_tracks),
+        hidden: false,
+        muted: false,
+      })
+      trackIds.add(trackId)
       migrated = true
     } else if (!isMainTrackBlock(block) && block.timeline_start_sec == null) {
       block.timeline_start_sec = 0

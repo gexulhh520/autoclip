@@ -203,7 +203,8 @@ class VoiceoverTimelineSyncService:
     ) -> Tuple[EditSession, VoiceoverPlan]:
         """应用 B-roll 后保留 TTS 音频/字幕时间轴；画面已在 _sync_broll_block_audio_alignment 对齐。"""
         _ = session
-        return self._save_plan(project_id, session_id, plan), plan
+        self._save_plan(project_id, session_id, plan)
+        return self.session_service.get_session(project_id, session_id), plan
 
     def _save_plan(self, project_id: str, session_id: str, plan: VoiceoverPlan) -> EditSession:
         return self.session_service.update_session(

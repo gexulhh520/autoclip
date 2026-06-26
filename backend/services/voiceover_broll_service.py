@@ -179,6 +179,8 @@ class VoiceoverBrollService:
         *,
         source_in_sec: Optional[float] = None,
         source_out_sec: Optional[float] = None,
+        library_asset_id: Optional[str] = None,
+        search_result_index: Optional[int] = None,
         wait_download_timeout_sec: float = 180.0,
         operation_id: Optional[str] = None,
     ) -> Tuple[EditSession, VoiceoverPlan, str]:
@@ -214,6 +216,16 @@ class VoiceoverBrollService:
         session = self._save_plan(project_id, session_id, plan)
         segment = next(item for item in plan.segments if item.id == segment_id)
         self._ensure_tts_ready(segment)
+
+        session, plan, segment = self._ensure_segment_material_for_apply(
+            project_id,
+            session_id,
+            segment_id,
+            segment,
+            plan,
+            library_asset_id=library_asset_id,
+            search_result_index=search_result_index,
+        )
 
         selected = segment.broll.selected
         if selected is None:
@@ -962,6 +974,43 @@ class VoiceoverBrollService:
         plan = plan.model_copy(deep=True)
         plan.segments = new_segments
         return plan, session, True
+
+    def _ensure_segment_material_for_apply(
+        self,
+        project_id: str,
+        session_id: str,
+        segment_id: str,
+        segment: VoiceoverSegment,
+        plan: VoiceoverPlan,
+        *,
+        library_asset_id: Optional[str] = None,
+        search_result_index: Optional[int] = None,
+    ) -> Tuple[EditSession, VoiceoverPlan, VoiceoverSegment]:
+        if segment.broll.selected is not None:
+            return self.session_service.get_session(project_id, session_id), plan, segment
+
+        asset_id = (library_asset_id or "").strip()
+        if asset_id:
+            session, plan, _message = self.select_segment_material(
+                project_id,
+                session_id,
+                segment_id,
+                library_asset_id=asset_id,
+            )
+            segment = next(item for item in plan.segments if item.id == segment_id)
+            return session, plan, segment
+
+        if search_result_index is not None:
+            session, plan, _message = self.select_segment_material(
+                project_id,
+                session_id,
+                segment_id,
+                search_result_index=int(search_result_index),
+            )
+            segment = next(item for item in plan.segments if item.id == segment_id)
+            return session, plan, segment
+
+        return self.session_service.get_session(project_id, session_id), plan, segment
 
     def _save_plan(self, project_id: str, session_id: str, plan: VoiceoverPlan) -> EditSession:
         return self.session_service.update_session(

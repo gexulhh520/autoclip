@@ -185,6 +185,8 @@ class VoiceoverSelectMaterialRequest(BaseModel):
 class VoiceoverApplyBrollRequest(BaseModel):
     source_in_sec: Optional[float] = Field(default=None, ge=0)
     source_out_sec: Optional[float] = Field(default=None, ge=0)
+    library_asset_id: Optional[str] = None
+    search_result_index: Optional[int] = Field(default=None, ge=0, le=19)
     wait_download_timeout_sec: float = Field(default=180.0, ge=10.0, le=600.0)
 
 
