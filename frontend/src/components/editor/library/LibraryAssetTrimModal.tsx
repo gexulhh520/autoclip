@@ -20,6 +20,11 @@ export interface LibraryAssetTrimModalProps {
   asset: LibraryAsset | null
   videoUrl: string
   confirming?: boolean
+  eyebrow?: string
+  confirmLabel?: string
+  hint?: string
+  targetDurationSec?: number | null
+  initialTrim?: { inSec: number; outSec: number } | null
   onClose: () => void
   onConfirm: (trimInSec: number, trimOutSec: number) => void | Promise<void>
 }
@@ -37,6 +42,11 @@ const LibraryAssetTrimModal: React.FC<LibraryAssetTrimModalProps> = ({
   asset,
   videoUrl,
   confirming = false,
+  eyebrow = '裁剪后添加',
+  confirmLabel = '确认添加到时间线',
+  hint,
+  targetDurationSec = null,
+  initialTrim = null,
   onClose,
   onConfirm,
 }) => {
@@ -54,11 +64,24 @@ const LibraryAssetTrimModal: React.FC<LibraryAssetTrimModalProps> = ({
     if (!open) return
     setDurationSec(0)
     setPlaying(false)
-    const initial = defaultRange(asset?.duration_sec ?? 0)
+    const durationHint = asset?.duration_sec ?? 0
+    if (initialTrim && initialTrim.outSec > initialTrim.inSec + 0.05) {
+      const clamped = clampTrimRange(
+        durationHint > 0 ? durationHint : Math.max(initialTrim.outSec, 1),
+        initialTrim.inSec,
+        initialTrim.outSec,
+        MIN_TRIM_SPAN
+      )
+      setInSec(clamped.inSec)
+      setOutSec(clamped.outSec)
+      setPlayheadSec(clamped.inSec)
+      return
+    }
+    const initial = defaultRange(durationHint)
     setInSec(initial.inSec)
     setOutSec(initial.outSec)
     setPlayheadSec(initial.inSec)
-  }, [open, asset?.id, asset?.duration_sec])
+  }, [open, asset?.id, asset?.duration_sec, initialTrim?.inSec, initialTrim?.outSec])
 
   const selectionSpan = useMemo(() => Math.max(MIN_TRIM_SPAN, outSec - inSec), [inSec, outSec])
 
@@ -104,6 +127,14 @@ const LibraryAssetTrimModal: React.FC<LibraryAssetTrimModalProps> = ({
     if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return
     const duration = video.duration
     setDurationSec(duration)
+    if (initialTrim && initialTrim.outSec > initialTrim.inSec + 0.05) {
+      const clamped = clampTrimRange(duration, initialTrim.inSec, initialTrim.outSec, MIN_TRIM_SPAN)
+      setInSec(clamped.inSec)
+      setOutSec(clamped.outSec)
+      setPlayheadSec(clamped.inSec)
+      video.currentTime = clamped.inSec
+      return
+    }
     const initial = defaultRange(duration)
     setInSec(initial.inSec)
     setOutSec(initial.outSec)
@@ -246,7 +277,7 @@ const LibraryAssetTrimModal: React.FC<LibraryAssetTrimModalProps> = ({
       >
         <header className="library-trim-modal__head">
           <div>
-            <p className="library-trim-modal__eyebrow">裁剪后添加</p>
+            <p className="library-trim-modal__eyebrow">{eyebrow}</p>
             <h2 id="library-trim-modal-title" className="library-trim-modal__title">
               {asset.title || asset.id}
             </h2>
@@ -376,12 +407,19 @@ const LibraryAssetTrimModal: React.FC<LibraryAssetTrimModalProps> = ({
             <span className="library-trim-modal__meta-label">选段</span>
             <span className="library-trim-modal__meta-value">
               {formatTimecode(selectionSpan)} / {formatTimecode(duration || 0)}
+              {targetDurationSec != null && targetDurationSec > 0
+                ? ` · 口播 ${formatTimecode(targetDurationSec)}`
+                : ''}
             </span>
           </div>
         </div>
 
         <p className="library-trim-modal__hint">
-          空格播放选段 · ←→ 移动播放头 · I / [ 设入点 · O / ] 设出点 · Alt+←→ 微调入点 · Ctrl+←→ 微调出点
+          {hint ??
+            '空格播放选段 · ←→ 移动播放头 · I / [ 设入点 · O / ] 设出点 · Alt+←→ 微调入点 · Ctrl+←→ 微调出点'}
+          {targetDurationSec != null && targetDurationSec > 0
+            ? ' · 确认后将按口播时长自动对齐'
+            : ''}
         </p>
 
         <footer className="library-trim-modal__footer">
@@ -394,7 +432,7 @@ const LibraryAssetTrimModal: React.FC<LibraryAssetTrimModalProps> = ({
             disabled={confirming || duration <= 0 || outSec <= inSec + 0.09}
             onClick={() => void onConfirm(inSec, outSec)}
           >
-            {confirming ? '添加中…' : '确认添加到时间线'}
+            {confirming ? '处理中…' : confirmLabel}
           </button>
         </footer>
       </div>

@@ -16,6 +16,8 @@ import {
 } from '../../../types/voiceoverPlan'
 import { useEditSessionStore } from '../../../stores/useEditSessionStore'
 import { openExternalLink } from '../../../utils/externalLinks'
+import { waitForDownloadTask } from '../../../editor/agent/materialLibraryTools'
+import LibraryAssetTrimModal from '../library/LibraryAssetTrimModal'
 
 interface VoiceoverPlanPanelProps {
   projectId: string
@@ -38,6 +40,34 @@ function textToQueries(text: string): string[] {
     .map((item) => item.trim())
     .filter(Boolean)
     .slice(0, 8)
+}
+
+function resolveBrollLibraryAssetId(
+  segment: VoiceoverSegment,
+  libraryPickId: string
+): string | null {
+  return (
+    segment.broll?.library_asset_id?.trim() ||
+    segment.broll?.selected?.library_asset_id?.trim() ||
+    libraryPickId.trim() ||
+    null
+  )
+}
+
+function buildInitialTrimForSegment(
+  segment: VoiceoverSegment,
+  assetDurationSec?: number | null
+): { inSec: number; outSec: number } {
+  const ttsDuration = Math.max(0.1, Number(segment.tts?.duration_sec ?? 0) || 5)
+  const sourceDuration = Math.max(ttsDuration, Number(assetDurationSec ?? 0) || ttsDuration)
+  if (segment.broll?.source_in_sec != null && segment.broll?.source_out_sec != null) {
+    return {
+      inSec: Math.max(0, Number(segment.broll.source_in_sec)),
+      outSec: Math.max(0.15, Number(segment.broll.source_out_sec)),
+    }
+  }
+  const span = Math.min(sourceDuration, ttsDuration)
+  return { inSec: 0, outSec: Math.max(0.15, span) }
 }
 
 const BROLL_APPLY_POLL_MS = 1500
@@ -108,7 +138,13 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
   const [brollPlatform, setBrollPlatform] = useState<'youtube' | 'bilibili'>('youtube')
   const [selectedSearchIndex, setSelectedSearchIndex] = useState<Record<string, number>>({})
   const [libraryPickBySegment, setLibraryPickBySegment] = useState<Record<string, string>>({})
-  const [manualTrim, setManualTrim] = useState<Record<string, { inSec: string; outSec: string }>>({})
+  const [trimPreview, setTrimPreview] = useState<{
+    segmentId: string
+    asset: LibraryAsset
+    initialTrim: { inSec: number; outSec: number }
+  } | null>(null)
+  const [trimPreviewLoadingSegmentId, setTrimPreviewLoadingSegmentId] = useState<string | null>(null)
+  const [trimPreviewConfirming, setTrimPreviewConfirming] = useState(false)
   const [brollBusySegmentId, setBrollBusySegmentId] = useState<string | null>(null)
   const [brollApplyProgress, setBrollApplyProgress] = useState<{
     segmentId: string
@@ -589,7 +625,11 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     }
   }
 
-  const handleApplyBroll = async (segmentId: string, useManualTrim: boolean) => {
+  const handleApplyBroll = async (
+    segmentId: string,
+    useManualTrim: boolean,
+    trim?: { inSec: number; outSec: number }
+  ) => {
     setBrollBusySegmentId(segmentId)
     setBrollApplyProgress({
       segmentId,
@@ -599,12 +639,11 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
     })
     onError('')
     try {
-      const manual = manualTrim[segmentId]
       const payload =
-        useManualTrim && manual?.inSec && manual?.outSec
+        useManualTrim && trim
           ? {
-              source_in_sec: Number.parseFloat(manual.inSec),
-              source_out_sec: Number.parseFloat(manual.outSec),
+              source_in_sec: trim.inSec,
+              source_out_sec: trim.outSec,
               wait_download_timeout_sec: 600,
             }
           : { wait_download_timeout_sec: 600 }
@@ -624,6 +663,94 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
       setBrollApplyProgress(null)
     }
   }
+
+  const resolvePreviewAsset = useCallback(
+    async (segment: VoiceoverSegment): Promise<LibraryAsset> => {
+      const selected = segment.broll?.selected
+      if (!selected && !libraryPickBySegment[segment.id]?.trim()) {
+        throw new Error('请先确认素材候选，或从素材库指定视频')
+      }
+
+      let assetId = resolveBrollLibraryAssetId(segment, libraryPickBySegment[segment.id] ?? '')
+      if (!assetId && selected?.url) {
+        const tasks = await libraryApi.createDownloads({
+          items: [
+            {
+              platform: selected.platform,
+              url: selected.url,
+              title: selected.title,
+              external_id: selected.external_id ?? null,
+              duration_sec: selected.duration_sec ?? null,
+            },
+          ],
+        })
+        const task = tasks[0]
+        if (!task) {
+          throw new Error('无法创建素材下载任务')
+        }
+        assetId = task.asset_id ?? (await waitForDownloadTask(task.id, { timeoutMs: 600_000 }))
+      }
+
+      if (!assetId) {
+        throw new Error('素材尚未入库，请稍后重试或先点击「下载并应用 B-roll」')
+      }
+
+      const cached = libraryAssets.find((item) => item.id === assetId)
+      if (cached) return cached
+
+      return {
+        id: assetId,
+        title: selected?.title ?? `口播素材-${segment.index}`,
+        video_path: '',
+        duration_sec: selected?.duration_sec ?? null,
+        platform: selected?.platform ?? null,
+        source_url: selected?.url ?? null,
+      }
+    },
+    [libraryAssets, libraryPickBySegment]
+  )
+
+  const handleOpenManualTrimPreview = async (segment: VoiceoverSegment) => {
+    const hasLibraryPick = Boolean(libraryPickBySegment[segment.id]?.trim())
+    if (!segment.broll?.selected && !hasLibraryPick) {
+      onError('请先确认素材候选，或从素材库指定视频')
+      return
+    }
+    setTrimPreviewLoadingSegmentId(segment.id)
+    onError('')
+    try {
+      const asset = await resolvePreviewAsset(segment)
+      setTrimPreview({
+        segmentId: segment.id,
+        asset,
+        initialTrim: buildInitialTrimForSegment(segment, asset.duration_sec),
+      })
+    } catch (err: unknown) {
+      onError(readApiErrorMessage(err, '无法打开素材预览'))
+    } finally {
+      setTrimPreviewLoadingSegmentId(null)
+    }
+  }
+
+  const handleConfirmManualTrim = async (trimInSec: number, trimOutSec: number) => {
+    if (!trimPreview) return
+    const segmentId = trimPreview.segmentId
+    setTrimPreviewConfirming(true)
+    setTrimPreview(null)
+    try {
+      await handleApplyBroll(segmentId, true, {
+        inSec: trimInSec,
+        outSec: trimOutSec,
+      })
+    } finally {
+      setTrimPreviewConfirming(false)
+    }
+  }
+
+  const trimPreviewSegment = useMemo(
+    () => plan?.segments.find((item) => item.id === trimPreview?.segmentId) ?? null,
+    [plan?.segments, trimPreview?.segmentId]
+  )
 
   const segmentHasTts = (segment: VoiceoverSegment) =>
     Boolean(segment.tts?.duration_sec && segment.tts.duration_sec > 0)
@@ -1143,61 +1270,26 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
                     ) : null}
 
                     <div className="editor-agent-panel__voiceover-broll-trim">
-                      <label className="editor-agent-panel__voiceover-field editor-agent-panel__voiceover-field--inline">
-                        <span>手动 in (s)</span>
-                        <input
-                          type="number"
-                          min={0}
-                          step={0.1}
-                          className="editor-agent-panel__voiceover-input"
-                          value={
-                            manualTrim[segment.id]?.inSec ??
-                            (segment.broll?.source_in_sec != null
-                              ? String(segment.broll.source_in_sec)
-                              : '')
-                          }
-                          onChange={(event) =>
-                            setManualTrim((prev) => ({
-                              ...prev,
-                              [segment.id]: {
-                                inSec: event.target.value,
-                                outSec: prev[segment.id]?.outSec ?? '',
-                              },
-                            }))
-                          }
-                        />
-                      </label>
-                      <label className="editor-agent-panel__voiceover-field editor-agent-panel__voiceover-field--inline">
-                        <span>手动 out (s)</span>
-                        <input
-                          type="number"
-                          min={0}
-                          step={0.1}
-                          className="editor-agent-panel__voiceover-input"
-                          value={
-                            manualTrim[segment.id]?.outSec ??
-                            (segment.broll?.source_out_sec != null
-                              ? String(segment.broll.source_out_sec)
-                              : '')
-                          }
-                          onChange={(event) =>
-                            setManualTrim((prev) => ({
-                              ...prev,
-                              [segment.id]: {
-                                inSec: prev[segment.id]?.inSec ?? '',
-                                outSec: event.target.value,
-                              },
-                            }))
-                          }
-                        />
-                      </label>
+                      <p className="editor-agent-panel__voiceover-segment-meta">
+                        在预览中拖动入点/出点，或按 I / O 标记选段；确认后将按本段口播时长对齐并应用。
+                        {segment.broll?.source_in_sec != null && segment.broll?.source_out_sec != null
+                          ? ` 当前选段 ${segment.broll.source_in_sec.toFixed(2)}s–${segment.broll.source_out_sec.toFixed(2)}s。`
+                          : ''}
+                      </p>
                       <button
                         type="button"
-                        className="editor-agent-panel__voiceover-btn"
-                        onClick={() => void handleApplyBroll(segment.id, true)}
-                        disabled={Boolean(brollBusySegmentId) || executing || !segment.broll?.selected}
+                        className="editor-agent-panel__voiceover-btn editor-agent-panel__voiceover-btn--primary"
+                        onClick={() => void handleOpenManualTrimPreview(segment)}
+                        disabled={
+                          Boolean(brollBusySegmentId) ||
+                          executing ||
+                          Boolean(trimPreviewLoadingSegmentId) ||
+                          (!segment.broll?.selected && !libraryPickBySegment[segment.id]?.trim())
+                        }
                       >
-                        应用手动 trim
+                        {trimPreviewLoadingSegmentId === segment.id
+                          ? '正在准备预览…'
+                          : '预览并裁剪应用'}
                       </button>
                     </div>
                   </div>
@@ -1257,6 +1349,22 @@ const VoiceoverPlanPanel: React.FC<VoiceoverPlanPanelProps> = ({
           </div>
         </>
       ) : null}
+
+      <LibraryAssetTrimModal
+        open={Boolean(trimPreview)}
+        asset={trimPreview?.asset ?? null}
+        videoUrl={trimPreview ? libraryApi.getVideoUrl(trimPreview.asset.id) : ''}
+        confirming={trimPreviewConfirming}
+        eyebrow="口播 B-roll 选段"
+        confirmLabel="确认并应用"
+        targetDurationSec={trimPreviewSegment?.tts?.duration_sec ?? null}
+        initialTrim={trimPreview?.initialTrim ?? null}
+        hint="拖动时间轴或播放预览，找到合适画面后确认；将按本段口播时长自动对齐"
+        onClose={() => {
+          if (!trimPreviewConfirming) setTrimPreview(null)
+        }}
+        onConfirm={handleConfirmManualTrim}
+      />
     </div>
   )
 }
