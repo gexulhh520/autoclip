@@ -2,7 +2,7 @@ import type { EditBlock, EditSession } from '../../types/editSession'
 import {
   blockTimelineStartSec,
   mapOverlayBlockToRelativeSource,
-  resolveMainTrackBlocks,
+  resolveMainTrackSequentialBlocks,
   resolveOverlayVideoBlocks,
 } from '../videoTracks'
 import { blockDuration } from '../../utils/editTimeline'
@@ -31,7 +31,7 @@ export function findPlayheadWarmupTargets(
   session: EditSession,
   compositionSec: number
 ): PlayheadWarmupTarget[] {
-  const mainBlocks = resolveMainTrackBlocks(session)
+  const mainBlocks = resolveMainTrackSequentialBlocks(session)
   if (mainBlocks.length === 0) return []
 
   const timeline = buildCompositionTimeline(

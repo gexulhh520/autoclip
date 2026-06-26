@@ -13,7 +13,8 @@ import {
   blockTimelineStartSec,
   getBlockTrackId,
   mapOverlayBlockToRelativeSource,
-  resolveMainTrackBlocks,
+  resolveMainTrackFreePositionBlocks,
+  resolveMainTrackSequentialBlocks,
   resolveOverlayVideoBlocks,
   resolveVideoTracks,
 } from '../videoTracks'
@@ -137,7 +138,7 @@ export function compileExportPlan(
   options: SceneCompileOptions
 ): ExportScenePlan {
   const transitionDurationSec = session.audio_settings.transition_duration_sec ?? 0.35
-  const mainBlocks = resolveMainTrackBlocks(session)
+  const mainBlocks = resolveMainTrackSequentialBlocks(session)
   const timeline = buildCompositionTimeline(
     mainBlocks,
     transitionDurationSec,
@@ -173,7 +174,7 @@ export function resolveSceneAt(
 ): RenderScene {
   const { session, options } = input
   const transitionDurationSec = session.audio_settings.transition_duration_sec ?? 0.35
-  const mainBlocks = resolveMainTrackBlocks(session)
+  const mainBlocks = resolveMainTrackSequentialBlocks(session)
   const timeline = buildCompositionTimeline(
     mainBlocks,
     transitionDurationSec,
@@ -286,7 +287,10 @@ export function resolveSceneAt(
   const videoTrackOrder = new Map(
     resolveVideoTracks(session).map((track, index) => [track.id, index])
   )
-  for (const block of resolveOverlayVideoBlocks(session)) {
+  for (const block of [
+    ...resolveMainTrackFreePositionBlocks(session),
+    ...resolveOverlayVideoBlocks(session),
+  ]) {
     const trackId = getBlockTrackId(block)
     if (mutedVideoTrackIds.has(trackId) || hiddenVideoTrackIds.has(trackId)) continue
     const startSec = blockTimelineStartSec(block)

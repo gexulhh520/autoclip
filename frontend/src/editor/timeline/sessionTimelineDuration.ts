@@ -2,7 +2,8 @@ import type { EditSession } from '../../types/editSession'
 import { findAudioAsset } from '../audioTracks'
 import { getCompositionTotalDuration } from '../scene/timelineLayout'
 import {
-  resolveMainTrackBlocks,
+  resolveMainTrackFreePositionBlocks,
+  resolveMainTrackSequentialBlocks,
   resolveOverlayVideoBlocks,
   resolveVideoTrackMaxEndSec,
 } from '../videoTracks'
@@ -11,7 +12,7 @@ import {
 export function resolveEditSessionTimelineDurationSec(session: EditSession): number {
   const transitionDurationSec = session.audio_settings?.transition_duration_sec ?? 0.35
   let maxEnd = getCompositionTotalDuration(
-    resolveMainTrackBlocks(session),
+    resolveMainTrackSequentialBlocks(session),
     transitionDurationSec,
     session.sequence_block_gaps
   )
@@ -44,7 +45,8 @@ export function resolveEditSessionTimelineDurationSec(session: EditSession): num
 
 /** 时间线存在可预览内容（不限于视频轨） */
 export function hasEditSessionPreviewContent(session: EditSession): boolean {
-  if (resolveMainTrackBlocks(session).length > 0) return true
+  if (resolveMainTrackSequentialBlocks(session).length > 0) return true
+  if (resolveMainTrackFreePositionBlocks(session).length > 0) return true
   if (resolveOverlayVideoBlocks(session).length > 0) return true
   if ((session.overlay_elements ?? []).some((item) => !item.hidden)) return true
   if ((session.audio_elements ?? []).some((item) => !item.hidden && findAudioAsset(session, item.asset_id))) {

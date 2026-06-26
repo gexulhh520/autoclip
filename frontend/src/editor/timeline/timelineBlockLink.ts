@@ -10,7 +10,7 @@ import { getTemplateBlockId, isTemplateLinkedOverlay } from '../migration/templa
 import { resolveAudioAssetCategory } from '../audioTracks'
 import {
   isMainTrackBlock,
-  resolveMainTrackBlocks,
+  resolveMainTrackSequentialBlocks,
   resolveOverlayVideoBlocks,
   blockTimelineStartSec,
 } from '../videoTracks'
@@ -24,7 +24,7 @@ const transitionDurationSec = (session: EditSession): number =>
 
 export function buildSessionCompositionTimeline(session: EditSession) {
   return buildCompositionTimeline(
-    resolveMainTrackBlocks(session),
+    resolveMainTrackSequentialBlocks(session),
     transitionDurationSec(session),
     session.sequence_block_gaps
   )

@@ -2,7 +2,7 @@ import type { EditBlock, EditSession } from '../../types/editSession'
 import { isCrossTransition } from '../../types/transitions'
 import { isImportedBlock, resolveBlockMediaTimeSec } from '../../utils/editBlockMedia'
 import { applyPreviewVideoSrc } from '../../utils/previewMediaUrl'
-import { isMainTrackBlock, resolveMainTrackBlocks } from '../videoTracks'
+import { isMainTrackBlock, resolveMainTrackSequentialBlocks } from '../videoTracks'
 import { isVoiceoverBrollBlock } from '../voiceover/voiceoverBroll'
 
 /**
@@ -15,7 +15,7 @@ export function blockNeedsDedicatedPreviewDecoder(
 ): boolean {
   if (!session) return false
 
-  const blocks = resolveMainTrackBlocks(session)
+  const blocks = resolveMainTrackSequentialBlocks(session)
   const index = blocks.findIndex((item) => item.id === block.id)
   if (index < 0) return false
 

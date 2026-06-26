@@ -33,6 +33,20 @@ export function isMainTrackBlock(block: EditBlock): boolean {
   return getBlockTrackId(block) === DEFAULT_VIDEO_TRACK_ID
 }
 
+export function isMainTrackFreePositionBlock(block: EditBlock): boolean {
+  return isMainTrackBlock(block) && block.timeline_start_sec != null
+}
+
+export function resolveMainTrackSequentialBlocks(session: EditSession): EditBlock[] {
+  return session.sequence.filter(
+    (block) => isMainTrackBlock(block) && block.timeline_start_sec == null
+  )
+}
+
+export function resolveMainTrackFreePositionBlocks(session: EditSession): EditBlock[] {
+  return session.sequence.filter(isMainTrackFreePositionBlock)
+}
+
 export function resolveVideoTracks(session: EditSession): VideoTrackMeta[] {
   const tracks = session.video_tracks?.length
     ? [...session.video_tracks]
@@ -118,9 +132,6 @@ export function ensureVideoTracks(session: EditSession): boolean {
     } else if (!isMainTrackBlock(block) && block.timeline_start_sec == null) {
       block.timeline_start_sec = 0
       migrated = true
-    } else if (isMainTrackBlock(block) && block.timeline_start_sec != null) {
-      delete block.timeline_start_sec
-      migrated = true
     }
   }
 
@@ -134,7 +145,10 @@ export function ensureVideoTracks(session: EditSession): boolean {
 
 export function resolveVideoTrackMaxEndSec(session: EditSession): number {
   let maxEnd = 0
-  for (const block of resolveOverlayVideoBlocks(session)) {
+  for (const block of [
+    ...resolveOverlayVideoBlocks(session),
+    ...resolveMainTrackFreePositionBlocks(session),
+  ]) {
     maxEnd = Math.max(maxEnd, blockTimelineEndSec(block))
   }
   return maxEnd

@@ -43,7 +43,7 @@ import type { PreviewVideoLayerProps } from '../../../editor/scene/adapters/prev
 import { stopEditorPlayback } from '../../../editor/stopEditorPlayback'
 import { applyMediaPlaybackRate } from '../../../editor/mediaPlaybackRate'
 import { isImportedBlock } from '../../../utils/editBlockMedia'
-import { isMainTrackBlock, resolveMainTrackBlocks, resolveOverlayVideoBlocks } from '../../../editor/videoTracks'
+import { isMainTrackBlock, resolveMainTrackSequentialBlocks, resolveOverlayVideoBlocks } from '../../../editor/videoTracks'
 import { isVoiceoverBrollBlock } from '../../../editor/voiceover/voiceoverBroll'
 
 const PAUSED_SEEK_THRESHOLD_SEC = 0.03
@@ -363,7 +363,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   )
 
   const compositionTimeline = useMemo(() => {
-    const mainBlocks = resolveMainTrackBlocks(session)
+    const mainBlocks = resolveMainTrackSequentialBlocks(session)
     const transitionDurationSec = session.audio_settings?.transition_duration_sec ?? 0.35
     return buildCompositionTimeline(
       mainBlocks,

@@ -5,7 +5,8 @@ import { blockDuration, blockPlaybackRate } from '../../utils/editTimeline'
 import { findAudioAsset } from '../audioTracks'
 import {
   blockTimelineStartSec,
-  resolveMainTrackBlocks,
+  resolveMainTrackFreePositionBlocks,
+  resolveMainTrackSequentialBlocks,
   resolveOverlayVideoBlocks,
   resolveVideoTracks,
 } from '../videoTracks'
@@ -43,7 +44,7 @@ export function compileCompositionPlan(
 ): CompositionPlan {
   const exportPlan = compileExportPlan(session, options)
   const transitionDurationSec = session.audio_settings.transition_duration_sec ?? 0.35
-  const mainBlocks = resolveMainTrackBlocks(session)
+  const mainBlocks = resolveMainTrackSequentialBlocks(session)
   const timeline = buildCompositionTimeline(
     mainBlocks,
     transitionDurationSec,
@@ -99,6 +100,25 @@ export function compileCompositionPlan(
   for (const block of resolveOverlayVideoBlocks(session)) {
     const trackId = block.track_id
     if (trackId && hiddenVideoTrackIds.has(trackId)) continue
+    layers.push({
+      kind: 'video_clip',
+      blockId: block.id,
+      blockIndex: -1,
+      mediaPath: block.media.path,
+      trimInSec: block.trim.in_sec,
+      trimOutSec: block.trim.out_sec,
+      playbackRate: blockPlaybackRate(block),
+      compositionStartSec: blockTimelineStartSec(block),
+      sourceDurationSec: blockDuration(block),
+      transitionOut: 'cut',
+      dissolveOutSec: 0,
+      volume: block.audio.volume,
+      fadeInSec: block.audio.fade_in_sec ?? 0,
+      fadeOutSec: block.audio.fade_out_sec ?? 0,
+    })
+  }
+
+  for (const block of resolveMainTrackFreePositionBlocks(session)) {
     layers.push({
       kind: 'video_clip',
       blockId: block.id,

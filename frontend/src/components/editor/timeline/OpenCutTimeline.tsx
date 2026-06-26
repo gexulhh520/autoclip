@@ -733,221 +733,77 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       const block = blocks.find((item) => item.id === blockId)
       if (!block) return
 
-      if (!isMainTrackBlock(block)) {
-        beginTimelineGesture()
-        let pendingTargetVideoTrackId: string | null = sourceTrack?.videoTrackId ?? null
-        const frozenSegments = segments
-
-        const onOverlayMove = (moveEvent: PointerEvent) => {
-          const deltaSec =
-            (moveEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
-          const raw = Math.max(0, initialStart + deltaSec)
-          const snapped = snapTime(raw, sequenceSnapPoints, snapEnabled)
-          setSnapPoint({ time: snapped, type: 'grid' })
-
-          const videoTrack = resolveTargetVideoTrackAtClientY(moveEvent.clientY)
-          if (videoTrack?.isMain) {
-            setDragTargetTrackId(videoTrack.id)
-            setVideoDragPreview(null)
-            pendingTargetVideoTrackId = DEFAULT_VIDEO_TRACK_ID
-            return
-          }
-
-          const isCrossTrackPreview =
-            videoTrack?.videoTrackId &&
-            sourceTrack?.videoTrackId &&
-            videoTrack.videoTrackId !== sourceTrack.videoTrackId
-          const overlapTrack = isCrossTrackPreview ? videoTrack : sourceTrack
-          const siblings = getTrackSiblingRanges(overlapTrack?.elements ?? [], element.id)
-          const canPlace = canPlaceAtStart(siblings, element.duration, snapped)
-          const nextStart = canPlace ? snapped : initialStart
-
-          updateBlockTimelineStart(blockId, nextStart, { recordHistory: false })
-
-          if (isCrossTrackPreview && canPlace) {
-            pendingTargetVideoTrackId = videoTrack.videoTrackId!
-            setDragTargetTrackId(videoTrack.id)
-            setVideoDragPreview({
-              trackId: videoTrack.id,
-              startSec: snapped,
-              duration: element.duration,
-              label: element.name,
-            })
-          } else {
-            setDragTargetTrackId(null)
-            setVideoDragPreview(null)
-          }
-        }
-
-        const onOverlayUp = (upEvent: PointerEvent) => {
-          setSnapPoint(null)
-          setDragTargetTrackId(null)
-          setVideoDragPreview(null)
-          const deltaSec =
-            (upEvent.clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
-          const raw = Math.max(0, initialStart + deltaSec)
-          const snapped = snapTime(raw, sequenceSnapPoints, snapEnabled)
-
-          const finalVideoTrack = resolveTargetVideoTrackAtClientY(upEvent.clientY)
-          const targetVideoTrackId =
-            finalVideoTrack?.videoTrackId ?? pendingTargetVideoTrackId
-
-          if (targetVideoTrackId === DEFAULT_VIDEO_TRACK_ID) {
-            const pointerSec = snapTime(
-              clientXToTimelineSec(upEvent.clientX),
-              sequenceSnapPoints,
-              snapEnabled
-            )
-            const insertIndex = resolveBlockReorderTargetIndex(
-              pointerSec,
-              mainBlocks.length,
-              frozenSegments
-            )
-            moveBlockToVideoTrack(blockId, DEFAULT_VIDEO_TRACK_ID, {
-              recordHistory: false,
-              insertIndex,
-            })
-            setActiveVideoTrackId(DEFAULT_VIDEO_TRACK_ID)
-            void flushSaveSession(projectId)
-            window.removeEventListener('pointermove', onOverlayMove)
-            window.removeEventListener('pointerup', onOverlayUp)
-            return
-          }
-
-          const isCrossTrack =
-            targetVideoTrackId &&
-            sourceTrack?.videoTrackId &&
-            targetVideoTrackId !== sourceTrack.videoTrackId
-
-          if (isCrossTrack) {
-            const targetTrack = tracks.find((item) => item.videoTrackId === targetVideoTrackId)
-            const siblings = getTrackSiblingRanges(targetTrack?.elements ?? [], element.id)
-            if (canPlaceAtStart(siblings, element.duration, snapped)) {
-              moveBlockToVideoTrack(blockId, targetVideoTrackId, {
-                recordHistory: false,
-                timelineStartSec: snapped,
-              })
-              setActiveVideoTrackId(targetVideoTrackId)
-            } else {
-              updateBlockTimelineStart(blockId, initialStart, { recordHistory: false })
-            }
-          } else {
-            const siblings = getTrackSiblingRanges(sourceTrack?.elements ?? [], element.id)
-            if (!canPlaceAtStart(siblings, element.duration, snapped)) {
-              updateBlockTimelineStart(blockId, initialStart, { recordHistory: false })
-            }
-          }
-          void flushSaveSession(projectId)
-          window.removeEventListener('pointermove', onOverlayMove)
-          window.removeEventListener('pointerup', onOverlayUp)
-        }
-
-        window.addEventListener('pointermove', onOverlayMove)
-        window.addEventListener('pointerup', onOverlayUp)
-        return
-      }
-
-      const fromIndex = mainBlocks.findIndex((item) => item.id === blockId)
-      if (fromIndex < 0) return
-
       beginTimelineGesture()
-      if (event.currentTarget instanceof HTMLElement && 'setPointerCapture' in event) {
-        event.currentTarget.setPointerCapture(event.pointerId)
+      let pendingTargetVideoTrackId: string | null = sourceTrack?.videoTrackId ?? null
+
+      const resolveSnappedStart = (clientX: number) => {
+        const deltaSec =
+          (clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
+        const raw = Math.max(0, initialStart + deltaSec)
+        return snapTime(raw, sequenceSnapPoints, snapEnabled)
       }
-      const frozenSegments = segments
-      let pendingTargetIndex = fromIndex
-      let pendingOverlayTrackId: string | null = null
 
-      setBlockDragPreview({
-        blockId,
-        fromIndex,
-        targetIndex: fromIndex,
-        deltaPx: 0,
-        label: element.name,
-        duration: element.duration,
-        insertMarkerSec: frozenSegments[fromIndex]?.startSec ?? 0,
-      })
+      const onVideoMove = (moveEvent: PointerEvent) => {
+        const snapped = resolveSnappedStart(moveEvent.clientX)
+        setSnapPoint({ time: snapped, type: 'grid' })
 
-      const applyMove = (moveEvent: PointerEvent) => {
-        const targetVideoTrack = resolveTargetVideoTrackAtClientY(moveEvent.clientY)
-        if (targetVideoTrack && !targetVideoTrack.isMain) {
-          const pointerSec = snapTime(
-            clientXToTimelineSec(moveEvent.clientX),
-            sequenceSnapPoints,
-            snapEnabled
-          )
-          setSnapPoint({ time: pointerSec, type: 'grid' })
-          pendingOverlayTrackId = targetVideoTrack.videoTrackId!
-          pendingTargetIndex = fromIndex
-          setBlockDragPreview(null)
-          setDragTargetTrackId(targetVideoTrack.id)
+        const videoTrack = resolveTargetVideoTrackAtClientY(moveEvent.clientY)
+        if (videoTrack?.videoTrackId) {
+          pendingTargetVideoTrackId = videoTrack.videoTrackId
+        }
+
+        updateBlockTimelineStart(blockId, snapped, { recordHistory: false })
+
+        const isCrossTrack =
+          videoTrack?.videoTrackId &&
+          sourceTrack?.videoTrackId &&
+          videoTrack.videoTrackId !== sourceTrack.videoTrackId
+
+        if (isCrossTrack && videoTrack) {
+          setDragTargetTrackId(videoTrack.id)
           setVideoDragPreview({
-            trackId: targetVideoTrack.id,
-            startSec: pointerSec,
+            trackId: videoTrack.id,
+            startSec: snapped,
             duration: element.duration,
             label: element.name,
           })
-          return
+        } else {
+          setDragTargetTrackId(null)
+          setVideoDragPreview(null)
         }
-
-        pendingOverlayTrackId = null
-        setDragTargetTrackId(null)
-        setVideoDragPreview(null)
-
-        const pointerSec = clientXToTimelineSec(moveEvent.clientX)
-        const targetIndex = resolveBlockReorderTargetIndex(pointerSec, fromIndex, frozenSegments)
-        pendingTargetIndex = targetIndex
-        const insertMarkerSec = computeBlockInsertMarkerSec(
-          mainBlocks,
-          fromIndex,
-          targetIndex,
-          transitionDurationSec,
-          session?.sequence_block_gaps
-        )
-        setBlockDragPreview({
-          blockId,
-          fromIndex,
-          targetIndex,
-          deltaPx: moveEvent.clientX - startX,
-          label: element.name,
-          duration: element.duration,
-          insertMarkerSec,
-        })
       }
 
-      const onBlockMove = rafPointerMove(applyMove)
-
-      const onBlockUp = (upEvent: PointerEvent) => {
-        setBlockDragPreview(null)
-        setVideoDragPreview(null)
-        setDragTargetTrackId(null)
+      const onVideoUp = (upEvent: PointerEvent) => {
         setSnapPoint(null)
+        setDragTargetTrackId(null)
+        setVideoDragPreview(null)
 
-        if (pendingOverlayTrackId) {
-          const snapped = snapTime(
-            clientXToTimelineSec(upEvent.clientX),
-            sequenceSnapPoints,
-            snapEnabled
-          )
-          const targetTrack = tracks.find((item) => item.videoTrackId === pendingOverlayTrackId)
-          const siblings = getTrackSiblingRanges(targetTrack?.elements ?? [], element.id)
-          if (canPlaceAtStart(siblings, element.duration, snapped)) {
-            moveBlockToVideoTrack(blockId, pendingOverlayTrackId, {
-              recordHistory: false,
-              timelineStartSec: snapped,
-            })
-            setActiveVideoTrackId(pendingOverlayTrackId)
-          }
-        } else if (pendingTargetIndex !== fromIndex) {
-          reorderBlocks(fromIndex, pendingTargetIndex, { recordHistory: false })
+        const snapped = resolveSnappedStart(upEvent.clientX)
+        const finalVideoTrack = resolveTargetVideoTrackAtClientY(upEvent.clientY)
+        const targetVideoTrackId =
+          finalVideoTrack?.videoTrackId ?? pendingTargetVideoTrackId
+
+        if (
+          targetVideoTrackId &&
+          sourceTrack?.videoTrackId &&
+          targetVideoTrackId !== sourceTrack.videoTrackId
+        ) {
+          moveBlockToVideoTrack(blockId, targetVideoTrackId, {
+            recordHistory: false,
+            timelineStartSec: snapped,
+          })
+          setActiveVideoTrackId(targetVideoTrackId)
+        } else {
+          updateBlockTimelineStart(blockId, snapped, { recordHistory: false })
         }
 
-        window.removeEventListener('pointermove', onBlockMove)
-        window.removeEventListener('pointerup', onBlockUp)
+        void flushSaveSession(projectId)
+        window.removeEventListener('pointermove', onVideoMove)
+        window.removeEventListener('pointerup', onVideoUp)
       }
 
-      window.addEventListener('pointermove', onBlockMove)
-      window.addEventListener('pointerup', onBlockUp)
+      window.addEventListener('pointermove', onVideoMove)
+      window.addEventListener('pointerup', onVideoUp)
       return
     }
 
@@ -1140,7 +996,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       const block = blocks.find((item) => item.id === blockId)
       if (!block) return
 
-      if (!isMainTrackBlock(block)) {
+      if (!isMainTrackBlock(block) || block.timeline_start_sec != null) {
         const rate = blockPlaybackRate(block)
         const maxDur = block.duration_sec > 0 ? block.duration_sec : Math.max(block.trim.out_sec, 5)
         const initialStart = element.startTime
@@ -1170,10 +1026,6 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
               MIN_TIMELINE_ELEMENT_SEC,
               (initialTrimOut - trimIn) / rate
             )
-            if (!canPlaceAtStart(siblings, naturalDuration, nextStart)) {
-              resizeOverlayVideoBlock(blockId, initialPatch, { recordHistory: false })
-              return
-            }
             resizeOverlayVideoBlock(
               blockId,
               {
@@ -1189,14 +1041,6 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
               initialTrimIn + MIN_TIMELINE_ELEMENT_SEC * rate,
               Math.min(trimOut, maxDur)
             )
-            const naturalDuration = Math.max(
-              MIN_TIMELINE_ELEMENT_SEC,
-              (trimOut - initialTrimIn) / rate
-            )
-            if (!canPlaceAtStart(siblings, naturalDuration, initialStart)) {
-              resizeOverlayVideoBlock(blockId, initialPatch, { recordHistory: false })
-              return
-            }
             resizeOverlayVideoBlock(
               blockId,
               {

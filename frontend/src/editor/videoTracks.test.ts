@@ -7,6 +7,8 @@ import {
   getBlockTrackId,
   isMainTrackBlock,
   resolveMainTrackBlocks,
+  resolveMainTrackFreePositionBlocks,
+  resolveMainTrackSequentialBlocks,
   resolveOverlayVideoBlocks,
   resolveVideoTracks,
   reorderVideoTrackMetas,
@@ -70,6 +72,17 @@ describe('ensureVideoTracks', () => {
     expect(buildVideoTrackMutedMap(session)).toEqual({
       [DEFAULT_VIDEO_TRACK_ID]: true,
     })
+  })
+
+  it('preserves timeline_start_sec on main track free-position blocks', () => {
+    const session = baseSession([
+      baseBlock('free-main', {
+        track_id: DEFAULT_VIDEO_TRACK_ID,
+        timeline_start_sec: 12,
+      }),
+    ])
+    ensureVideoTracks(session)
+    expect(session.sequence[0]?.timeline_start_sec).toBe(12)
   })
 
   it('assigns timeline_start_sec to overlay blocks', () => {

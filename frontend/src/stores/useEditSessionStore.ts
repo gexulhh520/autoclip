@@ -76,7 +76,7 @@ import {
   isMainTrackBlock,
   nextVideoTrackOrder,
   reorderVideoTrackMetas,
-  resolveMainTrackBlocks,
+  resolveMainTrackSequentialBlocks,
   resolveVideoTracks,
 } from '../editor/videoTracks'
 import { resolveCanvasDimensions } from '../editor/scene/canvas'
@@ -247,11 +247,11 @@ const resolvePlayheadInsertIndex = (session: EditSession, playheadSec: number): 
 
 const playheadSecForBlock = (session: EditSession, blockId: string): number => {
   const block = session.sequence.find((item) => item.id === blockId)
-  if (block && !isMainTrackBlock(block)) {
+  if (block && (!isMainTrackBlock(block) || block.timeline_start_sec != null)) {
     return block.timeline_start_sec ?? 0
   }
   const segments = buildCompositionTimelineSegments(
-    resolveMainTrackBlocks(session),
+    resolveMainTrackSequentialBlocks(session),
     BASE_PX_PER_SEC,
     transitionDurationSec(session),
     session.sequence_block_gaps
@@ -1835,7 +1835,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           return
         }
         const segments = buildCompositionTimelineSegments(
-          resolveMainTrackBlocks(session),
+          resolveMainTrackSequentialBlocks(session),
           24,
           transitionDurationSec(session),
           session.sequence_block_gaps
@@ -2139,8 +2139,12 @@ export const useEditSessionStore = create<EditSessionState>()(
           const wasMain = isMainTrackBlock(block)
           block.track_id = videoTrackId
           if (videoTrackId === DEFAULT_VIDEO_TRACK_ID) {
-            delete block.timeline_start_sec
-            if (options?.insertIndex != null) {
+            if (options?.timelineStartSec != null) {
+              block.timeline_start_sec = Math.max(0, options.timelineStartSec)
+            } else {
+              delete block.timeline_start_sec
+            }
+            if (options?.insertIndex != null && options.timelineStartSec == null) {
               const [moved] = state.session.sequence.splice(currentIdx, 1)
               let insertAt = Math.max(
                 0,
@@ -2182,7 +2186,7 @@ export const useEditSessionStore = create<EditSessionState>()(
         set((state) => {
           if (!state.session) return
           const block = state.session.sequence.find((item) => item.id === blockId)
-          if (!block || isMainTrackBlock(block)) return
+          if (!block) return
           block.timeline_start_sec = Math.max(0, startSec)
           state.dirty = true
         })
@@ -2195,7 +2199,7 @@ export const useEditSessionStore = create<EditSessionState>()(
         set((state) => {
           if (!state.session) return
           const block = state.session.sequence.find((item) => item.id === blockId)
-          if (!block || isMainTrackBlock(block)) return
+          if (!block || (isMainTrackBlock(block) && block.timeline_start_sec == null)) return
           const maxDur =
             block.duration_sec > 0
               ? block.duration_sec
@@ -2680,7 +2684,7 @@ export const useEditSessionStore = create<EditSessionState>()(
         }
         set((state) => {
           if (!state.session) return
-          const mainBlocks = resolveMainTrackBlocks(state.session)
+          const mainBlocks = resolveMainTrackSequentialBlocks(state.session)
           const fromBlock = mainBlocks[fromIndex]
           const toBlock = mainBlocks[toIndex]
           if (!fromBlock || !toBlock) return
@@ -2710,7 +2714,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (!state.session) return
           const pxPerSec = (state.timelineZoom / 100) * BASE_PX_PER_SEC
           const segments = buildCompositionTimelineSegments(
-            resolveMainTrackBlocks(state.session),
+            resolveMainTrackSequentialBlocks(state.session),
             pxPerSec,
             transitionDurationSec(state.session),
             state.session.sequence_block_gaps

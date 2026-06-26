@@ -20,7 +20,8 @@ import {
   adaptedVideoTrackId,
   blockTimelineStartSec,
   DEFAULT_VIDEO_TRACK_ID,
-  resolveMainTrackBlocks,
+  resolveMainTrackFreePositionBlocks,
+  resolveMainTrackSequentialBlocks,
   resolveOverlayVideoBlocks,
   resolveVideoTracks,
 } from '../../../editor/videoTracks'
@@ -223,8 +224,13 @@ export function buildAdaptedTracks(params: {
 
   for (const meta of videoTracks) {
     const isMain = meta.id === DEFAULT_VIDEO_TRACK_ID
+    const sequentialElements = mainTrackVideoElements(segments, params.getBlockVideoUrl)
+    const freeMainElements = overlayTrackVideoElements(
+      resolveMainTrackFreePositionBlocks(session),
+      params.getBlockVideoUrl
+    )
     const elements = isMain
-      ? mainTrackVideoElements(segments, params.getBlockVideoUrl)
+      ? [...sequentialElements, ...freeMainElements].sort((a, b) => a.startTime - b.startTime)
       : overlayTrackVideoElements(
           resolveOverlayVideoBlocks(session, meta.id),
           params.getBlockVideoUrl
@@ -343,4 +349,4 @@ export function resolveTimelinePointerY(
   return clientY - tracksEl.getBoundingClientRect().top
 }
 
-export { resolveMainTrackBlocks }
+export { resolveMainTrackSequentialBlocks as resolveMainTrackBlocks }
