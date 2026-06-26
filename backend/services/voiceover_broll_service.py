@@ -34,7 +34,6 @@ from backend.services.material_download_service import (
 from backend.services.material_library_service import get_library_asset, resolve_library_video_path
 from backend.services.material_search_service import search_materials
 from backend.services.voiceover_broll_selection import (
-    align_existing_block_trim_to_audio,
     align_interval_to_target_duration,
     apply_manual_trim_override,
     block_dict_for_search,
@@ -253,7 +252,7 @@ class VoiceoverBrollService:
         block_id = (segment.broll.block_id or "").strip()
         block_exists = bool(block_id and block_id in sequence_ids)
         is_manual_trim = source_in_sec is not None and source_out_sec is not None
-        is_reapply = block_exists and segment.status == VoiceoverSegmentStatus.BROLL_DONE
+        previous_block_id = block_id if block_exists else None
 
         if not block_id or not block_exists:
             session, block_id = self._create_segment_video_block(
@@ -264,42 +263,23 @@ class VoiceoverBrollService:
                 library_asset_id,
                 target_duration_sec=target_duration,
             )
-            segment.broll.block_id = block_id
-            session = self.session_service.get_session(project_id, session_id)
-            source_duration = self._probe_block_source_duration(
-                project_id, session_id, block_id
+        else:
+            session, block_id = self._create_segment_video_block(
+                project_id,
+                session_id,
+                plan,
+                segment,
+                library_asset_id,
+                target_duration_sec=target_duration,
+                exclude_block_id=previous_block_id,
             )
-            if is_manual_trim:
-                selection = apply_manual_trim_override(
-                    source_in_sec=source_in_sec,
-                    source_out_sec=source_out_sec,
-                    target_duration_sec=target_duration,
-                    source_duration_sec=source_duration,
-                    previous_reason=segment.broll.selection_reason or "",
-                )
-            else:
-                selection = self._semantic_select_trim(
-                    project_id,
-                    session_id,
-                    block_id,
-                    segment=segment,
-                    source_duration_sec=source_duration,
-                    target_duration_sec=target_duration,
-                )
-        elif is_manual_trim:
-            existing_asset = (segment.broll.library_asset_id or "").strip()
-            if existing_asset and existing_asset == library_asset_id:
-                session = self.session_service.get_session(project_id, session_id)
-            else:
-                session = self.replace_block_with_library_asset(
-                    project_id,
-                    session_id,
-                    block_id,
-                    library_asset_id,
-                )
-            source_duration = self._probe_block_source_duration(
-                project_id, session_id, block_id
-            )
+
+        segment.broll.block_id = block_id
+        session = self.session_service.get_session(project_id, session_id)
+        source_duration = self._probe_block_source_duration(
+            project_id, session_id, block_id
+        )
+        if is_manual_trim:
             selection = apply_manual_trim_override(
                 source_in_sec=source_in_sec,
                 source_out_sec=source_out_sec,
@@ -307,30 +287,7 @@ class VoiceoverBrollService:
                 source_duration_sec=source_duration,
                 previous_reason=segment.broll.selection_reason or "",
             )
-        elif is_reapply:
-            session = self.session_service.get_session(project_id, session_id)
-            block = next(item for item in session.sequence if item.id == block_id)
-            source_duration = self._probe_block_source_duration(
-                project_id, session_id, block_id
-            )
-            selection = align_existing_block_trim_to_audio(
-                block=block,
-                segment=segment,
-                target_duration_sec=target_duration,
-                source_duration_sec=source_duration,
-            )
-            if (segment.broll.library_asset_id or "").strip():
-                library_asset_id = segment.broll.library_asset_id.strip()
         else:
-            session = self.replace_block_with_library_asset(
-                project_id,
-                session_id,
-                block_id,
-                library_asset_id,
-            )
-            source_duration = self._probe_block_source_duration(
-                project_id, session_id, block_id
-            )
             selection = self._semantic_select_trim(
                 project_id,
                 session_id,
@@ -400,6 +357,7 @@ class VoiceoverBrollService:
         library_asset_id: str,
         *,
         target_duration_sec: float,
+        exclude_block_id: Optional[str] = None,
     ) -> Tuple[EditSession, str]:
         video_path = resolve_library_video_path(library_asset_id)
         if video_path is None:
@@ -414,6 +372,7 @@ class VoiceoverBrollService:
             session,
             audio_timeline_start_sec=audio_timeline_start,
             audio_timeline_end_sec=audio_timeline_start + target_duration_sec,
+            exclude_block_id=exclude_block_id,
         )
         insert_index = (
             resolve_main_track_insert_index(session, plan, segment)

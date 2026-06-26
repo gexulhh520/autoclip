@@ -323,7 +323,9 @@ def test_voiceover_broll_service_select_and_apply_mocked(tmp_path, monkeypatch):
     assert seg.status == VoiceoverSegmentStatus.BROLL_DONE
     assert seg.broll.source_out_sec - seg.broll.source_in_sec == pytest.approx(5.0, abs=0.11)
     assert "语义检索命中" in note
-    assert len(session.sequence) == 1
+    assert len(session.sequence) == 2
+    assert block.id in {item.id for item in session.sequence}
+    assert seg.broll.block_id != block.id
 
 
 def test_reconcile_broll_block_ids_from_timeline_titles():
@@ -814,10 +816,14 @@ def test_apply_segment_broll_keeps_other_segment_blocks_on_reapply(monkeypatch, 
         VoiceoverApplyBrollRequest(),
     )
 
-    assert len(session.sequence) == 2
-    assert {block.id for block in session.sequence} == {block_seg1.id, block_seg2.id}
+    assert len(session.sequence) == 3
+    assert {block.id for block in session.sequence} == {
+        block_seg1.id,
+        block_seg2.id,
+        updated_plan.segments[1].broll.block_id,
+    }
     seg2 = next(item for item in updated_plan.segments if item.id == "seg-2")
-    assert seg2.broll.block_id == block_seg2.id
+    assert seg2.broll.block_id != block_seg2.id
     assert seg2.broll.source_out_sec - seg2.broll.source_in_sec == pytest.approx(4.0, abs=0.05)
 
 
@@ -946,9 +952,13 @@ def test_apply_segment_broll_keeps_orphan_placeholder_on_reapply(monkeypatch, tm
         VoiceoverApplyBrollRequest(),
     )
 
-    assert len(session.sequence) == 2
-    assert {block.id for block in session.sequence} == {placeholder_id, duplicate_id}
-    assert updated_plan.segments[0].broll.block_id == duplicate_id
+    assert len(session.sequence) == 3
+    assert {block.id for block in session.sequence} == {
+        placeholder_id,
+        duplicate_id,
+        updated_plan.segments[0].broll.block_id,
+    }
+    assert updated_plan.segments[0].broll.block_id != duplicate_id
 
 
 def test_apply_segment_broll_creates_new_block_when_plan_block_id_missing(monkeypatch, tmp_path):
@@ -1065,9 +1075,10 @@ def test_apply_segment_broll_creates_new_block_when_plan_block_id_missing(monkey
         VoiceoverApplyBrollRequest(),
     )
 
-    assert len(session.sequence) == 1
-    assert session.sequence[0].id == placeholder_id
-    assert updated_plan.segments[0].broll.block_id == placeholder_id
+    assert len(session.sequence) == 2
+    assert placeholder_id in {block.id for block in session.sequence}
+    assert updated_plan.segments[0].broll.block_id != placeholder_id
+    assert updated_plan.segments[0].broll.block_id
 
 
 def test_resolve_segment_timeline_start_from_plan():
