@@ -1,8 +1,9 @@
-"""口播 B-roll 轨道放置：主轨为空时写主轨，否则走 overlay 轨。"""
+"""口播 B-roll 轨道放置：按该段音频时间窗是否与主轨画面重叠决定主轨/叠画轨。"""
 from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
+from backend.pipeline.scene_builder import build_composition_timeline
 from backend.schemas.edit_session import EditBlock, EditSession
 from backend.schemas.voiceover_plan import VoiceoverPlan, VoiceoverSegment
 
@@ -24,15 +25,107 @@ def should_use_main_track_for_voiceover(session: EditSession) -> bool:
     return is_main_track_empty(session)
 
 
+def _block_playback_rate(block: EditBlock) -> float:
+    rate = float(block.playback_rate or 1.0)
+    return max(0.25, min(4.0, rate))
+
+
+def main_track_block_visual_window(
+    composition_start_sec: float,
+    block: EditBlock,
+) -> Tuple[float, float]:
+    rate = _block_playback_rate(block)
+    visual_start = composition_start_sec + float(block.trim.in_sec or 0.0) / rate
+    visual_end = composition_start_sec + float(block.trim.out_sec or 0.0) / rate
+    return visual_start, visual_end
+
+
+def _ranges_overlap(
+    a_start: float,
+    a_end: float,
+    b_start: float,
+    b_end: float,
+    *,
+    eps: float = 0.001,
+) -> bool:
+    return a_start < b_end - eps and b_start < a_end - eps
+
+
+def _main_track_blocks(
+    session: EditSession,
+    *,
+    exclude_block_id: Optional[str] = None,
+) -> List[EditBlock]:
+    blocks = [block for block in (session.sequence or []) if is_main_track_block(block)]
+    if exclude_block_id:
+        blocks = [block for block in blocks if block.id != exclude_block_id]
+    return blocks
+
+
+def main_track_has_video_in_range(
+    session: EditSession,
+    start_sec: float,
+    end_sec: float,
+    *,
+    exclude_block_id: Optional[str] = None,
+) -> bool:
+    """该合成时间区间内主轨是否已有视频（按可视 in/out 判断）。"""
+    main_blocks = _main_track_blocks(session, exclude_block_id=exclude_block_id)
+    if not main_blocks:
+        return False
+    transition = float(session.audio_settings.transition_duration_sec or 0.35)
+    timeline = build_composition_timeline(main_blocks, transition)
+    window_start = float(start_sec)
+    window_end = max(window_start + 0.001, float(end_sec))
+    for segment in timeline.segments:
+        vis_start, vis_end = main_track_block_visual_window(
+            segment.composition_start_sec,
+            segment.block,
+        )
+        if _ranges_overlap(vis_start, vis_end, window_start, window_end):
+            return True
+    return False
+
+
+def main_track_composition_visual_end_sec(
+    session: EditSession,
+    *,
+    exclude_block_id: Optional[str] = None,
+) -> float:
+    main_blocks = _main_track_blocks(session, exclude_block_id=exclude_block_id)
+    if not main_blocks:
+        return 0.0
+    transition = float(session.audio_settings.transition_duration_sec or 0.35)
+    timeline = build_composition_timeline(main_blocks, transition)
+    last = timeline.segments[-1]
+    _, vis_end = main_track_block_visual_window(last.composition_start_sec, last.block)
+    return float(vis_end)
+
+
 def should_insert_voiceover_broll_on_main_track(
     session: EditSession,
     *,
     audio_timeline_start_sec: float,
+    audio_timeline_end_sec: float,
+    exclude_block_id: Optional[str] = None,
 ) -> bool:
-    """主轨为空且该段口播从 0s 开始时写入主轨；否则叠画轨并按 audio_timeline_start_sec 对齐。"""
-    if not is_main_track_empty(session):
+    """该段音频时间窗内主轨无画面冲突，且可顺序接在主轨末尾（或从 0s 起）时写入主轨。"""
+    start = float(audio_timeline_start_sec)
+    end = max(start + 0.001, float(audio_timeline_end_sec))
+    if main_track_has_video_in_range(
+        session,
+        start,
+        end,
+        exclude_block_id=exclude_block_id,
+    ):
         return False
-    return float(audio_timeline_start_sec) <= 0.001
+    if start <= 0.001:
+        return True
+    main_end = main_track_composition_visual_end_sec(
+        session,
+        exclude_block_id=exclude_block_id,
+    )
+    return abs(main_end - start) <= 0.05
 
 
 def is_voiceover_broll_block(block: EditBlock) -> bool:

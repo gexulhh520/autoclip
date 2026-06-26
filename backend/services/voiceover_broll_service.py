@@ -347,6 +347,7 @@ class VoiceoverBrollService:
         use_main_track = should_insert_voiceover_broll_on_main_track(
             session,
             audio_timeline_start_sec=audio_timeline_start,
+            audio_timeline_end_sec=audio_timeline_start + target_duration_sec,
         )
         insert_index = (
             resolve_main_track_insert_index(session, plan, segment)

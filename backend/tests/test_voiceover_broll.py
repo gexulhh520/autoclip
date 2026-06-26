@@ -636,13 +636,15 @@ def test_create_segment_video_block_uses_overlay_when_audio_not_at_zero(monkeypa
     assert any(track.id == VOICEOVER_BROLL_TRACK_ID for track in (session.video_tracks or []))
 
 
-def test_create_segment_video_block_uses_overlay_when_main_has_content(monkeypatch, tmp_path):
+def test_create_segment_video_block_appends_main_when_audio_after_existing_clip(
+    monkeypatch, tmp_path
+):
     from backend.services.voiceover_broll_service import (
-        VOICEOVER_BROLL_TRACK_ID,
+        DEFAULT_VIDEO_TRACK_ID,
         VoiceoverBrollService,
     )
 
-    project_id = "proj_vo_overlay"
+    project_id = "proj_vo_append_main"
     project_dir = tmp_path / "data" / "projects" / project_id
     project_dir.mkdir(parents=True)
     (project_dir / "edit_sessions").mkdir()
@@ -663,7 +665,7 @@ def test_create_segment_video_block_uses_overlay_when_main_has_content(monkeypat
     )
 
     session_service = EditSessionService(db=None)
-    created = session_service.create_blank_session(project_id, name="overlay test")
+    created = session_service.create_blank_session(project_id, name="append main test")
     main_block = EditBlock(
         id="main-import",
         source_clip_id="import-main",
@@ -702,22 +704,21 @@ def test_create_segment_video_block_uses_overlay_when_main_has_content(monkeypat
         target_duration_sec=6.0,
     )
     block = next(item for item in session.sequence if item.id == block_id)
-    assert block.track_id == VOICEOVER_BROLL_TRACK_ID
-    assert block.timeline_start_sec == pytest.approx(10.0)
-    assert any(track.id == VOICEOVER_BROLL_TRACK_ID for track in (session.video_tracks or []))
+    assert block.track_id == DEFAULT_VIDEO_TRACK_ID
+    assert block.timeline_start_sec is None
+    main_blocks = [item for item in session.sequence if item.track_id == DEFAULT_VIDEO_TRACK_ID]
+    assert [item.id for item in main_blocks] == [main_block.id, block_id]
 
 
-def test_create_segment_video_block_second_segment_uses_overlay_after_first_on_main(
+def test_create_segment_video_block_uses_overlay_when_main_overlaps_audio_window(
     monkeypatch, tmp_path
 ):
     from backend.services.voiceover_broll_service import (
-        BROLL_BLOCK_TITLE_PREFIX,
-        DEFAULT_VIDEO_TRACK_ID,
         VOICEOVER_BROLL_TRACK_ID,
         VoiceoverBrollService,
     )
 
-    project_id = "proj_vo_seg2_overlay"
+    project_id = "proj_vo_overlap"
     project_dir = tmp_path / "data" / "projects" / project_id
     project_dir.mkdir(parents=True)
     (project_dir / "edit_sessions").mkdir()
@@ -738,7 +739,81 @@ def test_create_segment_video_block_second_segment_uses_overlay_after_first_on_m
     )
 
     session_service = EditSessionService(db=None)
-    created = session_service.create_blank_session(project_id, name="seg2 overlay")
+    created = session_service.create_blank_session(project_id, name="overlap test")
+    main_block = EditBlock(
+        id="main-import",
+        source_clip_id="import-main",
+        title="已有主轨素材",
+        media=EditBlockMedia(type="imported_clip", path="main.mp4"),
+        trim=EditBlockTrim(in_sec=0.0, out_sec=10.0),
+        overlay=EditBlockOverlay(outline="", content=[], recommend_reason=""),
+        duration_sec=10.0,
+        track_id="default-video",
+    )
+    plan = VoiceoverPlan(
+        id="vo-plan",
+        segments=[
+            VoiceoverSegment(
+                id="seg-1",
+                index=1,
+                narration_text="第一段",
+                status=VoiceoverSegmentStatus.TTS_DONE,
+                tts=VoiceoverTtsState(duration_sec=6.0, timeline_start_sec=6.0),
+            ),
+        ],
+    )
+    session_service.update_session(
+        project_id,
+        created.id,
+        EditSessionUpdateRequest(sequence=[main_block], voiceover_plan=plan),
+    )
+
+    vo_service = VoiceoverBrollService(session_service=session_service)
+    session, block_id = vo_service._create_segment_video_block(
+        project_id,
+        created.id,
+        plan,
+        plan.segments[0],
+        "lib-broll",
+        target_duration_sec=6.0,
+    )
+    block = next(item for item in session.sequence if item.id == block_id)
+    assert block.track_id == VOICEOVER_BROLL_TRACK_ID
+    assert block.timeline_start_sec == pytest.approx(6.0)
+    assert any(track.id == VOICEOVER_BROLL_TRACK_ID for track in (session.video_tracks or []))
+
+
+def test_create_segment_video_block_second_segment_uses_main_after_first_on_main(
+    monkeypatch, tmp_path
+):
+    from backend.services.voiceover_broll_service import (
+        BROLL_BLOCK_TITLE_PREFIX,
+        DEFAULT_VIDEO_TRACK_ID,
+        VoiceoverBrollService,
+    )
+
+    project_id = "proj_vo_seg2_main"
+    project_dir = tmp_path / "data" / "projects" / project_id
+    project_dir.mkdir(parents=True)
+    (project_dir / "edit_sessions").mkdir()
+    library_video = tmp_path / "broll.mp4"
+    library_video.write_bytes(b"fake-video")
+
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.resolve_library_video_path",
+        lambda asset_id: library_video if asset_id == "lib-broll" else None,
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.VideoProcessor.probe_video_duration_sec",
+        lambda _path: 30.0,
+    )
+
+    session_service = EditSessionService(db=None)
+    created = session_service.create_blank_session(project_id, name="seg2 main")
     seg1_block = EditBlock(
         id="block-seg-1",
         source_clip_id="import-1",
@@ -785,5 +860,56 @@ def test_create_segment_video_block_second_segment_uses_overlay_after_first_on_m
         target_duration_sec=3.5,
     )
     block = next(item for item in session.sequence if item.id == block_id)
-    assert block.track_id == VOICEOVER_BROLL_TRACK_ID
-    assert block.timeline_start_sec == pytest.approx(4.0)
+    assert block.track_id == DEFAULT_VIDEO_TRACK_ID
+    assert block.timeline_start_sec is None
+    main_blocks = [item for item in session.sequence if item.track_id == DEFAULT_VIDEO_TRACK_ID]
+    assert [item.id for item in main_blocks] == [seg1_block.id, block_id]
+
+
+def test_should_insert_on_main_false_when_audio_window_overlaps_main_video():
+    from backend.services.voiceover_track_placement import (
+        should_insert_voiceover_broll_on_main_track,
+    )
+
+    session = SimpleNamespace(
+        sequence=[
+            EditBlock(
+                id="main-1",
+                source_clip_id="main-1",
+                title="已有素材",
+                media=EditBlockMedia(type="imported_clip", path="main.mp4"),
+                trim=EditBlockTrim(in_sec=0.0, out_sec=10.0),
+                overlay=EditBlockOverlay(outline="", content=[], recommend_reason=""),
+                duration_sec=10.0,
+                track_id="default-video",
+            )
+        ],
+        audio_settings=SimpleNamespace(transition_duration_sec=0.35),
+    )
+    assert (
+        should_insert_voiceover_broll_on_main_track(
+            session,
+            audio_timeline_start_sec=6.0,
+            audio_timeline_end_sec=9.0,
+        )
+        is False
+    )
+
+
+def test_should_insert_on_main_false_when_gap_before_audio_start():
+    from backend.services.voiceover_track_placement import (
+        should_insert_voiceover_broll_on_main_track,
+    )
+
+    session = SimpleNamespace(
+        sequence=[],
+        audio_settings=SimpleNamespace(transition_duration_sec=0.35),
+    )
+    assert (
+        should_insert_voiceover_broll_on_main_track(
+            session,
+            audio_timeline_start_sec=12.0,
+            audio_timeline_end_sec=17.0,
+        )
+        is False
+    )
