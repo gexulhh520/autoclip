@@ -50,7 +50,7 @@ from backend.services.voiceover_track_placement import (
     apply_overlay_track_placement_to_block_data,
     migrate_voiceover_blocks_to_main_track,
     resolve_main_track_insert_index,
-    should_use_main_track_for_voiceover,
+    should_insert_voiceover_broll_on_main_track,
 )
 from backend.utils.video_processor import VideoProcessor
 
@@ -343,15 +343,17 @@ class VoiceoverBrollService:
         session, _migrated = self._maybe_migrate_voiceover_to_main_track(
             project_id, session_id, session, plan
         )
-        use_main_track = should_use_main_track_for_voiceover(session)
+        audio_timeline_start = self._resolve_segment_timeline_start(plan, segment)
+        use_main_track = should_insert_voiceover_broll_on_main_track(
+            session,
+            audio_timeline_start_sec=audio_timeline_start,
+        )
         insert_index = (
             resolve_main_track_insert_index(session, plan, segment)
             if use_main_track
             else None
         )
-        timeline_start_sec = None if use_main_track else self._resolve_segment_timeline_start(
-            plan, segment
-        )
+        timeline_start_sec = None if use_main_track else audio_timeline_start
 
         session, block, _import_method = self.session_service.import_media_from_path(
             project_id,
@@ -665,13 +667,15 @@ class VoiceoverBrollService:
         if block is None:
             raise ValueError(f"视频 block 不存在: {block_id}")
 
-        session, _migrated = self._maybe_migrate_voiceover_to_main_track(
-            project_id, session_id, session, plan
+        audio_timeline_start = self._resolve_segment_timeline_start(plan, segment)
+        is_overlay_broll = (
+            (block.track_id or "").strip() == VOICEOVER_BROLL_TRACK_ID
+            or block.timeline_start_sec is not None
         )
-        use_main_track = should_use_main_track_for_voiceover(session)
-        if use_main_track:
+
+        if is_overlay_broll:
             session = self._ensure_voiceover_video_tracks(
-                project_id, session_id, session, use_main_track=True
+                project_id, session_id, session, use_main_track=False
             )
             return self._update_broll_block_fields(
                 project_id,
@@ -680,17 +684,12 @@ class VoiceoverBrollService:
                 trim_in_sec=trim_in_sec,
                 trim_out_sec=trim_out_sec,
                 duration_sec=duration_sec,
-                use_main_track=True,
+                track_id=VOICEOVER_BROLL_TRACK_ID,
+                timeline_start_sec=audio_timeline_start,
             )
 
-        uses_audio_timeline = (
-            block.track_id == VOICEOVER_BROLL_TRACK_ID or block.timeline_start_sec is not None
-        )
-        if not uses_audio_timeline:
-            return session
-        timeline_start_sec = self._resolve_segment_timeline_start(plan, segment)
         session = self._ensure_voiceover_video_tracks(
-            project_id, session_id, session, use_main_track=False
+            project_id, session_id, session, use_main_track=True
         )
         return self._update_broll_block_fields(
             project_id,
@@ -699,8 +698,7 @@ class VoiceoverBrollService:
             trim_in_sec=trim_in_sec,
             trim_out_sec=trim_out_sec,
             duration_sec=duration_sec,
-            track_id=VOICEOVER_BROLL_TRACK_ID,
-            timeline_start_sec=timeline_start_sec,
+            use_main_track=True,
         )
 
     def _resolve_library_asset_id(

@@ -24,6 +24,17 @@ def should_use_main_track_for_voiceover(session: EditSession) -> bool:
     return is_main_track_empty(session)
 
 
+def should_insert_voiceover_broll_on_main_track(
+    session: EditSession,
+    *,
+    audio_timeline_start_sec: float,
+) -> bool:
+    """主轨为空且该段口播从 0s 开始时写入主轨；否则叠画轨并按 audio_timeline_start_sec 对齐。"""
+    if not is_main_track_empty(session):
+        return False
+    return float(audio_timeline_start_sec) <= 0.001
+
+
 def is_voiceover_broll_block(block: EditBlock) -> bool:
     if (block.track_id or "").strip() == VOICEOVER_BROLL_TRACK_ID:
         return True

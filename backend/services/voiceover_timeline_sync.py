@@ -1,4 +1,4 @@
-"""口播主轨模式：同步 TTS 音频/字幕与主轨 composition 时间，避免 trim.in 联动偏移。"""
+"""口播时间线同步：B-roll 应用后仅持久化 plan，不批量移动已对齐音频的字幕。"""
 from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple
@@ -201,21 +201,9 @@ class VoiceoverTimelineSyncService:
         session: EditSession,
         plan: VoiceoverPlan,
     ) -> Tuple[EditSession, VoiceoverPlan]:
-        session, plan, timeline_changed = repack_voiceover_main_track_timeline(session, plan)
-        if not timeline_changed:
-            return self._save_plan(project_id, session_id, plan), plan
-        return (
-            self.session_service.update_session(
-                project_id,
-                session_id,
-                EditSessionUpdateRequest(
-                    overlay_elements=session.overlay_elements,
-                    audio_elements=session.audio_elements,
-                    voiceover_plan=plan,
-                ),
-            ),
-            plan,
-        )
+        """应用 B-roll 后保留 TTS 音频/字幕时间轴；画面已在 _sync_broll_block_audio_alignment 对齐。"""
+        _ = session
+        return self._save_plan(project_id, session_id, plan), plan
 
     def _save_plan(self, project_id: str, session_id: str, plan: VoiceoverPlan) -> EditSession:
         return self.session_service.update_session(

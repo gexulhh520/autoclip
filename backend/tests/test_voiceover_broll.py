@@ -536,6 +536,69 @@ def test_create_segment_video_block_uses_main_track_when_empty(monkeypatch, tmp_
         id="vo-plan",
         segments=[
             VoiceoverSegment(
+                id="seg-1",
+                index=1,
+                narration_text="第一段",
+                status=VoiceoverSegmentStatus.TTS_DONE,
+                tts=VoiceoverTtsState(duration_sec=5.0, timeline_start_sec=0.0),
+            ),
+        ],
+    )
+    session_service.update_session(
+        project_id,
+        created.id,
+        EditSessionUpdateRequest(voiceover_plan=plan),
+    )
+
+    vo_service = VoiceoverBrollService(session_service=session_service)
+    session, block_id = vo_service._create_segment_video_block(
+        project_id,
+        created.id,
+        plan,
+        plan.segments[0],
+        "lib-broll",
+        target_duration_sec=5.0,
+    )
+    block = next(item for item in session.sequence if item.id == block_id)
+    assert block.track_id == DEFAULT_VIDEO_TRACK_ID
+    assert block.timeline_start_sec is None
+    assert not any(
+        track.id == "voiceover-broll" for track in (session.video_tracks or [])
+    )
+
+
+def test_create_segment_video_block_uses_overlay_when_audio_not_at_zero(monkeypatch, tmp_path):
+    from backend.services.voiceover_broll_service import (
+        VOICEOVER_BROLL_TRACK_ID,
+        VoiceoverBrollService,
+    )
+
+    project_id = "proj_vo_align_late"
+    project_dir = tmp_path / "data" / "projects" / project_id
+    project_dir.mkdir(parents=True)
+    (project_dir / "edit_sessions").mkdir()
+    library_video = tmp_path / "broll.mp4"
+    library_video.write_bytes(b"fake-video")
+
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.resolve_library_video_path",
+        lambda asset_id: library_video if asset_id == "lib-broll" else None,
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.VideoProcessor.probe_video_duration_sec",
+        lambda _path: 30.0,
+    )
+
+    session_service = EditSessionService(db=None)
+    created = session_service.create_blank_session(project_id, name="align late test")
+    plan = VoiceoverPlan(
+        id="vo-plan",
+        segments=[
+            VoiceoverSegment(
                 id="seg-4",
                 index=4,
                 narration_text="第四段",
@@ -568,11 +631,9 @@ def test_create_segment_video_block_uses_main_track_when_empty(monkeypatch, tmp_
         target_duration_sec=6.0,
     )
     block = next(item for item in session.sequence if item.id == block_id)
-    assert block.track_id == DEFAULT_VIDEO_TRACK_ID
-    assert block.timeline_start_sec is None
-    assert not any(
-        track.id == "voiceover-broll" for track in (session.video_tracks or [])
-    )
+    assert block.track_id == VOICEOVER_BROLL_TRACK_ID
+    assert block.timeline_start_sec == pytest.approx(17.0)
+    assert any(track.id == VOICEOVER_BROLL_TRACK_ID for track in (session.video_tracks or []))
 
 
 def test_create_segment_video_block_uses_overlay_when_main_has_content(monkeypatch, tmp_path):
@@ -644,3 +705,85 @@ def test_create_segment_video_block_uses_overlay_when_main_has_content(monkeypat
     assert block.track_id == VOICEOVER_BROLL_TRACK_ID
     assert block.timeline_start_sec == pytest.approx(10.0)
     assert any(track.id == VOICEOVER_BROLL_TRACK_ID for track in (session.video_tracks or []))
+
+
+def test_create_segment_video_block_second_segment_uses_overlay_after_first_on_main(
+    monkeypatch, tmp_path
+):
+    from backend.services.voiceover_broll_service import (
+        BROLL_BLOCK_TITLE_PREFIX,
+        DEFAULT_VIDEO_TRACK_ID,
+        VOICEOVER_BROLL_TRACK_ID,
+        VoiceoverBrollService,
+    )
+
+    project_id = "proj_vo_seg2_overlay"
+    project_dir = tmp_path / "data" / "projects" / project_id
+    project_dir.mkdir(parents=True)
+    (project_dir / "edit_sessions").mkdir()
+    library_video = tmp_path / "broll.mp4"
+    library_video.write_bytes(b"fake-video")
+
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.resolve_library_video_path",
+        lambda asset_id: library_video if asset_id == "lib-broll" else None,
+    )
+    monkeypatch.setattr(
+        "backend.services.voiceover_broll_service.VideoProcessor.probe_video_duration_sec",
+        lambda _path: 30.0,
+    )
+
+    session_service = EditSessionService(db=None)
+    created = session_service.create_blank_session(project_id, name="seg2 overlay")
+    seg1_block = EditBlock(
+        id="block-seg-1",
+        source_clip_id="import-1",
+        title=f"{BROLL_BLOCK_TITLE_PREFIX}1",
+        media=EditBlockMedia(type="imported_clip", path="seg1.mp4"),
+        trim=EditBlockTrim(in_sec=0.0, out_sec=4.0),
+        overlay=EditBlockOverlay(outline="", content=[], recommend_reason=""),
+        duration_sec=4.0,
+        track_id=DEFAULT_VIDEO_TRACK_ID,
+    )
+    plan = VoiceoverPlan(
+        id="vo-plan",
+        segments=[
+            VoiceoverSegment(
+                id="seg-1",
+                index=1,
+                narration_text="第一段",
+                status=VoiceoverSegmentStatus.BROLL_DONE,
+                tts=VoiceoverTtsState(duration_sec=4.0, timeline_start_sec=0.0),
+                broll=VoiceoverBrollState(block_id=seg1_block.id),
+            ),
+            VoiceoverSegment(
+                id="seg-2",
+                index=2,
+                narration_text="第二段",
+                status=VoiceoverSegmentStatus.TTS_DONE,
+                tts=VoiceoverTtsState(duration_sec=3.5, timeline_start_sec=4.0),
+            ),
+        ],
+    )
+    session_service.update_session(
+        project_id,
+        created.id,
+        EditSessionUpdateRequest(sequence=[seg1_block], voiceover_plan=plan),
+    )
+
+    vo_service = VoiceoverBrollService(session_service=session_service)
+    session, block_id = vo_service._create_segment_video_block(
+        project_id,
+        created.id,
+        plan,
+        plan.segments[1],
+        "lib-broll",
+        target_duration_sec=3.5,
+    )
+    block = next(item for item in session.sequence if item.id == block_id)
+    assert block.track_id == VOICEOVER_BROLL_TRACK_ID
+    assert block.timeline_start_sec == pytest.approx(4.0)
