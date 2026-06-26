@@ -390,6 +390,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     const clockSec = playbackClockRef.current.read(plan.totalDurationSec)
     const { vm: probeVm } = resolveSceneVm(clockSec)
 
+    // 转场窗口：纯墙钟（progress 平滑）；非转场播放：主轨 video 驱动，减少 drift seek
     if (!probeVm.inDissolve) {
       const mainLayer =
         probeVm.videoLayers.find((layer) => isMainTrackBlock(layer.block)) ??
@@ -540,23 +541,41 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     [getVideoRefForBlock]
   )
 
-  const buildPausedFrameCaches = useCallback(
-    (layers: PreviewVideoLayerProps[]): Map<string, HTMLCanvasElement> | undefined => {
+  /** 逐层：live 帧优先，seeking/未 ready 时回退 lastStableFrame，避免转场混合掉灰 */
+  const buildLayerFrameCaches = useCallback(
+    (
+      layers: PreviewVideoLayerProps[],
+      options?: { stableFallback?: boolean }
+    ): Map<string, HTMLCanvasElement> | undefined => {
       const pool = getDecoderPool()
       if (!pool) return undefined
       const caches = new Map<string, HTMLCanvasElement>()
       for (const layer of layers) {
         const video = pool.get(layer.block.id)
-        if (!video) continue
         const cache = pool.getFrameCache(layer.block.id)
-        capturePreviewVideoFrame(video, cache)
-        if (hasPreviewVideoFrameCache(cache) && !video.seeking) {
+        if (video) {
+          capturePreviewVideoFrame(video, cache)
+        }
+        if (video && hasPreviewVideoFrameCache(cache) && !video.seeking) {
           caches.set(layer.block.id, cache)
+          pool.setLastStableFrame(layer.block.id, cache)
+          continue
+        }
+        if (options?.stableFallback) {
+          const stable = pool.getLastStableFrame(layer.block.id)
+          if (stable && hasPreviewVideoFrameCache(stable)) {
+            caches.set(layer.block.id, stable)
+          }
         }
       }
       return caches.size > 0 ? caches : undefined
     },
     [getDecoderPool]
+  )
+
+  const buildPausedFrameCaches = useCallback(
+    (layers: PreviewVideoLayerProps[]) => buildLayerFrameCaches(layers),
+    [buildLayerFrameCaches]
   )
 
   const syncVideoElement = useCallback(
@@ -731,22 +750,9 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   )
 
   const buildCrossFrameCaches = useCallback(
-    (layers: PreviewVideoLayerProps[]): Map<string, HTMLCanvasElement> | undefined => {
-      const pool = getDecoderPool()
-      if (!pool) return undefined
-      const caches = new Map<string, HTMLCanvasElement>()
-      for (const layer of layers) {
-        const video = pool.get(layer.block.id)
-        if (!video) continue
-        const cache = pool.getFrameCache(layer.block.id)
-        capturePreviewVideoFrame(video, cache)
-        if (hasPreviewVideoFrameCache(cache) && !video.seeking) {
-          caches.set(layer.block.id, cache)
-        }
-      }
-      return caches.size > 0 ? caches : undefined
-    },
-    [getDecoderPool]
+    (layers: PreviewVideoLayerProps[]) =>
+      buildLayerFrameCaches(layers, { stableFallback: true }),
+    [buildLayerFrameCaches]
   )
 
   const buildDescriptorAt = useCallback(
@@ -828,19 +834,10 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
         const videos = collectVideosForLayers(vm.videoLayers)
         const pool = getDecoderPool()
-        const stableCaches = new Map<string, HTMLCanvasElement>()
-        if (pool) {
-          for (const layer of vm.videoLayers) {
-            const stable = pool.getLastStableFrame(layer.block.id)
-            if (stable) stableCaches.set(layer.block.id, stable)
-          }
-        }
         const videoFrameCaches = isPlaying
           ? vm.inDissolve || exitingCross
-            ? buildCrossFrameCaches(vm.videoLayers) ?? stableCaches
-            : stableCaches.size > 0
-              ? stableCaches
-              : undefined
+            ? buildCrossFrameCaches(vm.videoLayers)
+            : buildLayerFrameCaches(vm.videoLayers, { stableFallback: true })
           : buildPausedFrameCaches(vm.videoLayers)
 
         renderFrameDescriptorToCanvas(ctx, descriptor, {
