@@ -235,6 +235,14 @@ class VoiceoverBrollService:
 
         report("analyzing", 42.0, "素材已就绪，正在分析画面选段…")
 
+        is_manual_trim = source_in_sec is not None and source_out_sec is not None
+        existing_asset = (segment.broll.library_asset_id or "").strip()
+        same_asset_retrim = bool(
+            is_manual_trim
+            and existing_asset
+            and existing_asset == library_asset_id
+        )
+
         block_id = segment.broll.block_id
         if not block_id:
             session, block_id = self._create_segment_video_block(
@@ -246,6 +254,8 @@ class VoiceoverBrollService:
                 target_duration_sec=target_duration,
             )
             segment.broll.block_id = block_id
+            session = self.session_service.get_session(project_id, session_id)
+        elif same_asset_retrim:
             session = self.session_service.get_session(project_id, session_id)
         else:
             session = self.replace_block_with_library_asset(

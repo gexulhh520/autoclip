@@ -94,14 +94,25 @@ def test_align_interval_expands_short_match():
 
 
 def test_apply_manual_trim_override():
-    selection = apply_manual_trim_override(
+    exact = apply_manual_trim_override(
         source_in_sec=3.0,
         source_out_sec=8.0,
         target_duration_sec=5.0,
         source_duration_sec=30.0,
     )
-    assert selection.source_in_sec == pytest.approx(3.0)
-    assert selection.source_out_sec == pytest.approx(8.0)
+    assert exact.source_in_sec == pytest.approx(3.0)
+    assert exact.source_out_sec == pytest.approx(8.0)
+    assert exact.source_out_sec - exact.source_in_sec == pytest.approx(5.0, abs=0.01)
+
+    long_sel = apply_manual_trim_override(
+        source_in_sec=3.0,
+        source_out_sec=30.0,
+        target_duration_sec=5.0,
+        source_duration_sec=30.0,
+    )
+    assert long_sel.source_in_sec == pytest.approx(3.0)
+    assert long_sel.source_out_sec == pytest.approx(8.0)
+    assert "对齐" in long_sel.selection_reason
 
 
 def test_pick_best_semantic_match():

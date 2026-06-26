@@ -29,3 +29,33 @@ export function clampTrimRange(
   }
   return { inSec: trimIn, outSec: trimOut }
 }
+
+/** 将选段裁成与目标时长等长；默认以入点为锚，也可以出点为锚（固定宽度滑窗）。 */
+export function alignTrimToTargetDuration(
+  durationSec: number,
+  anchorSec: number,
+  targetDurationSec: number,
+  anchor: 'in' | 'out' = 'in',
+  minSpan = 0.1
+): { inSec: number; outSec: number } {
+  const sourceMax = Math.max(minSpan, durationSec)
+  const target = Math.max(minSpan, targetDurationSec)
+
+  if (anchor === 'out') {
+    const trimOut = Math.max(minSpan, Math.min(anchorSec, sourceMax))
+    let trimIn = Math.max(0, trimOut - target)
+    const alignedOut = Math.min(sourceMax, trimIn + target)
+    if (alignedOut - trimIn < target - 0.001) {
+      trimIn = Math.max(0, alignedOut - target)
+    }
+    return { inSec: trimIn, outSec: alignedOut }
+  }
+
+  let trimIn = Math.max(0, Math.min(anchorSec, sourceMax - minSpan))
+  let trimOut = Math.min(sourceMax, trimIn + target)
+  if (trimOut - trimIn < target - 0.001) {
+    trimIn = Math.max(0, trimOut - target)
+    trimOut = Math.min(sourceMax, trimIn + target)
+  }
+  return { inSec: trimIn, outSec: trimOut }
+}

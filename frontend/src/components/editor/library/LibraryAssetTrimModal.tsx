@@ -7,7 +7,7 @@ import {
   StepForwardOutlined,
 } from '@ant-design/icons'
 import type { LibraryAsset } from '../../services/libraryApi'
-import { clampTrimRange, formatTimecode } from '../../../utils/timecodeFormat'
+import { clampTrimRange, formatTimecode, alignTrimToTargetDuration } from '../../../utils/timecodeFormat'
 import './LibraryAssetTrimModal.css'
 
 const MIN_TRIM_SPAN = 0.1
@@ -31,8 +31,14 @@ export interface LibraryAssetTrimModalProps {
 
 type DragTarget = 'in' | 'out' | 'playhead' | null
 
-function defaultRange(durationSec: number): { inSec: number; outSec: number } {
+function defaultRange(
+  durationSec: number,
+  targetDurationSec?: number | null
+): { inSec: number; outSec: number } {
   if (durationSec <= 0) return { inSec: 0, outSec: MIN_TRIM_SPAN }
+  if (targetDurationSec != null && targetDurationSec > 0) {
+    return alignTrimToTargetDuration(durationSec, 0, targetDurationSec, 'in', MIN_TRIM_SPAN)
+  }
   const outSec = durationSec > 60 ? Math.min(30, durationSec) : durationSec
   return clampTrimRange(durationSec, 0, outSec, MIN_TRIM_SPAN)
 }
@@ -66,36 +72,56 @@ const LibraryAssetTrimModal: React.FC<LibraryAssetTrimModalProps> = ({
     setPlaying(false)
     const durationHint = asset?.duration_sec ?? 0
     if (initialTrim && initialTrim.outSec > initialTrim.inSec + 0.05) {
-      const clamped = clampTrimRange(
-        durationHint > 0 ? durationHint : Math.max(initialTrim.outSec, 1),
-        initialTrim.inSec,
-        initialTrim.outSec,
-        MIN_TRIM_SPAN
-      )
+      const duration = durationHint > 0 ? durationHint : Math.max(initialTrim.outSec, 1)
+      const clamped =
+        targetDurationSec != null && targetDurationSec > 0
+          ? alignTrimToTargetDuration(
+              duration,
+              initialTrim.inSec,
+              targetDurationSec,
+              'in',
+              MIN_TRIM_SPAN
+            )
+          : clampTrimRange(duration, initialTrim.inSec, initialTrim.outSec, MIN_TRIM_SPAN)
       setInSec(clamped.inSec)
       setOutSec(clamped.outSec)
       setPlayheadSec(clamped.inSec)
       return
     }
-    const initial = defaultRange(durationHint)
+    const initial = defaultRange(durationHint, targetDurationSec)
     setInSec(initial.inSec)
     setOutSec(initial.outSec)
     setPlayheadSec(initial.inSec)
-  }, [open, asset?.id, asset?.duration_sec, initialTrim?.inSec, initialTrim?.outSec])
+  }, [open, asset?.id, asset?.duration_sec, initialTrim?.inSec, initialTrim?.outSec, targetDurationSec])
 
   const selectionSpan = useMemo(() => Math.max(MIN_TRIM_SPAN, outSec - inSec), [inSec, outSec])
+  const appliedSpan = useMemo(() => {
+    if (targetDurationSec != null && targetDurationSec > 0) {
+      return Math.max(MIN_TRIM_SPAN, targetDurationSec)
+    }
+    return selectionSpan
+  }, [selectionSpan, targetDurationSec])
 
   const applyRange = useCallback(
-    (nextIn: number, nextOut: number) => {
+    (nextIn: number, nextOut: number, anchor?: 'in' | 'out') => {
       const duration = durationSec > 0 ? durationSec : Math.max(nextOut, asset?.duration_sec ?? 0)
-      const clamped = clampTrimRange(duration, nextIn, nextOut, MIN_TRIM_SPAN)
+      const clamped =
+        targetDurationSec != null && targetDurationSec > 0
+          ? alignTrimToTargetDuration(
+              duration,
+              anchor === 'out' ? nextOut : nextIn,
+              targetDurationSec,
+              anchor ?? 'in',
+              MIN_TRIM_SPAN
+            )
+          : clampTrimRange(duration, nextIn, nextOut, MIN_TRIM_SPAN)
       setInSec(clamped.inSec)
       setOutSec(clamped.outSec)
       setPlayheadSec((prev) =>
         Math.min(clamped.outSec - 0.01, Math.max(clamped.inSec, prev))
       )
     },
-    [durationSec, asset?.duration_sec]
+    [durationSec, asset?.duration_sec, targetDurationSec]
   )
 
   const seekVideo = useCallback((sec: number) => {
@@ -128,14 +154,23 @@ const LibraryAssetTrimModal: React.FC<LibraryAssetTrimModalProps> = ({
     const duration = video.duration
     setDurationSec(duration)
     if (initialTrim && initialTrim.outSec > initialTrim.inSec + 0.05) {
-      const clamped = clampTrimRange(duration, initialTrim.inSec, initialTrim.outSec, MIN_TRIM_SPAN)
+      const clamped =
+        targetDurationSec != null && targetDurationSec > 0
+          ? alignTrimToTargetDuration(
+              duration,
+              initialTrim.inSec,
+              targetDurationSec,
+              'in',
+              MIN_TRIM_SPAN
+            )
+          : clampTrimRange(duration, initialTrim.inSec, initialTrim.outSec, MIN_TRIM_SPAN)
       setInSec(clamped.inSec)
       setOutSec(clamped.outSec)
       setPlayheadSec(clamped.inSec)
       video.currentTime = clamped.inSec
       return
     }
-    const initial = defaultRange(duration)
+    const initial = defaultRange(duration, targetDurationSec)
     setInSec(initial.inSec)
     setOutSec(initial.outSec)
     setPlayheadSec(initial.inSec)
@@ -175,9 +210,9 @@ const LibraryAssetTrimModal: React.FC<LibraryAssetTrimModalProps> = ({
       if (!target) return
       const sec = secFromClientX(event.clientX)
       if (target === 'in') {
-        applyRange(sec, outSec)
+        applyRange(sec, outSec, 'in')
       } else if (target === 'out') {
-        applyRange(inSec, sec)
+        applyRange(inSec, sec, 'out')
       } else if (target === 'playhead') {
         const clamped = Math.max(inSec, Math.min(outSec - 0.01, sec))
         seekVideo(clamped)
@@ -214,9 +249,9 @@ const LibraryAssetTrimModal: React.FC<LibraryAssetTrimModalProps> = ({
         case 'ArrowLeft':
           event.preventDefault()
           if (event.altKey) {
-            applyRange(inSec - nudge, outSec)
+            applyRange(inSec - nudge, outSec, 'in')
           } else if (event.ctrlKey || event.metaKey) {
-            applyRange(inSec, outSec - nudge)
+            applyRange(inSec, outSec - nudge, 'out')
           } else {
             seekVideo(playheadSec - step)
           }
@@ -224,9 +259,9 @@ const LibraryAssetTrimModal: React.FC<LibraryAssetTrimModalProps> = ({
         case 'ArrowRight':
           event.preventDefault()
           if (event.altKey) {
-            applyRange(inSec + nudge, outSec)
+            applyRange(inSec + nudge, outSec, 'in')
           } else if (event.ctrlKey || event.metaKey) {
-            applyRange(inSec, outSec + nudge)
+            applyRange(inSec, outSec + nudge, 'out')
           } else {
             seekVideo(playheadSec + step)
           }
@@ -235,13 +270,13 @@ const LibraryAssetTrimModal: React.FC<LibraryAssetTrimModalProps> = ({
         case 'I':
         case '[':
           event.preventDefault()
-          applyRange(playheadSec, outSec)
+          applyRange(playheadSec, outSec, 'in')
           break
         case 'o':
         case 'O':
         case ']':
           event.preventDefault()
-          applyRange(inSec, playheadSec)
+          applyRange(inSec, playheadSec, 'out')
           break
         case 'Escape':
           event.preventDefault()
@@ -404,11 +439,13 @@ const LibraryAssetTrimModal: React.FC<LibraryAssetTrimModalProps> = ({
             </div>
           </label>
           <div className="library-trim-modal__meta">
-            <span className="library-trim-modal__meta-label">选段</span>
+            <span className="library-trim-modal__meta-label">
+              {targetDurationSec != null && targetDurationSec > 0 ? '将应用' : '选段'}
+            </span>
             <span className="library-trim-modal__meta-value">
-              {formatTimecode(selectionSpan)} / {formatTimecode(duration || 0)}
+              {formatTimecode(appliedSpan)} / {formatTimecode(duration || 0)}
               {targetDurationSec != null && targetDurationSec > 0
-                ? ` · 口播 ${formatTimecode(targetDurationSec)}`
+                ? ` · 口播 ${formatTimecode(targetDurationSec)} · 入点 ${formatTimecode(inSec)}`
                 : ''}
             </span>
           </div>
@@ -418,7 +455,7 @@ const LibraryAssetTrimModal: React.FC<LibraryAssetTrimModalProps> = ({
           {hint ??
             '空格播放选段 · ←→ 移动播放头 · I / [ 设入点 · O / ] 设出点 · Alt+←→ 微调入点 · Ctrl+←→ 微调出点'}
           {targetDurationSec != null && targetDurationSec > 0
-            ? ' · 确认后将按口播时长自动对齐'
+            ? ' · 选段固定为口播时长，拖入点/出点移动窗口'
             : ''}
         </p>
 
@@ -430,7 +467,21 @@ const LibraryAssetTrimModal: React.FC<LibraryAssetTrimModalProps> = ({
             type="button"
             className="library-trim-modal__btn library-trim-modal__btn--primary"
             disabled={confirming || duration <= 0 || outSec <= inSec + 0.09}
-            onClick={() => void onConfirm(inSec, outSec)}
+            onClick={() => {
+              const duration = durationSec || asset.duration_sec || 0
+              if (targetDurationSec != null && targetDurationSec > 0 && duration > 0) {
+                const aligned = alignTrimToTargetDuration(
+                  duration,
+                  inSec,
+                  targetDurationSec,
+                  'in',
+                  MIN_TRIM_SPAN
+                )
+                void onConfirm(aligned.inSec, aligned.outSec)
+                return
+              }
+              void onConfirm(inSec, outSec)
+            }}
           >
             {confirming ? '处理中…' : confirmLabel}
           </button>

@@ -125,16 +125,19 @@ def apply_manual_trim_override(
 ) -> BrollTrimSelection:
     target = max(0.1, float(target_duration_sec))
     source_max = max(0.1, float(source_duration_sec))
-    in_sec = max(0.0, min(float(source_in_sec), source_max - 0.05))
-    out_sec = max(in_sec + 0.05, min(float(source_out_sec), source_max))
-    span = out_sec - in_sec
+    user_in = max(0.0, min(float(source_in_sec), source_max - 0.05))
+    user_out = max(user_in + 0.05, min(float(source_out_sec), source_max))
+    user_span = user_out - user_in
 
-    if abs(span - target) > 0.11:
-        out_sec = min(source_max, in_sec + target)
+    in_sec = user_in
+    out_sec = min(source_max, in_sec + target)
+    if out_sec - in_sec < target - 0.001:
         in_sec = max(0.0, out_sec - target)
+
+    if abs(user_span - target) > 0.05:
         reason = (
-            f"用户指定 in/out 后按口播时长 {target:.2f}s 对齐为 "
-            f"{in_sec:.2f}s–{out_sec:.2f}s"
+            f"用户选段 {user_in:.2f}s–{user_out:.2f}s，"
+            f"按口播 {target:.2f}s 对齐为 {in_sec:.2f}s–{out_sec:.2f}s"
         )
     else:
         reason = f"用户确认选段 {in_sec:.2f}s–{out_sec:.2f}s"
