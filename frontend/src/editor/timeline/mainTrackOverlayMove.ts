@@ -7,6 +7,7 @@ import {
   getVideoBlockSiblingRanges,
 } from './timelineOverlap'
 import { preserveMainTrackTimingGapForOverlayMove } from './sequenceBlockGaps'
+import { resolveMainTrackBlockVisualStartSec } from './mainTrackBlockGapDrag'
 
 /** 主轨顺序片段拖到叠画轨时的落点 clamp（不含自身） */
 export function clampMainBlockOverlayDropStartSec(
@@ -21,6 +22,22 @@ export function clampMainBlockOverlayDropStartSec(
   return clampStartAvoidingOverlap(siblings, blockDuration(block), proposedStartSec)
 }
 
+/** 主轨→叠画：默认落在原 composition 可视起点，再按叠画轨 sibling clamp */
+export function resolveMainTrackOverlayDropStartSec(
+  session: EditSession,
+  blockId: string,
+  overlayTrackId: string,
+  proposedStartSec?: number
+): number {
+  const anchor = resolveMainTrackBlockVisualStartSec(session, blockId) ?? 0
+  return clampMainBlockOverlayDropStartSec(
+    session,
+    blockId,
+    overlayTrackId,
+    proposedStartSec ?? anchor
+  )
+}
+
 /**
  * 主轨顺序片段 → 叠画轨（单次写入）：
  * - 主轨保留原时段空隙，后续片段不整体漂移
@@ -30,12 +47,19 @@ export function applyMainSequentialBlockMoveToOverlay(
   session: EditSession,
   blockId: string,
   overlayTrackId: string,
-  overlayStartSec: number
+  overlayStartSec?: number
 ): boolean {
   const seqIndex = session.sequence.findIndex((item) => item.id === blockId)
   if (seqIndex < 0) return false
   const block = session.sequence[seqIndex]!
   if (!isMainTrackBlock(block) || block.timeline_start_sec != null) return false
+
+  const startSec = resolveMainTrackOverlayDropStartSec(
+    session,
+    blockId,
+    overlayTrackId,
+    overlayStartSec
+  )
 
   preserveMainTrackTimingGapForOverlayMove(
     session,
@@ -44,7 +68,7 @@ export function applyMainSequentialBlockMoveToOverlay(
   )
 
   block.track_id = overlayTrackId
-  block.timeline_start_sec = Math.max(0, overlayStartSec)
+  block.timeline_start_sec = startSec
   block.video_transform = buildDefaultOverlayPictureInPictureTransform(
     session.export_settings
   )

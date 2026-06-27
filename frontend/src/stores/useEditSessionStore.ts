@@ -128,7 +128,7 @@ import {
 } from '../editor/timeline/mainTrackBlockGapDrag'
 import {
   applyMainSequentialBlockMoveToOverlay,
-  clampMainBlockOverlayDropStartSec,
+  resolveMainTrackOverlayDropStartSec,
 } from '../editor/timeline/mainTrackOverlayMove'
 import {
   applyInteractiveVideoHeadTrim,
@@ -563,8 +563,7 @@ interface EditSessionState {
   moveMainSequentialBlockToOverlayTrack: (
     blockId: string,
     overlayTrackId: string,
-    overlayStartSec: number,
-    options?: { recordHistory?: boolean; skipTimelineClamp?: boolean }
+    options?: { recordHistory?: boolean; overlayStartSec?: number }
   ) => void
   reorderVideoTracks: (
     fromIndex: number,
@@ -2278,7 +2277,7 @@ export const useEditSessionStore = create<EditSessionState>()(
         })
       },
 
-      moveMainSequentialBlockToOverlayTrack: (blockId, overlayTrackId, overlayStartSec, options) => {
+      moveMainSequentialBlockToOverlayTrack: (blockId, overlayTrackId, options) => {
         if (options?.recordHistory !== false) {
           pushHistory()
         }
@@ -2286,20 +2285,12 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (!state.session?.video_tracks) return
           const trackExists = state.session.video_tracks.some((item) => item.id === overlayTrackId)
           if (!trackExists) return
-          const startSec = options?.skipTimelineClamp
-            ? Math.max(0, overlayStartSec)
-            : clampMainBlockOverlayDropStartSec(
-                state.session,
-                blockId,
-                overlayTrackId,
-                overlayStartSec
-              )
           if (
             applyMainSequentialBlockMoveToOverlay(
               state.session,
               blockId,
               overlayTrackId,
-              startSec
+              options?.overlayStartSec
             )
           ) {
             state.dirty = true

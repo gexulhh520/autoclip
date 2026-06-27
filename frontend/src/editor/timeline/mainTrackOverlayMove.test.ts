@@ -5,7 +5,10 @@ import { resolveMainTrackSequentialBlocks } from '../videoTracks'
 import {
   applyMainSequentialBlockMoveToOverlay,
   clampMainBlockOverlayDropStartSec,
+  resolveMainTrackOverlayDropStartSec,
 } from './mainTrackOverlayMove'
+import { resolveMainTrackBlockVisualStartSec } from './mainTrackBlockGapDrag'
+import { blockTimelineVisualStartSec } from '../../utils/editTimeline'
 
 const block = (id: string, durationSec: number, trackId = 'default-video'): EditBlock => ({
   id,
@@ -61,9 +64,7 @@ describe('mainTrackOverlayMove', () => {
     )
     const cStartBefore = before.segments[2]!.compositionStartSec
 
-    expect(
-      applyMainSequentialBlockMoveToOverlay(session, 'b', 'overlay-1', 5)
-    ).toBe(true)
+    expect(applyMainSequentialBlockMoveToOverlay(session, 'b', 'overlay-1')).toBe(true)
 
     expect(session.sequence[1]!.track_id).toBe('overlay-1')
     expect(session.sequence[1]!.timeline_start_sec).toBeCloseTo(5, 3)
@@ -89,5 +90,50 @@ describe('mainTrackOverlayMove', () => {
     expect(
       clampMainBlockOverlayDropStartSec(session, 'b', 'overlay-1', 3)
     ).toBeCloseTo(4, 3)
+  })
+
+  it('resolveMainTrackOverlayDropStartSec anchors to main composition visual start', () => {
+    const session = sessionWith([block('a', 5), block('b', 5), block('c', 5)])
+    const timeline = buildCompositionTimeline(
+      resolveMainTrackSequentialBlocks(session),
+      0.35,
+      session.sequence_block_gaps
+    )
+    const bVisualStart = blockTimelineVisualStartSec(
+      timeline.segments[1]!.compositionStartSec,
+      timeline.segments[1]!.block
+    )
+
+    expect(resolveMainTrackOverlayDropStartSec(session, 'b', 'overlay-1')).toBeCloseTo(
+      bVisualStart,
+      3
+    )
+    expect(resolveMainTrackBlockVisualStartSec(session, 'b')).toBeCloseTo(bVisualStart, 3)
+  })
+
+  it('overlay move keeps following block when main track has leading gap', () => {
+    const session = sessionWith([block('a', 5), block('b', 5), block('c', 5)])
+    session.sequence_block_gaps = [1, 0]
+    const before = buildCompositionTimeline(
+      resolveMainTrackSequentialBlocks(session),
+      0.35,
+      session.sequence_block_gaps
+    )
+    const bVisualStart = blockTimelineVisualStartSec(
+      before.segments[1]!.compositionStartSec,
+      before.segments[1]!.block
+    )
+    const cStartBefore = before.segments[2]!.compositionStartSec
+
+    applyMainSequentialBlockMoveToOverlay(session, 'b', 'overlay-1')
+
+    expect(session.sequence[1]!.timeline_start_sec).toBeCloseTo(bVisualStart, 3)
+
+    const after = buildCompositionTimeline(
+      resolveMainTrackSequentialBlocks(session),
+      0.35,
+      session.sequence_block_gaps
+    )
+    expect(after.segments[1]!.compositionStartSec).toBeCloseTo(cStartBefore, 3)
   })
 })
