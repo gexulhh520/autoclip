@@ -1,4 +1,5 @@
-import type { EditBlock, EditBlockVideoTransform } from '../types/editSession'
+import type { EditBlock, EditBlockVideoTransform, EditExportSettings } from '../types/editSession'
+import { resolveOutputCanvas } from '../editor/compositor/geometry'
 
 export const BLOCK_VIDEO_SCALE_MIN = 0.1
 export const BLOCK_VIDEO_SCALE_MAX = 4
@@ -13,6 +14,9 @@ export const DEFAULT_BLOCK_VIDEO_TRANSFORM: Required<EditBlockVideoTransform> = 
   position_y: 0,
 }
 
+/** 叠画轨默认缩放（相对 contain 基准） */
+export const DEFAULT_OVERLAY_VIDEO_SCALE = 0.32
+
 export function clampBlockVideoScale(value: number): number {
   return Math.min(BLOCK_VIDEO_SCALE_MAX, Math.max(BLOCK_VIDEO_SCALE_MIN, value))
 }
@@ -26,6 +30,38 @@ export function resolveBlockVideoTransform(
     scale_y: clampBlockVideoScale(raw?.scale_y ?? DEFAULT_BLOCK_VIDEO_TRANSFORM.scale_y),
     position_x: raw?.position_x ?? DEFAULT_BLOCK_VIDEO_TRANSFORM.position_x,
     position_y: raw?.position_y ?? DEFAULT_BLOCK_VIDEO_TRANSFORM.position_y,
+  }
+}
+
+export function isFullScreenBlockVideoTransform(
+  transform: EditBlockVideoTransform | undefined
+): boolean {
+  const resolved = {
+    scale_x: transform?.scale_x ?? DEFAULT_BLOCK_VIDEO_TRANSFORM.scale_x,
+    scale_y: transform?.scale_y ?? DEFAULT_BLOCK_VIDEO_TRANSFORM.scale_y,
+    position_x: transform?.position_x ?? DEFAULT_BLOCK_VIDEO_TRANSFORM.position_x,
+    position_y: transform?.position_y ?? DEFAULT_BLOCK_VIDEO_TRANSFORM.position_y,
+  }
+  return (
+    Math.abs(resolved.scale_x - 1) < 0.025 &&
+    Math.abs(resolved.scale_y - 1) < 0.025 &&
+    Math.abs(resolved.position_x) < 1 &&
+    Math.abs(resolved.position_y) < 1
+  )
+}
+
+/** 叠画轨默认画中画：右下角小窗，随画布尺寸自适应偏移 */
+export function buildDefaultOverlayPictureInPictureTransform(
+  exportSettings: EditExportSettings,
+  sourceSize?: { width: number; height: number } | null
+): Required<EditBlockVideoTransform> {
+  const canvas = resolveOutputCanvas(exportSettings, sourceSize)
+  const scale = DEFAULT_OVERLAY_VIDEO_SCALE
+  return {
+    scale_x: scale,
+    scale_y: scale,
+    position_x: Math.round(canvas.width * 0.28),
+    position_y: Math.round(canvas.height * 0.28),
   }
 }
 

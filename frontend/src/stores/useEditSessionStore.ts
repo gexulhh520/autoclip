@@ -19,7 +19,9 @@ import type {
   AudioClipElement,
 } from '../types/editSession'
 import {
+  buildDefaultOverlayPictureInPictureTransform,
   clampBlockVideoScale,
+  DEFAULT_BLOCK_VIDEO_TRANSFORM,
   resolveBlockVideoTransform,
 } from '../utils/blockVideoTransform'
 import {
@@ -2195,6 +2197,9 @@ export const useEditSessionStore = create<EditSessionState>()(
               block.timeline_start_sec = Math.max(0, options.timelineStartSec)
             } else {
               delete block.timeline_start_sec
+              if (!wasMain) {
+                block.video_transform = { ...DEFAULT_BLOCK_VIDEO_TRANSFORM }
+              }
             }
             if (options?.insertIndex != null && options.timelineStartSec == null) {
               const [moved] = state.session.sequence.splice(currentIdx, 1)
@@ -2211,6 +2216,9 @@ export const useEditSessionStore = create<EditSessionState>()(
             block.timeline_start_sec = options?.timelineStartSec ?? block.timeline_start_sec ?? 0
             if (wasMain) {
               removeSequenceBlockGapAt(state.session, currentIdx)
+              block.video_transform = buildDefaultOverlayPictureInPictureTransform(
+                state.session.export_settings
+              )
             }
           }
           state.dirty = true
