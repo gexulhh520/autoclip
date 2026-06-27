@@ -60,13 +60,14 @@ import { usePlayheadDrag, useTimelineSeek } from './hooks/useTimelineSeek'
 import { useTimelineBoxSelect } from './hooks/useTimelineBoxSelect'
 import { resolveContextMenuPosition } from './contextMenuPosition'
 import { getTemplateOverlayIdsForBlock } from '../../../editor/migration/templateCaptionOverlays'
-import { blockPlaybackRate, collectCompositionVisualSnapPoints, snapTime, blockTimelineVisualStartSec, blockTimelineVisualEndSec } from '../../../utils/editTimeline'
+import { blockPlaybackRate, collectCompositionVisualSnapPoints, snapTime, blockTimelineVisualStartSec, blockTimelineVisualEndSec, blockDuration } from '../../../utils/editTimeline'
 import {
   canPlaceAtStart,
   clampResizeLeftAvoidingOverlap,
   clampResizeRightAvoidingOverlap,
   clampStartAvoidingOverlap,
   getTrackSiblingRanges,
+  getVideoBlockSiblingRanges,
   MIN_TIMELINE_ELEMENT_SEC,
   resolveDragDropStartSec,
 } from '../../../editor/timeline/timelineOverlap'
@@ -763,28 +764,42 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       const block = blocks.find((item) => item.id === blockId)
       if (!block) return
 
-      const resolveVideoDropStart = (
-        track: AdaptedTrack | undefined,
-        duration: number,
-        proposedStart: number
-      ) =>
-        resolveDragDropStartSec(
-          getTrackSiblingRanges(track?.elements ?? [], blockId),
-          duration,
-          proposedStart,
-          initialStart
-        )
+      const getLiveVideoDragContext = () => {
+        const liveSession = useEditSessionStore.getState().session
+        const liveBlock = liveSession?.sequence.find((item) => item.id === blockId)
+        if (!liveSession || !liveBlock) return null
+        return {
+          session: liveSession,
+          duration: blockDuration(liveBlock),
+        }
+      }
 
-      const canPlaceVideoOnTrack = (
-        track: AdaptedTrack | undefined,
-        duration: number,
+      const canPlaceVideoOnTrackLive = (
+        videoTrackId: string | null | undefined,
         proposedStart: number
-      ) =>
-        canPlaceAtStart(
-          getTrackSiblingRanges(track?.elements ?? [], blockId),
-          duration,
-          proposedStart
-        )
+      ) => {
+        const ctx = getLiveVideoDragContext()
+        if (!ctx || !videoTrackId) return false
+        const siblings = getVideoBlockSiblingRanges(ctx.session, videoTrackId, blockId)
+        return canPlaceAtStart(siblings, ctx.duration, proposedStart)
+      }
+
+      const resolveVideoDropStartLive = (
+        videoTrackId: string | null | undefined,
+        proposedStart: number
+      ) => {
+        const ctx = getLiveVideoDragContext()
+        if (!ctx || !videoTrackId) return initialStart
+        const siblings = getVideoBlockSiblingRanges(ctx.session, videoTrackId, blockId)
+        return resolveDragDropStartSec(siblings, ctx.duration, proposedStart, initialStart)
+      }
+
+      const commitVideoTimelineStart = (startSec: number) => {
+        updateBlockTimelineStart(blockId, startSec, {
+          recordHistory: false,
+          clampOverlap: false,
+        })
+      }
 
       if (isMainTrackBlock(block) && block.timeline_start_sec == null) {
         const blockIndex = mainBlocks.findIndex((item) => item.id === blockId)
@@ -965,16 +980,16 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
               ripple: rippleTrimEnabled,
             })
             const snapped = resolveSnappedStartFromClientX(upEvent.clientX)
-            const targetVideoTrackId =
+            const overlayTrackId =
               pendingOverlayVideoTrackId ??
               ensureOverlayVideoTrack({ recordHistory: false, name: '叠画' })
-            const overlayTrack = tracks.find((item) => item.videoTrackId === targetVideoTrackId)
-            if (canPlaceVideoOnTrack(overlayTrack, element.duration, snapped)) {
-              moveBlockToVideoTrack(blockId, targetVideoTrackId, {
+            if (canPlaceVideoOnTrackLive(overlayTrackId, snapped)) {
+              moveBlockToVideoTrack(blockId, overlayTrackId, {
                 recordHistory: false,
                 timelineStartSec: snapped,
+                skipTimelineClamp: true,
               })
-              setActiveVideoTrackId(targetVideoTrackId)
+              setActiveVideoTrackId(overlayTrackId)
             }
           } else if (dragMode === 'reorder' && pendingTargetIndex !== blockIndex) {
             shiftMainTrackBlockVisual(blockId, initialStart, dragBaseline, {
@@ -1022,11 +1037,8 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           videoTrack.videoTrackId !== sourceTrack.videoTrackId
 
         if (isCrossTrack && videoTrack) {
+          commitVideoTimelineStart(initialStart)
           setSnapPoint({ time: snapped, type: 'grid' })
-          updateBlockTimelineStart(blockId, snapped, {
-            recordHistory: false,
-            clampOverlap: false,
-          })
           setDragTargetTrackId(videoTrack.id)
           setVideoDragPreview({
             trackId: videoTrack.id,
@@ -1035,11 +1047,8 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
             label: element.name,
           })
         } else {
+          commitVideoTimelineStart(snapped)
           setSnapPoint({ time: snapped, type: 'grid' })
-          updateBlockTimelineStart(blockId, snapped, {
-            recordHistory: false,
-            clampOverlap: false,
-          })
           setDragTargetTrackId(null)
           setVideoDragPreview(null)
         }
@@ -1060,19 +1069,22 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           sourceTrack?.videoTrackId &&
           targetVideoTrackId !== sourceTrack.videoTrackId
         ) {
-          const targetTrack = tracks.find((item) => item.videoTrackId === targetVideoTrackId)
-          if (canPlaceVideoOnTrack(targetTrack, element.duration, snapped)) {
+          if (canPlaceVideoOnTrackLive(targetVideoTrackId, snapped)) {
             moveBlockToVideoTrack(blockId, targetVideoTrackId, {
               recordHistory: false,
               timelineStartSec: snapped,
+              skipTimelineClamp: true,
             })
             setActiveVideoTrackId(targetVideoTrackId)
           } else {
-            updateBlockTimelineStart(blockId, initialStart, { recordHistory: false })
+            commitVideoTimelineStart(initialStart)
           }
         } else {
-          const placementStart = resolveVideoDropStart(sourceTrack, element.duration, snapped)
-          updateBlockTimelineStart(blockId, placementStart, { recordHistory: false })
+          const placementStart = resolveVideoDropStartLive(
+            sourceTrack?.videoTrackId,
+            snapped
+          )
+          commitVideoTimelineStart(placementStart)
         }
 
         void flushSaveSession(projectId)
@@ -1093,6 +1105,12 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       if (element.source.kind === 'overlay') {
         const deltaFromAnchor = snapped - initialStart
         let previewStartSec = snapped
+        const textTrack = resolveTargetTextTrack(moveEvent.clientY)
+        const isCrossTrackPreview =
+          textTrack?.textTrackId &&
+          sourceTrack?.textTrackId &&
+          textTrack.textTrackId !== sourceTrack.textTrackId
+
         for (const [overlayId, start] of groupOverlayStarts) {
           const found = tracks
             .flatMap((track) => track.elements)
@@ -1100,9 +1118,9 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
               (item) => item.source.kind === 'overlay' && item.source.overlayId === overlayId
             )
           if (!found) continue
-          const proposedStart = start + deltaFromAnchor
+          const proposedStart = isCrossTrackPreview ? start : start + deltaFromAnchor
           if (overlayId === element.source.overlayId) {
-            previewStartSec = proposedStart
+            previewStartSec = isCrossTrackPreview ? snapped : proposedStart
           }
           updateOverlayElement(
             overlayId,
@@ -1113,8 +1131,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
 
         setSnapPoint({ time: previewStartSec, type: 'grid' })
 
-        const textTrack = resolveTargetTextTrack(moveEvent.clientY)
-        if (textTrack?.textTrackId) {
+        if (isCrossTrackPreview && textTrack?.textTrackId) {
           pendingTargetTextTrackId = textTrack.textTrackId
           setDragTargetTrackId(textTrack.id)
           setTextDragPreview({
@@ -1124,6 +1141,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
             label: element.source.content,
           })
         } else {
+          pendingTargetTextTrackId = null
           setDragTargetTrackId(null)
           setTextDragPreview(null)
         }
@@ -1136,7 +1154,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
 
         if (isCrossTrackPreview && audioTrack?.audioTrackId) {
           setSnapPoint({ time: snapped, type: 'grid' })
-          updateAudioClip(element.source.clipId, { start_sec: snapped }, { recordHistory: false })
+          updateAudioClip(element.source.clipId, { start_sec: initialStart }, { recordHistory: false })
           pendingTargetAudioTrackId = audioTrack.audioTrackId
           setDragTargetTrackId(audioTrack.id)
           setAudioDragPreview({
@@ -1227,9 +1245,15 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
               )
             }
             if (overlayIds.length === 1) {
-              moveOverlayToTrack(overlayIds[0]!, targetTextTrackId, { recordHistory: false })
+              moveOverlayToTrack(overlayIds[0]!, targetTextTrackId, {
+                recordHistory: false,
+                skipTimingClamp: true,
+              })
             } else {
-              moveOverlaysToTrack(overlayIds, targetTextTrackId, { recordHistory: false })
+              moveOverlaysToTrack(overlayIds, targetTextTrackId, {
+                recordHistory: false,
+                skipTimingClamp: true,
+              })
             }
             setActiveTextTrackId(targetTextTrackId)
           } else {

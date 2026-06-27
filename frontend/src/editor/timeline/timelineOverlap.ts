@@ -375,6 +375,14 @@ function videoBlockSiblingRanges(
     )
 }
 
+export function getVideoBlockSiblingRanges(
+  session: EditSession,
+  trackId: string,
+  excludeBlockId: string
+): TimelineRange[] {
+  return videoBlockSiblingRanges(session, trackId, excludeBlockId)
+}
+
 /** 视频片段（叠画轨 / 主轨自由定位）在指定轨道上的起点 clamp */
 export function clampVideoBlockStartOnTrack(
   session: EditSession,

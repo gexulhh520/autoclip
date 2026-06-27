@@ -547,7 +547,12 @@ interface EditSessionState {
   moveBlockToVideoTrack: (
     blockId: string,
     videoTrackId: string,
-    options?: { recordHistory?: boolean; timelineStartSec?: number; insertIndex?: number }
+    options?: {
+      recordHistory?: boolean
+      timelineStartSec?: number
+      insertIndex?: number
+      skipTimelineClamp?: boolean
+    }
   ) => void
   reorderVideoTracks: (
     fromIndex: number,
@@ -568,8 +573,16 @@ interface EditSessionState {
     },
     options?: { recordHistory?: boolean }
   ) => void
-  moveOverlayToTrack: (overlayId: string, textTrackId: string, options?: { recordHistory?: boolean }) => void
-  moveOverlaysToTrack: (overlayIds: string[], textTrackId: string, options?: { recordHistory?: boolean }) => void
+  moveOverlayToTrack: (
+    overlayId: string,
+    textTrackId: string,
+    options?: { recordHistory?: boolean; skipTimingClamp?: boolean }
+  ) => void
+  moveOverlaysToTrack: (
+    overlayIds: string[],
+    textTrackId: string,
+    options?: { recordHistory?: boolean; skipTimingClamp?: boolean }
+  ) => void
   addOverlayElement: (
     element: Omit<EditOverlayElement, 'id'>,
     options?: { recordHistory?: boolean; skipTimingClamp?: boolean }
@@ -2198,7 +2211,9 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (videoTrackId === DEFAULT_VIDEO_TRACK_ID) {
             if (options?.timelineStartSec != null) {
               block.timeline_start_sec = Math.max(0, options.timelineStartSec)
-              applyVideoBlockTimelineClamp(state.session, blockId)
+              if (!options.skipTimelineClamp) {
+                applyVideoBlockTimelineClamp(state.session, blockId)
+              }
             } else {
               delete block.timeline_start_sec
               if (!wasMain) {
@@ -2224,7 +2239,9 @@ export const useEditSessionStore = create<EditSessionState>()(
                 state.session.export_settings
               )
             }
-            applyVideoBlockTimelineClamp(state.session, blockId)
+            if (!options?.skipTimelineClamp) {
+              applyVideoBlockTimelineClamp(state.session, blockId)
+            }
           }
           state.dirty = true
         })
@@ -2329,7 +2346,9 @@ export const useEditSessionStore = create<EditSessionState>()(
           const element = state.session.overlay_elements.find((item) => item.id === overlayId)
           if (!element) return
           element.track_id = textTrackId
-          applyOverlayElementTimingClamp(state.session, overlayId)
+          if (!options?.skipTimingClamp) {
+            applyOverlayElementTimingClamp(state.session, overlayId)
+          }
           state.dirty = true
         })
       },
@@ -2347,7 +2366,9 @@ export const useEditSessionStore = create<EditSessionState>()(
             const element = state.session.overlay_elements.find((item) => item.id === overlayId)
             if (!element) continue
             element.track_id = textTrackId
-            applyOverlayElementTimingClamp(state.session, overlayId)
+            if (!options?.skipTimingClamp) {
+              applyOverlayElementTimingClamp(state.session, overlayId)
+            }
           }
           state.dirty = true
         })
