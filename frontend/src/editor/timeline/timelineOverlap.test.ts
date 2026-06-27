@@ -31,11 +31,14 @@ describe('timelineOverlap', () => {
     expect(resolveDragDropStartSec(siblings, 1, 6, 5)).toBeCloseTo(5, 3)
   })
 
-  it('clampDragStartAvoidingOverlap respects drag direction at neighbors', () => {
+  it('clampDragStartAvoidingOverlap uses tail for right drag and head for left drag', () => {
     const blocker = [toTimelineRange('c', 10, 4)]
+    // 左拖：起点侵入 10–14，贴左缘 6
     expect(clampDragStartAvoidingOverlap(blocker, 4, 12, 15)).toBeCloseTo(6, 3)
+    // 右拖：尾点侵入 10–14，贴左缘 6
     expect(clampDragStartAvoidingOverlap(blocker, 4, 8, 5)).toBeCloseTo(6, 3)
-    expect(clampStartAvoidingOverlap(blocker, 4, 12)).toBeCloseTo(14, 3)
+    // 右拖：尾点未过 10，保持原位
+    expect(clampDragStartAvoidingOverlap(blocker, 4, 5, 4)).toBeCloseTo(5, 3)
 
     const leftNeighbor = [toTimelineRange('a', 0, 4)]
     expect(clampDragStartAvoidingOverlap(leftNeighbor, 4, 2, 8)).toBeCloseTo(4, 3)

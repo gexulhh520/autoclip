@@ -77,8 +77,9 @@ export function resolveDragDropStartSec(
 }
 
 /**
- * 拖拽移动时按方向贴靠：从右侧左拖 → 贴障碍物左缘；从左侧右拖 → 贴障碍物右缘。
- * 避免 clampStartAvoidingOverlap 在左拖时误吸附到障碍物后方。
+ * 拖拽移动时按方向贴靠：
+ * - 左拖：以片段起点为判定边，侵入障碍物则贴其左/右缘
+ * - 右拖：以片段尾部为判定边，侵入障碍物则尾部贴其左缘
  */
 export function clampDragStartAvoidingOverlap(
   siblings: TimelineRange[],
@@ -96,23 +97,27 @@ export function clampDragStartAvoidingOverlap(
   }
 
   let start = Math.max(minStart, proposedStart)
+  let end = start + safeDuration
 
-  for (const sibling of siblings) {
-    const end = start + safeDuration
-    if (!rangesOverlap({ id: '', start, end }, sibling)) continue
-
-    if (draggingLeft) {
+  if (draggingLeft) {
+    for (const sibling of siblings) {
+      if (start >= sibling.end - EPS || end <= sibling.start + EPS) continue
       if (previousStart >= sibling.end - EPS) {
-        const before = sibling.start - safeDuration
-        start =
-          before >= minStart ? Math.min(start, before) : Math.max(start, sibling.end)
+        const touchBefore = sibling.start - safeDuration
+        start = touchBefore >= minStart ? touchBefore : sibling.end
       } else {
         start = Math.max(start, sibling.end)
       }
-    } else {
-      start = Math.min(start, sibling.start - safeDuration)
+      start = Math.max(minStart, start)
+      end = start + safeDuration
     }
-    start = Math.max(minStart, start)
+  } else {
+    for (const sibling of siblings) {
+      if (end <= sibling.start + EPS || start >= sibling.end - EPS) continue
+      start = Math.min(start, sibling.start - safeDuration)
+      start = Math.max(minStart, start)
+      end = start + safeDuration
+    }
   }
 
   if (!canPlaceAtStart(siblings, safeDuration, start, minStart)) {
