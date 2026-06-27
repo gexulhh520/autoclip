@@ -826,6 +826,9 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         let pendingTargetIndex = blockIndex
         let pendingVisualStart = initialStart
         let pendingOverlayVideoTrackId: string | null = null
+        /** 本次拖动是否进入过叠画投放区（回主轨松手时不应误提交 gap） */
+        let visitedOverlayDuringDrag = false
+        const mainGapCommitThresholdPx = 6
 
         const resolveOverlayDropTargetAt = (clientY: number) => {
           const y = resolveTimelinePointerY(clientY, tracksCanvasRef.current)
@@ -849,6 +852,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           },
           _clientX: number
         ) => {
+          visitedOverlayDuringDrag = true
           dragMode = 'overlay'
           setMainBlockOverlayDragId(blockId)
           pendingOverlayVideoTrackId = overlayTarget.videoTrackId
@@ -868,14 +872,14 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           })
         }
 
-        const showMainTrackGapPreview = (clientX: number) => {
+        const showMainTrackGapPreview = (clientX: number, fromOverlayExit = false) => {
           dragMode = 'gap'
           pendingTargetIndex = blockIndex
           pendingOverlayVideoTrackId = null
           setMainBlockOverlayDragId(null)
           setVideoDragPreview(null)
           setDragTargetTrackId(null)
-          const target = computeMainTrackGapTarget(clientX)
+          const target = fromOverlayExit ? initialStart : computeMainTrackGapTarget(clientX)
           pendingVisualStart = target
           setSnapPoint({ time: target, type: 'grid' })
           setBlockDragPreview({
@@ -949,7 +953,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           }
 
           if (dragMode === 'overlay') {
-            showMainTrackGapPreview(moveEvent.clientX)
+            showMainTrackGapPreview(moveEvent.clientX, true)
             return
           }
 
@@ -1007,9 +1011,9 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           setDragTargetTrackId(null)
           setMainBlockOverlayDragId(null)
           const overlayTargetAtRelease = resolveOverlayDropTargetAt(upEvent.clientY)
-          if (overlayTargetAtRelease || dragMode === 'overlay') {
+          if (overlayTargetAtRelease) {
             const overlayTrackId =
-              overlayTargetAtRelease?.videoTrackId ??
+              overlayTargetAtRelease.videoTrackId ??
               pendingOverlayVideoTrackId ??
               ensureOverlayVideoTrack({ recordHistory: false, name: '叠画' })
             moveMainSequentialBlockToOverlayTrack(blockId, overlayTrackId, {
@@ -1020,7 +1024,18 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
             restoreMainTrackGapDragBaseline(dragBaseline, { recordHistory: false })
             reorderBlocks(blockIndex, pendingTargetIndex, { recordHistory: false })
           } else {
-            pendingVisualStart = commitMainTrackGapPosition(upEvent.clientX)
+            const horizontalPx = Math.abs(upEvent.clientX - startX)
+            const gapTarget = computeMainTrackGapTarget(upEvent.clientX)
+            const hasMainGapIntent =
+              !visitedOverlayDuringDrag ||
+              horizontalPx >= mainGapCommitThresholdPx ||
+              Math.abs(gapTarget - initialStart) > 0.01
+
+            if (hasMainGapIntent) {
+              pendingVisualStart = commitMainTrackGapPosition(upEvent.clientX)
+            } else {
+              restoreMainTrackGapDragBaseline(dragBaseline, { recordHistory: false })
+            }
           }
           void flushSaveSession(projectId)
           window.removeEventListener('pointermove', onMainTrackMoveRaf)
