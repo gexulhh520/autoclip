@@ -452,6 +452,7 @@
   background-repeat: repeat-x;
   background-position: left center;
   opacity: 0.85;
+  pointer-events: none;
 }
 
 .oc-timeline__waveform-inline {

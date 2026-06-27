@@ -71,6 +71,12 @@ describe('mainTrackBlockGapDrag', () => {
     expect(startB).toBeCloseTo(6.5, 3)
   })
 
+  it('opens gap between adjacent clips when dragging right with zero gaps', () => {
+    const session = sessionWith([block('a', 5), block('b', 5)], [0])
+    expect(applyMainTrackBlockVisualShift(session, 'b', 1, { ripple: false })).toBe(true)
+    expect(session.sequence_block_gaps![0]).toBeCloseTo(1, 3)
+  })
+
   it('setMainTrackBlockVisualStart restores baseline before applying target', () => {
     const session = sessionWith([block('a', 5), block('b', 5)], [0])
     const baseline = captureMainTrackGapBaseline(session)

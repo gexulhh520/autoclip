@@ -13,8 +13,15 @@ export interface MainTrackGapDragBaseline {
 }
 
 export function captureMainTrackGapBaseline(session: EditSession): MainTrackGapDragBaseline {
+  const count = Math.max(0, session.sequence.length - 1)
+  const existing = session.sequence_block_gaps
+  const gaps =
+    existing && existing.length >= count
+      ? existing.slice(0, count)
+      : Array.from({ length: count }, (_, index) => existing?.[index] ?? 0)
+
   return {
-    gaps: [...ensureSequenceBlockGaps(session)],
+    gaps,
     trimInByBlockId: new Map(
       resolveMainTrackSequentialBlocks(session).map((block) => [
         block.id,
@@ -113,11 +120,20 @@ export function applyMainTrackBlockVisualShift(
   let applied = deltaSec
   applied = Math.max(-before, applied)
   if (after != null) applied = Math.min(after, applied)
-  if (Math.abs(applied) < 0.0001) return false
 
-  gaps[seqIndex - 1] = before + applied
-  if (after != null) gaps[seqIndex] = after - applied
+  if (Math.abs(applied) >= 0.0001) {
+    gaps[seqIndex - 1] = before + applied
+    if (after != null) gaps[seqIndex] = after - applied
+    dropCrossTransitionsBrokenByGaps(session)
+    return true
+  }
 
-  dropCrossTransitionsBrokenByGaps(session)
-  return true
+  // 贴合态（前后 gap 均为 0）时仍允许向右拖出空隙，后续片段随 composition 后移
+  if (deltaSec > 0.0001) {
+    gaps[seqIndex - 1] = before + deltaSec
+    dropCrossTransitionsBrokenByGaps(session)
+    return true
+  }
+
+  return false
 }

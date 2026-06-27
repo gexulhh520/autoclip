@@ -745,9 +745,13 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
 
         beginTimelineGesture()
         clipInteractionRef.current = true
+        const dragHandle = event.currentTarget as HTMLElement
+        event.preventDefault()
+        dragHandle.setPointerCapture(event.pointerId)
         const dragBaseline = captureMainTrackGapBaseline(liveSession)
         let dragMode: 'gap' | 'reorder' = 'gap'
         let pendingTargetIndex = blockIndex
+        let pendingVisualStart = initialStart
 
         const resolveTargetIndex = (pointerSec: number) => {
           const currentSession = useEditSessionStore.getState().session
@@ -777,12 +781,6 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
             : mainBlocks
 
           if (targetIndex !== blockIndex) {
-            if (dragMode === 'gap') {
-              shiftMainTrackBlockVisual(blockId, initialStart, dragBaseline, {
-                recordHistory: false,
-                ripple: rippleTrimEnabled,
-              })
-            }
             dragMode = 'reorder'
             pendingTargetIndex = targetIndex
             setSnapPoint(null)
@@ -808,6 +806,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           pendingTargetIndex = blockIndex
           const rawStart = Math.max(0, initialStart + deltaSec)
           const snapped = snapTime(rawStart, sequenceSnapPoints, snapEnabled)
+          pendingVisualStart = snapped
           setSnapPoint({ time: snapped, type: 'grid' })
           setBlockDragPreview({
             blockId,
@@ -818,26 +817,32 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
             duration: element.duration,
             insertMarkerSec: snapped,
           })
-          shiftMainTrackBlockVisual(blockId, snapped, dragBaseline, {
-            recordHistory: false,
-            ripple: rippleTrimEnabled,
-          })
         }
 
-        const onMainTrackUp = () => {
+        const onMainTrackUp = (upEvent: PointerEvent) => {
+          if (dragHandle.hasPointerCapture(upEvent.pointerId)) {
+            dragHandle.releasePointerCapture(upEvent.pointerId)
+          }
           setSnapPoint(null)
           setBlockDragPreview(null)
           if (dragMode === 'reorder' && pendingTargetIndex !== blockIndex) {
             reorderBlocks(blockIndex, pendingTargetIndex, { recordHistory: false })
+          } else if (dragMode === 'gap') {
+            shiftMainTrackBlockVisual(blockId, pendingVisualStart, dragBaseline, {
+              recordHistory: false,
+              ripple: rippleTrimEnabled,
+            })
           }
           void flushSaveSession(projectId)
           window.removeEventListener('pointermove', onMainTrackMoveRaf)
           window.removeEventListener('pointerup', onMainTrackUp)
+          window.removeEventListener('pointercancel', onMainTrackUp)
         }
 
         const onMainTrackMoveRaf = rafPointerMove(onMainTrackMove)
         window.addEventListener('pointermove', onMainTrackMoveRaf)
         window.addEventListener('pointerup', onMainTrackUp)
+        window.addEventListener('pointercancel', onMainTrackUp)
         return
       }
 
