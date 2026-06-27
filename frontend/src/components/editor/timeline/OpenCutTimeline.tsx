@@ -182,6 +182,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const moveOverlayToTrack = useEditSessionStore((state) => state.moveOverlayToTrack)
   const moveOverlaysToTrack = useEditSessionStore((state) => state.moveOverlaysToTrack)
   const updateBlockTrim = useEditSessionStore((state) => state.updateBlockTrim)
+  const updateBlockTransition = useEditSessionStore((state) => state.updateBlockTransition)
   const beginTimelineGesture = useEditSessionStore((state) => state.beginTimelineGesture)
   const updateOverlayElement = useEditSessionStore((state) => state.updateOverlayElement)
   const addAudioTrack = useEditSessionStore((state) => state.addAudioTrack)
@@ -2381,6 +2382,12 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                             key={marker.id}
                             marker={marker}
                             zoomLevel={zoomLevel}
+                            onInteractionStart={() => {
+                              clipInteractionRef.current = true
+                            }}
+                            onRemove={(fromBlockId) => {
+                              updateBlockTransition(fromBlockId, 'cut')
+                            }}
                           />
                         ))}
                       </>
