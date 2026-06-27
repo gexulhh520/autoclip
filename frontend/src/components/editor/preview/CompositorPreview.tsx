@@ -421,7 +421,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
             const liveSec = compositionTimeFromVideo(
               video,
               mainLayer.block,
-              segment.startSec,
+              segment.compositionStartSec,
               useSourceVideo,
               { timeline: compositionTimeline, segmentIndex }
             )
