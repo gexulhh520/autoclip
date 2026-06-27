@@ -42,6 +42,11 @@ describe('timelineOverlap', () => {
 
     const leftNeighbor = [toTimelineRange('a', 0, 4)]
     expect(clampDragStartAvoidingOverlap(leftNeighbor, 4, 2, 8)).toBeCloseTo(4, 3)
+    expect(canPlaceAtStart(leftNeighbor, 4, 4)).toBe(true)
+
+    // 左拖：起点在障碍物左侧但尾点侵入，整段退到贴左缘
+    expect(clampDragStartAvoidingOverlap(blocker, 4, 7, 8)).toBeCloseTo(6, 3)
+    expect(canPlaceAtStart(blocker, 4, 6)).toBe(true)
   })
 
   it('rejects placement when proposed start overlaps a sibling', () => {

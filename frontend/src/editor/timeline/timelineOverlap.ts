@@ -97,26 +97,49 @@ export function clampDragStartAvoidingOverlap(
   }
 
   let start = Math.max(minStart, proposedStart)
-  let end = start + safeDuration
 
   if (draggingLeft) {
-    for (const sibling of siblings) {
-      if (start >= sibling.end - EPS || end <= sibling.start + EPS) continue
-      if (previousStart >= sibling.end - EPS) {
+    for (let pass = 0; pass <= siblings.length; pass++) {
+      let changed = false
+      let end = start + safeDuration
+      for (const sibling of [...siblings].sort((a, b) => a.start - b.start)) {
+        if (!rangesOverlap({ id: '', start, end }, sibling)) continue
+
         const touchBefore = sibling.start - safeDuration
-        start = touchBefore >= minStart ? touchBefore : sibling.end
-      } else {
-        start = Math.max(start, sibling.end)
+        const canTouchBefore =
+          touchBefore >= minStart &&
+          canPlaceAtStart(siblings, safeDuration, touchBefore, minStart)
+        let next = canTouchBefore ? touchBefore : sibling.end
+
+        if (
+          !canPlaceAtStart(siblings, safeDuration, next, minStart) &&
+          canPlaceAtStart(siblings, safeDuration, touchBefore, minStart)
+        ) {
+          next = touchBefore
+        }
+
+        next = Math.max(minStart, next)
+        if (Math.abs(next - start) > EPS) {
+          start = next
+          changed = true
+        }
+        end = start + safeDuration
       }
-      start = Math.max(minStart, start)
-      end = start + safeDuration
+      if (!changed) break
     }
   } else {
-    for (const sibling of siblings) {
-      if (end <= sibling.start + EPS || start >= sibling.end - EPS) continue
-      start = Math.min(start, sibling.start - safeDuration)
-      start = Math.max(minStart, start)
-      end = start + safeDuration
+    for (let pass = 0; pass <= siblings.length; pass++) {
+      let changed = false
+      for (const sibling of [...siblings].sort((a, b) => a.start - b.start)) {
+        const end = start + safeDuration
+        if (end <= sibling.start + EPS || start >= sibling.end - EPS) continue
+        const next = Math.max(minStart, sibling.start - safeDuration)
+        if (next < start - EPS) {
+          start = next
+          changed = true
+        }
+      }
+      if (!changed) break
     }
   }
 
