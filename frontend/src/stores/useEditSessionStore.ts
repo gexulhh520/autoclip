@@ -538,6 +538,7 @@ interface EditSessionState {
   toggleVideoTrackHidden: (videoTrackId: string) => void
   setActiveVideoTrackId: (videoTrackId: string | null) => void
   addVideoTrack: (name?: string) => string
+  ensureOverlayVideoTrack: (options?: { recordHistory?: boolean; name?: string }) => string
   moveBlockToVideoTrack: (
     blockId: string,
     videoTrackId: string,
@@ -2149,6 +2150,31 @@ export const useEditSessionStore = create<EditSessionState>()(
           state.dirty = true
         })
         return newTrackId
+      },
+
+      ensureOverlayVideoTrack: (options) => {
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
+        let trackId = ''
+        set((state) => {
+          if (!state.session) return
+          ensureVideoTracks(state.session)
+          const existing = state.session.video_tracks!.find(
+            (track) => track.id !== DEFAULT_VIDEO_TRACK_ID
+          )
+          if (existing) {
+            trackId = existing.id
+            return
+          }
+          const order = nextVideoTrackOrder(state.session.video_tracks!)
+          const track = createVideoTrack(options?.name ?? '叠画', order)
+          trackId = track.id
+          state.session.video_tracks!.push(track)
+          state.activeVideoTrackId = track.id
+          state.dirty = true
+        })
+        return trackId
       },
 
       moveBlockToVideoTrack: (blockId, videoTrackId, options) => {

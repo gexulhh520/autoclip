@@ -340,6 +340,73 @@ export function findVideoTrackAtY(tracks: AdaptedTrack[], y: number): AdaptedTra
   return track && isUserVideoAdaptedTrack(track) && !track.hidden ? track : null
 }
 
+/** 非主轨的视频轨（叠画轨） */
+export function findOverlayVideoTrackAtY(tracks: AdaptedTrack[], y: number): AdaptedTrack | null {
+  const track = findTrackAtY(tracks, y)
+  return track &&
+    track.type === 'video' &&
+    isUserVideoAdaptedTrack(track) &&
+    !track.isMain &&
+    !track.hidden
+    ? track
+    : null
+}
+
+export function hasOverlayVideoTrack(tracks: AdaptedTrack[]): boolean {
+  return tracks.some(
+    (track) => track.type === 'video' && !track.isMain && !track.hidden && track.videoTrackId
+  )
+}
+
+/** 拖拽预览：尚未创建叠画轨时的占位 lane id */
+export const PENDING_OVERLAY_VIDEO_TRACK_ADAPTED_ID = 'track-video-pending-overlay'
+
+export interface OverlayVideoDropTarget {
+  adaptedTrackId: string
+  videoTrackId: string | null
+  createIfMissing: boolean
+}
+
+/** 根据指针 Y 解析叠画轨落点；无叠画轨时可命中主轨下方的虚拟投放区 */
+export function resolveOverlayVideoDropTarget(
+  tracks: AdaptedTrack[],
+  y: number
+): OverlayVideoDropTarget | null {
+  const overlayTrack = findOverlayVideoTrackAtY(tracks, y)
+  if (overlayTrack?.videoTrackId) {
+    return {
+      adaptedTrackId: overlayTrack.id,
+      videoTrackId: overlayTrack.videoTrackId,
+      createIfMissing: false,
+    }
+  }
+
+  if (hasOverlayVideoTrack(tracks)) return null
+
+  const zoneTop = getOverlayVideoDropZoneTop(tracks)
+  if (zoneTop == null) return null
+  const zoneBottom = zoneTop + getTrackHeight('video')
+  if (y < zoneTop || y >= zoneBottom) return null
+
+  return {
+    adaptedTrackId: PENDING_OVERLAY_VIDEO_TRACK_ADAPTED_ID,
+    videoTrackId: null,
+    createIfMissing: true,
+  }
+}
+
+export function getOverlayVideoDropZoneTop(tracks: AdaptedTrack[]): number | null {
+  const mainIndex = tracks.findIndex((track) => track.type === 'video' && track.isMain)
+  if (mainIndex < 0) return null
+
+  const overlayIndex = tracks.findIndex(
+    (track, index) =>
+      index > mainIndex && track.type === 'video' && !track.isMain && !track.hidden
+  )
+  const slotIndex = overlayIndex >= 0 ? overlayIndex : mainIndex + 1
+  return getCumulativeHeightBefore(tracks, slotIndex)
+}
+
 /** 指针在 tracks 容器内的 Y（px），用于跨轨吸附 */
 export function resolveTimelinePointerY(
   clientY: number,
