@@ -6,6 +6,7 @@ import {
   clampResizeLeftAvoidingOverlap,
   clampResizeRightAvoidingOverlap,
   clampStartAvoidingOverlap,
+  clampVideoBlockStartOnTrack,
   findAudioClipPlacement,
   toTimelineRange,
 } from './timelineOverlap'
@@ -37,6 +38,62 @@ describe('timelineOverlap', () => {
   it('prevents right resize from overlapping right neighbor', () => {
     const end = clampResizeRightAvoidingOverlap(siblings, 2, 6)
     expect(end).toBeCloseTo(5, 3)
+  })
+})
+
+describe('clampVideoBlockStartOnTrack', () => {
+  const session = (): EditSession => ({
+    schema_version: 3,
+    id: 's1',
+    project_id: 'p1',
+    name: 'test',
+    overlay_snapshot: {},
+    sequence: [
+      {
+        id: 'a',
+        track_id: 'overlay-1',
+        timeline_start_sec: 0,
+        trim: { in_sec: 0, out_sec: 2 },
+        media: {},
+        audio: { volume: 1 },
+      } as EditSession['sequence'][number],
+      {
+        id: 'b',
+        track_id: 'overlay-1',
+        timeline_start_sec: 5,
+        trim: { in_sec: 0, out_sec: 2 },
+        media: {},
+        audio: { volume: 1 },
+      } as EditSession['sequence'][number],
+    ],
+    export_settings: {
+      aspect: '9:16',
+      height: 1080,
+      fps: 30,
+      visual_filter: 'none',
+      fit_mode: 'contain',
+    },
+    audio_settings: {
+      bgm_volume: 0.28,
+      fade_in_sec: 0.3,
+      fade_out_sec: 0.3,
+      use_source_video: true,
+      transition_duration_sec: 0.35,
+    },
+    created_at: '',
+    updated_at: '',
+  })
+
+  it('clamps overlay video block to adjacent gap', () => {
+    expect(
+      clampVideoBlockStartOnTrack(session(), 'overlay-1', 2, 1.5, 'moving')
+    ).toBeCloseTo(2, 3)
+    expect(
+      clampVideoBlockStartOnTrack(session(), 'overlay-1', 1, 3.5, 'moving')
+    ).toBeCloseTo(3.5, 3)
+    expect(
+      clampVideoBlockStartOnTrack(session(), 'overlay-1', 2, 6, 'moving')
+    ).toBeCloseTo(7, 3)
   })
 })
 

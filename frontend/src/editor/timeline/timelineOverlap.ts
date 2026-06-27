@@ -1,5 +1,11 @@
 import type { AdaptedElement } from '../../components/editor/timeline/types'
 import type { AudioTrackMeta, EditSession } from '../../types/editSession'
+import { blockDuration, blockPlaybackRate } from '../../utils/editTimeline'
+import {
+  blockTimelineStartSec,
+  getBlockTrackId,
+  isMainTrackBlock,
+} from '../videoTracks'
 import {
   createAudioTrack,
   defaultAudioTrackName,
@@ -340,4 +346,55 @@ export function clampAudioClipStartOnTrack(
     )
     .map((clip) => toTimelineRange(clip.id, clip.start_sec, clip.duration_sec))
   return clampStartAvoidingOverlap(siblings, durationSec, proposedStartSec)
+}
+
+function videoBlockSiblingRanges(
+  session: EditSession,
+  trackId: string,
+  excludeBlockId: string
+): TimelineRange[] {
+  return session.sequence
+    .filter((block) => {
+      if (block.id === excludeBlockId) return false
+      if (getBlockTrackId(block) !== trackId) return false
+      if (isMainTrackBlock(block) && block.timeline_start_sec == null) return false
+      return true
+    })
+    .map((block) =>
+      toTimelineRange(block.id, blockTimelineStartSec(block), blockDuration(block))
+    )
+}
+
+/** 视频片段（叠画轨 / 主轨自由定位）在指定轨道上的起点 clamp */
+export function clampVideoBlockStartOnTrack(
+  session: EditSession,
+  trackId: string,
+  durationSec: number,
+  proposedStartSec: number,
+  excludeBlockId?: string
+): number {
+  const siblings = videoBlockSiblingRanges(session, trackId, excludeBlockId ?? '')
+  return clampStartAvoidingOverlap(siblings, durationSec, proposedStartSec)
+}
+
+/** 将视频片段 timing 限制在同轨不重叠区间（必要时缩短 trim 出点） */
+export function applyVideoBlockTimelineClamp(session: EditSession, blockId: string): void {
+  const block = session.sequence.find((item) => item.id === blockId)
+  if (!block || (isMainTrackBlock(block) && block.timeline_start_sec == null)) return
+
+  const trackId = getBlockTrackId(block)
+  const siblings = videoBlockSiblingRanges(session, trackId, blockId)
+  const duration = blockDuration(block)
+  const start = blockTimelineStartSec(block)
+  const { start: safeStart, duration: safeDuration } = clampElementTimingOnTrack(
+    siblings,
+    start,
+    duration
+  )
+
+  block.timeline_start_sec = safeStart
+  if (Math.abs(safeDuration - duration) > EPS) {
+    const rate = blockPlaybackRate(block)
+    block.trim.out_sec = block.trim.in_sec + safeDuration * rate
+  }
 }

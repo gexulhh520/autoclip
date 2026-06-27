@@ -75,6 +75,7 @@ import {
   createVideoTrack,
   defaultVideoTrackName,
   ensureVideoTracks,
+  getBlockTrackId,
   isMainTrackBlock,
   isMainTrackFreePositionBlock,
   nextVideoTrackOrder,
@@ -102,7 +103,9 @@ import {
   applyAudioClipPlacementTracks,
   applyAudioClipTimingClamp,
   applyOverlayElementTimingClamp,
+  applyVideoBlockTimelineClamp,
   clampOverlayStartOnTrack,
+  clampVideoBlockStartOnTrack,
   findAudioClipPlacement,
 } from '../editor/timeline/timelineOverlap'
 import {
@@ -2195,6 +2198,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (videoTrackId === DEFAULT_VIDEO_TRACK_ID) {
             if (options?.timelineStartSec != null) {
               block.timeline_start_sec = Math.max(0, options.timelineStartSec)
+              applyVideoBlockTimelineClamp(state.session, blockId)
             } else {
               delete block.timeline_start_sec
               if (!wasMain) {
@@ -2220,6 +2224,7 @@ export const useEditSessionStore = create<EditSessionState>()(
                 state.session.export_settings
               )
             }
+            applyVideoBlockTimelineClamp(state.session, blockId)
           }
           state.dirty = true
         })
@@ -2249,7 +2254,14 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (!block) return
           // 顺序主轨片段由 gap/ripple 布局，不能通过 timeline_start_sec 自由定位（会与相邻段重叠）
           if (isMainTrackBlock(block) && block.timeline_start_sec == null) return
-          block.timeline_start_sec = Math.max(0, startSec)
+          const trackId = getBlockTrackId(block)
+          block.timeline_start_sec = clampVideoBlockStartOnTrack(
+            state.session,
+            trackId,
+            blockDuration(block),
+            startSec,
+            blockId
+          )
           state.dirty = true
         })
       },
@@ -2278,6 +2290,7 @@ export const useEditSessionStore = create<EditSessionState>()(
               Math.min(patch.trim_out_sec, maxDur)
             )
           }
+          applyVideoBlockTimelineClamp(state.session, blockId)
           state.dirty = true
         })
       },

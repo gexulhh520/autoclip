@@ -762,6 +762,17 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       const block = blocks.find((item) => item.id === blockId)
       if (!block) return
 
+      const clampVideoStartOnTrack = (
+        track: AdaptedTrack | undefined,
+        duration: number,
+        proposedStart: number
+      ) =>
+        clampStartAvoidingOverlap(
+          getTrackSiblingRanges(track?.elements ?? [], blockId),
+          duration,
+          proposedStart
+        )
+
       if (isMainTrackBlock(block) && block.timeline_start_sec == null) {
         const blockIndex = mainBlocks.findIndex((item) => item.id === blockId)
         if (blockIndex < 0) return
@@ -849,7 +860,16 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
             dragMode = 'overlay'
             pendingOverlayVideoTrackId = overlayTarget.videoTrackId
             const snapped = resolveSnappedStartFromClientX(moveEvent.clientX)
-            setSnapPoint({ time: snapped, type: 'grid' })
+            const overlayTrack =
+              overlayTarget.videoTrackId != null
+                ? tracks.find((item) => item.videoTrackId === overlayTarget.videoTrackId)
+                : undefined
+            const placementStart = clampVideoStartOnTrack(
+              overlayTrack,
+              element.duration,
+              snapped
+            )
+            setSnapPoint({ time: placementStart, type: 'grid' })
             setBlockDragPreview(null)
             setDragTargetTrackId(
               overlayTarget.adaptedTrackId === PENDING_OVERLAY_VIDEO_TRACK_ADAPTED_ID
@@ -858,7 +878,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
             )
             setVideoDragPreview({
               trackId: overlayTarget.adaptedTrackId,
-              startSec: snapped,
+              startSec: placementStart,
               duration: element.duration,
               label: element.name,
             })
@@ -944,9 +964,15 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
             const targetVideoTrackId =
               pendingOverlayVideoTrackId ??
               ensureOverlayVideoTrack({ recordHistory: false, name: '叠画' })
+            const overlayTrack = tracks.find((item) => item.videoTrackId === targetVideoTrackId)
+            const placementStart = clampVideoStartOnTrack(
+              overlayTrack,
+              element.duration,
+              snapped
+            )
             moveBlockToVideoTrack(blockId, targetVideoTrackId, {
               recordHistory: false,
-              timelineStartSec: snapped,
+              timelineStartSec: placementStart,
             })
             setActiveVideoTrackId(targetVideoTrackId)
           } else if (dragMode === 'reorder' && pendingTargetIndex !== blockIndex) {
@@ -983,29 +1009,33 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
 
       const onVideoMove = (moveEvent: PointerEvent) => {
         const snapped = resolveSnappedStart(moveEvent.clientX)
-        setSnapPoint({ time: snapped, type: 'grid' })
 
         const videoTrack = resolveTargetVideoTrackAtClientY(moveEvent.clientY)
         if (videoTrack?.videoTrackId) {
           pendingTargetVideoTrackId = videoTrack.videoTrackId
         }
 
-        updateBlockTimelineStart(blockId, snapped, { recordHistory: false })
-
         const isCrossTrack =
           videoTrack?.videoTrackId &&
           sourceTrack?.videoTrackId &&
           videoTrack.videoTrackId !== sourceTrack.videoTrackId
 
+        const sourceStart = clampVideoStartOnTrack(sourceTrack, element.duration, snapped)
+
         if (isCrossTrack && videoTrack) {
+          const previewStart = clampVideoStartOnTrack(videoTrack, element.duration, snapped)
+          setSnapPoint({ time: previewStart, type: 'grid' })
+          updateBlockTimelineStart(blockId, sourceStart, { recordHistory: false })
           setDragTargetTrackId(videoTrack.id)
           setVideoDragPreview({
             trackId: videoTrack.id,
-            startSec: snapped,
+            startSec: previewStart,
             duration: element.duration,
             label: element.name,
           })
         } else {
+          setSnapPoint({ time: sourceStart, type: 'grid' })
+          updateBlockTimelineStart(blockId, sourceStart, { recordHistory: false })
           setDragTargetTrackId(null)
           setVideoDragPreview(null)
         }
@@ -1026,13 +1056,16 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           sourceTrack?.videoTrackId &&
           targetVideoTrackId !== sourceTrack.videoTrackId
         ) {
+          const targetTrack = tracks.find((item) => item.videoTrackId === targetVideoTrackId)
+          const placementStart = clampVideoStartOnTrack(targetTrack, element.duration, snapped)
           moveBlockToVideoTrack(blockId, targetVideoTrackId, {
             recordHistory: false,
-            timelineStartSec: snapped,
+            timelineStartSec: placementStart,
           })
           setActiveVideoTrackId(targetVideoTrackId)
         } else {
-          updateBlockTimelineStart(blockId, snapped, { recordHistory: false })
+          const placementStart = clampVideoStartOnTrack(sourceTrack, element.duration, snapped)
+          updateBlockTimelineStart(blockId, placementStart, { recordHistory: false })
         }
 
         void flushSaveSession(projectId)
