@@ -6,7 +6,7 @@ import {
   clampStartAvoidingOverlap,
   getVideoBlockSiblingRanges,
 } from './timelineOverlap'
-import { preserveMainTrackTimingGapForOverlayMove } from './sequenceBlockGaps'
+import { preserveMainTrackTimingGapForOverlayMove, normalizeOverlayVideoBlocksToSequenceEnd } from './sequenceBlockGaps'
 import { resolveMainTrackBlockVisualStartSec } from './mainTrackBlockGapDrag'
 
 /** 主轨顺序片段拖到叠画轨时的落点 clamp（不含自身） */
@@ -72,5 +72,10 @@ export function applyMainSequentialBlockMoveToOverlay(
   block.video_transform = buildDefaultOverlayPictureInPictureTransform(
     session.export_settings
   )
+
+  session.sequence.splice(seqIndex, 1)
+  session.sequence.push(block)
+  normalizeOverlayVideoBlocksToSequenceEnd(session)
+
   return true
 }

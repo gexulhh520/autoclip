@@ -6,6 +6,10 @@ import {
   blockTimelineVisualStartSec,
 } from '../../utils/editTimeline'
 import { buildCompositionTimeline } from '../scene/timelineLayout'
+import {
+  isMainTrackBlock,
+  resolveMainTrackSequentialBlocks,
+} from '../videoTracks'
 
 const transitionDurationSec = (session: EditSession): number =>
   session.audio_settings?.transition_duration_sec ?? 0.35
@@ -277,4 +281,62 @@ export function dropCrossTransitionsBrokenByGaps(session: EditSession): boolean 
   }
 
   return changed
+}
+
+export function isMainTrackSequentialBlock(block: EditBlock): boolean {
+  return isMainTrackBlock(block) && block.timeline_start_sec == null
+}
+
+/** 主轨顺序片段之间的有效 composition 间距（累加 sequence 中间所有 gap） */
+export function resolveMainTrackCompositionGaps(
+  session: EditSession,
+  mainBlocks: EditBlock[] = resolveMainTrackSequentialBlocks(session)
+): number[] | undefined {
+  if (mainBlocks.length < 2) return undefined
+
+  const fullGaps = ensureSequenceBlockGaps(session)
+  const result: number[] = []
+
+  for (let i = 1; i < mainBlocks.length; i++) {
+    const prevIdx = session.sequence.findIndex((item) => item.id === mainBlocks[i - 1]!.id)
+    const nextIdx = session.sequence.findIndex((item) => item.id === mainBlocks[i]!.id)
+    if (prevIdx < 0 || nextIdx < 0 || nextIdx <= prevIdx) {
+      result.push(0)
+      continue
+    }
+    let gapTotal = 0
+    for (let j = prevIdx; j < nextIdx; j++) {
+      gapTotal += fullGaps[j] ?? 0
+    }
+    result.push(gapTotal)
+  }
+  return result
+}
+
+/**
+ * 叠画视频块不应插在主轨顺序片段中间，否则 sequence_block_gaps 与主轨 composition 错位。
+ * 将非主轨顺序块移到 sequence 末尾并重建 gaps。
+ */
+export function normalizeOverlayVideoBlocksToSequenceEnd(session: EditSession): boolean {
+  const sequential = resolveMainTrackSequentialBlocks(session)
+  if (sequential.length === 0) return false
+
+  const lastSequentialIndex = Math.max(
+    ...sequential.map((block) => session.sequence.findIndex((item) => item.id === block.id))
+  )
+
+  const hasIntruder = session.sequence.some(
+    (block, index) => index < lastSequentialIndex && !isMainTrackSequentialBlock(block)
+  )
+  if (!hasIntruder) return false
+
+  const derivedGaps = resolveMainTrackCompositionGaps(session, sequential) ?? []
+  const tail = session.sequence.filter((block) => !isMainTrackSequentialBlock(block))
+
+  session.sequence = [...sequential, ...tail]
+  session.sequence_block_gaps = [
+    ...derivedGaps,
+    ...Array.from({ length: Math.max(0, tail.length) }, () => 0),
+  ]
+  return true
 }

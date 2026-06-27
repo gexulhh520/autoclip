@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid'
 import type { EditBlock, EditSession, VideoTrackMeta } from '../types/editSession'
 import { blockDuration, blockPlaybackRate, blockSourceTrimDuration } from '../utils/editTimeline'
+import { normalizeOverlayVideoBlocksToSequenceEnd } from './timeline/sequenceBlockGaps'
 
 export const DEFAULT_VIDEO_TRACK_ID = 'default-video'
 
@@ -150,6 +151,10 @@ export function ensureVideoTracks(session: EditSession): boolean {
     .slice()
     .sort((a, b) => a.order - b.order)
     .map((track, index) => ({ ...track, order: index }))
+
+  if (normalizeOverlayVideoBlocksToSequenceEnd(session)) {
+    migrated = true
+  }
 
   return migrated
 }

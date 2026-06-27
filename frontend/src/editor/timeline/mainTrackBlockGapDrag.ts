@@ -10,6 +10,7 @@ import { resolveMainTrackSequentialBlocks } from '../videoTracks'
 import {
   dropCrossTransitionsBrokenByGaps,
   ensureSequenceBlockGaps,
+  resolveMainTrackCompositionGaps,
 } from './sequenceBlockGaps'
 
 export interface MainTrackGapDragBaseline {
@@ -60,7 +61,7 @@ export function resolveMainTrackBlockVisualStartSec(
   const timeline = buildCompositionTimeline(
     mainBlocks,
     transitionDurationSec(session),
-    session.sequence_block_gaps
+    resolveMainTrackCompositionGaps(session, mainBlocks)
   )
   const segment = timeline.segments[mainIndex]
   if (!segment) return null
@@ -102,7 +103,7 @@ export function clampMainTrackBlockVisualStartTarget(
   const timeline = buildCompositionTimeline(
     mainBlocks,
     transitionDurationSec(session),
-    session.sequence_block_gaps
+    resolveMainTrackCompositionGaps(session, mainBlocks)
   )
   const segment = timeline.segments[mainIndex]
   if (!segment) return Math.max(0, targetVisualStartSec)
@@ -121,7 +122,7 @@ export function clampMainTrackBlockVisualStartTarget(
   const minStart = blockTimelineVisualEndSec(prevSeg.compositionStartSec, prevSeg.block)
   target = Math.max(minStart, target)
 
-  if (mainIndex < timeline.segments.length - 1 && !options?.ripple) {
+  if (mainIndex < timeline.segments.length - 1) {
     const nextSeg = timeline.segments[mainIndex + 1]!
     const nextStart = blockTimelineVisualStartSec(nextSeg.compositionStartSec, nextSeg.block)
     const maxStart = nextStart - visualDuration + 0.0001
@@ -153,7 +154,7 @@ export function applyMainTrackBlockAbsoluteVisualStart(
   const timeline = buildCompositionTimeline(
     mainBlocks,
     transitionDurationSec(session),
-    session.sequence_block_gaps
+    resolveMainTrackCompositionGaps(session, mainBlocks)
   )
   const segment = timeline.segments[mainIndex]
   if (!segment) return false

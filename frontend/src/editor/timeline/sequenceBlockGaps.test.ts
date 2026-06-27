@@ -11,7 +11,9 @@ import {
   areMainTrackBlocksAdjacent,
   dropCrossTransitionsBrokenByGaps,
   mainTrackSegmentSeparationSec,
+  normalizeOverlayVideoBlocksToSequenceEnd,
   preserveMainTrackTimingGapForOverlayMove,
+  resolveMainTrackCompositionGaps,
 } from './sequenceBlockGaps'
 import { resolveMainTrackSequentialBlocks } from '../videoTracks'
 
@@ -188,23 +190,70 @@ describe('sequenceBlockGaps', () => {
   it('preserves following main block start when middle block leaves for overlay', () => {
     const session = sessionWith([block('a', 5), block('b', 5), block('c', 5)])
     session.sequence_block_gaps = [0, 0]
+    const mainBlocks = resolveMainTrackSequentialBlocks(session)
     const before = buildCompositionTimeline(
-      resolveMainTrackSequentialBlocks(session),
+      mainBlocks,
       0.35,
-      session.sequence_block_gaps
+      resolveMainTrackCompositionGaps(session, mainBlocks)
     )
     const cStartBefore = before.segments[2]!.compositionStartSec
 
     preserveMainTrackTimingGapForOverlayMove(session, 1, 5)
     session.sequence[1]!.track_id = 'overlay-track'
+    session.sequence[1]!.timeline_start_sec = 5
 
+    const afterMainBlocks = resolveMainTrackSequentialBlocks(session)
     const after = buildCompositionTimeline(
-      resolveMainTrackSequentialBlocks(session),
+      afterMainBlocks,
       0.35,
-      session.sequence_block_gaps
+      resolveMainTrackCompositionGaps(session, afterMainBlocks)
     )
     expect(after.segments[1]!.block.id).toBe('c')
     expect(after.segments[1]!.compositionStartSec).toBeCloseTo(cStartBefore, 3)
     expect(session.sequence_block_gaps![0]).toBeCloseTo(5, 3)
+  })
+
+  it('resolveMainTrackCompositionGaps sums gaps across non-main blocks in sequence', () => {
+    const session = sessionWith([block('a', 5), block('b', 5), block('c', 5)])
+    session.sequence[1]!.track_id = 'overlay-track'
+    session.sequence[1]!.timeline_start_sec = 5
+    session.sequence_block_gaps = [2, 3]
+
+    const mainBlocks = resolveMainTrackSequentialBlocks(session)
+    expect(resolveMainTrackCompositionGaps(session, mainBlocks)).toEqual([5])
+  })
+
+  it('main track composition does not overlap when overlay block sits in sequence middle', () => {
+    const session = sessionWith([block('a', 5), block('b', 5), block('c', 5)])
+    session.sequence[1]!.track_id = 'overlay-track'
+    session.sequence[1]!.timeline_start_sec = 5
+    session.sequence_block_gaps = [5, 0]
+
+    const mainBlocks = resolveMainTrackSequentialBlocks(session)
+    const timeline = buildCompositionTimeline(
+      mainBlocks,
+      0.35,
+      resolveMainTrackCompositionGaps(session, mainBlocks)
+    )
+    const endA = blockTimelineVisualEndSec(
+      timeline.segments[0]!.compositionStartSec,
+      timeline.segments[0]!.block
+    )
+    const startC = blockTimelineVisualStartSec(
+      timeline.segments[1]!.compositionStartSec,
+      timeline.segments[1]!.block
+    )
+    expect(startC).toBeGreaterThanOrEqual(endA - 0.001)
+  })
+
+  it('normalizeOverlayVideoBlocksToSequenceEnd moves intruder to tail and rebuilds gaps', () => {
+    const session = sessionWith([block('a', 5), block('b', 5), block('c', 5)])
+    session.sequence[1]!.track_id = 'overlay-track'
+    session.sequence[1]!.timeline_start_sec = 5
+    session.sequence_block_gaps = [5, 0]
+
+    expect(normalizeOverlayVideoBlocksToSequenceEnd(session)).toBe(true)
+    expect(session.sequence.map((item) => item.id)).toEqual(['a', 'c', 'b'])
+    expect(session.sequence_block_gaps).toEqual([5, 0])
   })
 })

@@ -13,7 +13,7 @@ import {
   buildWaveformCacheKey,
   getOrExtractWaveformPeaks,
 } from '../../../utils/waveformPeakCache'
-import editApi from '../../../services/editApi'
+import { resolveMainTrackCompositionGaps } from '../../../editor/timeline/sequenceBlockGaps'
 import {
   buildAdaptedTracks,
   findAudioTrackAtY,
@@ -284,19 +284,24 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   } | null>(null)
   const [draggingVideoTrackId, setDraggingVideoTrackId] = useState<string | null>(null)
 
+  const mainSequentialGaps = useMemo(
+    () => (session ? resolveMainTrackCompositionGaps(session, mainBlocks) : undefined),
+    [session, mainBlocks, session?.sequence_block_gaps]
+  )
+
   const segments = useMemo(
     () =>
       buildCompositionTimelineSegments(
         mainBlocks,
         50,
         transitionDurationSec,
-        session?.sequence_block_gaps
+        mainSequentialGaps
       ),
-    [mainBlocks, transitionDurationSec, session?.sequence_block_gaps]
+    [mainBlocks, transitionDurationSec, mainSequentialGaps]
   )
   const compositionDuration = useMemo(
-    () => getCompositionTotalDuration(mainBlocks, transitionDurationSec, session?.sequence_block_gaps),
-    [mainBlocks, transitionDurationSec, session?.sequence_block_gaps]
+    () => getCompositionTotalDuration(mainBlocks, transitionDurationSec, mainSequentialGaps),
+    [mainBlocks, transitionDurationSec, mainSequentialGaps]
   )
 
   const tracks = useMemo(() => {
@@ -929,7 +934,9 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           const pointerTimeline = buildCompositionTimeline(
             currentMainBlocks,
             transitionDurationSec,
-            currentSession?.sequence_block_gaps
+            currentSession
+              ? resolveMainTrackCompositionGaps(currentSession, currentMainBlocks)
+              : undefined
           )
 
           let overlayTarget =
@@ -991,7 +998,9 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                   blockIndex,
                   targetIndex,
                   transitionDurationSec,
-                  currentSession?.sequence_block_gaps
+                  currentSession
+                    ? resolveMainTrackCompositionGaps(currentSession, currentMainBlocks)
+                    : undefined
                 ),
               })
               return
@@ -1550,7 +1559,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         blockIndex,
         segments,
         maxDur,
-        session?.sequence_block_gaps?.[blockIndex] ?? 0
+        mainSequentialGaps?.[blockIndex] ?? 0
       )
       if (!trimContext) return
 

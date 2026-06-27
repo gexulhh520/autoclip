@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { EditBlock, EditSession } from '../../types/editSession'
 import { buildCompositionTimeline } from '../scene/timelineLayout'
 import { resolveMainTrackSequentialBlocks } from '../videoTracks'
+import { resolveMainTrackCompositionGaps } from './sequenceBlockGaps'
 import {
   applyMainSequentialBlockMoveToOverlay,
   clampMainBlockOverlayDropStartSec,
@@ -57,22 +58,26 @@ const sessionWith = (blocks: EditBlock[], videoTracks?: EditSession['video_track
 describe('mainTrackOverlayMove', () => {
   it('applyMainSequentialBlockMoveToOverlay preserves following main block timing', () => {
     const session = sessionWith([block('a', 5), block('b', 5), block('c', 5)])
+    const mainBlocks = resolveMainTrackSequentialBlocks(session)
     const before = buildCompositionTimeline(
-      resolveMainTrackSequentialBlocks(session),
+      mainBlocks,
       0.35,
-      session.sequence_block_gaps
+      resolveMainTrackCompositionGaps(session, mainBlocks)
     )
     const cStartBefore = before.segments[2]!.compositionStartSec
 
     expect(applyMainSequentialBlockMoveToOverlay(session, 'b', 'overlay-1')).toBe(true)
 
-    expect(session.sequence[1]!.track_id).toBe('overlay-1')
-    expect(session.sequence[1]!.timeline_start_sec).toBeCloseTo(5, 3)
+    expect(session.sequence.map((item) => item.id)).toEqual(['a', 'c', 'b'])
+    const moved = session.sequence.find((item) => item.id === 'b')!
+    expect(moved.track_id).toBe('overlay-1')
+    expect(moved.timeline_start_sec).toBeCloseTo(5, 3)
 
+    const afterMainBlocks = resolveMainTrackSequentialBlocks(session)
     const after = buildCompositionTimeline(
-      resolveMainTrackSequentialBlocks(session),
+      afterMainBlocks,
       0.35,
-      session.sequence_block_gaps
+      resolveMainTrackCompositionGaps(session, afterMainBlocks)
     )
     expect(after.segments.map((segment) => segment.block.id)).toEqual(['a', 'c'])
     expect(after.segments[1]!.compositionStartSec).toBeCloseTo(cStartBefore, 3)
@@ -94,10 +99,11 @@ describe('mainTrackOverlayMove', () => {
 
   it('resolveMainTrackOverlayDropStartSec anchors to main composition visual start', () => {
     const session = sessionWith([block('a', 5), block('b', 5), block('c', 5)])
+    const mainBlocks = resolveMainTrackSequentialBlocks(session)
     const timeline = buildCompositionTimeline(
-      resolveMainTrackSequentialBlocks(session),
+      mainBlocks,
       0.35,
-      session.sequence_block_gaps
+      resolveMainTrackCompositionGaps(session, mainBlocks)
     )
     const bVisualStart = blockTimelineVisualStartSec(
       timeline.segments[1]!.compositionStartSec,
@@ -114,10 +120,11 @@ describe('mainTrackOverlayMove', () => {
   it('overlay move keeps following block when main track has leading gap', () => {
     const session = sessionWith([block('a', 5), block('b', 5), block('c', 5)])
     session.sequence_block_gaps = [1, 0]
+    const mainBlocks = resolveMainTrackSequentialBlocks(session)
     const before = buildCompositionTimeline(
-      resolveMainTrackSequentialBlocks(session),
+      mainBlocks,
       0.35,
-      session.sequence_block_gaps
+      resolveMainTrackCompositionGaps(session, mainBlocks)
     )
     const bVisualStart = blockTimelineVisualStartSec(
       before.segments[1]!.compositionStartSec,
@@ -127,12 +134,14 @@ describe('mainTrackOverlayMove', () => {
 
     applyMainSequentialBlockMoveToOverlay(session, 'b', 'overlay-1')
 
-    expect(session.sequence[1]!.timeline_start_sec).toBeCloseTo(bVisualStart, 3)
+    const moved = session.sequence.find((item) => item.id === 'b')!
+    expect(moved.timeline_start_sec).toBeCloseTo(bVisualStart, 3)
 
+    const afterMainBlocks = resolveMainTrackSequentialBlocks(session)
     const after = buildCompositionTimeline(
-      resolveMainTrackSequentialBlocks(session),
+      afterMainBlocks,
       0.35,
-      session.sequence_block_gaps
+      resolveMainTrackCompositionGaps(session, afterMainBlocks)
     )
     expect(after.segments[1]!.compositionStartSec).toBeCloseTo(cStartBefore, 3)
   })
