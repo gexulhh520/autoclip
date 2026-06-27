@@ -49,10 +49,18 @@ import { isVoiceoverBrollBlock } from '../../../editor/voiceover/voiceoverBroll'
 
 const PAUSED_SEEK_THRESHOLD_SEC = 0.03
 
+type SeekVideoOptions = {
+  play: boolean
+  forceSeek: boolean
+  playbackRate?: number
+  /** 异步 seek 完成时是否仍应 play（避免暂停后 stale callback 误播） */
+  shouldPlay?: () => boolean
+}
+
 function seekVideoWhenReady(
   video: HTMLVideoElement,
   target: number,
-  options: { play: boolean; forceSeek: boolean; playbackRate?: number }
+  options: SeekVideoOptions
 ): boolean {
   const run = () => seekVideoToTarget(video, target, options)
   if (video.readyState >= 2) {
@@ -66,7 +74,7 @@ function seekVideoWhenReady(
 function seekVideoToTarget(
   video: HTMLVideoElement,
   target: number,
-  options: { play: boolean; forceSeek: boolean; playbackRate?: number }
+  options: SeekVideoOptions
 ): boolean {
   const drift = Math.abs(video.currentTime - target)
   const mustSeek = options.forceSeek || drift > PAUSED_SEEK_THRESHOLD_SEC
@@ -75,7 +83,7 @@ function seekVideoToTarget(
     if (options.playbackRate != null) {
       applyMediaPlaybackRate(video, options.playbackRate)
     }
-    if (options.play) {
+    if (options.play && (options.shouldPlay?.() ?? true)) {
       void video.play().catch(() => undefined)
     } else {
       video.pause()
@@ -197,7 +205,9 @@ function paintAfterVideoSync(
         awaitFrame(video)
         return
       }
-      video.addEventListener('loadeddata', () => awaitFrame(video), { once: true })
+      const onCanPlay = () => awaitFrame(video)
+      video.addEventListener('canplay', onCanPlay, { once: true })
+      video.addEventListener('loadeddata', onCanPlay, { once: true })
     }
     if (video.seeking) {
       video.addEventListener('seeked', drawWhenReady, { once: true })
@@ -575,7 +585,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   )
 
   const buildPausedFrameCaches = useCallback(
-    (layers: PreviewVideoLayerProps[]) => buildLayerFrameCaches(layers),
+    (layers: PreviewVideoLayerProps[]) =>
+      buildLayerFrameCaches(layers, { stableFallback: true }),
     [buildLayerFrameCaches]
   )
 
@@ -590,7 +601,6 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         audioVolume?: number
         inDissolve?: boolean
         forceTransitionSeek?: boolean
-        exitingCross?: boolean
       }
     ) => {
       const skipSeek = options?.skipSeek ?? false
@@ -601,7 +611,6 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       )
       const inDissolve = options?.inDissolve ?? false
       const forceTransitionSeek = options?.forceTransitionSeek ?? false
-      const exitingCross = options?.exitingCross ?? false
 
       if (!video || !layer) {
         if (video && !layer) {
@@ -644,11 +653,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
           ? OVERLAY_PLAYBACK_DRIFT_SEC
           : PLAYBACK_SEEK_DRIFT_SEC
 
-      let mustSeek = forceSeek || rebinding
-      if (forceTransitionSeek) {
-        // 转出转场：incoming 已在 dissolve 中播放，漂移不大则不 seek，避免打断 audio
-        mustSeek = exitingCross ? rebinding || drift > PLAYBACK_SEEK_DRIFT_SEC : true
-      }
+      let mustSeek = forceSeek || rebinding || forceTransitionSeek
       if (!mustSeek) {
         if (!isPlaying) {
           mustSeek = drift > driftThreshold
@@ -665,16 +670,25 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       let didSeek = false
       if (isPlaying) {
         if (!skipSeek && mustSeek) {
-          const seekOpts = {
+          const seekOpts: SeekVideoOptions = {
             play: true,
-            forceSeek: Boolean(
-              forceSeek || rebinding || (forceTransitionSeek && !exitingCross)
-            ),
+            forceSeek: Boolean(forceSeek || rebinding || forceTransitionSeek),
             playbackRate: layer.playbackRate || 1,
+            shouldPlay: () => isPlayingRef.current,
           }
           didSeek = rebinding
             ? seekVideoWhenReady(video, target, seekOpts)
             : seekVideoToTarget(video, target, seekOpts)
+          if (didSeek && !audioMuted) {
+            const reapplyAudio = () => {
+              video.muted = audioMuted
+              video.volume = audioVolume
+              if (isPlayingRef.current) {
+                void video.play().catch(() => undefined)
+              }
+            }
+            video.addEventListener('seeked', reapplyAudio, { once: true })
+          }
         } else {
           video.muted = audioMuted
           video.volume = audioMuted ? 0 : audioVolume
@@ -701,8 +715,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       forceSeek: boolean,
       inDissolve: boolean,
       warmupBlock?: EditBlock | null,
-      forceTransitionSeek = false,
-      exitingCross = false
+      forceTransitionSeek = false
     ) => {
       const pool = getDecoderPool()
       if (!pool) return false
@@ -743,7 +756,6 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
             audioVolume,
             inDissolve,
             forceTransitionSeek,
-            exitingCross,
           })
         ) {
           anySeek = true
@@ -825,8 +837,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         forceSeek || forceTransitionSeek,
         vm.inDissolve,
         warmupBlock,
-        forceTransitionSeek,
-        exitingCross
+        forceTransitionSeek
       )
       const warmupLayers: PreviewVideoLayerProps[] = warmupBlock
         ? [
@@ -889,11 +900,17 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       paintGenerationRef.current = generation
       const isCurrentGeneration = () => paintGenerationRef.current === generation
 
-      if (anySeek || (forceTransitionSeek && isPlaying)) {
+      const layerVideos = [...collectVideosForLayers(vm.videoLayers).values()]
+      const awaitingVideoSync =
+        layerVideos.some((video) => video.seeking) ||
+        (exitingCross && layerVideos.some((video) => video.readyState < 2))
+
+      if (anySeek || awaitingVideoSync || (forceTransitionSeek && isPlaying)) {
         paintAfterVideoSync(
-          [...collectVideosForLayers(vm.videoLayers).values()],
+          layerVideos,
           () => {
             if (!isCurrentGeneration()) return
+            refreshBlockFrameCaches(vm.videoLayers.map((layer) => layer.block.id))
             renderCanvas()
           },
           isCurrentGeneration
