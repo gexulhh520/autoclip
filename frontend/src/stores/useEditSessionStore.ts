@@ -557,7 +557,7 @@ interface EditSessionState {
   updateBlockTimelineStart: (
     blockId: string,
     startSec: number,
-    options?: { recordHistory?: boolean }
+    options?: { recordHistory?: boolean; clampOverlap?: boolean }
   ) => void
   resizeOverlayVideoBlock: (
     blockId: string,
@@ -2255,13 +2255,16 @@ export const useEditSessionStore = create<EditSessionState>()(
           // 顺序主轨片段由 gap/ripple 布局，不能通过 timeline_start_sec 自由定位（会与相邻段重叠）
           if (isMainTrackBlock(block) && block.timeline_start_sec == null) return
           const trackId = getBlockTrackId(block)
-          block.timeline_start_sec = clampVideoBlockStartOnTrack(
-            state.session,
-            trackId,
-            blockDuration(block),
-            startSec,
-            blockId
-          )
+          block.timeline_start_sec =
+            options?.clampOverlap === false
+              ? Math.max(0, startSec)
+              : clampVideoBlockStartOnTrack(
+                  state.session,
+                  trackId,
+                  blockDuration(block),
+                  startSec,
+                  blockId
+                )
           state.dirty = true
         })
       },

@@ -66,6 +66,16 @@ export function canPlaceAtStart(
   return !siblings.some((sibling) => rangesOverlap(candidate, sibling))
 }
 
+/** 拖拽落点：合法则用 proposedStart，重叠则回退到 fallbackStart */
+export function resolveDragDropStartSec(
+  siblings: TimelineRange[],
+  duration: number,
+  proposedStart: number,
+  fallbackStart: number
+): number {
+  return canPlaceAtStart(siblings, duration, proposedStart) ? proposedStart : fallbackStart
+}
+
 export function getTrackSiblingRanges(
   elements: AdaptedElement[],
   excludeIds: string | string[]

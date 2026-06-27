@@ -8,6 +8,7 @@ import {
   clampStartAvoidingOverlap,
   clampVideoBlockStartOnTrack,
   findAudioClipPlacement,
+  resolveDragDropStartSec,
   toTimelineRange,
 } from './timelineOverlap'
 
@@ -21,6 +22,12 @@ describe('timelineOverlap', () => {
     expect(clampStartAvoidingOverlap(siblings, 1, 1.5)).toBeCloseTo(2, 3)
     expect(clampStartAvoidingOverlap(siblings, 1, 4)).toBeCloseTo(4, 3)
     expect(clampStartAvoidingOverlap(siblings, 1, 6)).toBeCloseTo(7, 3)
+  })
+
+  it('resolveDragDropStartSec keeps valid placement or reverts to fallback', () => {
+    expect(resolveDragDropStartSec(siblings, 1, 4, 0)).toBeCloseTo(4, 3)
+    expect(resolveDragDropStartSec(siblings, 1, 1.5, 0)).toBeCloseTo(0, 3)
+    expect(resolveDragDropStartSec(siblings, 1, 6, 5)).toBeCloseTo(5, 3)
   })
 
   it('rejects placement when proposed start overlaps a sibling', () => {
