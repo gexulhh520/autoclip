@@ -778,6 +778,8 @@ class EditSessionService:
             data["audio_elements"] = [item.model_dump() for item in payload.audio_elements]
         if payload.bookmarks is not None:
             data["bookmarks"] = [item.model_dump() for item in payload.bookmarks]
+        if payload.sequence_block_gaps is not None:
+            data["sequence_block_gaps"] = list(payload.sequence_block_gaps)
         if payload.export_settings is not None:
             data["export_settings"] = payload.export_settings.model_dump()
         if payload.audio_settings is not None:

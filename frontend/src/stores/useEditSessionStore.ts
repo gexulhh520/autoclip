@@ -190,6 +190,7 @@ let saveReschedule = false
 const buildSessionSavePayload = (session: EditSession): EditSessionUpdateRequest => ({
   name: session.name,
   sequence: session.sequence,
+  sequence_block_gaps: session.sequence_block_gaps ?? [],
   overlay_elements: session.overlay_elements,
   text_tracks: session.text_tracks,
   video_tracks: session.video_tracks,
@@ -231,6 +232,7 @@ const transitionDurationSec = (session: EditSession): number =>
 interface EditorHistorySnapshot {
   sequence: EditBlock[]
   overlay_elements: EditOverlayElement[]
+  sequence_block_gaps?: number[]
 }
 
 const cloneHistorySnapshot = (session: EditSession): EditorHistorySnapshot => ({
@@ -238,11 +240,17 @@ const cloneHistorySnapshot = (session: EditSession): EditorHistorySnapshot => ({
   overlay_elements: JSON.parse(
     JSON.stringify(session.overlay_elements ?? [])
   ) as EditOverlayElement[],
+  sequence_block_gaps: session.sequence_block_gaps
+    ? [...session.sequence_block_gaps]
+    : undefined,
 })
 
 const applyHistorySnapshot = (session: EditSession, snapshot: EditorHistorySnapshot): void => {
   session.sequence = snapshot.sequence
   session.overlay_elements = snapshot.overlay_elements
+  session.sequence_block_gaps = snapshot.sequence_block_gaps
+    ? [...snapshot.sequence_block_gaps]
+    : []
 }
 
 const resolvePlayheadInsertIndex = (session: EditSession, playheadSec: number): number =>
@@ -968,12 +976,21 @@ export const useEditSessionStore = create<EditSessionState>()(
                 session.id,
                 buildSessionSavePayload(session)
               )
+              const localGaps = session.sequence_block_gaps
               const document = hydrateEditDocument({
                 ...updated,
                 schema_version: 3,
               })
               set((state) => {
                 state.session = cloneSessionFromApi(document.session)
+                if (
+                  localGaps &&
+                  localGaps.length > 0 &&
+                  (!state.session.sequence_block_gaps ||
+                    state.session.sequence_block_gaps.length === 0)
+                ) {
+                  state.session.sequence_block_gaps = [...localGaps]
+                }
                 state.editProject = document.project
                 state.dirty = false
               })

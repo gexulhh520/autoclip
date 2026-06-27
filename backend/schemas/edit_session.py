@@ -326,6 +326,10 @@ class EditSession(BaseModel):
     audio_tracks: List[AudioTrackMeta] = Field(default_factory=list)
     audio_elements: List[AudioClipElement] = Field(default_factory=list)
     bookmarks: List[TimelineBookmark] = Field(default_factory=list)
+    sequence_block_gaps: List[float] = Field(
+        default_factory=list,
+        description="主轨相邻 sequence 项之间的额外间隙（秒）",
+    )
     export_settings: EditExportSettings = Field(default_factory=EditExportSettings)
     audio_settings: EditSessionAudioSettings = Field(default_factory=EditSessionAudioSettings)
     voiceover_plan: Optional[VoiceoverPlan] = None
@@ -401,6 +405,7 @@ class EditSessionUpdateRequest(BaseModel):
     audio_tracks: Optional[List[AudioTrackMeta]] = None
     audio_elements: Optional[List[AudioClipElement]] = None
     bookmarks: Optional[List[TimelineBookmark]] = None
+    sequence_block_gaps: Optional[List[float]] = None
     export_settings: Optional[EditExportSettings] = None
     audio_settings: Optional[EditSessionAudioSettings] = None
     schema_version: Optional[int] = None

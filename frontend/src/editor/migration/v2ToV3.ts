@@ -604,6 +604,7 @@ export const hydrateEditDocument = (session: EditSession): EditDocument => {
       audio_tracks,
       audio_elements,
       bookmarks,
+      sequence_block_gaps: session.sequence_block_gaps ?? [],
       export_settings: session.export_settings ?? fromV3.export_settings,
       audio_settings: session.audio_settings ?? fromV3.audio_settings,
       created_at: session.created_at || fromV3.created_at,

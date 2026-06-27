@@ -758,6 +758,23 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         let pendingTargetIndex = blockIndex
         let pendingVisualStart = initialStart
 
+        const commitMainTrackGapPosition = (clientX: number) => {
+          const currentSession = useEditSessionStore.getState().session
+          if (!currentSession) return initialStart
+          const deltaSec =
+            (clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
+          const rawStart = Math.max(0, initialStart + deltaSec)
+          const snapped = snapTime(rawStart, sequenceSnapPoints, snapEnabled)
+          const clamped = clampMainTrackBlockVisualStartTarget(currentSession, blockId, snapped, {
+            ripple: rippleTrimEnabled,
+          })
+          shiftMainTrackBlockVisual(blockId, clamped, dragBaseline, {
+            recordHistory: false,
+            ripple: rippleTrimEnabled,
+          })
+          return clamped
+        }
+
         const onMainTrackMove = (moveEvent: PointerEvent) => {
           const deltaPx = moveEvent.clientX - startX
           const deltaSec = deltaPx / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
@@ -818,20 +835,8 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
 
           dragMode = 'gap'
           pendingTargetIndex = blockIndex
-          const rawStart = Math.max(0, initialStart + deltaSec)
-          const snapped = snapTime(rawStart, sequenceSnapPoints, snapEnabled)
-          const clamped =
-            currentSession != null
-              ? clampMainTrackBlockVisualStartTarget(currentSession, blockId, snapped, {
-                  ripple: rippleTrimEnabled,
-                })
-              : snapped
-          pendingVisualStart = clamped
-          shiftMainTrackBlockVisual(blockId, clamped, dragBaseline, {
-            recordHistory: false,
-            ripple: rippleTrimEnabled,
-          })
-          setSnapPoint({ time: clamped, type: 'grid' })
+          pendingVisualStart = commitMainTrackGapPosition(moveEvent.clientX)
+          setSnapPoint({ time: pendingVisualStart, type: 'grid' })
           setBlockDragPreview({
             blockId,
             fromIndex: blockIndex,
@@ -839,7 +844,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
             deltaPx: 0,
             label: element.name,
             duration: element.duration,
-            insertMarkerSec: clamped,
+            insertMarkerSec: pendingVisualStart,
           })
         }
 
@@ -856,10 +861,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
             })
             reorderBlocks(blockIndex, pendingTargetIndex, { recordHistory: false })
           } else {
-            shiftMainTrackBlockVisual(blockId, pendingVisualStart, dragBaseline, {
-              recordHistory: false,
-              ripple: rippleTrimEnabled,
-            })
+            pendingVisualStart = commitMainTrackGapPosition(upEvent.clientX)
           }
           void flushSaveSession(projectId)
           window.removeEventListener('pointermove', onMainTrackMoveRaf)

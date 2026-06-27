@@ -299,6 +299,31 @@ def test_update_edit_session_sequence(tmp_path, monkeypatch):
     assert updated.sequence[0].source_clip_id == session.sequence[1].source_clip_id
 
 
+def test_update_edit_session_persists_sequence_block_gaps(tmp_path, monkeypatch):
+    project_id = "edit-session-gaps"
+    project_dir = tmp_path / "projects" / project_id
+    _write_project_clips(project_dir)
+
+    monkeypatch.setattr(
+        "backend.services.edit_session_service.get_project_directory",
+        lambda _pid: project_dir,
+    )
+
+    service = EditSessionService(db=None)
+    session = _session_with_timeline_clips(service, project_id, ["1", "2"])
+    from backend.schemas.edit_session import EditSessionUpdateRequest
+
+    updated = service.update_session(
+        project_id,
+        session.id,
+        EditSessionUpdateRequest(sequence_block_gaps=[1.25]),
+    )
+    assert updated.sequence_block_gaps == [1.25]
+
+    reloaded = service.get_session(project_id, session.id)
+    assert reloaded.sequence_block_gaps == [1.25]
+
+
 def test_update_edit_session_persists_project_v3(tmp_path, monkeypatch):
     project_id = "edit-session-v3"
     project_dir = tmp_path / "projects" / project_id

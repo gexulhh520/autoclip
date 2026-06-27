@@ -219,6 +219,7 @@ export interface EditSessionUpdateRequest {
   audio_tracks?: AudioTrackMeta[]
   audio_elements?: AudioClipElement[]
   bookmarks?: TimelineBookmark[]
+  sequence_block_gaps?: number[]
   export_settings?: EditExportSettings
   audio_settings?: EditSessionAudioSettings
   schema_version?: number
