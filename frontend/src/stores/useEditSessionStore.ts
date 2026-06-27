@@ -116,11 +116,13 @@ import {
   clampVideoBlockTrimAgainstNeighbors,
   insertSequenceBlockGapAt,
   removeSequenceBlockGapAt,
+  preserveMainTrackTimingGapForOverlayMove,
   clearSequenceBlockGaps,
   dropCrossTransitionsBrokenByGaps,
 } from '../editor/timeline/sequenceBlockGaps'
 import { previewBlockOrder } from '../editor/timeline/blockReorderDrag'
 import {
+  restoreMainTrackGapBaseline,
   setMainTrackBlockVisualStart,
   type MainTrackGapDragBaseline,
 } from '../editor/timeline/mainTrackBlockGapDrag'
@@ -648,6 +650,10 @@ interface EditSessionState {
     targetVisualStartSec: number,
     baseline: MainTrackGapDragBaseline,
     options?: { recordHistory?: boolean; ripple?: boolean }
+  ) => void
+  restoreMainTrackGapDragBaseline: (
+    baseline: MainTrackGapDragBaseline,
+    options?: { recordHistory?: boolean }
   ) => void
   setPlaying: (playing: boolean) => void
   stopPlayback: () => void
@@ -2234,7 +2240,11 @@ export const useEditSessionStore = create<EditSessionState>()(
           } else {
             block.timeline_start_sec = options?.timelineStartSec ?? block.timeline_start_sec ?? 0
             if (wasMain) {
-              removeSequenceBlockGapAt(state.session, currentIdx)
+              preserveMainTrackTimingGapForOverlayMove(
+                state.session,
+                currentIdx,
+                blockDuration(block)
+              )
               block.video_transform = buildDefaultOverlayPictureInPictureTransform(
                 state.session.export_settings
               )
@@ -2824,6 +2834,17 @@ export const useEditSessionStore = create<EditSessionState>()(
           ) {
             state.dirty = true
           }
+        })
+      },
+
+      restoreMainTrackGapDragBaseline: (baseline, options) => {
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
+        set((state) => {
+          if (!state.session) return
+          restoreMainTrackGapBaseline(state.session, baseline)
+          state.dirty = true
         })
       },
 

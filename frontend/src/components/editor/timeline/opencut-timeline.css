@@ -647,6 +647,11 @@
   box-shadow: 0 6px 20px rgba(26, 26, 25, 0.18);
 }
 
+.oc-timeline__element--video.is-overlay-drop-source {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
 .oc-timeline__block-insert-marker {
   position: absolute;
   top: 4px;

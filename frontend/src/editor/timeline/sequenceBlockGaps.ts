@@ -176,6 +176,22 @@ export function resolveSequenceBlockGaps(
   return normalized
 }
 
+/**
+ * 主轨片段移到叠画轨后，在原位置保留等长空隙，避免后续主轨片段整体前移。
+ */
+export function preserveMainTrackTimingGapForOverlayMove(
+  session: EditSession,
+  blockIndex: number,
+  removedDurationSec: number
+): void {
+  removeSequenceBlockGapAt(session, blockIndex)
+  const gaps = ensureSequenceBlockGaps(session)
+  const gapIdx = Math.max(0, blockIndex - 1)
+  if (gapIdx < gaps.length) {
+    gaps[gapIdx] = (gaps[gapIdx] ?? 0) + Math.max(0, removedDurationSec)
+  }
+}
+
 export function removeSequenceBlockGapAt(session: EditSession, deletedBlockIndex: number): void {
   const gaps = session.sequence_block_gaps
   if (!gaps?.length) return

@@ -203,6 +203,9 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const updateAudioSettings = useEditSessionStore((state) => state.updateAudioSettings)
   const reorderBlocks = useEditSessionStore((state) => state.reorderBlocks)
   const shiftMainTrackBlockVisual = useEditSessionStore((state) => state.shiftMainTrackBlockVisual)
+  const restoreMainTrackGapDragBaseline = useEditSessionStore(
+    (state) => state.restoreMainTrackGapDragBaseline
+  )
   const reorderVideoTracks = useEditSessionStore((state) => state.reorderVideoTracks)
   const removeOverlayElement = useEditSessionStore((state) => state.removeOverlayElement)
   const clearBlockCaption = useEditSessionStore((state) => state.clearBlockCaption)
@@ -263,6 +266,8 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const [draggingAudioClipId, setDraggingAudioClipId] = useState<string | null>(null)
   /** 拖动中仅视觉位移（px），松手后再写 store */
   const [clipDragOffsets, setClipDragOffsets] = useState<Record<string, number>>({})
+  /** 主轨片段正在拖向叠画轨：主轨上保留占位预览 */
+  const [mainBlockOverlayDragId, setMainBlockOverlayDragId] = useState<string | null>(null)
   const [blockDragPreview, setBlockDragPreview] = useState<{
     blockId: string
     fromIndex: number
@@ -876,13 +881,8 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           }
 
           if (overlayTarget) {
-            if (dragMode !== 'overlay') {
-              shiftMainTrackBlockVisual(blockId, initialStart, dragBaseline, {
-                recordHistory: false,
-                ripple: rippleTrimEnabled,
-              })
-            }
             dragMode = 'overlay'
+            setMainBlockOverlayDragId(blockId)
             pendingOverlayVideoTrackId = overlayTarget.videoTrackId
             const snapped = resolveSnappedStartFromClientX(moveEvent.clientX)
             setSnapPoint({ time: snapped, type: 'grid' })
@@ -923,6 +923,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
               dragMode = 'reorder'
               pendingTargetIndex = targetIndex
               pendingOverlayVideoTrackId = null
+              setMainBlockOverlayDragId(null)
               setVideoDragPreview(null)
               setDragTargetTrackId(null)
               setSnapPoint(null)
@@ -948,6 +949,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           dragMode = 'gap'
           pendingTargetIndex = blockIndex
           pendingOverlayVideoTrackId = null
+          setMainBlockOverlayDragId(null)
           setVideoDragPreview(null)
           setDragTargetTrackId(null)
           const target = computeMainTrackGapTarget(moveEvent.clientX)
@@ -972,11 +974,9 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           setBlockDragPreview(null)
           setVideoDragPreview(null)
           setDragTargetTrackId(null)
+          setMainBlockOverlayDragId(null)
           if (dragMode === 'overlay') {
-            shiftMainTrackBlockVisual(blockId, initialStart, dragBaseline, {
-              recordHistory: false,
-              ripple: rippleTrimEnabled,
-            })
+            restoreMainTrackGapDragBaseline(dragBaseline, { recordHistory: false })
             const snapped = resolveSnappedStartFromClientX(upEvent.clientX)
             const overlayTrackId =
               pendingOverlayVideoTrackId ??
@@ -2302,6 +2302,10 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                               (element.source.kind === 'block' &&
                                 blockDragPreview?.blockId === element.source.blockId) ||
                               clipDragOffsets[element.id] != null
+                            }
+                            overlayDropSource={
+                              element.source.kind === 'block' &&
+                              mainBlockOverlayDragId === element.source.blockId
                             }
                             dragTranslatePx={
                               clipDragOffsets[element.id] ??

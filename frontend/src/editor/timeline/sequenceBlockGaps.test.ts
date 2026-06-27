@@ -11,7 +11,9 @@ import {
   areMainTrackBlocksAdjacent,
   dropCrossTransitionsBrokenByGaps,
   mainTrackSegmentSeparationSec,
+  preserveMainTrackTimingGapForOverlayMove,
 } from './sequenceBlockGaps'
+import { resolveMainTrackSequentialBlocks } from '../videoTracks'
 
 const block = (
   id: string,
@@ -181,5 +183,28 @@ describe('sequenceBlockGaps', () => {
     session.sequence_block_gaps![0] = 1
     expect(areMainTrackBlocksAdjacent(session, 0)).toBe(false)
     expect(mainTrackSegmentSeparationSec(session, 0)).toBeCloseTo(1, 3)
+  })
+
+  it('preserves following main block start when middle block leaves for overlay', () => {
+    const session = sessionWith([block('a', 5), block('b', 5), block('c', 5)])
+    session.sequence_block_gaps = [0, 0]
+    const before = buildCompositionTimeline(
+      resolveMainTrackSequentialBlocks(session),
+      0.35,
+      session.sequence_block_gaps
+    )
+    const cStartBefore = before.segments[2]!.compositionStartSec
+
+    preserveMainTrackTimingGapForOverlayMove(session, 1, 5)
+    session.sequence[1]!.track_id = 'overlay-track'
+
+    const after = buildCompositionTimeline(
+      resolveMainTrackSequentialBlocks(session),
+      0.35,
+      session.sequence_block_gaps
+    )
+    expect(after.segments[1]!.block.id).toBe('c')
+    expect(after.segments[1]!.compositionStartSec).toBeCloseTo(cStartBefore, 3)
+    expect(session.sequence_block_gaps![0]).toBeCloseTo(5, 3)
   })
 })
