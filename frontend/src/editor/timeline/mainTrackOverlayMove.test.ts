@@ -5,6 +5,7 @@ import { resolveMainTrackSequentialBlocks } from '../videoTracks'
 import { resolveMainTrackCompositionGaps } from './sequenceBlockGaps'
 import {
   applyMainSequentialBlockMoveToOverlay,
+  applyOverlayBlockMoveToMainSequential,
   clampMainBlockOverlayDropStartSec,
   resolveMainTrackOverlayDropStartSec,
 } from './mainTrackOverlayMove'
@@ -144,5 +145,41 @@ describe('mainTrackOverlayMove', () => {
       resolveMainTrackCompositionGaps(session, afterMainBlocks)
     )
     expect(after.segments[1]!.compositionStartSec).toBeCloseTo(cStartBefore, 3)
+  })
+
+  it('overlay to main sequential reinsert preserves following block timing', () => {
+    const session = sessionWith([block('a', 5), block('b', 5), block('c', 5)])
+    const mainBlocks = resolveMainTrackSequentialBlocks(session)
+    const before = buildCompositionTimeline(
+      mainBlocks,
+      0.35,
+      resolveMainTrackCompositionGaps(session, mainBlocks)
+    )
+    const cStartBefore = before.segments[2]!.compositionStartSec
+
+    applyMainSequentialBlockMoveToOverlay(session, 'b', 'overlay-1')
+    expect(applyOverlayBlockMoveToMainSequential(session, 'b', 5)).toBe(true)
+
+    expect(session.sequence.map((item) => item.id)).toEqual(['a', 'b', 'c'])
+    expect(session.sequence[1]!.timeline_start_sec).toBeUndefined()
+
+    const afterMainBlocks = resolveMainTrackSequentialBlocks(session)
+    const after = buildCompositionTimeline(
+      afterMainBlocks,
+      0.35,
+      resolveMainTrackCompositionGaps(session, afterMainBlocks)
+    )
+    expect(after.segments.map((segment) => segment.block.id)).toEqual(['a', 'b', 'c'])
+    expect(after.segments[2]!.compositionStartSec).toBeCloseTo(cStartBefore, 3)
+
+    const endA = blockTimelineVisualStartSec(
+      after.segments[1]!.compositionStartSec,
+      after.segments[1]!.block
+    )
+    const startC = blockTimelineVisualStartSec(
+      after.segments[2]!.compositionStartSec,
+      after.segments[2]!.block
+    )
+    expect(startC).toBeGreaterThanOrEqual(endA - 0.001)
   })
 })

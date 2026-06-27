@@ -128,6 +128,7 @@ import {
 } from '../editor/timeline/mainTrackBlockGapDrag'
 import {
   applyMainSequentialBlockMoveToOverlay,
+  applyOverlayBlockMoveToMainSequential,
   resolveMainTrackOverlayDropStartSec,
 } from '../editor/timeline/mainTrackOverlayMove'
 import {
@@ -2222,6 +2223,19 @@ export const useEditSessionStore = create<EditSessionState>()(
           if (currentIdx < 0) return
           const block = state.session.sequence[currentIdx]!
           const wasMain = isMainTrackBlock(block)
+          if (videoTrackId === DEFAULT_VIDEO_TRACK_ID && !wasMain) {
+            if (
+              applyOverlayBlockMoveToMainSequential(
+                state.session,
+                blockId,
+                options?.timelineStartSec
+              )
+            ) {
+              ensureTemplateCaptionOverlays(state.session)
+              state.dirty = true
+            }
+            return
+          }
           block.track_id = videoTrackId
           if (videoTrackId === DEFAULT_VIDEO_TRACK_ID) {
             if (options?.timelineStartSec != null) {
@@ -2244,7 +2258,6 @@ export const useEditSessionStore = create<EditSessionState>()(
               if (currentIdx < insertAt) insertAt -= 1
               state.session.sequence.splice(insertAt, 0, moved)
             }
-            clearSequenceBlockGaps(state.session)
             ensureTemplateCaptionOverlays(state.session)
           } else {
             const wasMainSequential =
