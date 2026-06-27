@@ -127,6 +127,10 @@ import {
   type MainTrackGapDragBaseline,
 } from '../editor/timeline/mainTrackBlockGapDrag'
 import {
+  applyMainSequentialBlockMoveToOverlay,
+  clampMainBlockOverlayDropStartSec,
+} from '../editor/timeline/mainTrackOverlayMove'
+import {
   applyInteractiveVideoHeadTrim,
   applyInteractiveVideoTailTrim,
   type VideoTrimInteractiveContext,
@@ -555,6 +559,12 @@ interface EditSessionState {
       insertIndex?: number
       skipTimelineClamp?: boolean
     }
+  ) => void
+  moveMainSequentialBlockToOverlayTrack: (
+    blockId: string,
+    overlayTrackId: string,
+    overlayStartSec: number,
+    options?: { recordHistory?: boolean; skipTimelineClamp?: boolean }
   ) => void
   reorderVideoTracks: (
     fromIndex: number,
@@ -2238,22 +2248,62 @@ export const useEditSessionStore = create<EditSessionState>()(
             clearSequenceBlockGaps(state.session)
             ensureTemplateCaptionOverlays(state.session)
           } else {
-            block.timeline_start_sec = options?.timelineStartSec ?? block.timeline_start_sec ?? 0
-            if (wasMain) {
-              preserveMainTrackTimingGapForOverlayMove(
+            const wasMainSequential =
+              wasMain && block.timeline_start_sec == null && options?.timelineStartSec != null
+            if (wasMainSequential) {
+              applyMainSequentialBlockMoveToOverlay(
                 state.session,
-                currentIdx,
-                blockDuration(block)
+                blockId,
+                videoTrackId,
+                options.timelineStartSec!
               )
-              block.video_transform = buildDefaultOverlayPictureInPictureTransform(
-                state.session.export_settings
-              )
+            } else {
+              block.timeline_start_sec = options?.timelineStartSec ?? block.timeline_start_sec ?? 0
+              if (wasMain) {
+                preserveMainTrackTimingGapForOverlayMove(
+                  state.session,
+                  currentIdx,
+                  blockDuration(block)
+                )
+                block.video_transform = buildDefaultOverlayPictureInPictureTransform(
+                  state.session.export_settings
+                )
+              }
             }
             if (!options?.skipTimelineClamp) {
               applyVideoBlockTimelineClamp(state.session, blockId)
             }
           }
           state.dirty = true
+        })
+      },
+
+      moveMainSequentialBlockToOverlayTrack: (blockId, overlayTrackId, overlayStartSec, options) => {
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
+        set((state) => {
+          if (!state.session?.video_tracks) return
+          const trackExists = state.session.video_tracks.some((item) => item.id === overlayTrackId)
+          if (!trackExists) return
+          const startSec = options?.skipTimelineClamp
+            ? Math.max(0, overlayStartSec)
+            : clampMainBlockOverlayDropStartSec(
+                state.session,
+                blockId,
+                overlayTrackId,
+                overlayStartSec
+              )
+          if (
+            applyMainSequentialBlockMoveToOverlay(
+              state.session,
+              blockId,
+              overlayTrackId,
+              startSec
+            )
+          ) {
+            state.dirty = true
+          }
         })
       },
 
