@@ -1,6 +1,7 @@
+import type { EditBlock } from '../../types/editSession'
 import type { PreviewVideoLayerProps } from '../scene/adapters/previewAdapter'
 import type { TransitionOutKind } from '../../types/transitions'
-import { isMainTrackBlock } from '../videoTracks'
+import { getBlockTrackId, isMainTrackBlock, VOICEOVER_BROLL_TRACK_ID } from '../videoTracks'
 
 /** 转场期间将 block 增益乘以图层 opacity（与画面 crossfade 对齐） */
 export function crossTransitionAudioGainMultiplier(
@@ -19,6 +20,13 @@ export interface ResolvePreviewLayerAudioOptions {
   dissolveLayerCount: number
   primaryAudioBlockId: string | null
   warmupBlockId: string | null
+  mutedVideoTrackIds?: readonly string[]
+}
+
+/** 叠画轨等非主轨视频：预览时与主轨 clip 声混播（口播 B-roll 轨仍静音） */
+export function isOverlayVideoAudioBlock(block: EditBlock): boolean {
+  if (isMainTrackBlock(block)) return false
+  return getBlockTrackId(block) !== VOICEOVER_BROLL_TRACK_ID
 }
 
 /** 非转场时唯一应出 clip 声的主轨 block（incoming 在 layers 末尾，避免 vmLayers[0] 误判） */
@@ -36,7 +44,7 @@ export function resolvePrimaryMainTrackAudioBlockId(
   return mainLayers[mainLayers.length - 1]!.block.id
 }
 
-/** 预览层 HTMLVideo 音频：转场双路按 scene volume 同时出声，其余仍仅主路 */
+/** 预览层 HTMLVideo 音频：转场双路按 scene volume 混播；非转场时主轨 + 叠画轨同时出声 */
 export function resolvePreviewLayerAudio(
   layer: PreviewVideoLayerProps,
   options: ResolvePreviewLayerAudioOptions
@@ -47,9 +55,17 @@ export function resolvePreviewLayerAudio(
     dissolveLayerCount,
     primaryAudioBlockId,
     warmupBlockId,
+    mutedVideoTrackIds,
   } = options
 
-  if (clipAudioMuted || layer.block.id === warmupBlockId) {
+  const trackId = getBlockTrackId(layer.block)
+  const trackMuted = mutedVideoTrackIds?.includes(trackId) ?? false
+
+  if (
+    (clipAudioMuted && isMainTrackBlock(layer.block)) ||
+    layer.block.id === warmupBlockId ||
+    trackMuted
+  ) {
     return { muted: true, volume: 0 }
   }
 
@@ -58,6 +74,10 @@ export function resolvePreviewLayerAudio(
   if (inDissolve && dissolveLayerCount >= 2) {
     // volume=0 时保持 unmuted，让解码器继续跑音轨（crossfade 起点）
     return { muted: false, volume }
+  }
+
+  if (isOverlayVideoAudioBlock(layer.block)) {
+    return { muted: false, volume: Math.max(volume, 0.0001) }
   }
 
   if (primaryAudioBlockId && layer.block.id !== primaryAudioBlockId) {

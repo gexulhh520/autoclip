@@ -45,19 +45,46 @@ describe('previewTransitionAudio', () => {
     expect(resolvePreviewLayerAudio(incoming, base)).toEqual({ muted: false, volume: 0.4 })
   })
 
-  it('keeps single primary audio outside dissolve', () => {
+  it('plays overlay video track audio alongside main track', () => {
     const outgoing = layer('a', 1)
-    const overlay = layer('overlay', 1, 'overlay-track')
+    const overlay = layer('overlay', 0.8, 'overlay-track')
     const base = {
       clipAudioMuted: false,
       inDissolve: false,
-      dissolveLayerCount: 1,
+      dissolveLayerCount: 2,
       primaryAudioBlockId: 'a',
       warmupBlockId: null,
     }
 
     expect(resolvePreviewLayerAudio(outgoing, base)).toEqual({ muted: false, volume: 1 })
-    expect(resolvePreviewLayerAudio(overlay, base)).toEqual({ muted: true, volume: 0 })
+    expect(resolvePreviewLayerAudio(overlay, base)).toEqual({ muted: false, volume: 0.8 })
+  })
+
+  it('mutes overlay when its video track is muted', () => {
+    const overlay = layer('overlay', 1, 'overlay-track')
+    expect(
+      resolvePreviewLayerAudio(overlay, {
+        clipAudioMuted: false,
+        inDissolve: false,
+        dissolveLayerCount: 1,
+        primaryAudioBlockId: 'a',
+        warmupBlockId: null,
+        mutedVideoTrackIds: ['overlay-track'],
+      })
+    ).toEqual({ muted: true, volume: 0 })
+  })
+
+  it('keeps voiceover broll overlay silent outside dissolve', () => {
+    const broll = layer('broll', 1, 'voiceover-broll')
+    expect(
+      resolvePreviewLayerAudio(broll, {
+        clipAudioMuted: false,
+        inDissolve: false,
+        dissolveLayerCount: 1,
+        primaryAudioBlockId: 'a',
+        warmupBlockId: null,
+      })
+    ).toEqual({ muted: true, volume: 0 })
   })
 
   it('resolvePrimaryMainTrackAudioBlockId picks incoming after cross', () => {

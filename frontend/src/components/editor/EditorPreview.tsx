@@ -392,6 +392,7 @@ const EditorPreview: React.FC<EditorPreviewProps> = ({ projectId, sessionId }) =
                 canvasHeight={canvasDims.height}
                 videoFitClass={videoFitClass}
                 clipAudioMuted={clipAudioMuted}
+                mutedVideoTrackIds={mutedVideoTrackIds}
                 previewBurnSubtitles={previewBurnSubtitles}
                 captionsHidden={captionsHidden}
                 captionsMuted={captionsMuted}

@@ -327,9 +327,11 @@ export function resolveSceneAt(
   const bgmSettings = session.audio_settings
 
   for (const layer of videoLayers) {
-    const segment = timeline.segments[layer.blockIndex]
-    if (!segment) continue
-    const trackId = getBlockTrackId(segment.block)
+    const segment = layer.blockIndex >= 0 ? timeline.segments[layer.blockIndex] : undefined
+    const block =
+      segment?.block ?? session.sequence.find((candidate) => candidate.id === layer.blockId)
+    if (!block) continue
+    const trackId = getBlockTrackId(block)
     if (mutedVideoTrackIds.has(trackId)) continue
     audioLayers.push({
       kind: 'clip',

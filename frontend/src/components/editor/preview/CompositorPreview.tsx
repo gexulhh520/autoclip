@@ -126,6 +126,7 @@ export interface CompositorPreviewProps {
   canvasHeight: number
   videoFitClass: string
   clipAudioMuted: boolean
+  mutedVideoTrackIds?: string[]
   previewBurnSubtitles: boolean
   captionsHidden: boolean
   captionsMuted: boolean
@@ -236,6 +237,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   canvasHeight,
   videoFitClass,
   clipAudioMuted,
+  mutedVideoTrackIds = [],
   previewBurnSubtitles,
   captionsHidden,
   captionsMuted,
@@ -750,6 +752,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
           dissolveLayerCount: vmLayers.length,
           primaryAudioBlockId: audioBlockId,
           warmupBlockId: warmupId,
+          mutedVideoTrackIds,
         })
         if (
           syncVideoElement(video, layer, forceSeek, {
@@ -771,7 +774,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
 
       return anySeek
     },
-    [clipAudioMuted, getDecoderPool, getVideoUrlForBlock, session, syncVideoElement, syncWarmupDecoder]
+    [clipAudioMuted, getDecoderPool, getVideoUrlForBlock, mutedVideoTrackIds, session, syncVideoElement, syncWarmupDecoder]
   )
 
   const refreshBlockFrameCaches = useCallback(
