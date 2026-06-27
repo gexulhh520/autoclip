@@ -85,6 +85,55 @@ export function setMainTrackBlockVisualStart(
 }
 
 /** 按目标可视起点直接写入 gap / trim.in（比 delta 增量更准） */
+export function clampMainTrackBlockVisualStartTarget(
+  session: EditSession,
+  blockId: string,
+  targetVisualStartSec: number,
+  options?: { ripple?: boolean }
+): number {
+  const mainBlocks = resolveMainTrackSequentialBlocks(session)
+  const mainIndex = mainBlocks.findIndex((block) => block.id === blockId)
+  if (mainIndex < 0) return Math.max(0, targetVisualStartSec)
+
+  const block = session.sequence.find((item) => item.id === blockId)
+  if (!block) return Math.max(0, targetVisualStartSec)
+
+  const rate = blockPlaybackRate(block)
+  const timeline = buildCompositionTimeline(
+    mainBlocks,
+    transitionDurationSec(session),
+    session.sequence_block_gaps
+  )
+  const segment = timeline.segments[mainIndex]
+  if (!segment) return Math.max(0, targetVisualStartSec)
+
+  const currentStart = blockTimelineVisualStartSec(segment.compositionStartSec, block)
+  let target = Math.max(0, targetVisualStartSec)
+  const visualDuration = blockDuration(block)
+
+  if (mainIndex === 0) {
+    const maxTrimIn = block.trim.out_sec - 0.1 * rate
+    const trimIn = Math.max(0, Math.min(maxTrimIn, target * rate))
+    return trimIn / rate
+  }
+
+  const prevSeg = timeline.segments[mainIndex - 1]!
+  const minStart = blockTimelineVisualEndSec(prevSeg.compositionStartSec, prevSeg.block)
+  target = Math.max(minStart, target)
+
+  if (mainIndex < timeline.segments.length - 1 && !options?.ripple) {
+    const nextSeg = timeline.segments[mainIndex + 1]!
+    const nextStart = blockTimelineVisualStartSec(nextSeg.compositionStartSec, nextSeg.block)
+    const maxStart = nextStart - visualDuration + 0.0001
+    if (target > maxStart && target > currentStart + 0.0001) {
+      return target
+    }
+    target = Math.min(target, maxStart)
+  }
+
+  return target
+}
+
 export function applyMainTrackBlockAbsoluteVisualStart(
   session: EditSession,
   blockId: string,
@@ -113,7 +162,12 @@ export function applyMainTrackBlockAbsoluteVisualStart(
   if (!segment) return false
 
   const currentStart = blockTimelineVisualStartSec(segment.compositionStartSec, block)
-  let target = Math.max(0, targetVisualStartSec)
+  let target = clampMainTrackBlockVisualStartTarget(
+    session,
+    blockId,
+    targetVisualStartSec,
+    options
+  )
   const visualDuration = blockDuration(block)
 
   if (mainIndex === 0) {
@@ -126,23 +180,24 @@ export function applyMainTrackBlockAbsoluteVisualStart(
   }
 
   const prevSeg = timeline.segments[mainIndex - 1]!
-  const minStart = blockTimelineVisualEndSec(prevSeg.compositionStartSec, prevSeg.block)
-  target = Math.max(minStart, target)
-
-  if (mainIndex < timeline.segments.length - 1 && !options?.ripple) {
-    const nextSeg = timeline.segments[mainIndex + 1]!
-    const nextStart = blockTimelineVisualStartSec(nextSeg.compositionStartSec, nextSeg.block)
-    target = Math.min(target, nextStart - visualDuration + 0.0001)
-  }
-
   if (Math.abs(target - currentStart) < 0.0001) return false
 
   const prevEnd = blockTimelineVisualEndSec(prevSeg.compositionStartSec, prevSeg.block)
   const targetCompStart = target - block.trim.in_sec / rate
   gaps[seqIndex - 1] = Math.max(0, targetCompStart - prevEnd)
 
-  if (mainIndex < timeline.segments.length - 1 && !options?.ripple) {
-    const nextSeg = timeline.segments[mainIndex + 1]!
+  const nextSeg =
+    mainIndex < timeline.segments.length - 1 ? timeline.segments[mainIndex + 1] : null
+  const openGapRight =
+    nextSeg != null &&
+    !options?.ripple &&
+    target >
+      blockTimelineVisualStartSec(nextSeg.compositionStartSec, nextSeg.block) -
+        visualDuration +
+        0.0001 &&
+    target > currentStart + 0.0001
+
+  if (nextSeg && !options?.ripple && !openGapRight) {
     const nextCompStart = nextSeg.compositionStartSec
     gaps[seqIndex] = Math.max(0, nextCompStart - (target + visualDuration))
   }

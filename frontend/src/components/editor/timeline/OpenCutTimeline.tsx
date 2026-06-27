@@ -55,9 +55,13 @@ import {
 import { buildVideoTrimInteractiveContext } from '../../../editor/timeline/videoTrimInteractive'
 import {
   computeBlockInsertMarkerSec,
+  isPointerOverOtherMainTrackBlock,
   resolveBlockReorderTargetIndexFromTimeline,
 } from '../../../editor/timeline/blockReorderDrag'
-import { captureMainTrackGapBaseline } from '../../../editor/timeline/mainTrackBlockGapDrag'
+import {
+  captureMainTrackGapBaseline,
+  clampMainTrackBlockVisualStartTarget,
+} from '../../../editor/timeline/mainTrackBlockGapDrag'
 import type { AdaptedElement, AdaptedTrack, SnapPoint } from './types'
 import { EditorShortcutsHost } from './useEditorKeyboardShortcuts'
 import './opencut-timeline.css'
@@ -753,40 +757,35 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         let pendingTargetIndex = blockIndex
         let pendingVisualStart = initialStart
 
-        const resolveTargetIndex = (pointerSec: number) => {
-          const currentSession = useEditSessionStore.getState().session
-          const currentMainBlocks = currentSession
-            ? resolveMainTrackBlocks(currentSession)
-            : mainBlocks
-          const timeline = buildCompositionTimeline(
-            currentMainBlocks,
-            transitionDurationSec,
-            currentSession?.sequence_block_gaps
-          )
-          return resolveBlockReorderTargetIndexFromTimeline(
-            pointerSec,
-            blockIndex,
-            timeline
-          )
-        }
-
         const onMainTrackMove = (moveEvent: PointerEvent) => {
           const deltaPx = moveEvent.clientX - startX
           const deltaSec = deltaPx / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
           const pointerSec = clientXToTimelineSec(moveEvent.clientX)
-          const visualEnd = initialStart + element.duration
           const reorderMarginSec =
             8 / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
-          const inOwnSegment =
-            pointerSec >= initialStart - reorderMarginSec &&
-            pointerSec <= visualEnd + reorderMarginSec
           const currentSession = useEditSessionStore.getState().session
           const currentMainBlocks = currentSession
             ? resolveMainTrackBlocks(currentSession)
             : mainBlocks
+          const pointerTimeline = buildCompositionTimeline(
+            currentMainBlocks,
+            transitionDurationSec,
+            currentSession?.sequence_block_gaps
+          )
 
-          if (!inOwnSegment) {
-            const targetIndex = resolveTargetIndex(pointerSec)
+          if (
+            isPointerOverOtherMainTrackBlock(
+              pointerSec,
+              blockIndex,
+              pointerTimeline,
+              reorderMarginSec
+            )
+          ) {
+            const targetIndex = resolveBlockReorderTargetIndexFromTimeline(
+              pointerSec,
+              blockIndex,
+              pointerTimeline
+            )
             if (targetIndex !== blockIndex) {
               dragMode = 'reorder'
               pendingTargetIndex = targetIndex
@@ -814,10 +813,16 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           pendingTargetIndex = blockIndex
           const rawStart = Math.max(0, initialStart + deltaSec)
           const snapped = snapTime(rawStart, sequenceSnapPoints, snapEnabled)
-          pendingVisualStart = snapped
+          const clamped =
+            currentSession != null
+              ? clampMainTrackBlockVisualStartTarget(currentSession, blockId, snapped, {
+                  ripple: rippleTrimEnabled,
+                })
+              : snapped
+          pendingVisualStart = clamped
           const snappedDeltaPx =
-            (snapped - initialStart) * TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel
-          setSnapPoint({ time: snapped, type: 'grid' })
+            (clamped - initialStart) * TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel
+          setSnapPoint({ time: clamped, type: 'grid' })
           setBlockDragPreview({
             blockId,
             fromIndex: blockIndex,
@@ -825,7 +830,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
             deltaPx: snappedDeltaPx,
             label: element.name,
             duration: element.duration,
-            insertMarkerSec: snapped,
+            insertMarkerSec: clamped,
           })
         }
 

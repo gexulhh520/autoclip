@@ -61,6 +61,25 @@ export function resolveBlockReorderTargetIndexFromTimeline(
   return insertBefore
 }
 
+/** 指针是否落在其它主轨片段的可视区域内（用于区分「调位置」与「换顺序」） */
+export function isPointerOverOtherMainTrackBlock(
+  pointerSec: number,
+  fromIndex: number,
+  timeline: CompositionTimeline,
+  marginSec = 0
+): boolean {
+  for (let index = 0; index < timeline.segments.length; index += 1) {
+    if (index === fromIndex) continue
+    const segment = timeline.segments[index]!
+    const start = blockTimelineVisualStartSec(segment.compositionStartSec, segment.block)
+    const end = blockTimelineVisualEndSec(segment.compositionStartSec, segment.block)
+    if (pointerSec >= start - marginSec && pointerSec <= end + marginSec) {
+      return true
+    }
+  }
+  return false
+}
+
 export function computeBlockInsertMarkerSec(
   blocks: EditBlock[],
   fromIndex: number,

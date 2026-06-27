@@ -101,4 +101,18 @@ describe('mainTrackBlockGapDrag', () => {
     expect(session.sequence_block_gaps![0]).toBeCloseTo(1.2, 3)
     expect(session.sequence_block_gaps![1]).toBeCloseTo(0.8, 3)
   })
+
+  it('opens gap to the right when adjacent clips are flush without ripple', () => {
+    const session = sessionWith([block('a', 5), block('b', 5), block('c', 5)], [0, 0])
+    const baseline = captureMainTrackGapBaseline(session)
+    setMainTrackBlockVisualStart(session, 'b', 6.5, baseline, { ripple: false })
+
+    const timeline = buildCompositionTimeline(session.sequence, 0.35, session.sequence_block_gaps)
+    const startB = blockTimelineVisualStartSec(
+      timeline.segments[1]!.compositionStartSec,
+      timeline.segments[1]!.block
+    )
+    expect(startB).toBeCloseTo(6.5, 3)
+    expect(session.sequence_block_gaps![0]).toBeCloseTo(1.5, 3)
+  })
 })

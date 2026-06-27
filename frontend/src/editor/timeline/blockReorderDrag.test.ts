@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { EditBlock } from '../../types/editSession'
 import {
   computeBlockInsertMarkerSec,
+  isPointerOverOtherMainTrackBlock,
   previewBlockOrder,
   resolveBlockReorderTargetIndex,
   resolveBlockReorderTargetIndexFromTimeline,
@@ -51,5 +52,12 @@ describe('blockReorderDrag', () => {
     const timeline = buildCompositionTimeline(blocks, 0.35, [0, 0])
     expect(resolveBlockReorderTargetIndexFromTimeline(1, 2, timeline)).toBe(0)
     expect(resolveBlockReorderTargetIndexFromTimeline(8, 0, timeline)).toBe(2)
+  })
+
+  it('isPointerOverOtherMainTrackBlock ignores empty gap space', () => {
+    const blocks = [block('a'), block('b'), block('c')]
+    const timeline = buildCompositionTimeline(blocks, 0.35, [1, 0])
+    expect(isPointerOverOtherMainTrackBlock(6.5, 1, timeline)).toBe(false)
+    expect(isPointerOverOtherMainTrackBlock(1.5, 1, timeline)).toBe(true)
   })
 })
