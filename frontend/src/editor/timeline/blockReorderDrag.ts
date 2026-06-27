@@ -1,6 +1,8 @@
 import type { EditBlock } from '../../types/editSession'
+import { blockTimelineVisualEndSec, blockTimelineVisualStartSec } from '../../utils/editTimeline'
 import {
   buildCompositionTimelineSegments,
+  type CompositionTimeline,
   type CompositionTimelineSegment,
 } from '../scene/timelineLayout'
 
@@ -24,6 +26,31 @@ export function resolveBlockReorderTargetIndex(
   for (let index = 0; index < segments.length; index += 1) {
     const segment = segments[index]!
     const midpoint = segment.startSec + segment.duration / 2
+    if (pointerSec < midpoint) {
+      insertBefore = index
+      break
+    }
+  }
+
+  if (fromIndex < insertBefore) return insertBefore - 1
+  return insertBefore
+}
+
+/** 按片段可视区域中点判断重排插入位置（主轨拖拽排序） */
+export function resolveBlockReorderTargetIndexFromTimeline(
+  pointerSec: number,
+  fromIndex: number,
+  timeline: CompositionTimeline
+): number {
+  const { segments } = timeline
+  if (segments.length <= 1) return fromIndex
+
+  let insertBefore = segments.length
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index]!
+    const start = blockTimelineVisualStartSec(segment.compositionStartSec, segment.block)
+    const end = blockTimelineVisualEndSec(segment.compositionStartSec, segment.block)
+    const midpoint = (start + end) / 2
     if (pointerSec < midpoint) {
       insertBefore = index
       break

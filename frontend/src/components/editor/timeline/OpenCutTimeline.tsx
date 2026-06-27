@@ -3,6 +3,7 @@ import { Eye, EyeOff, Volume2, VolumeX } from 'lucide-react'
 import { useEditSessionStore } from '../../../stores/useEditSessionStore'
 import { useAgentPanelStore } from '../../../stores/useAgentPanelStore'
 import {
+  buildCompositionTimeline,
   buildCompositionTimelineSegments,
   getCompositionTotalDuration,
 } from '../../../editor/scene'
@@ -54,8 +55,9 @@ import {
 import { buildVideoTrimInteractiveContext } from '../../../editor/timeline/videoTrimInteractive'
 import {
   computeBlockInsertMarkerSec,
-  resolveBlockReorderTargetIndex,
+  resolveBlockReorderTargetIndexFromTimeline,
 } from '../../../editor/timeline/blockReorderDrag'
+import { captureMainTrackGapBaseline } from '../../../editor/timeline/mainTrackBlockGapDrag'
 import type { AdaptedElement, AdaptedTrack, SnapPoint } from './types'
 import { EditorShortcutsHost } from './useEditorKeyboardShortcuts'
 import './opencut-timeline.css'
@@ -175,6 +177,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const setSelectedAudioClipId = useEditSessionStore((state) => state.setSelectedAudioClipId)
   const updateAudioSettings = useEditSessionStore((state) => state.updateAudioSettings)
   const reorderBlocks = useEditSessionStore((state) => state.reorderBlocks)
+  const shiftMainTrackBlockVisual = useEditSessionStore((state) => state.shiftMainTrackBlockVisual)
   const reorderVideoTracks = useEditSessionStore((state) => state.reorderVideoTracks)
   const removeOverlayElement = useEditSessionStore((state) => state.removeOverlayElement)
   const clearBlockCaption = useEditSessionStore((state) => state.clearBlockCaption)
@@ -732,8 +735,111 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
       const blockId = element.source.blockId
       const block = blocks.find((item) => item.id === blockId)
       if (!block) return
-      // 顺序主轨片段只能裁切，不能整体拖动改 timeline_start_sec（否则会与前段重叠）
-      if (isMainTrackBlock(block) && block.timeline_start_sec == null) return
+
+      if (isMainTrackBlock(block) && block.timeline_start_sec == null) {
+        const blockIndex = mainBlocks.findIndex((item) => item.id === blockId)
+        if (blockIndex < 0) return
+
+        const liveSession = useEditSessionStore.getState().session
+        if (!liveSession) return
+
+        beginTimelineGesture()
+        clipInteractionRef.current = true
+        const dragBaseline = captureMainTrackGapBaseline(liveSession)
+        let dragMode: 'gap' | 'reorder' = 'gap'
+        let pendingTargetIndex = blockIndex
+
+        const resolveTargetIndex = (pointerSec: number) => {
+          const currentSession = useEditSessionStore.getState().session
+          const currentMainBlocks = currentSession
+            ? resolveMainTrackBlocks(currentSession)
+            : mainBlocks
+          const timeline = buildCompositionTimeline(
+            currentMainBlocks,
+            transitionDurationSec,
+            currentSession?.sequence_block_gaps
+          )
+          return resolveBlockReorderTargetIndexFromTimeline(
+            pointerSec,
+            blockIndex,
+            timeline
+          )
+        }
+
+        const onMainTrackMove = (moveEvent: PointerEvent) => {
+          const deltaPx = moveEvent.clientX - startX
+          const deltaSec = deltaPx / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
+          const pointerSec = clientXToTimelineSec(moveEvent.clientX)
+          const targetIndex = resolveTargetIndex(pointerSec)
+          const currentSession = useEditSessionStore.getState().session
+          const currentMainBlocks = currentSession
+            ? resolveMainTrackBlocks(currentSession)
+            : mainBlocks
+
+          if (targetIndex !== blockIndex) {
+            if (dragMode === 'gap') {
+              shiftMainTrackBlockVisual(blockId, initialStart, dragBaseline, {
+                recordHistory: false,
+                ripple: rippleTrimEnabled,
+              })
+            }
+            dragMode = 'reorder'
+            pendingTargetIndex = targetIndex
+            setSnapPoint(null)
+            setBlockDragPreview({
+              blockId,
+              fromIndex: blockIndex,
+              targetIndex,
+              deltaPx,
+              label: element.name,
+              duration: element.duration,
+              insertMarkerSec: computeBlockInsertMarkerSec(
+                currentMainBlocks,
+                blockIndex,
+                targetIndex,
+                transitionDurationSec,
+                currentSession?.sequence_block_gaps
+              ),
+            })
+            return
+          }
+
+          dragMode = 'gap'
+          pendingTargetIndex = blockIndex
+          const rawStart = Math.max(0, initialStart + deltaSec)
+          const snapped = snapTime(rawStart, sequenceSnapPoints, snapEnabled)
+          setSnapPoint({ time: snapped, type: 'grid' })
+          setBlockDragPreview({
+            blockId,
+            fromIndex: blockIndex,
+            targetIndex: blockIndex,
+            deltaPx,
+            label: element.name,
+            duration: element.duration,
+            insertMarkerSec: snapped,
+          })
+          shiftMainTrackBlockVisual(blockId, snapped, dragBaseline, {
+            recordHistory: false,
+            ripple: rippleTrimEnabled,
+          })
+        }
+
+        const onMainTrackUp = () => {
+          setSnapPoint(null)
+          setBlockDragPreview(null)
+          if (dragMode === 'reorder' && pendingTargetIndex !== blockIndex) {
+            reorderBlocks(blockIndex, pendingTargetIndex, { recordHistory: false })
+          }
+          void flushSaveSession(projectId)
+          window.removeEventListener('pointermove', onMainTrackMoveRaf)
+          window.removeEventListener('pointerup', onMainTrackUp)
+        }
+
+        const onMainTrackMoveRaf = rafPointerMove(onMainTrackMove)
+        window.addEventListener('pointermove', onMainTrackMoveRaf)
+        window.addEventListener('pointerup', onMainTrackUp)
+        return
+      }
 
       beginTimelineGesture()
       let pendingTargetVideoTrackId: string | null = sourceTrack?.videoTrackId ?? null

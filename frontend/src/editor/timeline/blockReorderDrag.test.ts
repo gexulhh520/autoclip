@@ -4,8 +4,9 @@ import {
   computeBlockInsertMarkerSec,
   previewBlockOrder,
   resolveBlockReorderTargetIndex,
+  resolveBlockReorderTargetIndexFromTimeline,
 } from './blockReorderDrag'
-import type { CompositionTimelineSegment } from '../scene/timelineLayout'
+import { buildCompositionTimeline, type CompositionTimelineSegment } from '../scene/timelineLayout'
 
 const block = (id: string): EditBlock =>
   ({
@@ -43,5 +44,12 @@ describe('blockReorderDrag', () => {
     const blocks = [block('a'), block('b'), block('c')]
     const marker = computeBlockInsertMarkerSec(blocks, 0, 2, 0.35)
     expect(marker).toBeGreaterThan(0)
+  })
+
+  it('resolveBlockReorderTargetIndexFromTimeline uses visual midpoints', () => {
+    const blocks = [block('a'), block('b'), block('c')]
+    const timeline = buildCompositionTimeline(blocks, 0.35, [0, 0])
+    expect(resolveBlockReorderTargetIndexFromTimeline(1, 2, timeline)).toBe(0)
+    expect(resolveBlockReorderTargetIndexFromTimeline(8, 0, timeline)).toBe(2)
   })
 })

@@ -114,6 +114,11 @@ import {
   clearSequenceBlockGaps,
   dropCrossTransitionsBrokenByGaps,
 } from '../editor/timeline/sequenceBlockGaps'
+import { previewBlockOrder } from '../editor/timeline/blockReorderDrag'
+import {
+  setMainTrackBlockVisualStart,
+  type MainTrackGapDragBaseline,
+} from '../editor/timeline/mainTrackBlockGapDrag'
 import {
   applyInteractiveVideoHeadTrim,
   applyInteractiveVideoTailTrim,
@@ -610,6 +615,12 @@ interface EditSessionState {
     fromIndex: number,
     toIndex: number,
     options?: { recordHistory?: boolean }
+  ) => void
+  shiftMainTrackBlockVisual: (
+    blockId: string,
+    targetVisualStartSec: number,
+    baseline: MainTrackGapDragBaseline,
+    options?: { recordHistory?: boolean; ripple?: boolean }
   ) => void
   setPlaying: (playing: boolean) => void
   stopPlayback: () => void
@@ -2694,9 +2705,37 @@ export const useEditSessionStore = create<EditSessionState>()(
           const [moved] = next.splice(fullFromIndex, 1)
           next.splice(fullToIndex, 0, moved)
           state.session.sequence = next
-          clearSequenceBlockGaps(state.session)
+
+          const gaps = state.session.sequence_block_gaps
+          if (gaps?.length === mainBlocks.length - 1 && mainBlocks.length > 1) {
+            state.session.sequence_block_gaps = previewBlockOrder(gaps, fromIndex, toIndex)
+          } else {
+            clearSequenceBlockGaps(state.session)
+          }
+
+          dropCrossTransitionsBrokenByGaps(state.session)
           ensureTemplateCaptionOverlays(state.session)
           state.dirty = true
+        })
+      },
+
+      shiftMainTrackBlockVisual: (blockId, targetVisualStartSec, baseline, options) => {
+        if (options?.recordHistory !== false) {
+          pushHistory()
+        }
+        set((state) => {
+          if (!state.session) return
+          if (
+            setMainTrackBlockVisualStart(
+              state.session,
+              blockId,
+              targetVisualStartSec,
+              baseline,
+              { ripple: options?.ripple }
+            )
+          ) {
+            state.dirty = true
+          }
         })
       },
 
