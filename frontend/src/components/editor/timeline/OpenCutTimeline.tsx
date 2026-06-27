@@ -774,32 +774,40 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           const deltaPx = moveEvent.clientX - startX
           const deltaSec = deltaPx / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
           const pointerSec = clientXToTimelineSec(moveEvent.clientX)
-          const targetIndex = resolveTargetIndex(pointerSec)
+          const visualEnd = initialStart + element.duration
+          const reorderMarginSec =
+            8 / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
+          const inOwnSegment =
+            pointerSec >= initialStart - reorderMarginSec &&
+            pointerSec <= visualEnd + reorderMarginSec
           const currentSession = useEditSessionStore.getState().session
           const currentMainBlocks = currentSession
             ? resolveMainTrackBlocks(currentSession)
             : mainBlocks
 
-          if (targetIndex !== blockIndex) {
-            dragMode = 'reorder'
-            pendingTargetIndex = targetIndex
-            setSnapPoint(null)
-            setBlockDragPreview({
-              blockId,
-              fromIndex: blockIndex,
-              targetIndex,
-              deltaPx,
-              label: element.name,
-              duration: element.duration,
-              insertMarkerSec: computeBlockInsertMarkerSec(
-                currentMainBlocks,
-                blockIndex,
+          if (!inOwnSegment) {
+            const targetIndex = resolveTargetIndex(pointerSec)
+            if (targetIndex !== blockIndex) {
+              dragMode = 'reorder'
+              pendingTargetIndex = targetIndex
+              setSnapPoint(null)
+              setBlockDragPreview({
+                blockId,
+                fromIndex: blockIndex,
                 targetIndex,
-                transitionDurationSec,
-                currentSession?.sequence_block_gaps
-              ),
-            })
-            return
+                deltaPx,
+                label: element.name,
+                duration: element.duration,
+                insertMarkerSec: computeBlockInsertMarkerSec(
+                  currentMainBlocks,
+                  blockIndex,
+                  targetIndex,
+                  transitionDurationSec,
+                  currentSession?.sequence_block_gaps
+                ),
+              })
+              return
+            }
           }
 
           dragMode = 'gap'
@@ -807,12 +815,14 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           const rawStart = Math.max(0, initialStart + deltaSec)
           const snapped = snapTime(rawStart, sequenceSnapPoints, snapEnabled)
           pendingVisualStart = snapped
+          const snappedDeltaPx =
+            (snapped - initialStart) * TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel
           setSnapPoint({ time: snapped, type: 'grid' })
           setBlockDragPreview({
             blockId,
             fromIndex: blockIndex,
             targetIndex: blockIndex,
-            deltaPx,
+            deltaPx: snappedDeltaPx,
             label: element.name,
             duration: element.duration,
             insertMarkerSec: snapped,

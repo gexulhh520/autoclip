@@ -1,5 +1,10 @@
 import type { EditSession } from '../../types/editSession'
-import { blockPlaybackRate, blockTimelineVisualStartSec } from '../../utils/editTimeline'
+import {
+  blockDuration,
+  blockPlaybackRate,
+  blockTimelineVisualEndSec,
+  blockTimelineVisualStartSec,
+} from '../../utils/editTimeline'
 import { buildCompositionTimeline } from '../scene/timelineLayout'
 import { resolveMainTrackSequentialBlocks } from '../videoTracks'
 import {
@@ -62,7 +67,7 @@ export function resolveMainTrackBlockVisualStartSec(
   return blockTimelineVisualStartSec(segment.compositionStartSec, segment.block)
 }
 
-/** 将主轨顺序片段拖到目标可视起点（通过 gap 转移或首段 trim.in） */
+/** 将主轨顺序片段拖到目标可视起点（绝对定位，松手位置即提交位置） */
 export function setMainTrackBlockVisualStart(
   session: EditSession,
   blockId: string,
@@ -70,11 +75,80 @@ export function setMainTrackBlockVisualStart(
   baseline: MainTrackGapDragBaseline,
   options?: { ripple?: boolean }
 ): boolean {
+  return applyMainTrackBlockAbsoluteVisualStart(
+    session,
+    blockId,
+    targetVisualStartSec,
+    baseline,
+    options
+  )
+}
+
+/** 按目标可视起点直接写入 gap / trim.in（比 delta 增量更准） */
+export function applyMainTrackBlockAbsoluteVisualStart(
+  session: EditSession,
+  blockId: string,
+  targetVisualStartSec: number,
+  baseline: MainTrackGapDragBaseline,
+  options?: { ripple?: boolean }
+): boolean {
   restoreMainTrackGapBaseline(session, baseline)
-  const current = resolveMainTrackBlockVisualStartSec(session, blockId)
-  if (current == null) return false
-  const deltaSec = targetVisualStartSec - current
-  return applyMainTrackBlockVisualShift(session, blockId, deltaSec, options)
+
+  const mainBlocks = resolveMainTrackSequentialBlocks(session)
+  const mainIndex = mainBlocks.findIndex((block) => block.id === blockId)
+  if (mainIndex < 0) return false
+
+  const seqIndex = session.sequence.findIndex((item) => item.id === blockId)
+  if (seqIndex < 0) return false
+  const block = session.sequence[seqIndex]!
+  const rate = blockPlaybackRate(block)
+  const gaps = ensureSequenceBlockGaps(session)
+
+  const timeline = buildCompositionTimeline(
+    mainBlocks,
+    transitionDurationSec(session),
+    session.sequence_block_gaps
+  )
+  const segment = timeline.segments[mainIndex]
+  if (!segment) return false
+
+  const currentStart = blockTimelineVisualStartSec(segment.compositionStartSec, block)
+  let target = Math.max(0, targetVisualStartSec)
+  const visualDuration = blockDuration(block)
+
+  if (mainIndex === 0) {
+    const maxTrimIn = block.trim.out_sec - 0.1 * rate
+    const trimIn = Math.max(0, Math.min(maxTrimIn, target * rate))
+    if (Math.abs(trimIn - block.trim.in_sec) < 0.0001) return false
+    block.trim.in_sec = trimIn
+    dropCrossTransitionsBrokenByGaps(session)
+    return true
+  }
+
+  const prevSeg = timeline.segments[mainIndex - 1]!
+  const minStart = blockTimelineVisualEndSec(prevSeg.compositionStartSec, prevSeg.block)
+  target = Math.max(minStart, target)
+
+  if (mainIndex < timeline.segments.length - 1 && !options?.ripple) {
+    const nextSeg = timeline.segments[mainIndex + 1]!
+    const nextStart = blockTimelineVisualStartSec(nextSeg.compositionStartSec, nextSeg.block)
+    target = Math.min(target, nextStart - visualDuration + 0.0001)
+  }
+
+  if (Math.abs(target - currentStart) < 0.0001) return false
+
+  const prevEnd = blockTimelineVisualEndSec(prevSeg.compositionStartSec, prevSeg.block)
+  const targetCompStart = target - block.trim.in_sec / rate
+  gaps[seqIndex - 1] = Math.max(0, targetCompStart - prevEnd)
+
+  if (mainIndex < timeline.segments.length - 1 && !options?.ripple) {
+    const nextSeg = timeline.segments[mainIndex + 1]!
+    const nextCompStart = nextSeg.compositionStartSec
+    gaps[seqIndex] = Math.max(0, nextCompStart - (target + visualDuration))
+  }
+
+  dropCrossTransitionsBrokenByGaps(session)
+  return true
 }
 
 export function applyMainTrackBlockVisualShift(
