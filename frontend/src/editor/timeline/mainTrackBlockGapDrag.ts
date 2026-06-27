@@ -125,9 +125,6 @@ export function clampMainTrackBlockVisualStartTarget(
     const nextSeg = timeline.segments[mainIndex + 1]!
     const nextStart = blockTimelineVisualStartSec(nextSeg.compositionStartSec, nextSeg.block)
     const maxStart = nextStart - visualDuration + 0.0001
-    if (target > maxStart && target > currentStart + 0.0001) {
-      return target
-    }
     target = Math.min(target, maxStart)
   }
 
@@ -188,16 +185,8 @@ export function applyMainTrackBlockAbsoluteVisualStart(
 
   const nextSeg =
     mainIndex < timeline.segments.length - 1 ? timeline.segments[mainIndex + 1] : null
-  const openGapRight =
-    nextSeg != null &&
-    !options?.ripple &&
-    target >
-      blockTimelineVisualStartSec(nextSeg.compositionStartSec, nextSeg.block) -
-        visualDuration +
-        0.0001 &&
-    target > currentStart + 0.0001
 
-  if (nextSeg && !options?.ripple && !openGapRight) {
+  if (nextSeg && !options?.ripple) {
     const nextCompStart = nextSeg.compositionStartSec
     gaps[seqIndex] = Math.max(0, nextCompStart - (target + visualDuration))
   }
@@ -253,13 +242,6 @@ export function applyMainTrackBlockVisualShift(
   if (Math.abs(applied) >= 0.0001) {
     gaps[seqIndex - 1] = before + applied
     if (after != null) gaps[seqIndex] = after - applied
-    dropCrossTransitionsBrokenByGaps(session)
-    return true
-  }
-
-  // 贴合态（前后 gap 均为 0）时仍允许向右拖出空隙，后续片段随 composition 后移
-  if (deltaSec > 0.0001) {
-    gaps[seqIndex - 1] = before + deltaSec
     dropCrossTransitionsBrokenByGaps(session)
     return true
   }

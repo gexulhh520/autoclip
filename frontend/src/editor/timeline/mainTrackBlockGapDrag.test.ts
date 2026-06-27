@@ -71,7 +71,14 @@ describe('mainTrackBlockGapDrag', () => {
     expect(startB).toBeCloseTo(6.5, 3)
   })
 
-  it('opens gap between adjacent clips when dragging right with zero gaps', () => {
+  it('does not open gap between adjacent clips when middle block drags right with zero gaps', () => {
+    const session = sessionWith([block('a', 5), block('b', 5), block('c', 5)], [0, 0])
+    expect(applyMainTrackBlockVisualShift(session, 'b', 1, { ripple: false })).toBe(false)
+    expect(session.sequence_block_gaps![0]).toBeCloseTo(0, 3)
+    expect(session.sequence_block_gaps![1]).toBeCloseTo(0, 3)
+  })
+
+  it('still opens gap before last block when dragging right with zero gaps', () => {
     const session = sessionWith([block('a', 5), block('b', 5)], [0])
     expect(applyMainTrackBlockVisualShift(session, 'b', 1, { ripple: false })).toBe(true)
     expect(session.sequence_block_gaps![0]).toBeCloseTo(1, 3)
@@ -102,7 +109,7 @@ describe('mainTrackBlockGapDrag', () => {
     expect(session.sequence_block_gaps![1]).toBeCloseTo(0.8, 3)
   })
 
-  it('opens gap to the right when adjacent clips are flush without ripple', () => {
+  it('clamps middle block before next neighbor without ripple', () => {
     const session = sessionWith([block('a', 5), block('b', 5), block('c', 5)], [0, 0])
     const baseline = captureMainTrackGapBaseline(session)
     setMainTrackBlockVisualStart(session, 'b', 6.5, baseline, { ripple: false })
@@ -112,7 +119,8 @@ describe('mainTrackBlockGapDrag', () => {
       timeline.segments[1]!.compositionStartSec,
       timeline.segments[1]!.block
     )
-    expect(startB).toBeCloseTo(6.5, 3)
-    expect(session.sequence_block_gaps![0]).toBeCloseTo(1.5, 3)
+    expect(startB).toBeCloseTo(5, 3)
+    expect(session.sequence_block_gaps![0]).toBeCloseTo(0, 3)
+    expect(session.sequence_block_gaps![1]).toBeCloseTo(0, 3)
   })
 })

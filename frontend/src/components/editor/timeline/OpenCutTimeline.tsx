@@ -821,16 +821,20 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           return snapTime(rawStart, sequenceSnapPoints, snapEnabled)
         }
 
-        const commitMainTrackGapPosition = (clientX: number) => {
+        const computeMainTrackGapTarget = (clientX: number) => {
           const currentSession = useEditSessionStore.getState().session
           if (!currentSession) return initialStart
           const deltaSec =
             (clientX - startX) / (TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel)
           const rawStart = Math.max(0, initialStart + deltaSec)
           const snapped = snapTime(rawStart, sequenceSnapPoints, snapEnabled)
-          const clamped = clampMainTrackBlockVisualStartTarget(currentSession, blockId, snapped, {
+          return clampMainTrackBlockVisualStartTarget(currentSession, blockId, snapped, {
             ripple: rippleTrimEnabled,
           })
+        }
+
+        const commitMainTrackGapPosition = (clientX: number) => {
+          const clamped = computeMainTrackGapTarget(clientX)
           shiftMainTrackBlockVisual(blockId, clamped, dragBaseline, {
             recordHistory: false,
             ripple: rippleTrimEnabled,
@@ -946,16 +950,17 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
           pendingOverlayVideoTrackId = null
           setVideoDragPreview(null)
           setDragTargetTrackId(null)
-          pendingVisualStart = commitMainTrackGapPosition(moveEvent.clientX)
-          setSnapPoint({ time: pendingVisualStart, type: 'grid' })
+          const target = computeMainTrackGapTarget(moveEvent.clientX)
+          pendingVisualStart = target
+          setSnapPoint({ time: target, type: 'grid' })
           setBlockDragPreview({
             blockId,
             fromIndex: blockIndex,
             targetIndex: blockIndex,
-            deltaPx: 0,
+            deltaPx: timeToPx(target - initialStart, zoomLevel),
             label: element.name,
             duration: element.duration,
-            insertMarkerSec: pendingVisualStart,
+            insertMarkerSec: target,
           })
         }
 
