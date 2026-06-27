@@ -183,6 +183,10 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const moveOverlaysToTrack = useEditSessionStore((state) => state.moveOverlaysToTrack)
   const updateBlockTrim = useEditSessionStore((state) => state.updateBlockTrim)
   const updateBlockTransition = useEditSessionStore((state) => state.updateBlockTransition)
+  const selectTransitionEdge = useEditSessionStore((state) => state.selectTransitionEdge)
+  const selectedTransitionFromBlockId = useEditSessionStore(
+    (state) => state.selectedTransitionFromBlockId
+  )
   const beginTimelineGesture = useEditSessionStore((state) => state.beginTimelineGesture)
   const updateOverlayElement = useEditSessionStore((state) => state.updateOverlayElement)
   const addAudioTrack = useEditSessionStore((state) => state.addAudioTrack)
@@ -243,7 +247,12 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(
     null
   )
-  const contextMenuRef = useRef<HTMLDivElement>(null)
+  const [transitionContextMenu, setTransitionContextMenu] = useState<{
+    x: number
+    y: number
+    fromBlockId: string
+  } | null>(null)
+  const transitionContextMenuRef = useRef<HTMLDivElement>(null)
   const [snapPoint, setSnapPoint] = useState<SnapPoint | null>(null)
   const tracksCanvasRef = useRef<HTMLDivElement>(null)
   /** 素材 pointerdown 后跳过同一次 click 触发的轨道 seek */
@@ -534,15 +543,17 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
   }, [blocks.length, waveformSourceKey, segments, projectId, sessionId])
 
   useEffect(() => {
-    if (!contextMenu) return
+    if (!contextMenu && !transitionContextMenu) return
     const close = (event: MouseEvent) => {
       if (event.button !== 0) return
       if (contextMenuRef.current?.contains(event.target as Node)) return
+      if (transitionContextMenuRef.current?.contains(event.target as Node)) return
       setContextMenu(null)
+      setTransitionContextMenu(null)
     }
     window.addEventListener('mousedown', close)
     return () => window.removeEventListener('mousedown', close)
-  }, [contextMenu])
+  }, [contextMenu, transitionContextMenu])
 
   useLayoutEffect(() => {
     if (!contextMenu) {
@@ -654,6 +665,7 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
     event.preventDefault()
     event.stopPropagation()
     selectElement(trackId, element, event)
+    setTransitionContextMenu(null)
     setContextMenu({
       x: event.clientX,
       y: event.clientY,
@@ -2382,11 +2394,16 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
                             key={marker.id}
                             marker={marker}
                             zoomLevel={zoomLevel}
+                            selected={selectedTransitionFromBlockId === marker.fromBlockId}
                             onInteractionStart={() => {
                               clipInteractionRef.current = true
                             }}
-                            onRemove={(fromBlockId) => {
-                              updateBlockTransition(fromBlockId, 'cut')
+                            onSelect={(fromBlockId) => {
+                              selectTransitionEdge(fromBlockId)
+                            }}
+                            onContextMenu={(fromBlockId, clientX, clientY) => {
+                              selectTransitionEdge(fromBlockId)
+                              setTransitionContextMenu({ x: clientX, y: clientY, fromBlockId })
                             }}
                           />
                         ))}
@@ -2407,6 +2424,28 @@ const OpenCutTimeline: React.FC<OpenCutTimelineProps> = ({ projectId }) => {
         </div>
       </div>
 
+      {transitionContextMenu ? (
+        <div
+          ref={transitionContextMenuRef}
+          className="oc-timeline__context-menu"
+          style={{
+            left: transitionContextMenu.x,
+            top: transitionContextMenu.y - 4,
+          }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="oc-timeline__context-item is-danger"
+            onClick={() => {
+              updateBlockTransition(transitionContextMenu.fromBlockId, 'cut')
+              setTransitionContextMenu(null)
+            }}
+          >
+            删除转场
+          </button>
+        </div>
+      ) : null}
       {contextMenu ? (
         <div
           ref={contextMenuRef}

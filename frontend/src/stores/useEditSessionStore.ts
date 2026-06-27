@@ -330,6 +330,8 @@ interface EditSessionState {
   selectedCaptionBlockId: string | null
   selectedCaptionBlockIds: string[]
   selectedAudioClipId: string | null
+  /** 时间线选中的转场（出片段 block id） */
+  selectedTransitionFromBlockId: string | null
   timelineTrackCollapsed: Record<TimelineTrackId, boolean>
   timelineTrackMuted: Record<TimelineTrackId, boolean>
   timelineTrackHidden: Record<TimelineTrackId, boolean>
@@ -535,6 +537,11 @@ interface EditSessionState {
     options?: { additive?: boolean; seekPlayhead?: boolean }
   ) => void
   setSelectedCaptionBlockId: (blockId: string | null, options?: { additive?: boolean }) => void
+  selectTransitionEdge: (
+    fromBlockId: string,
+    options?: { seekPlayhead?: boolean }
+  ) => void
+  clearSelectedTransition: () => void
   setBoxSelection: (items: BoxSelectableItem[], options?: { additive?: boolean }) => void
   clearEditorSelection: () => void
   toggleTimelineTrackCollapsed: (trackId: TimelineTrackId) => void
@@ -834,6 +841,7 @@ export const useEditSessionStore = create<EditSessionState>()(
       selectedCaptionBlockId: null,
       selectedCaptionBlockIds: [],
       selectedAudioClipId: null,
+      selectedTransitionFromBlockId: null,
       timelineTrackCollapsed: { ...DEFAULT_TRACK_COLLAPSED },
       timelineTrackMuted: { ...DEFAULT_TRACK_MUTED },
       timelineTrackHidden: { ...DEFAULT_TRACK_HIDDEN },
@@ -969,6 +977,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             selectedCaptionBlockId: null,
             selectedCaptionBlockIds: [],
             selectedAudioClipId: null,
+      selectedTransitionFromBlockId: null,
             timelineTrackCollapsed: { ...DEFAULT_TRACK_COLLAPSED },
             timelineTrackMuted: { ...DEFAULT_TRACK_MUTED, mainVideo: mainVideoMuted },
             timelineTrackHidden: { ...DEFAULT_TRACK_HIDDEN },
@@ -1890,6 +1899,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             selectedCaptionBlockId: null,
             selectedCaptionBlockIds: [],
             selectedAudioClipId: null,
+            selectedTransitionFromBlockId: null,
             assetPreviewClip: null,
           })
           return
@@ -1930,6 +1940,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           state.selectedCaptionBlockId = null
           state.selectedCaptionBlockIds = []
           state.selectedAudioClipId = null
+          state.selectedTransitionFromBlockId = null
           state.assetPreviewClip = null
           if (options?.seekPlayhead === true && segment) {
             state.sequencePlayheadSec = blockTimelineVisualStartSec(
@@ -1962,6 +1973,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             state.selectedCaptionBlockId = null
             state.selectedCaptionBlockIds = []
             state.selectedAudioClipId = null
+            state.selectedTransitionFromBlockId = null
           }
           if (options?.seekPlayhead !== true || !state.session?.overlay_elements) return
           const overlay = state.session.overlay_elements.find((item) => item.id === overlayId)
@@ -2005,6 +2017,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           state.selectedOverlayIds = []
           state.selectedCaptionBlockId = null
           state.selectedCaptionBlockIds = []
+          state.selectedTransitionFromBlockId = null
           state.assetPreviewClip = null
           state.inspectorTab = 'audio'
         })
@@ -2051,6 +2064,7 @@ export const useEditSessionStore = create<EditSessionState>()(
             state.selectedOverlayId = overlayIds[overlayIds.length - 1] ?? null
           }
           state.selectedAudioClipId = null
+          state.selectedTransitionFromBlockId = null
           state.assetPreviewClip = null
         })
       },
@@ -2064,9 +2078,48 @@ export const useEditSessionStore = create<EditSessionState>()(
           selectedCaptionBlockId: null,
           selectedCaptionBlockIds: [],
           selectedAudioClipId: null,
+          selectedTransitionFromBlockId: null,
           assetPreviewClip: null,
           isPlaying: false,
         })
+      },
+
+      selectTransitionEdge: (fromBlockId, options) => {
+        const { session } = get()
+        if (!session) return
+        const blockIndex = session.sequence.findIndex((item) => item.id === fromBlockId)
+        if (blockIndex < 0 || blockIndex >= session.sequence.length - 1) return
+        const block = session.sequence[blockIndex]!
+        if (!isCrossTransition(block.transition_out)) return
+        if (!areMainTrackBlocksAdjacent(session, blockIndex)) return
+
+        const segments = buildCompositionTimelineSegments(
+          resolveMainTrackSequentialBlocks(session),
+          24,
+          transitionDurationSec(session),
+          session.sequence_block_gaps
+        )
+        const segment = segments.find((item) => item.block.id === fromBlockId)
+
+        set((state) => {
+          state.selectedTransitionFromBlockId = fromBlockId
+          state.selectedBlockId = fromBlockId
+          state.selectedBlockIds = [fromBlockId]
+          state.selectedOverlayId = null
+          state.selectedOverlayIds = []
+          state.selectedCaptionBlockId = null
+          state.selectedCaptionBlockIds = []
+          state.selectedAudioClipId = null
+          state.assetPreviewClip = null
+          state.inspectorTab = 'transition'
+          if (options?.seekPlayhead === true && segment) {
+            state.sequencePlayheadSec = blockTimelineVisualEndSec(segment.startSec, segment.block)
+          }
+        })
+      },
+
+      clearSelectedTransition: () => {
+        set({ selectedTransitionFromBlockId: null })
       },
 
       toggleTimelineTrackCollapsed: (trackId) => {
@@ -3195,6 +3248,9 @@ export const useEditSessionStore = create<EditSessionState>()(
             return
           }
           block.transition_out = transition
+          if (transition === 'cut' && state.selectedTransitionFromBlockId === blockId) {
+            state.selectedTransitionFromBlockId = null
+          }
           if (state.timelineBlockLinkEnabled) {
             ensureTemplateCaptionOverlays(state.session)
             reconcileTimelineBlockLinks(state.session)
@@ -3754,6 +3810,7 @@ export const useEditSessionStore = create<EditSessionState>()(
           selectedCaptionBlockId: null,
           selectedCaptionBlockIds: [],
           selectedAudioClipId: null,
+      selectedTransitionFromBlockId: null,
           timelineTrackCollapsed: { ...DEFAULT_TRACK_COLLAPSED },
           timelineTrackMuted: { ...DEFAULT_TRACK_MUTED },
           timelineTrackHidden: { ...DEFAULT_TRACK_HIDDEN },

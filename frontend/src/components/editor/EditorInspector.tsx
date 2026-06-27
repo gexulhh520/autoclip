@@ -89,6 +89,9 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   const updateBlocksVideoTransform = useEditSessionStore((state) => state.updateBlocksVideoTransform)
   const syncBlocksVideoScaleUniform = useEditSessionStore((state) => state.syncBlocksVideoScaleUniform)
   const updateBlockTransition = useEditSessionStore((state) => state.updateBlockTransition)
+  const selectedTransitionFromBlockId = useEditSessionStore(
+    (state) => state.selectedTransitionFromBlockId
+  )
   const updateAudioSettings = useEditSessionStore((state) => state.updateAudioSettings)
   const updateAudioClip = useEditSessionStore((state) => state.updateAudioClip)
   const updateAudioClipSpeed = useEditSessionStore((state) => state.updateAudioClipSpeed)
@@ -955,29 +958,33 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
   }
 
   const renderTransitionTab = () => {
-    if (!selectedBlock) {
+    const transitionBlockId = selectedTransitionFromBlockId ?? selectedBlock?.id ?? null
+    const transitionBlock = transitionBlockId
+      ? session.sequence.find((item) => item.id === transitionBlockId)
+      : null
+    if (!transitionBlock) {
       return <div className="editor-empty-hint">选中片段后，可设置其与下一片段之间的转场</div>
     }
-    const blockIndex = session.sequence.findIndex((item) => item.id === selectedBlock.id)
+    const blockIndex = session.sequence.findIndex((item) => item.id === transitionBlock.id)
     const isLast = blockIndex < 0 || blockIndex >= session.sequence.length - 1
     if (isLast) {
       return <div className="editor-empty-hint">最后一个片段之后无法添加转场</div>
     }
     const nextBlock = session.sequence[blockIndex + 1]!
     const isAdjacent = areMainTrackBlocksAdjacent(session, blockIndex)
-    const transition = selectedBlock.transition_out ?? 'cut'
+    const transition = transitionBlock.transition_out ?? 'cut'
     return (
       <>
         <div className="editor-inspector-section">
           <div className="editor-inspector-label">片段衔接处</div>
           <p className="editor-inspector-muted" style={{ marginTop: 4, marginBottom: 10 }}>
-            {selectedBlock.title || '当前片段'} ↔ {nextBlock.title || '下一片段'}
+            {transitionBlock.title || '当前片段'} ↔ {nextBlock.title || '下一片段'}
           </p>
           <div className="editor-inspector-label">转场类型</div>
           <TransitionTypePicker
             value={transition}
             disabled={!isAdjacent}
-            onChange={(value) => updateBlockTransition(selectedBlock.id, value)}
+            onChange={(value) => updateBlockTransition(transitionBlock.id, value)}
           />
           {!isAdjacent ? (
             <p className="editor-inspector-muted" style={{ marginTop: 10 }}>
@@ -985,7 +992,7 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
             </p>
           ) : (
             <p className="editor-inspector-muted" style={{ marginTop: 10 }}>
-              转场作用在两个相邻片段之间，也可点击时间线衔接处的标记快速切换
+              点击时间线衔接处的转场标记可选中并调整；右键可删除转场
             </p>
           )}
         </div>
@@ -1139,9 +1146,11 @@ const EditorInspector: React.FC<EditorInspectorProps> = ({ projectId }) => {
         : []
 
   const activeInspectorTab: InspectorTab =
-    visibleTabs.includes(inspectorTab as InspectorTab)
-      ? (inspectorTab as InspectorTab)
-      : visibleTabs[0] ?? 'video'
+    selectedTransitionFromBlockId && visibleTabs.includes('transition')
+      ? 'transition'
+      : visibleTabs.includes(inspectorTab as InspectorTab)
+        ? (inspectorTab as InspectorTab)
+        : visibleTabs[0] ?? 'video'
 
   const tabContent: Record<InspectorTab, React.ReactNode> = {
     video: renderVideoTab(),
