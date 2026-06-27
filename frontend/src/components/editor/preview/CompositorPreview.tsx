@@ -45,7 +45,8 @@ import type { PreviewVideoLayerProps } from '../../../editor/scene/adapters/prev
 import { stopEditorPlayback } from '../../../editor/stopEditorPlayback'
 import { applyMediaPlaybackRate } from '../../../editor/mediaPlaybackRate'
 import { isImportedBlock } from '../../../utils/editBlockMedia'
-import { isMainTrackBlock, resolveMainTrackSequentialBlocks, resolveOverlayVideoBlocks } from '../../../editor/videoTracks'
+import { resolveMainTrackSequentialBlocks, isMainTrackBlock, resolveOverlayVideoBlocks } from '../../../editor/videoTracks'
+import { resolveMainTrackCompositionGaps } from '../../../editor/timeline/sequenceBlockGaps'
 import { isVoiceoverBrollBlock } from '../../../editor/voiceover/voiceoverBroll'
 
 const PAUSED_SEEK_THRESHOLD_SEC = 0.03
@@ -380,7 +381,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     return buildCompositionTimeline(
       mainBlocks,
       transitionDurationSec,
-      session.sequence_block_gaps
+      resolveMainTrackCompositionGaps(session, mainBlocks)
     )
   }, [session])
 
@@ -982,6 +983,11 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
   const scrubPaintRafRef = useRef(0)
   const canvasPaintRafRef = useRef(0)
   const prewarmRafRef = useRef(0)
+
+  useEffect(() => {
+    if (!isPlaying) return undefined
+    paintAtRef.current(resolveCompositionSecRef.current(), true)
+  }, [sequenceVideoSyncKey, isPlaying])
 
   useEffect(() => {
     if (isPlaying) return undefined

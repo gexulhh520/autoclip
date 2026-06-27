@@ -9,6 +9,7 @@ import {
   sortOverlaysByTrackOrder,
 } from '../textTracks'
 import { resolveEditSessionTimelineDurationSec } from '../timeline/sessionTimelineDuration'
+import { resolveMainTrackCompositionGaps } from '../timeline/sequenceBlockGaps'
 import {
   blockTimelineStartSec,
   getBlockTrackId,
@@ -143,7 +144,7 @@ export function compileExportPlan(
   const timeline = buildCompositionTimeline(
     mainBlocks,
     transitionDurationSec,
-    session.sequence_block_gaps
+    resolveMainTrackCompositionGaps(session, mainBlocks)
   )
   const bgm = session.audio_settings.bgm_path ? session.audio_settings : null
 
@@ -179,7 +180,7 @@ export function resolveSceneAt(
   const timeline = buildCompositionTimeline(
     mainBlocks,
     transitionDurationSec,
-    session.sequence_block_gaps
+    resolveMainTrackCompositionGaps(session, mainBlocks)
   )
   const totalDurationSec = resolveEditSessionTimelineDurationSec(session)
   const canvas = buildCanvas(session, sourceSize)

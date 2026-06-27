@@ -47,6 +47,16 @@ export function createPreviewDecoderPool(
     lastUsedAt.delete(storageKey)
   }
 
+  const pauseStorageIfUnused = (storageKey: string) => {
+    const stillUsed = [...blockToStorageKey.values()].includes(storageKey)
+    if (stillUsed) return
+    const video = decoders.get(storageKey)
+    if (!video) return
+    video.pause()
+    video.muted = true
+    video.volume = 0
+  }
+
   const ensureStorage = (storageKey: string, blockId: string): HTMLVideoElement => {
     const existing = decoders.get(storageKey)
     if (existing) {
@@ -75,7 +85,11 @@ export function createPreviewDecoderPool(
   return {
     ensureForBlock(block: EditBlock, session?: EditSession | null, useSourceVideo = false): HTMLVideoElement {
       const storageKey = resolvePreviewDecoderKey(block, session, useSourceVideo)
+      const previousKey = blockToStorageKey.get(block.id)
       blockToStorageKey.set(block.id, storageKey)
+      if (previousKey && previousKey !== storageKey) {
+        pauseStorageIfUnused(previousKey)
+      }
       return ensureStorage(storageKey, block.id)
     },
     get: (blockId) => {
