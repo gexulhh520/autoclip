@@ -13,6 +13,7 @@ import {
   mainTrackSegmentSeparationSec,
   normalizeOverlayVideoBlocksToSequenceEnd,
   preserveMainTrackTimingGapForOverlayMove,
+  readSequenceBlockGaps,
   resolveMainTrackCompositionGaps,
 } from './sequenceBlockGaps'
 import { resolveMainTrackSequentialBlocks } from '../videoTracks'
@@ -255,5 +256,23 @@ describe('sequenceBlockGaps', () => {
     expect(normalizeOverlayVideoBlocksToSequenceEnd(session)).toBe(true)
     expect(session.sequence.map((item) => item.id)).toEqual(['a', 'c', 'b'])
     expect(session.sequence_block_gaps).toEqual([5, 0])
+  })
+
+  it('resolveMainTrackCompositionGaps does not mutate frozen session gaps', () => {
+    const session = sessionWith([block('a', 5), block('b', 5), block('c', 5)])
+    session.sequence_block_gaps = Object.freeze([0, 0]) as number[]
+    const mainBlocks = resolveMainTrackSequentialBlocks(session)
+
+    expect(resolveMainTrackCompositionGaps(session, mainBlocks)).toEqual([0, 0])
+    expect(Object.isFrozen(session.sequence_block_gaps)).toBe(true)
+  })
+
+  it('readSequenceBlockGaps normalizes length without mutating session', () => {
+    const session = sessionWith([block('a', 5), block('b', 5), block('c', 5)])
+    session.sequence_block_gaps = Object.freeze([0]) as number[]
+
+    expect(readSequenceBlockGaps(session)).toEqual([0, 0])
+    expect(session.sequence_block_gaps).toEqual([0])
+    expect(Object.isFrozen(session.sequence_block_gaps)).toBe(true)
   })
 })

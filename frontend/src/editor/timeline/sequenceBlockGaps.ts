@@ -155,16 +155,35 @@ export function clampVideoBlockTrimAgainstNeighbors(
   applyVideoTailTrimClamp(session, blockIndex, block, maxDur)
 }
 
+export function readSequenceBlockGaps(session: EditSession): number[] {
+  const count = Math.max(0, session.sequence.length - 1)
+  const existing = session.sequence_block_gaps
+  if (!existing?.length) {
+    return Array.from({ length: count }, () => 0)
+  }
+  const normalized = existing.slice(0, count)
+  while (normalized.length < count) {
+    normalized.push(0)
+  }
+  return normalized
+}
+
 export function ensureSequenceBlockGaps(session: EditSession): number[] {
   const count = Math.max(0, session.sequence.length - 1)
-  if (!session.sequence_block_gaps) {
+  const existing = session.sequence_block_gaps
+
+  if (!existing) {
     session.sequence_block_gaps = Array.from({ length: count }, () => 0)
     return session.sequence_block_gaps
   }
-  while (session.sequence_block_gaps.length < count) {
-    session.sequence_block_gaps.push(0)
+
+  const needsResize = existing.length !== count
+  const isFrozen = Object.isFrozen(existing)
+  if (!needsResize && !isFrozen) {
+    return existing
   }
-  session.sequence_block_gaps.length = count
+
+  session.sequence_block_gaps = readSequenceBlockGaps(session)
   return session.sequence_block_gaps
 }
 
@@ -197,8 +216,8 @@ export function preserveMainTrackTimingGapForOverlayMove(
 }
 
 export function removeSequenceBlockGapAt(session: EditSession, deletedBlockIndex: number): void {
-  const gaps = session.sequence_block_gaps
-  if (!gaps?.length) return
+  const gaps = ensureSequenceBlockGaps(session)
+  if (!gaps.length) return
 
   if (deletedBlockIndex <= 0) {
     gaps.splice(0, 1)
@@ -294,7 +313,7 @@ export function resolveMainTrackCompositionGaps(
 ): number[] | undefined {
   if (mainBlocks.length < 2) return undefined
 
-  const fullGaps = ensureSequenceBlockGaps(session)
+  const fullGaps = readSequenceBlockGaps(session)
   const result: number[] = []
 
   for (let i = 1; i < mainBlocks.length; i++) {
