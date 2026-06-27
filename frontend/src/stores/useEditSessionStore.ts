@@ -20,9 +20,8 @@ import type {
 } from '../types/editSession'
 import {
   buildDefaultOverlayPictureInPictureTransform,
-  clampBlockVideoScale,
   DEFAULT_BLOCK_VIDEO_TRANSFORM,
-  resolveBlockVideoTransform,
+  normalizeLegacyOverlayPictureInPictureTransforms,
 } from '../utils/blockVideoTransform'
 import {
   DEFAULT_TRACK_COLLAPSED,

@@ -1,5 +1,6 @@
 import type { EditBlock, EditBlockVideoTransform, EditExportSettings } from '../types/editSession'
 import { resolveOutputCanvas } from '../editor/compositor/geometry'
+import { isMainTrackBlock } from '../editor/videoTracks'
 
 export const BLOCK_VIDEO_SCALE_MIN = 0.1
 export const BLOCK_VIDEO_SCALE_MAX = 4
@@ -14,8 +15,11 @@ export const DEFAULT_BLOCK_VIDEO_TRANSFORM: Required<EditBlockVideoTransform> = 
   position_y: 0,
 }
 
-/** 叠画轨默认缩放（相对 contain 基准） */
-export const DEFAULT_OVERLAY_VIDEO_SCALE = 0.32
+/** @deprecated 旧版叠画默认缩放，仅用于识别并迁移历史工程 */
+export const LEGACY_DEFAULT_OVERLAY_VIDEO_SCALE = 0.32
+
+/** @deprecated 请使用 LEGACY_DEFAULT_OVERLAY_VIDEO_SCALE */
+export const DEFAULT_OVERLAY_VIDEO_SCALE = LEGACY_DEFAULT_OVERLAY_VIDEO_SCALE
 
 export function clampBlockVideoScale(value: number): number {
   return Math.min(BLOCK_VIDEO_SCALE_MAX, Math.max(BLOCK_VIDEO_SCALE_MIN, value))
@@ -50,19 +54,57 @@ export function isFullScreenBlockVideoTransform(
   )
 }
 
-/** 叠画轨默认画中画：右下角小窗，随画布尺寸自适应偏移 */
+/** 叠画轨默认与主轨一致：全画布 contain，除非用户自行调整缩放/位置 */
 export function buildDefaultOverlayPictureInPictureTransform(
+  _exportSettings?: EditExportSettings,
+  _sourceSize?: { width: number; height: number } | null
+): Required<EditBlockVideoTransform> {
+  return { ...DEFAULT_BLOCK_VIDEO_TRANSFORM }
+}
+
+/** 旧版叠画默认（右下角小窗），用于迁移历史数据 */
+export function buildLegacyDefaultOverlayPictureInPictureTransform(
   exportSettings: EditExportSettings,
   sourceSize?: { width: number; height: number } | null
 ): Required<EditBlockVideoTransform> {
   const canvas = resolveOutputCanvas(exportSettings, sourceSize)
-  const scale = DEFAULT_OVERLAY_VIDEO_SCALE
+  const scale = LEGACY_DEFAULT_OVERLAY_VIDEO_SCALE
   return {
     scale_x: scale,
     scale_y: scale,
     position_x: Math.round(canvas.width * 0.28),
     position_y: Math.round(canvas.height * 0.28),
   }
+}
+
+export function isLegacyDefaultOverlayPictureInPictureTransform(
+  transform: EditBlockVideoTransform | undefined,
+  exportSettings: EditExportSettings,
+  sourceSize?: { width: number; height: number } | null
+): boolean {
+  if (!transform) return false
+  const legacy = buildLegacyDefaultOverlayPictureInPictureTransform(exportSettings, sourceSize)
+  return (
+    Math.abs((transform.scale_x ?? 1) - legacy.scale_x) < 0.025 &&
+    Math.abs((transform.scale_y ?? 1) - legacy.scale_y) < 0.025 &&
+    Math.abs((transform.position_x ?? 0) - legacy.position_x) < 2 &&
+    Math.abs((transform.position_y ?? 0) - legacy.position_y) < 2
+  )
+}
+
+export function normalizeLegacyOverlayPictureInPictureTransforms(
+  session: { sequence: EditBlock[]; export_settings: EditExportSettings }
+): boolean {
+  let changed = false
+  for (const block of session.sequence) {
+    if (isMainTrackBlock(block)) continue
+    if (!isLegacyDefaultOverlayPictureInPictureTransform(block.video_transform, session.export_settings)) {
+      continue
+    }
+    block.video_transform = { ...DEFAULT_BLOCK_VIDEO_TRANSFORM }
+    changed = true
+  }
+  return changed
 }
 
 export function blockVideoTransformIsUniform(transform: EditBlockVideoTransform | undefined): boolean {

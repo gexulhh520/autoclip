@@ -1,8 +1,8 @@
 import type { EditSession } from '../../types/editSession'
 import { blockDuration, blockTimelineVisualStartSec } from '../../utils/editTimeline'
 import {
-  buildDefaultOverlayPictureInPictureTransform,
   DEFAULT_BLOCK_VIDEO_TRANSFORM,
+  isFullScreenBlockVideoTransform,
 } from '../../utils/blockVideoTransform'
 import {
   DEFAULT_VIDEO_TRACK_ID,
@@ -87,9 +87,12 @@ export function applyMainSequentialBlockMoveToOverlay(
 
   block.track_id = overlayTrackId
   block.timeline_start_sec = startSec
-  block.video_transform = buildDefaultOverlayPictureInPictureTransform(
-    session.export_settings
-  )
+  if (
+    !block.video_transform ||
+    isFullScreenBlockVideoTransform(block.video_transform)
+  ) {
+    block.video_transform = { ...DEFAULT_BLOCK_VIDEO_TRANSFORM }
+  }
 
   session.sequence.splice(seqIndex, 1)
   session.sequence.push(block)
