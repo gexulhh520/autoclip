@@ -6,6 +6,7 @@ import {
   clampResizeLeftAvoidingOverlap,
   clampResizeRightAvoidingOverlap,
   clampStartAvoidingOverlap,
+  clampDragStartAvoidingOverlap,
   clampVideoBlockStartOnTrack,
   findAudioClipPlacement,
   resolveDragDropStartSec,
@@ -28,6 +29,16 @@ describe('timelineOverlap', () => {
     expect(resolveDragDropStartSec(siblings, 1, 4, 0)).toBeCloseTo(4, 3)
     expect(resolveDragDropStartSec(siblings, 1, 1.5, 0)).toBeCloseTo(0, 3)
     expect(resolveDragDropStartSec(siblings, 1, 6, 5)).toBeCloseTo(5, 3)
+  })
+
+  it('clampDragStartAvoidingOverlap respects drag direction at neighbors', () => {
+    const blocker = [toTimelineRange('c', 10, 4)]
+    expect(clampDragStartAvoidingOverlap(blocker, 4, 12, 15)).toBeCloseTo(6, 3)
+    expect(clampDragStartAvoidingOverlap(blocker, 4, 8, 5)).toBeCloseTo(6, 3)
+    expect(clampStartAvoidingOverlap(blocker, 4, 12)).toBeCloseTo(14, 3)
+
+    const leftNeighbor = [toTimelineRange('a', 0, 4)]
+    expect(clampDragStartAvoidingOverlap(leftNeighbor, 4, 2, 8)).toBeCloseTo(4, 3)
   })
 
   it('rejects placement when proposed start overlaps a sibling', () => {

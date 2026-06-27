@@ -76,6 +76,51 @@ export function resolveDragDropStartSec(
   return canPlaceAtStart(siblings, duration, proposedStart) ? proposedStart : fallbackStart
 }
 
+/**
+ * 拖拽移动时按方向贴靠：从右侧左拖 → 贴障碍物左缘；从左侧右拖 → 贴障碍物右缘。
+ * 避免 clampStartAvoidingOverlap 在左拖时误吸附到障碍物后方。
+ */
+export function clampDragStartAvoidingOverlap(
+  siblings: TimelineRange[],
+  duration: number,
+  proposedStart: number,
+  previousStart: number,
+  minStart = 0
+): number {
+  const safeDuration = Math.max(MIN_TIMELINE_ELEMENT_SEC, duration)
+  const draggingLeft = proposedStart < previousStart - EPS
+  const draggingRight = proposedStart > previousStart + EPS
+
+  if (!draggingLeft && !draggingRight) {
+    return clampStartAvoidingOverlap(siblings, duration, proposedStart, minStart)
+  }
+
+  let start = Math.max(minStart, proposedStart)
+
+  for (const sibling of siblings) {
+    const end = start + safeDuration
+    if (!rangesOverlap({ id: '', start, end }, sibling)) continue
+
+    if (draggingLeft) {
+      if (previousStart >= sibling.end - EPS) {
+        const before = sibling.start - safeDuration
+        start =
+          before >= minStart ? Math.min(start, before) : Math.max(start, sibling.end)
+      } else {
+        start = Math.max(start, sibling.end)
+      }
+    } else {
+      start = Math.min(start, sibling.start - safeDuration)
+    }
+    start = Math.max(minStart, start)
+  }
+
+  if (!canPlaceAtStart(siblings, safeDuration, start, minStart)) {
+    return clampStartAvoidingOverlap(siblings, duration, proposedStart, minStart)
+  }
+  return start
+}
+
 export function getTrackSiblingRanges(
   elements: AdaptedElement[],
   excludeIds: string | string[]
