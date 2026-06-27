@@ -8,7 +8,7 @@ import {
 } from '../../../editor/compositor'
 import type { FrameDescriptor } from '../../../editor/compositor/types'
 import { findUpcomingCrossIncomingBlock } from '../../../editor/compositor/previewCrossTransitionWarmup'
-import { resolvePreviewLayerAudio } from '../../../editor/compositor/previewTransitionAudio'
+import { resolvePreviewLayerAudio, resolvePrimaryMainTrackAudioBlockId } from '../../../editor/compositor/previewTransitionAudio'
 import { findPlayheadWarmupTargets } from '../../../editor/compositor/previewPlayheadWarmup'
 import {
   ensureDecoderBound,
@@ -590,6 +590,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         audioVolume?: number
         inDissolve?: boolean
         forceTransitionSeek?: boolean
+        exitingCross?: boolean
       }
     ) => {
       const skipSeek = options?.skipSeek ?? false
@@ -600,6 +601,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       )
       const inDissolve = options?.inDissolve ?? false
       const forceTransitionSeek = options?.forceTransitionSeek ?? false
+      const exitingCross = options?.exitingCross ?? false
 
       if (!video || !layer) {
         if (video && !layer) {
@@ -642,7 +644,11 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
           ? OVERLAY_PLAYBACK_DRIFT_SEC
           : PLAYBACK_SEEK_DRIFT_SEC
 
-      let mustSeek = forceSeek || rebinding || forceTransitionSeek
+      let mustSeek = forceSeek || rebinding
+      if (forceTransitionSeek) {
+        // 转出转场：incoming 已在 dissolve 中播放，漂移不大则不 seek，避免打断 audio
+        mustSeek = exitingCross ? rebinding || drift > PLAYBACK_SEEK_DRIFT_SEC : true
+      }
       if (!mustSeek) {
         if (!isPlaying) {
           mustSeek = drift > driftThreshold
@@ -661,7 +667,9 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         if (!skipSeek && mustSeek) {
           const seekOpts = {
             play: true,
-            forceSeek: Boolean(forceSeek || rebinding || forceTransitionSeek),
+            forceSeek: Boolean(
+              forceSeek || rebinding || (forceTransitionSeek && !exitingCross)
+            ),
             playbackRate: layer.playbackRate || 1,
           }
           didSeek = rebinding
@@ -693,13 +701,14 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
       forceSeek: boolean,
       inDissolve: boolean,
       warmupBlock?: EditBlock | null,
-      forceTransitionSeek = false
+      forceTransitionSeek = false,
+      exitingCross = false
     ) => {
       const pool = getDecoderPool()
       if (!pool) return false
 
       const activeIds = vmLayers.map((layer) => layer.block.id)
-      const audioBlockId = vmLayers[0]?.block.id ?? null
+      const audioBlockId = resolvePrimaryMainTrackAudioBlockId(vmLayers, inDissolve)
       const neededIds = [
         ...new Set([
           ...activeIds,
@@ -734,6 +743,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
             audioVolume,
             inDissolve,
             forceTransitionSeek,
+            exitingCross,
           })
         ) {
           anySeek = true
@@ -815,7 +825,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         forceSeek || forceTransitionSeek,
         vm.inDissolve,
         warmupBlock,
-        forceTransitionSeek
+        forceTransitionSeek,
+        exitingCross
       )
       const warmupLayers: PreviewVideoLayerProps[] = warmupBlock
         ? [

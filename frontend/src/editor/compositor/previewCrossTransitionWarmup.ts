@@ -1,5 +1,6 @@
 import type { EditBlock, EditSession } from '../../types/editSession'
 import { isCrossTransition } from '../../types/transitions'
+import { resolveMainTrackSequentialBlocks } from '../videoTracks'
 import {
   buildCompositionTimeline,
   resolveCrossTransitionWindow,
@@ -17,7 +18,7 @@ export function findUpcomingCrossIncomingBlock(
   compositionSec: number
 ): EditBlock | null {
   const timeline = buildCompositionTimeline(
-    session.sequence,
+    resolveMainTrackSequentialBlocks(session),
     transitionDurationSec(session),
     session.sequence_block_gaps
   )

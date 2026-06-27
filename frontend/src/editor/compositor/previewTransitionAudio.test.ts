@@ -4,6 +4,7 @@ import type { PreviewVideoLayerProps } from '../scene/adapters/previewAdapter'
 import {
   crossTransitionAudioGainMultiplier,
   resolvePreviewLayerAudio,
+  resolvePrimaryMainTrackAudioBlockId,
 } from './previewTransitionAudio'
 
 const stubBlock = (id: string): EditBlock =>
@@ -14,8 +15,8 @@ const stubBlock = (id: string): EditBlock =>
     audio: { volume: 1 },
   }) as EditBlock
 
-const layer = (id: string, volume: number): PreviewVideoLayerProps => ({
-  block: stubBlock(id),
+const layer = (id: string, volume: number, trackId?: string): PreviewVideoLayerProps => ({
+  block: { ...stubBlock(id), ...(trackId ? { track_id: trackId } : {}) },
   relativeSourceSec: 0,
   opacity: volume,
   volume,
@@ -46,7 +47,7 @@ describe('previewTransitionAudio', () => {
 
   it('keeps single primary audio outside dissolve', () => {
     const outgoing = layer('a', 1)
-    const overlay = layer('overlay', 1)
+    const overlay = layer('overlay', 1, 'overlay-track')
     const base = {
       clipAudioMuted: false,
       inDissolve: false,
@@ -57,6 +58,27 @@ describe('previewTransitionAudio', () => {
 
     expect(resolvePreviewLayerAudio(outgoing, base)).toEqual({ muted: false, volume: 1 })
     expect(resolvePreviewLayerAudio(overlay, base)).toEqual({ muted: true, volume: 0 })
+  })
+
+  it('resolvePrimaryMainTrackAudioBlockId picks incoming after cross', () => {
+    const outgoing = layer('a', 1)
+    const incoming = layer('b', 1)
+    expect(resolvePrimaryMainTrackAudioBlockId([outgoing, incoming], true)).toBe('a')
+    expect(resolvePrimaryMainTrackAudioBlockId([incoming], false)).toBe('b')
+    expect(resolvePrimaryMainTrackAudioBlockId([outgoing, incoming], false)).toBe('b')
+  })
+
+  it('primary main track stays unmuted even at low crossfade tail volume', () => {
+    const incoming = layer('b', 0.00005)
+    expect(
+      resolvePreviewLayerAudio(incoming, {
+        clipAudioMuted: false,
+        inDissolve: false,
+        dissolveLayerCount: 1,
+        primaryAudioBlockId: 'b',
+        warmupBlockId: null,
+      })
+    ).toEqual({ muted: false, volume: 0.0001 })
   })
 
   it('mutes warmup block even during dissolve', () => {

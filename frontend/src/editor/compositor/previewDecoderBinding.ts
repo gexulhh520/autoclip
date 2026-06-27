@@ -2,7 +2,7 @@ import type { EditBlock, EditSession } from '../../types/editSession'
 import { isCrossTransition } from '../../types/transitions'
 import { resolveBlockMediaTimeSec, resolvePreviewMediaFileKey } from '../../utils/resolveMediaWindow'
 import { applyPreviewVideoSrc } from '../../utils/previewMediaUrl'
-import { isMainTrackBlock, resolveMainTrackSequentialBlocks } from '../videoTracks'
+import { isMainTrackBlock } from '../videoTracks'
 import { isVoiceoverBrollBlock } from '../voiceover/voiceoverBroll'
 
 /**
@@ -13,16 +13,19 @@ export function blockNeedsDedicatedPreviewDecoder(
   block: EditBlock,
   session?: EditSession | null
 ): boolean {
-  if (!session) return false
+  if (!session || !isMainTrackBlock(block)) return false
 
-  const blocks = resolveMainTrackSequentialBlocks(session)
-  const index = blocks.findIndex((item) => item.id === block.id)
+  const index = session.sequence.findIndex((item) => item.id === block.id)
   if (index < 0) return false
 
-  if (index < blocks.length - 1 && isCrossTransition(blocks[index]!.transition_out)) {
+  if (
+    index < session.sequence.length - 1 &&
+    isCrossTransition(block.transition_out)
+  ) {
     return true
   }
-  if (index > 0 && isCrossTransition(blocks[index - 1]!.transition_out)) {
+  const prev = session.sequence[index - 1]
+  if (prev && isMainTrackBlock(prev) && isCrossTransition(prev.transition_out)) {
     return true
   }
   return false
