@@ -190,16 +190,27 @@ export function clampElementTimingOnTrack(
 function overlaySiblingRanges(
   session: EditSession,
   trackId: string,
-  excludeOverlayId: string
+  excludeOverlayIds: string | string[]
 ): TimelineRange[] {
+  const excluded = new Set(
+    Array.isArray(excludeOverlayIds) ? excludeOverlayIds : [excludeOverlayIds]
+  )
   return (session.overlay_elements ?? [])
     .filter(
       (element) =>
         !element.hidden &&
         getOverlayTrackId(element) === trackId &&
-        element.id !== excludeOverlayId
+        !excluded.has(element.id)
     )
     .map((element) => toTimelineRange(element.id, element.start_sec, element.duration_sec))
+}
+
+export function getOverlaySiblingRanges(
+  session: EditSession,
+  trackId: string,
+  excludeOverlayIds: string | string[]
+): TimelineRange[] {
+  return overlaySiblingRanges(session, trackId, excludeOverlayIds)
 }
 
 function audioTrackSiblingRanges(
@@ -215,6 +226,14 @@ function audioTrackSiblingRanges(
         clip.id !== excludeClipId
     )
     .map((clip) => toTimelineRange(clip.id, clip.start_sec, clip.duration_sec))
+}
+
+export function getAudioClipSiblingRanges(
+  session: EditSession,
+  trackId: string,
+  excludeClipId: string
+): TimelineRange[] {
+  return audioTrackSiblingRanges(session, trackId, excludeClipId)
 }
 
 function listTrackGaps(
