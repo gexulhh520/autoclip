@@ -163,3 +163,44 @@ export function bindPreviewDecoder(
   ensureDecoderBound(video, block, getVideoUrlForBlock, session, useSourceVideo)
   return video
 }
+
+/** 暂停并静音指定 block 的预览解码器 */
+export function silencePreviewDecoder(
+  pool: PreviewDecoderPool,
+  blockId: string
+): void {
+  const video = pool.get(blockId)
+  if (!video) return
+  video.pause()
+  video.muted = true
+  video.volume = 0
+}
+
+/**
+ * 保留在 neededIds 中但非当前画面层的解码器必须静音（如 prewarm 的上一段）。
+ * 与 active 层共用 storageKey 的跳过，避免误静音正在播放的同源 decoder。
+ */
+export function silenceInactivePreviewDecoders(
+  pool: PreviewDecoderPool,
+  activeBlockIds: readonly string[],
+  neededBlockIds: readonly string[],
+  skipBlockIds: readonly string[] = []
+): void {
+  const active = new Set(activeBlockIds)
+  const skip = new Set(skipBlockIds)
+  const activeStorageKeys = new Set<string>()
+  for (const blockId of activeBlockIds) {
+    const video = pool.get(blockId)
+    const storageKey = video?.dataset.storageKey
+    if (storageKey) activeStorageKeys.add(storageKey)
+  }
+
+  for (const blockId of neededBlockIds) {
+    if (active.has(blockId) || skip.has(blockId)) continue
+    const video = pool.get(blockId)
+    if (!video) continue
+    const storageKey = video.dataset.storageKey
+    if (storageKey && activeStorageKeys.has(storageKey)) continue
+    silencePreviewDecoder(pool, blockId)
+  }
+}

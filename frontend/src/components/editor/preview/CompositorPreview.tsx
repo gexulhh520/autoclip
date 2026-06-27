@@ -28,6 +28,7 @@ import {
 import {
   bindPreviewDecoder,
   createPreviewDecoderPool,
+  silenceInactivePreviewDecoders,
   type PreviewDecoderPool,
 } from '../../../editor/compositor/previewDecoderPool'
 import { renderFrameDescriptorToCanvas } from '../../../editor/compositor/softwareRenderer'
@@ -766,6 +767,8 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
         syncWarmupDecoder(warmupBlock, pool)
       }
 
+      silenceInactivePreviewDecoders(pool, activeIds, neededIds, warmupId ? [warmupId] : [])
+
       return anySeek
     },
     [clipAudioMuted, getDecoderPool, getVideoUrlForBlock, session, syncVideoElement, syncWarmupDecoder]
@@ -954,6 +957,7 @@ const CompositorPreview: React.FC<CompositorPreviewProps> = ({
     const clock = playbackClockRef.current
     if (isPlaying) {
       if (!wasPlayingRef.current) {
+        prewarmBlockIdsRef.current = new Set()
         const pool = decoderPoolRef.current
         if (pool) {
           for (const block of resolveOverlayVideoBlocks(session)) {
